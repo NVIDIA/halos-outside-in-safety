@@ -1,0 +1,12 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.9.3
+    container_name: mediamtx
+    profiles: ["sil", "hil"]
+    network_mode: host
+    environment:
+      - MTX_PROTOCOLS=udp,multicast,tcp
+    volumes:
+      - ./configs/mediamtx.yml:/mediamtx.yml:ro
+    restart: unless-stopped
+

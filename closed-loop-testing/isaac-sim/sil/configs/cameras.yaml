@@ -1,0 +1,28 @@
+# Camera Configuration for VST Sensor Registration
+# This file defines the cameras that will be registered with VST when Isaac Sim starts
+#
+# Format:
+#   Each camera has:
+#   - name: Camera name (used for display in VST)
+#   - rtsp_path: RTSP stream path suffix (appended to rtsp://{HOST_IP}:8553/)
+#
+# The full RTSP URL will be constructed as:
+#   rtsp://{HOST_IP}:8553/{rtsp_path}
+#
+# These paths match the RTSPWriter output from Isaac Sim Actor SDG
+
+cameras:
+  - name: Camera
+    rtsp_path: RTSPWriter_World_Cameras_Camera_rgb
+    
+  - name: Camera_01
+    rtsp_path: RTSPWriter_World_Cameras_Camera_01_rgb
+    
+  - name: Camera_02
+    rtsp_path: RTSPWriter_World_Cameras_Camera_02_rgb
+
+# RTSP Server Configuration
+rtsp:
+  host: ${HOST_IP}
+  port: 8553
+

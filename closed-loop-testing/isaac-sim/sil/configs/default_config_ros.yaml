@@ -1,0 +1,39 @@
+isaacsim.replicator.agent:
+  version: 0.7.0
+  character:
+    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/People/DH_Characters_Extended/
+    command_file: /isaac-sim/sil/configs/default_command.txt
+    filters: []
+    navigation_area: []
+    num: 3
+    spawn_area: []
+  global:
+    seed: 123456789
+    simulation_length: 3500
+  replicator:
+    writer: RTSPWriter
+    parameters:
+      output_dir: ''
+      rtsp_stream_url: rtsp://localhost:8553/RTSPWriter
+      rtsp_rgb: true
+      rtsp_semantic_segmentation: false
+      rtsp_instance_id_segmentation: false
+      rtsp_instance_segmentation: false
+      rtsp_normals: false
+      rtsp_distance_to_image_plane: false
+      rtsp_distance_to_camera: false
+  response:
+    response_list: []
+  robot:
+    command_file: /isaac-sim/sil/configs/default_robot_command.txt
+    iw_hub_num: 0
+    navigation_area: []
+    nova_carter_num: 0
+    spawn_area: []
+    write_data: false
+  scene:
+    asset_path: /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+  sensor:
+    camera_num: 3
+  event:
+    event_list: []

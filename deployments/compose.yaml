@@ -1,0 +1,12 @@
+# Halos Outside-In Safety — deployment front door
+# Include paths point to per-service compose files co-located with their source
+# (build contexts stay relative to each included file's directory — do NOT flatten).
+#
+# Usage:
+#   docker compose --env-file profiles/sil.env up -d
+#
+include:
+  - path: ../closed-loop-testing/safety-core/safety-core.yml
+  - path: ../closed-loop-testing/comm-layer/comm-layer.yml
+  - path: ../closed-loop-testing/isaac-sim/isaac-sim.yml
+  - path: ../closed-loop-testing/mediamtx/mediamtx.yml

@@ -1,0 +1,1359 @@
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 10
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character Idle 30
+Character GoTo 9.2 -11.65 0.0 _
+Character Idle 1
+Character InspectPlans 6
+Character GoTo 2.26 -10.3 0.0 _
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 15
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_01 Idle 30
+Character_01 GoTo 6.28 -16.37 0.0 _
+Character_01 Idle 1
+Character_01 GatherBend 5
+Character_01 GoTo 0.29 -18.0 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 Idle 35
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _
+Character_02 GoTo 5.73 -18.25 0.0 _
+Character_02 Idle 1
+Character_02 PickUp 5
+Character_02 GoTo -2.86 -15.28 0.0 _

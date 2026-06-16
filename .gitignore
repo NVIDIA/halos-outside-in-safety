@@ -1,0 +1,15 @@
+.claude
+
+# Python
+__pycache__/
+*.pyc
+
+# Deploy-flow runtime artifacts — carry LIVE credentials (NGC_CLI_API_KEY, etc.)
+# and resolved compose state. Never commit.
+**/generated.env
+**/*.run.env
+deploy/docker/resolved.yml
+
+# Logs / run data
+*.log
+data_log/

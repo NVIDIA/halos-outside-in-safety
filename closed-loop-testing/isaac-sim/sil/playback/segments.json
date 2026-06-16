@@ -1,0 +1,9 @@
+{
+  "segments": [
+    {"duration": 16.0, "linear_x": 1.0, "angular_z": 0.0, "note": "Forward"},
+    {"duration": 5.0, "linear_x": 0.0, "angular_z": 0.0, "note": "Idle"},
+    {"duration": 16.0, "linear_x": -1.0, "angular_z": 0.0, "note": "Backward"},
+    {"duration": 5.0, "linear_x": 0.0, "angular_z": 0.0, "note": "Idle"}
+  ]
+}
+
