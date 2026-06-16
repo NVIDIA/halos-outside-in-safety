@@ -30,7 +30,7 @@ The reference use case is Automated Trailer Loading: at a warehouse loading dock
 
 NVIDIA Halos Outside-In Safety is built from three pillars:
 
-1. **AI Perception**: a perception backend (the reference is NVIDIA VSS Blueprint; swappable). See [`ai-perception/`](ai-perception/).
+1. **AI Perception**: a perception backend with NVIDIA Metropolis Blueprint for video search and summarization (swappable). See [`ai-perception/`](ai-perception/).
 2. **Safety Core**: the safety engine — event integration, decision-making, and communication. See [`safety-core/`](safety-core/).
 3. **Closed-Loop Testing**: the software-in-the-loop and hardware-in-the-loop harness that drives the loop with NVIDIA Isaac Sim and feeds the safety decision back to the simulated equipment. See [`closed-loop-testing/`](closed-loop-testing/).
 
