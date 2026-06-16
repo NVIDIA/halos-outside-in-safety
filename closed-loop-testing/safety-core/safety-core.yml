@@ -1,0 +1,21 @@
+services:
+  safety-core:
+    image: ${PSF_IMAGE}
+    container_name: safety-core
+    profiles: ["sil", "base"]
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PSF_LOG_DIR}/pss.log:/var/log/pss.log
+      - ./configs/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro
+      - ./configs/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro
+    group_add:
+      - ${DOCKER_GID}
+    command: >
+      --app atl
+      --cmd_rx_ip ${PSF_CMD_RX_IP}
+      --cmd_rx_port ${COMM_UDP_PORT}
+      --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+    restart: unless-stopped
+    # Note: Connects to Kafka from warehouse deployment (localhost:9092)
+

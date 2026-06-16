@@ -1,0 +1,45 @@
+services:
+  isaac-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ISAAC_SIM_IMAGE: ${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:5.1.0}
+    image: isaac-sim-sil:latest
+    container_name: isaac-sim
+    profiles: ["sil", "hil"]
+    entrypoint: bash
+    stdin_open: true
+    tty: true
+    network_mode: host
+    environment:
+      - ACCEPT_EULA=Y
+      - PRIVACY_CONSENT=Y
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - HOST_IP=${HOST_IP}
+      - VST_BASE_URL=${VST_BASE_URL}
+      - ROS_DISTRO=jazzy
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib
+      - PLAYBACK_SEGMENTS_FILE=${PLAYBACK_SEGMENTS_FILE}
+    volumes:
+      - ${HOME}/.Xauthority:/isaac-sim/.Xauthority:ro
+      - ${ISAAC_CACHE_DIR}/cache/ov:/isaac-sim/.cache/ov:rw
+      - ${ISAAC_CACHE_DIR}/cache/warp:/isaac-sim/.cache/warp:rw
+      - ${ISAAC_CACHE_DIR}/kit-cache:/isaac-sim/kit/cache:rw
+      - ${ISAAC_CACHE_DIR}/data:/isaac-sim/.local/share/ov/data:rw
+      - ${ISAAC_CACHE_DIR}/nvidia-omniverse:/isaac-sim/.nvidia-omniverse:rw
+      - ${ISAAC_CACHE_DIR}/nv:/isaac-sim/.nv:rw
+      - ${ISAAC_SIL_DIR:-./sil}:/isaac-sim/sil:rw
+      - ${MDX_DATA_DIR}/collected-assets:/isaac-sim/collected-assets:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - device_ids: ["${ISAAC_GPU_DEVICE:-1}"]
+            capabilities: [gpu]
+    depends_on:
+      comm-layer:
+        condition: service_healthy
+

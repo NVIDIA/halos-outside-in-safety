@@ -1,0 +1,5 @@
+This file contains the list of third party software with their licenses used in this project.
+
+See below files for the licenses:
+- closed-loop-testing/3rdParty_Licenses.txt
+- safety-core/LICENSES-3rdparty.txt

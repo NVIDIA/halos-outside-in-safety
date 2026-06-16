@@ -1,154 +1,136 @@
-# __NVIDIA_OSS__ Standard Repo Template
+<h2>NVIDIA Halos Outside-In Safety</h2>
 
-This README file is from the NVIDIA_OSS standard repo template of [PLC-OSS-Template](https://github.com/NVIDIA-GitHub-Management/PLC-OSS-Template?tab=readme-ov-file). It provides a list of files in the PLC-OSS-Template and guidelines on how to use (clone and customize) them.
+> **Open-source on-ramp for physical AI safety (early access).**
+> Built for prototyping, evaluation, and integration development — not for production use in safety-related systems without your own certified safety layer.
+> See [SAFETY_NOTICE.md](SAFETY_NOTICE.md).
 
-**Upon completing the customization for the project repo, the repo admin should replace this README template with the project specific README file.**
+### Table of Contents
+- [Overview](#overview)
+- [Software Components](#software-components)
+- [Profiles](#profiles)
+- [Repository Structure](#repository-structure)
+- [Documentation](#documentation)
+- [Prerequisites](#prerequisites)
+- [Hardware Requirements](#hardware-requirements)
+- [Quickstart Guide](#quickstart-guide)
+- [Parallel Terms in context of Safety-Core](#parallel-terms-in-context-of-safety-core)
+- [Contributing](#contributing)
+- [License](#license)
 
-- Files (org-wide templates in the NVIDIA .github org repo; per-repo overrides allowed) in [PLC-OSS-Template](https://github.com/NVIDIA-GitHub-Management/PLC-OSS-Template?tab=readme-ov-file)
+## Overview
 
-   - Root 
-     - README.md skeleton (CTA + Quickstart + Support/Security/Governance links) 
-     - LICENSE (Apache 2.0 by default)
-        - For other licenses, see the [Confluence page](https://confluence.nvidia.com/pages/viewpage.action?pageId=788418816) for other licenses
-        - CLA.md file (delete if not using MIT or BSD licenses)
-     - CODE_OF_CONDUCT.md 
-     - SECURITY.md (vuln reporting path) 
-     - CONTRIBUTING.md (base; repo can add specifics)
-     - SUPPORT.md (Support levels/channels)
-     - GOVERNANCE.md (baseline; repo may extend)
-     - CITATION.md (for projects that need citation)
+Halos Outside-In Safety Blueprint is a reference architecture for **outside-in safety**: fixed infrastructure cameras and AI perception watch a workspace and drive a safety decision (e.g. MUTE / UNMUTE) for the robots and equipment operating in it. Where a robot's onboard sensors can miss hazards beyond their reach, outside-in sensing adds a broader, real-time view of the workcell, improving redundancy and response time. The reference use case is a warehouse trailer loading dock (forklift).
 
-   - .github/ 
-     - ISSUE_TEMPLATE/ (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository>)
-       - bug.yml, feature.yml, task.yml, config.yml 
-     - PULL_REQUEST_TEMPLATE.md (<https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository>)
-     - workflows/
-     - Note: workflow-templates/ for starter workflows should live in the org-level .github repo, not per-repo
+It is built from three pillars:
 
-   - Repo-specific (not org-template, maintained by the team)
-     - CODEOWNERS (place at .github/CODEOWNERS or repo root)
-     - CHANGELOG.md (or RELEASE.md) 
-     - ROADMAP.md 
-     - MAINTAINERS.md 
-     - NOTICE or THIRD_PARTY_NOTICES / THIRD_PARTY_LICENSES (dependency specific)
-     - Build/package files (CMake, pyproject, Dockerfile, etc.)
+1. **AI Perception**: a perception backend (the reference is NVIDIA VSS Blueprint; swappable). See [`ai-perception/`](ai-perception/).
+2. **Safety Core**: the safety engine (event integration / fusion, decision-makers such as Automated Trailer Loading and Proximity-Based Control, and the communication layer). See [`safety-core/`](safety-core/).
+3. **Closed-Loop Testing**: a software-in-the-loop / hardware-in-the-loop harness that drives the loop with NVIDIA Isaac Sim and feeds the safety decision back to the simulated equipment. See [`closed-loop-testing/`](closed-loop-testing/).
 
-   - Recommended structure and hygiene
-     - docs/
-     - examples/
-     - tests/
-     - scripts/
-     - Container/dev env: Dockerfile, docker/, .devcontainer/ (optional)
-     - Build/package (language-specific):
-       - Python: pyproject.toml, setup.cfg/setup.py, requirements.txt, environment.yml
-       - C++: CMakeLists.txt, cmake/, vcpkg.json
-     - Repo hygiene: .gitignore, .gitattributes, .editorconfig, .pre-commit-config.yaml, .clang-format
+## Software Components
 
+The three pillars connect through a perception event stream: cameras feed AI perception, which publishes detections to the Safety Core, which emits a MUTE / UNMUTE decision.
 
-## Usage of [PLC-OSS-Template](https://github.com/NVIDIA-GitHub-Management/PLC-OSS-Template?tab=readme-ov-file) for NEW NVIDIA OSS repos
+<div align="center"><img src="assets/architecture.png" width="800" alt="Halos Outside-In Safety architecture"></div>
 
-1. Clone the [PLC-OSS-Template](https://github.com/NVIDIA-GitHub-Management/PLC-OSS-Template?tab=readme-ov-file)
-2. Find/replace all in the clone of `___PROJECT___` and `__PROJECT_NAME__` with the name of the specific project.
-3. Inspect all files to make sure all replacements work and update text as needed
+## Profiles
 
+| Profile | Description |
+|---------|-------------|
+| `base` | Safety Core on an existing perception feed; the MUTE / UNMUTE decision is rendered as the VST `halo_safety` overlay. No simulation. Runs on x86 by default, or on IGX Thor (CCPLEX or FSI; see [`halos_thor.md`](skills/hoisa-deploy-profile/references/halos_thor.md)). |
+| `sil` | Full single-host closed loop: NVIDIA Isaac Sim drives a forklift, and the safety decision is fed back to the simulated forklift over ROS. |
+| `hil` 🚧 | Hardware-in-the-loop: the Safety Core runs on an NVIDIA Thor device. Under development. |
 
-**What you can reuse immediately**
-- CODE_OF_CONDUCT.md
-- SECURITY.md
-- CONTRIBUTING.md (base)
-- .github/ISSUE_TEMPLATE/.yml (bug/feature/task + config.yml)
-- .github/PULL_REQUEST_TEMPLATE.md
-- Reusable workflows 
+Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill or by hand (see the [Quickstart Guide](#quickstart-guide)).
 
-**What you must customize per repo**
-- README.md: copy the skeleton and fill in product-specific details (Quickstart, Requirements, Usage, Support level, links)
-- LICENSE: check file is correct, update year, consult Confluence for alternatives https://confluence.nvidia.com/pages/viewpage.action?pageId=788418816, add CLA.md only if your license/process requires it
-- CODEOWNERS: replace <TEAM> with your GitHub team handle(s). Place at .github/CODEOWNERS (or repo root)
-- MAINTAINERS.md: list maintainers names/roles, escalation path
-- CHANGELOG.md (or RELEASE.md): track releases/changes
-- SUPPORT.md: Update for your project
-- ROADMAP.md (optional): upcoming milestones
-- NOTICE / THIRD_PARTY_NOTICES (if you ship third‑party content)
-- Build/package files (CMake/pyproject/Dockerfile/etc.), tests/, docs/, examples/, scripts/ as appropriate
-- Workflows: Edit if you need custom behavior 
+## Repository Structure
 
+| Directory | Description |
+|-----------|-------------|
+| [`ai-perception/`](ai-perception/) | Perception integration: pointer to the reference VSS Blueprint backend and the event-stream integration contract. |
+| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). |
+| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, MediaMTX, the safety-core deployment, and helper scripts. |
+| [`skills/`](skills/) | Agentic skills (for Claude Code) to deploy and operate the system. |
+| [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`). |
+| [`tools/`](tools/) | Repo-wide tooling. |
+| [`whitepaper/`](whitepaper/) | Technical narrative. |
 
-4. Change git origin to point to new repo and push
-5. Remove the line break below and everything above it
+## Documentation
 
-## Usage for existing NVIDIA OSS repos
+For detailed instructions and additional information about this blueprint, see the [Halos Outside-In Safety documentation](https://developer.nvidia.com/docs/halos-outside-in/latest/), including the [User Guide](https://developer.nvidia.com/docs/halos-outside-in/latest/HOISA-User-Guide.html) and the [Quick Start Guide](https://developer.nvidia.com/docs/halos-outside-in/latest/HOISA-Quick-Start-Guide.html).
 
-1. Follow the steps above, but add the files to your existing repo and merge
+## Prerequisites
 
-<!-- REMOVE THE LINE BELOW AND EVERYTHING ABOVE -->
------------------------------------------
-# [Project Title]
-One-sentence value proposition for users. Who is it for, and why it matters. 
+- An NGC account with Early-Access entitlement to the `nvidia/outside-in-safety` org (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/setup/api-keys).
+- Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
 
-# Overview
-What the project does? Why the project is useful?
-Provide a brief overview, highlighting key features or problem-solving capabilities.
+## Hardware Requirements
 
-# Getting Started
-Guide users on how they can get started with the project. This should include basic installation step, quick-start examples 
-```bash
-# Option A: Package manager (pip/conda/npm/etc.)
-<copy-paste install>
+Requirements depend on the profile:
 
-# Option B: Container
-docker run <image> <args>
+- **`base`** (inference: VSS Blueprint perception + Safety Core) follows the VSS Blueprint hardware requirements. See the [VSS prerequisites](https://docs.nvidia.com/vss/latest/prerequisites.html).
+- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://developer.nvidia.com/docs/halos-outside-in/latest/sil/prerequisites.html).
 
-# Verify (hello world)
-<one-liner or ~10-line example>
-```
-# Requirements
-Include a list of pre-requisites. 
-- OS/Arch: <summary or link to full matrix>
-- Runtime/Compiler: <versions>
-- GPU/Drivers (if applicable): CUDA <ver>, driver <ver>, etc.
+## Quickstart Guide
 
-# Usage
-```bash
-# Minimal runnable snippet (≤20 lines)
-<code>
-```
-- More examples/tutorials: <link>
-- API reference: <link>
+Deploy the perception backend (VSS Blueprint) first, then a Halos profile.
 
-# Performance (Optional)
-Summary of benchmarks; link to detailed results and hardware used.
+### Deploy with the agent
 
-## Releases & Roadmap 
-- Releases/Changelog: <link>
-- (Optional) Next milestones or link to `ROADMAP.md`.
-  
-# Contribution Guidelines
-- Start here: `CONTRIBUTING.md`
-- Code of Conduct: `CODE_OF_CONDUCT.md`
-- Development quickstart (build/test):
-```bash
-<clone> && <deps> && <build/test>
-```
-## Governance & Maintainers
-- Governance: `GOVERNANCE.md`
-- Maintainers: <team/handles>
-- Labeling/triage policy: <link>
+**Ideal for:** hands-off, end-to-end deployment.
 
-## Security
-- Vulnerability disclosure: `SECURITY.md`
-- Do not file public issues for security reports.
+The [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill brings up both stacks (the VSS Blueprint perception backend and the chosen profile) and runs the test scenario. See [`skills/`](skills/) for install and usage.
 
-## Support
-- Level: <Experimental | Maintained | Stable>
-- How to get help: Issues/Discussions/<channel link>
-- Response expectations (if any).
+### Docker Compose Deployment
 
-# Community
-Provide the channel for community communications.
+**Ideal for:** deploying by hand on your own host or bare-metal instance.
 
-# References
-Provide a list of related references
+1. Deploy the [NVIDIA VSS Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) perception backend first. It publishes the detection events the Safety Core consumes.
+2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
-# License
-This project is licensed under the [NAME HERE] License - see the LICENSE.md file for details
-- License: <link>
+For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [HOISA Quick Start Guide](https://developer.nvidia.com/docs/halos-outside-in/latest/HOISA-Quick-Start-Guide.html).
+
+#### System Requirements
+
+- OS:
+    - x86 hosts: Ubuntu 24.04
+    - IGX Thor: Jetson Linux BSP (Rel 38.5)
+- NVIDIA Driver:
+    - 580.105.08 (x86 hosts with Ubuntu 24.04)
+    - 580.00 (IGX Thor)
+- NVIDIA Container Toolkit: 1.17.8+
+- Docker Engine: 28.3.3 <= Docker Engine < 29.5.0
+- Docker Compose: v2.39.1+
+- NGC CLI: 4.10.0+
+
+> **Docker upper bound:** Docker Engine 29.5.0+ may fail pulling NGC-hosted images. Use Docker Engine 28.3.3 or another supported version below 29.5.0.
+
+See [`skills/hoisa-deploy-profile/references/prerequisites.md`](skills/hoisa-deploy-profile/references/prerequisites.md) for installation details.
+
+## Parallel Terms in context of Safety-Core
+
+For legacy reasons, several parallel terms are used interchangeably in the context of the Safety Core.
+
+At its core, the Safety Core is a software framework that analyzes the output of a perception system against a given set of safety conditions and evaluates the appropriate action based on the detected safety event. It is also referred to as the **Outside-In Safety Framework (OISF)**. The former name for the Outside-In Safety Framework is the **Proactive Safety Framework (PSF)**. The term PSF is most evident in the source code and in the names of the compiled binaries.
+
+For example, the black box is the entity that provides a unified API for logging. In the source code it is referred to as the **PSB (Proactive Safety Black Box)**, and the resulting binary is `libnvpsb.so`.
+
+The following are further examples of parallel terms used across the software architecture and the source code:
+
+1. **Event-integrator**
+   - Referred to in source as: Proactive Safety Supervisor (PSS)
+   - Resulting binary: `nvpss_daemon`
+
+2. **Decision-maker**
+   - Referred to in source as: Proactive Safety Decision (PSD)
+   - Resulting binaries: `libnvpsd.so` and `nvpsd_gateway`
+
+Similarly, the abstractions over POSIX message queues and sockets are also prefixed with PSF.
+
+## Contributing
+
+This project is currently not accepting external contributions. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE). Third-party components are listed in [LICENSE-3rd-party.txt](LICENSE-3rd-party.txt).
