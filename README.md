@@ -1,4 +1,4 @@
-<h2>NVIDIA Halos Outside-In Safety</h2>
+<h2>NVIDIA Halos Outside-In Safety Blueprint</h2>
 
 > **Open-source on-ramp for physical AI safety (early access).**
 > Built for prototyping, evaluation, and integration development — not for production use in safety-related systems without your own certified safety layer.
@@ -19,7 +19,7 @@
 
 ## Overview
 
-Halos Outside-In Safety Blueprint is a reference architecture for building safety agents and part of [NVIDIA Halos for Robotics](https://www.nvidia.com/en-us/ai-trust-center/halos/robotics), a full-stack comprehensive safety system for robotics and physical AI.
+NVIDIA Halos Outside-In Safety Blueprint is a reference architecture for building safety agents and part of [NVIDIA Halos for Robotics](https://www.nvidia.com/en-us/ai-trust-center/halos/robotics), a full-stack comprehensive safety system for robotics and physical AI.
 
 NVIDIA Halos Outside-In Safety Blueprint extends robot perception beyond onboard sensors by using external infrastructure cameras, AI perception, and safety logic to accelerate development of real-time safety solutions that also maximize operational throughput. 
 Running on NVIDIA IGX and available as open source, it enables robots to safely operate alongside workers at higher efficiency while dynamically adapting to complex environments.
