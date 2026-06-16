@@ -19,17 +19,24 @@
 
 ## Overview
 
-Halos Outside-In Safety Blueprint is a reference architecture for **outside-in safety**: fixed infrastructure cameras and AI perception watch a workspace and drive a safety decision (e.g. MUTE / UNMUTE) for the robots and equipment operating in it. Where a robot's onboard sensors can miss hazards beyond their reach, outside-in sensing adds a broader, real-time view of the workcell, improving redundancy and response time. The reference use case is a warehouse trailer loading dock (forklift).
+Halos Outside-In Safety Blueprint is a reference architecture for building safety agents and part of [NVIDIA Halos for Robotics](https://www.nvidia.com/en-us/ai-trust-center/halos/robotics), a full-stack comprehensive safety system for robotics and physical AI.
 
-It is built from three pillars:
+NVIDIA Halos Outside-In Safety Blueprint extends robot perception beyond onboard sensors by using external infrastructure cameras, AI perception, and safety logic to accelerate development of real-time safety solutions that also maximize operational throughput. 
+Running on NVIDIA IGX and available as open source, it enables robots to safely operate alongside workers at higher efficiency while dynamically adapting to complex environments.
+
+An agent built using the blueprint will leverage fixed infrastructure cameras and vision agents to monitor and analyze workspace conditions and adjust robot behavior in real-time.
+
+The reference use case is Automated Trailer Loading: at a warehouse loading dock, fixed cameras and AI perception monitor workers and autonomous forklifts, and the Safety Core determines in real time when it is safe for the forklift to enter the docked trailer.
+
+NVIDIA Halos Outside-In Safety is built from three pillars:
 
 1. **AI Perception**: a perception backend (the reference is NVIDIA VSS Blueprint; swappable). See [`ai-perception/`](ai-perception/).
-2. **Safety Core**: the safety engine (event integration / fusion, decision-makers such as Automated Trailer Loading and Proximity-Based Control, and the communication layer). See [`safety-core/`](safety-core/).
-3. **Closed-Loop Testing**: a software-in-the-loop / hardware-in-the-loop harness that drives the loop with NVIDIA Isaac Sim and feeds the safety decision back to the simulated equipment. See [`closed-loop-testing/`](closed-loop-testing/).
+2. **Safety Core**: the safety engine — event integration, decision-making, and communication. See [`safety-core/`](safety-core/).
+3. **Closed-Loop Testing**: the software-in-the-loop and hardware-in-the-loop harness that drives the loop with NVIDIA Isaac Sim and feeds the safety decision back to the simulated equipment. See [`closed-loop-testing/`](closed-loop-testing/).
 
 ## Software Components
 
-The three pillars connect through a perception event stream: cameras feed AI perception, which publishes detections to the Safety Core, which emits a MUTE / UNMUTE decision.
+The three pillars connect through a perception event stream: cameras feed AI perception, which publishes detections to the Safety Core, which emits a decision.
 
 <div align="center"><img src="assets/architecture.png" width="800" alt="Halos Outside-In Safety architecture"></div>
 
@@ -49,7 +56,7 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 |-----------|-------------|
 | [`ai-perception/`](ai-perception/) | Perception integration: pointer to the reference VSS Blueprint backend and the event-stream integration contract. |
 | [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). |
-| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, MediaMTX, the safety-core deployment, and helper scripts. |
+| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, MediaMTX, the Safety Core deployment, and helper scripts. |
 | [`skills/`](skills/) | Agentic skills (for Claude Code) to deploy and operate the system. |
 | [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`). |
 | [`tools/`](tools/) | Repo-wide tooling. |
@@ -107,7 +114,7 @@ For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](s
 
 See [`skills/hoisa-deploy-profile/references/prerequisites.md`](skills/hoisa-deploy-profile/references/prerequisites.md) for installation details.
 
-## Parallel Terms in context of Safety-Core
+## Parallel Terms in context of Safety Core
 
 For legacy reasons, several parallel terms are used interchangeably in the context of the Safety Core.
 
