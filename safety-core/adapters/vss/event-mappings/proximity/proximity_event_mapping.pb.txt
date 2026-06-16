@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+rules {
+  name: "Proximity no violation (safe distance, >2m or SD false)"
+  message_source: "mdx-frames"
+  alert_type: "no_violation"
+  rule_id: "proximity_no_violation"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  output_event: "EVENT_0"
+  severity: "HIGH"
+}
+rules {
+  name: "Proximity 2m > distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_1"
+  severity: "HIGH"
+}
+rules {
+  name: "Proximity distance < 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  distance_threshold_meters: 1.0
+  output_event: "EVENT_2"
+  severity: "HIGH"
+}
+

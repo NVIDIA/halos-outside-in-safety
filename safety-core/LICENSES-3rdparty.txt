@@ -1,0 +1,365 @@
+Third-Party Software Licenses
+================================================================================
+
+This file contains licenses and attributions for third-party Debian packages
+explicitly installed by safety-core/pkg/docker/Dockerfile, plus transitive
+packages added or upgraded by apt relative to the base image
+nvcr.io/nvidia/base/ubuntu:noble-20260217.
+
+================================================================================
+
+1. cron
+   Package: cron
+   Version: 3.0pl1-184ubuntu2
+   Upstream Name: vixie-cron
+   Source: ftp://ftp.vix.com/pub/vixie/cron-3.0
+   License(s): Paul-Vixie's-license; GPL-2+; ISC; Artistic
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/c/cron/cron_3.0pl1-184ubuntu2/copyright
+
+
+2. librdkafka-dev
+   Package: librdkafka-dev
+   Version: 2.3.0-1build2
+   Upstream Name: librdkafka
+   Source: https://github.com/confluentinc/librdkafka
+   License(s): BSD-2-clause; BSD-3-clause-Google; BSD-3-clause-Regents;
+               Expat; ISC; ISC and BSD-2-clause; Zlib; public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/universe/libr/librdkafka/librdkafka_2.3.0-1build2/copyright
+
+
+3. librdkafka1
+   Package: librdkafka1
+   Version: 2.3.0-1build2
+   Upstream Name: librdkafka
+   Source: https://github.com/confluentinc/librdkafka
+   License(s): BSD-2-clause; BSD-3-clause-Google; BSD-3-clause-Regents;
+               Expat; ISC; ISC and BSD-2-clause; Zlib; public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/universe/libr/librdkafka/librdkafka_2.3.0-1build2/copyright
+
+
+4. libprotobuf32t64
+   Package: libprotobuf32t64
+   Version: 3.21.12-8.2ubuntu0.3
+   Upstream Name: protobuf
+   Source: https://github.com/google/protobuf
+   License(s): BSD-3-Clause~Google; Apache-2.0; BSD-3-Clause; Expat; GPL-3;
+               GPLWithACException; Public-Domain; Public-Domain or Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/p/protobuf/protobuf_3.21.12-8.2ubuntu0.3/copyright
+
+
+5. libprotobuf-dev
+   Package: libprotobuf-dev
+   Version: 3.21.12-8.2ubuntu0.3
+   Upstream Name: protobuf
+   Source: https://github.com/google/protobuf
+   License(s): BSD-3-Clause~Google; Apache-2.0; BSD-3-Clause; Expat; GPL-3;
+               GPLWithACException; Public-Domain; Public-Domain or Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/p/protobuf/protobuf_3.21.12-8.2ubuntu0.3/copyright
+
+
+6. logrotate
+   Package: logrotate
+   Version: 3.21.0-2build1
+   Upstream Name: logrotate
+   Source: https://github.com/logrotate/logrotate
+   License(s): GPL-2; GPL-3+; BSD-3-Clause
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/l/logrotate/logrotate_3.21.0-2build1/copyright
+
+
+7. rsyslog
+   Package: rsyslog
+   Version: 8.2312.0-3ubuntu9.2
+   Upstream Name: rsyslog
+   Source: https://www.rsyslog.com
+   License(s): GPL-3.0+ and Apache-2.0; LGPL-3.0+ and Apache-2.0;
+               BSD-3-clause; GPL-3.0+; LGPL-3.0+; Apache-2.0
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/r/rsyslog/rsyslog_8.2312.0-3ubuntu9.2/copyright
+
+
+8. sudo
+   Package: sudo
+   Version: 1.9.15p5-3ubuntu5.24.04.2
+   Upstream Name: sudo
+   Source: https://www.sudo.ws/
+   License(s): ISC; other; public-domain; BSD-2-Clause; BSD-3-Clause; GPL-2+;
+               Zlib
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/s/sudo/sudo_1.9.15p5-3ubuntu5.24.04.2/copyright
+
+
+9. tini
+   Package: tini
+   Version: 0.19.0-1
+   Upstream Name: tini
+   Source: https://github.com/krallin/tini
+   License(s): Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/universe/t/tini/tini_0.19.0-1/copyright
+
+
+================================================================================
+
+Transitive Debian Package Licenses
+
+The following packages are installed or upgraded by apt as dependencies of the
+Dockerfile packages above, relative to nvcr.io/nvidia/base/ubuntu:noble-20260217.
+
+10. adduser
+   Package(s): adduser
+   Version: 3.137ubuntu1
+   Upstream Name: adduser
+   License(s): GPL-2+
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/a/adduser/adduser_3.137ubuntu1/copyright
+
+
+11. cron-daemon-common
+   Package(s): cron-daemon-common
+   Version: 3.0pl1-184ubuntu2
+   Upstream Name: vixie-cron
+   License(s): Paul-Vixie's-license; GPL-2+; ISC; Artistic
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/c/cron/cron_3.0pl1-184ubuntu2/copyright
+
+
+12. apparmor
+   Package(s): libapparmor1
+   Version: 4.0.1really4.0.1-0ubuntu0.24.04.7
+   Upstream Name: AppArmor
+   Source: https://launchpad.net/apparmor
+   License(s): BSD-3-clause; BSD-3-clause or GPL-2+; GPL-2; GPL-2+; LGPL-2.1+
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/a/apparmor/apparmor_4.0.1really4.0.1-0ubuntu0.24.04.7/copyright
+
+
+13. argon2
+   Package(s): libargon2-1
+   Version: 0~20190702+dfsg-4build1
+   Upstream Name: phc-winner-argon2
+   Source: https://github.com/P-H-C/phc-winner-argon2
+   License(s): Apache-2.0; CC0; CC0 or Apache-2.0
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/a/argon2/argon2_0~20190702+dfsg-4build1/copyright
+
+
+14. glibc
+   Package(s): libc-dev-bin; libc6-dev
+   Version: 2.39-0ubuntu8.7
+   Source: https://sourceware.org/git/glibc.git
+   License(s): LGPL-2.1+; GPL-2+; BSD-style; public-domain and other notices
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/g/glibc/glibc_2.39-0ubuntu8.7/copyright
+
+
+15. libxcrypt
+   Package(s): libcrypt-dev
+   Version: 1:4.4.36-4build1
+   Source: https://github.com/besser82/libxcrypt
+   License(s): LGPL-2.1+; BSD-0-Clause; BSD-2-Clause; BSD-3-Clause; public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/libx/libxcrypt/libxcrypt_4.4.36-4build1/copyright
+
+
+16. cryptsetup
+   Package(s): libcryptsetup12
+   Version: 2:2.7.0-1ubuntu4.2
+   Upstream Name: cryptsetup
+   Source: https://gitlab.com/cryptsetup/cryptsetup
+   License(s): Apache-2.0; CC0; GPL-2+; GPL-2+ with OpenSSL exception;
+               GPL-3+; LGPL-2.1+; LGPL-2.1+ with OpenSSL exception;
+               public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/c/cryptsetup/cryptsetup_2.7.0-1ubuntu4.2/copyright
+
+
+17. lvm2
+   Package(s): libdevmapper1.02.1
+   Version: 2:1.02.185-3ubuntu3.2
+   Upstream Name: lvm2
+   Source: https://sourceware.org/pub/lvm2/
+   License(s): BSD-2-Clause; GPL-2.0; GPL-2.0+; LGPL-2.1
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/l/lvm2/lvm2_2.03.16-3ubuntu3.2/copyright
+
+
+18. libestr
+   Package(s): libestr0
+   Version: 0.1.11-1build1
+   Upstream Name: libestr
+   Source: https://github.com/rsyslog/libestr
+   License(s): LGPL-2.1+
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/libe/libestr/libestr_0.1.11-1build1/copyright
+
+
+19. libfastjson
+   Package(s): libfastjson4
+   Version: 1.2304.0-1build1
+   Upstream Name: libfastjson
+   Source: http://download.rsyslog.com/libfastjson/
+   License(s): Apache-2.0; Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/libf/libfastjson/libfastjson_1.2304.0-1build1/copyright
+
+
+20. util-linux
+   Package(s): bsdutils; libblkid1; libfdisk1; libmount1; libsmartcols1;
+               libuuid1; mount; util-linux
+   Version: 2.39.3-9ubuntu6.5
+   Upstream Name: util-linux
+   Source: https://www.kernel.org/pub/linux/utils/util-linux/
+   License(s): BSD-3-clause; BSD-4-clause; BSLA; GPL-2; GPL-2+; GPL-3+;
+               LGPL; LGPL-2+; LGPL-2.1+; LGPL-3+; MIT; public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/u/util-linux/util-linux_2.39.3-9ubuntu6.5/copyright
+
+
+21. json-c
+   Package(s): libjson-c5
+   Version: 0.17-1build1
+   Upstream Name: json-c
+   Source: https://github.com/json-c/json-c/wiki
+   License(s): Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/j/json-c/json-c_0.17-1build1/copyright
+
+
+22. kmod
+   Package(s): libkmod2
+   Version: 31+20240202-2ubuntu7.2
+   Source: https://www.kernel.org/pub/linux/utils/kernel/kmod/
+   License(s): GPL-2+; LGPL-2.1+
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/k/kmod/kmod_31+20240202-2ubuntu7.2/copyright
+
+
+23. popt
+   Package(s): libpopt0
+   Version: 1.19+dfsg-1build1
+   Upstream Name: popt
+   Source: https://ftp.osuosl.org/pub/rpm/popt/releases/popt-1.x/
+   License(s): GPL-2+; Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/p/popt/popt_1.19+dfsg-1build1/copyright
+
+
+24. protobuf
+   Package(s): libprotobuf-lite32t64
+   Version: 3.21.12-8.2ubuntu0.3
+   Upstream Name: protobuf
+   Source: https://github.com/google/protobuf
+   License(s): BSD-3-Clause~Google; Apache-2.0; BSD-3-Clause; Expat; GPL-3;
+               GPLWithACException; Public-Domain; Public-Domain or Expat
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/p/protobuf/protobuf_3.21.12-8.2ubuntu0.3/copyright
+
+
+25. librdkafka
+   Package(s): librdkafka++1
+   Version: 2.3.0-1build2
+   Upstream Name: librdkafka
+   Source: https://github.com/confluentinc/librdkafka
+   License(s): BSD-2-clause; BSD-3-clause-Google; BSD-3-clause-Regents;
+               Expat; ISC; ISC and BSD-2-clause; Zlib; public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/universe/libr/librdkafka/librdkafka_2.3.0-1build2/copyright
+
+
+26. cyrus-sasl2
+   Package(s): libsasl2-2; libsasl2-modules-db
+   Version: 2.1.28+dfsg1-5ubuntu3.1
+   Upstream Name: Cyrus SASL
+   Source: ftp://ftp.cyrusimap.org/cyrus-sasl/
+   License(s): BSD-2-clause; BSD-3-clause; BSD-4-clause-UC; GPL-3; GPL-3+;
+               IBM-as-is; MIT-CMU; MIT-Export; MIT-OpenVision; OpenLDAP;
+               RSA-MD and other package-specific notices
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/c/cyrus-sasl2/cyrus-sasl2_2.1.28+dfsg1-5ubuntu3.1/copyright
+
+
+27. systemd
+   Package(s): libsystemd-shared; libsystemd0; libudev1; systemd; systemd-dev
+   Version: 255.4-1ubuntu8.16
+   Upstream Name: systemd
+   Source: https://www.freedesktop.org/wiki/Software/systemd/
+   License(s): CC0-1.0; Expat; GPL-2 with Linux-syscall-note exception;
+               GPL-2+; LGPL-2.1+; public-domain
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/s/systemd/systemd_255.4-1ubuntu8.16/copyright
+
+
+28. linux
+   Package(s): linux-libc-dev
+   Version: 6.8.0-124.124
+   Source: https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux
+   License(s): GPL-2
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/l/linux/linux_6.8.0-124.124/copyright
+
+
+29. rpcsvc-proto
+   Package(s): rpcsvc-proto
+   Version: 1.4.2-0ubuntu7
+   Upstream Name: rpcsvc-proto
+   Source: https://github.com/thkukuk/rpcsvc-proto
+   License(s): BSD-3-clause; GPL autoconf exceptions; MIT; permissive
+               autoconf/configure notices
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.2-0ubuntu7/copyright
+
+
+30. ucf
+   Package(s): ucf
+   Version: 3.0043+nmu1
+   Upstream Name: ucf
+   Source: https://salsa.debian.org/srivasta/ucf
+   License(s): GPL-2
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/u/ucf/ucf_3.0043+nmu1/copyright
+
+
+31. zlib
+   Package(s): zlib1g-dev
+   Version: 1:1.3.dfsg-3.1ubuntu2.1
+   Upstream Name: zlib
+   Source: http://zlib.net/
+   License(s): Zlib
+   License Reference:
+      https://changelogs.ubuntu.com/changelogs/pool/main/z/zlib/zlib_1.3.dfsg-3.1ubuntu2.1/copyright
+
+
+================================================================================
+
+Full License Texts / References
+
+Apache License 2.0:
+   See: https://www.apache.org/licenses/LICENSE-2.0
+
+BSD-2-Clause:
+   See: https://opensource.org/license/bsd-2-clause
+
+BSD-3-Clause:
+   See: https://opensource.org/license/bsd-3-clause
+
+GNU General Public License v2.0:
+   See: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+GNU General Public License v3.0:
+   See: https://www.gnu.org/licenses/gpl-3.0.html
+
+GNU Lesser General Public License v3.0:
+   See: https://www.gnu.org/licenses/lgpl-3.0.html
+
+Package-specific permissive/custom licenses:
+   See the package-specific License Reference URLs above and upstream
+   repositories for BSD, Expat, ISC, Zlib, Artistic, public-domain, and custom
+   license text.
+
+================================================================================
