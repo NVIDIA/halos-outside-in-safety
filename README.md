@@ -68,7 +68,7 @@ For detailed instructions and additional information about this blueprint, see t
 
 ## Prerequisites
 
-- An NGC account with Early-Access entitlement to the `nvidia/outside-in-safety` org (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/setup/api-keys).
+- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/setup/api-keys).
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
 
 ## Hardware Requirements

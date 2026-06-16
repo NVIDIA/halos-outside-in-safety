@@ -10,7 +10,7 @@
 #   hil  : comm-layer + isaac-cache          (x86 stimulus; PSF on Thor, no psf-log here)
 #
 # base does NOT need isaac-cache (17G) nor the NGC sil-data pull (Isaac scenes/collected-assets).
-# sil-data (nvidia/outside-in-safety/halos-outside-in-sil-data) is a SIL-only prerequisite — pull separately.
+# sil-data (nvidia/halos-outside-in/sample-sil-data) is a SIL-only prerequisite — pull separately.
 #
 # Usage:
 #   ./scripts/setup.sh <base|sil|hil>     # reads ../../deployments/profiles/<profile>.env
@@ -85,7 +85,7 @@ if [ -n "$NEED_ISAAC" ]; then
     done
     sudo chown -R 1234:1234 "$ISAAC_CACHE_DIR"
     echo "  NOTE: sil also needs NGC sil-data (Isaac scenes/collected-assets) — pull separately:"
-    echo "    ngc registry resource download-version nvidia/outside-in-safety/halos-outside-in-sil-data:vX.Y.Z"
+    echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.2.1"
 fi
 
 echo ""
