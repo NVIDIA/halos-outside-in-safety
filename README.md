@@ -64,7 +64,7 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, see the [Halos Outside-In Safety documentation](https://developer.nvidia.com/docs/halos-outside-in/latest/), including the [User Guide](https://developer.nvidia.com/docs/halos-outside-in/latest/HOISA-User-Guide.html) and the [Quick Start Guide](https://developer.nvidia.com/docs/halos-outside-in/latest/HOISA-Quick-Start-Guide.html).
+For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/halos-outside-in/latest/index.html).
 
 ## Prerequisites
 
@@ -76,7 +76,7 @@ For detailed instructions and additional information about this blueprint, see t
 Requirements depend on the profile:
 
 - **`base`** (inference: VSS Blueprint perception + Safety Core) follows the VSS Blueprint hardware requirements. See the [VSS prerequisites](https://docs.nvidia.com/vss/latest/prerequisites.html).
-- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://developer.nvidia.com/docs/halos-outside-in/latest/sil/prerequisites.html).
+- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/latest/sil/prerequisites.html).
 
 ## Quickstart Guide
 
@@ -95,7 +95,7 @@ The [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill brings up both 
 1. Deploy the [NVIDIA VSS Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) perception backend first. It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
-For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [HOISA Quick Start Guide](https://developer.nvidia.com/docs/halos-outside-in/latest/HOISA-Quick-Start-Guide.html).
+For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/latest/deployment/index.html).
 
 #### System Requirements
 
