@@ -1,0 +1,59 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+
+package mdx.client.config;
+
+option cc_generic_services = false;
+
+// One rule: when all specified conditions match the incoming alert, report the output event.
+message EventMappingRule {
+  // Optional name for logging/debugging
+  string name = 1;
+
+  // --- Conditions (empty string = match any) ---
+  // Source topic: "mdx-events" or "mdx-frames"
+  string message_source = 2;
+  // Alert type: "tripwire", "roi", "empty_roi", "social_distancing",
+  // "restrictedAreaViolationCleared", "confinedAreaViolationCleared", "socialDistancingViolationCleared",
+  // "proximityCleared" (emitted when a proximity rule's pair goes back above its threshold),
+  // "object_presence" (periodic: one event per frame per object matching object_type; N objects -> N events).
+  string alert_type = 3;
+  // Event direction (mdx-events): "IN", "OUT", "ENTRY", "EXIT"
+  string event_type = 4;
+  // Object type: "person", "Person", "forklift", "vehicle", etc.
+  string object_type = 5;
+  // Rule/tripwire/ROI identifier (e.g. "tripwire-1", "roi-restricted-1"). Always exact match (case-insensitive).
+  string rule_id = 6;
+  bool rule_id_prefix_match = 7;  // Deprecated / ignored: rule_id is always matched exactly
+
+  // --- mdx-frames only: violation filters ---
+  // Values: "any" (or empty) = don't filter; "true" = must be set; "false" = must be unset
+  string restricted_area_violation = 8;   // From rois (TypeCount): restricted area
+  string confined_area_violation = 9;     // From rois (TypeCount): confined area
+  string social_distancing_violation = 10; // From FrameMessage.socialDistancing (SD.proximityDetections)
+
+  // --- Output ---
+  string output_event = 11;  // e.g. "EVENT_0", "ROI_ENTRY", "ROI_EXIT", "TW_CROSSING_ENTRY"
+  string severity = 12;      // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+
+  // --- Proximity (mdx-frames only; evaluated only when SD violated). Pair = (primary, secondary). ---
+  // Rule threshold must be <= SD.threshold in the frame. Distance from Object.coordinate.
+  double distance_threshold_meters = 13;
+  // Secondary in the pair (e.g. "Person"). Empty = same as primary (e.g. person-person).
+  string object_type_secondary = 14;
+  // Primary in the pair (e.g. "Agility_Digit_Humanoid", "Fourier_GR1_T2_Humanoid"). If empty, object_type is used as primary.
+  string object_type_primary = 15;
+
+  // --- mdx-frames only: throttle by frame ---
+  // Emit this rule's event every N frames (default 1 = every frame). E.g. scale_factor 5 = emit on frames 5, 10, 15, ...
+  // Only applies when message_source is "mdx-frames" (object_presence, proximity, roi, etc.).
+  int32 scale_factor = 16;
+}
+
+message EventMappingConfig {
+  repeated EventMappingRule rules = 1;
+}

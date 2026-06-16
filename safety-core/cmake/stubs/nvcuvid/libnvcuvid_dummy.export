@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Dummy export file for external shared library libnvcuvid.so
+#
+# NOTE: this is a dummy export file to decouple tmake component builds from
+#       the existance of prebuilt external shared libraries.
+#
+#       If you get linker errors for undefined references that should be
+#       in this library, please update this file
+#
+cuDevicePrimaryCtxRetain
+cuvidCreateDecoder
+cuvidCreateVideoParser
+cuvidCtxLockCreate
+cuvidCtxLockDestroy
+cuvidDecodePicture
+cuvidDestroyDecoder
+cuvidDestroyVideoParser
+cuvidMapVideoFrame64
+cuvidParseVideoData
+cuvidUnmapVideoFrame64
+cuvidGetDecoderCaps
