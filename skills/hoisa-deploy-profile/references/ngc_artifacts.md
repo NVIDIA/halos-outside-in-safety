@@ -11,7 +11,7 @@ there is no Halos compose package to download. From NGC you pull only:
 
 VSS Warehouse images are pulled when you deploy VSS, not here — via the `vss-deploy-profile` skill, or per the public VSS Warehouse docs (github.com/NVIDIA-AI-Blueprints/video-search-and-summarization).
 
-> **Access**: the Halos packages are in the `nvidia/outside-in-safety` NGC org. If
+> **Access**: the Halos packages are in the `nvidia/halos-outside-in` NGC team (the gated FSI package is under `nvidia/outside-in-safety`). If
 > `ngc registry resource info` or `docker pull` returns `402` / `403`, your NGC key is not
 > authorized for that org — confirm `ngc config set` and `docker login nvcr.io` with a key
 > that has access.
@@ -30,7 +30,7 @@ cd /tmp
 ngc registry resource download-version "$MDX_DATA_RESOURCE"
 
 # Example: MDX_DATA_DIR=$HOME/sil-data  →  extract into $HOME
-tar -xzf halos-outside-in-sil-data_v*/halos-outside-in-sil-data.tar.gz \
+tar -xzf sample-sil-data_v*/halos-outside-in-sil-data.tar.gz \
   --directory="$HOME"
 ```
 
