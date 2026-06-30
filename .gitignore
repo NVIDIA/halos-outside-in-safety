@@ -13,3 +13,6 @@ deploy/docker/resolved.yml
 # Logs / run data
 *.log
 data_log/
+
+# Jupyter
+**/.ipynb_checkpoints/
