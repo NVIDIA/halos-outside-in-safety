@@ -7,15 +7,17 @@
 #   - video-search-and-summarization (VSS perception backend)
 #
 # Brev's "git repository" code option clones only ONE repo, and it does not
-# reliably honor a branch whose name contains a "/" (e.g. feat/launchable) from
+# reliably honor a branch whose name contains a "/" (e.g. a feat/* branch) from
 # the blob URL — it tends to land on the default branch (main), which does not
 # have the notebook. So this script guarantees BOTH repos are present AND the
 # Halos repo is checked out on the branch that actually contains the notebook.
 set -euo pipefail
 
 # Branch of halos-outside-in-safety that holds the launchable deliverables.
-# After merging the deliverables to main, change this to "main".
-HALOS_REF="${HALOS_REF:-feat/launchable}"
+# Tracks "develop" (where the launchable is merged); switch to "main" once it
+# lands there. Override at launch with the HALOS_REF env var (e.g. to test a
+# feature branch before it is merged).
+HALOS_REF="${HALOS_REF:-develop}"
 
 # --- resolve the interactive (non-root) user + home (Brev runs this as root) ---
 TARGET_USER="${SUDO_USER:-}"

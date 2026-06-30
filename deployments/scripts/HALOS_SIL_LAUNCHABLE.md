@@ -199,9 +199,9 @@ Creating the Launchable at `brev.nvidia.com/launchables/create`:
 
 **Step 1 — Code files + runtime**
 - *How would you like to provide your code files?* → **"I have code files in a git repository"**, URL =
-  `https://github.com/NVIDIA/halos-outside-in-safety/blob/main/deployments/scripts/deploy_hoisa_launchable.ipynb`
+  `https://github.com/NVIDIA/halos-outside-in-safety/blob/develop/deployments/scripts/deploy_hoisa_launchable.ipynb`
   (both repos are public; Brev clones Halos and opens this notebook). Point the URL at whatever
-  **branch** actually has the deliverables committed.
+  **branch** actually has the deliverables committed (`develop` today; `main` once it lands there).
 - *Runtime* → **VM Mode**. (The wizard itself recommends VM Mode for launchables that use private
   container registries / API keys — we pull NGC images with an NGC key.) **Not** Container/K8s.
 
