@@ -101,11 +101,17 @@ The notebook gates on these automatically; you can also check manually:
 
 ## 5. Access the VST UI
 
-- **On Brev:** create a secure link for HAProxy port **7777** → `https://7777-<BREV_ENV_ID>.brevlab.com/vst/`.
-  (Live video may not render through the Brev secure link — a Brev limitation — but stream lists are
-  browsable and MUTE/UNMUTE is verifiable from the logs in Section 4.)
+- **On Brev:** create a secure link for HAProxy port **7777** (any name) and open it with the `/vst/`
+  path. The ingress allow-lists the Brev secure-link domains (`*.apps.run.brev.nvidia.com` and
+  `*.brevlab.com`), so whichever host Brev assigns works — Section 7.5 of the notebook applies this.
+- **Streaming limitation (live *and* recorded):** VST video playback uses **WebRTC (peer-to-peer UDP)**,
+  which a Brev secure link (TCP/HTTPS only) cannot carry. The UI loads and stream lists/recordings are
+  browsable, but **video frames will not render**. To see frames, **download a clip** (plain HTTP — works
+  through the link) or pull the recorded `.mp4` from disk. The authoritative closed-loop proof is the
+  MUTE/UNMUTE log check in Section 4 (Section 14 of the notebook).
 - **Direct IP:** `http://<EXTERNAL_IP>:7777/vst/` (via HAProxy) or `:30888/vst/` (direct), if the
-  firewall/security-group exposes the port.
+  firewall/security-group exposes the port. With direct (non-Brev) network access, WebRTC/UDP works and
+  live video renders.
 
 ---
 
@@ -123,6 +129,8 @@ here in case of a manual deploy:
 | A camera stuck at `0.00000` FPS; PSF drops events as STALE | Isaac RTSP carries no SEI; VSS expects it | DeepStream: disable SEI extraction + `attach-sys-ts-as-ntp=1` — Section 7 |
 | `docker compose up` fails pulling NGC images | Docker **29.5.0+** breaks NGC pulls | Pin Docker to 28.3.3 (notebook warns; see VSS prereqs for the pin) |
 | `402/403` on NGC resource / image | NGC key lacks `nvidia/halos-outside-in` access | Use a key authorized for that team |
+| Brev secure link → **404 Not Found** on `/vst/` (yet `curl localhost:7777/vst/` = 200) | HAProxy ingress `known_host` ACL 404s any `Host` not in its allow-list; the Brev secure-link host wasn't listed | Allow-list the secure-link domains (`*.apps.run.brev.nvidia.com`, `*.brevlab.com`) by suffix in `haproxy.cfg.template` + recreate the ingress — Section 7.5 |
+| NGC download → **403** from `awselb/2.0` (`curl` returns an HTML 403, not a zip) | The VM's egress IP/region/ASN is blocked by NGC (seen on **Verda / Helsinki, EU**); not curl/UA related | **Redeploy the Launchable in a US region** (validated reachable) — NGC CLI + `ngc registry` downloads then succeed |
 
 ---
 
