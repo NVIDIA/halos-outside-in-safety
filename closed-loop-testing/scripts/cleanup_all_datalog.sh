@@ -56,9 +56,16 @@ echo "Cleaning Communication Layer directories..."
 COMM_LOG_DIR="${COMM_LOG_DIR:-$MDX_DATA_DIR/comm-layer}"
 
 if [ -d "$COMM_LOG_DIR" ]; then
-    echo "  Removing all files in: $COMM_LOG_DIR"
-    sudo rm -rf "$COMM_LOG_DIR"/*
-    echo "  Communication Layer directory cleaned"
+    echo "  Clearing logs in: $COMM_LOG_DIR"
+    # Truncate (do NOT delete) the known logs: comm-layer `tee`s into these while running, so
+    # deleting them out from under the container leaves it writing to an unlinked inode and the
+    # files never reappear -- which breaks the opc_server.log readiness check on a re-run.
+    for _f in opc_server.log ros_bridge.log; do
+        [ -f "$COMM_LOG_DIR/$_f" ] && sudo truncate -s 0 "$COMM_LOG_DIR/$_f"
+    done
+    # Remove any other stale files, but leave the live log inodes in place.
+    sudo find "$COMM_LOG_DIR" -type f ! -name opc_server.log ! -name ros_bridge.log -delete
+    echo "  Communication Layer logs cleared"
 else
     echo "  Communication Layer directory not found: $COMM_LOG_DIR"
 fi
