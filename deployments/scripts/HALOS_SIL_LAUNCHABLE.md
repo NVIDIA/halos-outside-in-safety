@@ -20,7 +20,7 @@ This doc has two audiences:
 SIL runs the closed safety loop on a single host across **two Docker Compose stacks**:
 
 ```
-Isaac Sim (forklift + humans) ──RTSP/HEVC──▶ mediamtx ──▶ VSS Warehouse 3.2 (AI perception, 3 cams)
+Isaac Sim (forklift + humans) ──RTSP/HEVC (self-hosted per cam)──▶ VSS Warehouse 3.2 (AI perception, 3 cams)
         ▲                                                          │
         │ ROS2 /safety/is_muted                                    │ Kafka mdx-events
         │                                                          ▼
@@ -28,7 +28,7 @@ Isaac Sim (forklift + humans) ──RTSP/HEVC──▶ mediamtx ──▶ VSS Wa
 ```
 
 - **Stack 1 — VSS Warehouse 3.2** (perception backend), deployed first with SIL-specific overrides.
-- **Stack 2 — Halos SIL**: `safety-core` (PSF), `comm-layer` (UDP→ROS bridge), `isaac-sim`, `mediamtx`.
+- **Stack 2 — Halos SIL**: `safety-core` (PSF), `comm-layer` (UDP→ROS bridge), `isaac-sim`, `forklift-controller`.
 
 The forklift in Isaac Sim drives camera streams → perception → PSF decides MUTE (forklift in
 trailer, no humans → loading allowed) / UNMUTE (human present or forklift exiting → safety active)
@@ -88,8 +88,8 @@ The notebook gates on these automatically; you can also check manually:
 
 1. **VSS perception** — `vss-rtvi-cv` shows ~30 FPS on all 3 cameras; Kafka `mdx-events` flowing.
 2. **PSF wired** — `$MDX_DATA_DIR/comm-layer/opc_server.log` shows `MUTE`/`UNMUTE`/`HEARTBEAT`.
-3. **Isaac→VSS handoff** — DeepStream swaps the sample streams for 3 Isaac streams; mediamtx shows
-   `RTSPWriter_World_Cameras_Camera*` publishers; Isaac GPU util jumps to ~50–65 %.
+3. **Isaac→VSS handoff** — DeepStream swaps the sample streams for 3 Isaac streams; each per-camera
+   RTSP endpoint (`:8554`/`:8555`/`:8556`) answers `ffprobe`; Isaac GPU util jumps to ~50–65 %.
 4. **Closed loop** — `opc_server.log` shows **sim-driven MUTE↔UNMUTE** transitions, and the PSF log
    (`psf-log/pss.log`) shows `Forklift tripwire IN/OUT` events tied to the forklift cycle.
 5. **Isaac subscribed** — Isaac kit log: `creating subscriber: /safety/is_muted` (the forklift reacts).
@@ -122,7 +122,6 @@ here in case of a manual deploy:
 
 | Symptom | Cause | Fix (automated) |
 |---|---|---|
-| `mediamtx` crash-loops: `bind :8888: address already in use` | HLS port **8888 collides with JupyterLab** | Disable HLS/RTMP/WebRTC/SRT in `mediamtx.yml` (SIL only needs RTSP) — Section 7 of the notebook |
 | Kafka/Redis/Elasticsearch crash-loop: *Permission denied* on log/data | app-data bind mounts + named volumes not writable by container UID | `chmod -R 777` app-data + `heal_infra_perms()` (chmod volume sources, drop stale `redis.log`, restart) |
 | Elasticsearch won't start / Kafka unstable | `vm.max_map_count` / socket buffers too low | `sysctl -w vm.max_map_count=262144 net.core.rmem_max/wmem_max=5242880` — Section 2 |
 | Perception never starts (`Active sources: 0`); `sdrc-wait-for-redis` stuck on *"waiting for redis…"*; `vss-configurator` loops on HTTP 400 adding sensors | Brev VMs ship **ufw active (default-deny inbound)**, which silently drops traffic from docker **bridge** containers to host-networked services (redis/kafka) reached via `HOST_IP` | `ufw allow from 172.16.0.0/12` + `192.168.0.0/16` when ufw is active (container-internal only) — Section 2 |
@@ -172,8 +171,7 @@ notebook does **not** clone anything itself — cloning is entirely the template
 - **JupyterLab** on **8888** as the entry point, opened to
   `deployments/scripts/deploy_hoisa_launchable.ipynb`.
 - **Secure link / exposed port: 7777** (HAProxy ingress → `/vst/`, `/kibana/`).
-- ⚠️ **Reserve 8888 for Jupyter only.** mediamtx HLS also defaults to 8888 — the notebook disables it,
-  but the template must not map anything else to 8888.
+- ⚠️ **Reserve 8888 for Jupyter only.** Don't map any other service to 8888.
 
 ### 7.5 Pre-baking to cut first-run time (recommended, optional)
 First run is dominated by ~250 GB of pulls/builds + Isaac shader compile. To make the Launchable feel
@@ -213,8 +211,7 @@ Creating the Launchable at `brev.nvidia.com/launchables/create`:
 
 **Step 3 — Jupyter & networking**
 - *Jupyter experience* → **Yes** (Brev installs Jupyter + a one-click "Open Notebook" button on 8888).
-- *Secure Links / ports* → expose **7777** (VST UI). Reserve **8888** for Jupyter only (mediamtx HLS
-  also defaults to 8888 — the notebook disables it, but don't map anything else to 8888).
+- *Secure Links / ports* → expose **7777** (VST UI). Reserve **8888** for Jupyter only (don't map anything else to 8888).
 
 **Steps 4–5** — name the Launchable, set the GPU SKU (RT-core GPU ≥ 48 GB, disk ≥ 250 GB), then
 **Generate** and share the link.
