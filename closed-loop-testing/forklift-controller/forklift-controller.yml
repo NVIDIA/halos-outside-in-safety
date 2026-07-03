@@ -1,0 +1,27 @@
+services:
+  forklift-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: forklift-controller:latest
+    container_name: forklift-controller
+    profiles: ["sil", "hil"]
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - ROBOT_ID=${FORKLIFT_ROBOT_ID:-forklift_1}
+      - BASE_SPEED=${FORKLIFT_BASE_SPEED:-1.5}
+      - ANGULAR_SPEED=${FORKLIFT_ANGULAR_SPEED:-0.4}
+      - HEADING_OFFSET=${FORKLIFT_HEADING_OFFSET:-180.0}
+      - USE_NAMESPACE=${FORKLIFT_USE_NAMESPACE:-false}
+      - LOOP_PATH=${FORKLIFT_LOOP_PATH:-true}
+      - NO_INVERT=${FORKLIFT_NO_INVERT:-false}
+      - END_TOLERANCE=${FORKLIFT_END_TOLERANCE:-1.0}
+      - END_POSE_COUNT=${FORKLIFT_END_POSE_COUNT:-5}
+      - SPIRAL_TIMEOUT=${FORKLIFT_SPIRAL_TIMEOUT:-10.0}
+      - WAYPOINT_FILE=${FORKLIFT_WAYPOINT_FILE:-/app/waypoints/waypoints.json}
+    volumes:
+      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints}:/app/waypoints:ro
+      - .:/app:ro
+    restart: unless-stopped

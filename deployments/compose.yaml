@@ -9,4 +9,4 @@ include:
   - path: ../closed-loop-testing/safety-core/safety-core.yml
   - path: ../closed-loop-testing/comm-layer/comm-layer.yml
   - path: ../closed-loop-testing/isaac-sim/isaac-sim.yml
-  - path: ../closed-loop-testing/mediamtx/mediamtx.yml
+  - path: ../closed-loop-testing/forklift-controller/forklift-controller.yml

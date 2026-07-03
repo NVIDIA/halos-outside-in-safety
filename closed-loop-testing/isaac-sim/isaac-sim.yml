@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        ISAAC_SIM_IMAGE: ${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:5.1.0}
+        ISAAC_SIM_IMAGE: ${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:6.0.0}
     image: isaac-sim-sil:latest
     container_name: isaac-sim
     profiles: ["sil", "hil"]
@@ -15,16 +15,20 @@ services:
     environment:
       - ACCEPT_EULA=Y
       - PRIVACY_CONSENT=Y
-      - DISPLAY=${DISPLAY}
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/isaac-sim/.Xauthority
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - HOST_IP=${HOST_IP}
       - VST_BASE_URL=${VST_BASE_URL}
       - ROS_DISTRO=jazzy
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib
+      - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/jazzy/lib
       - PLAYBACK_SEGMENTS_FILE=${PLAYBACK_SEGMENTS_FILE}
     volumes:
       - ${HOME}/.Xauthority:/isaac-sim/.Xauthority:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${ISAAC_CACHE_DIR}/cache/ov:/isaac-sim/.cache/ov:rw
       - ${ISAAC_CACHE_DIR}/cache/warp:/isaac-sim/.cache/warp:rw
       - ${ISAAC_CACHE_DIR}/kit-cache:/isaac-sim/kit/cache:rw

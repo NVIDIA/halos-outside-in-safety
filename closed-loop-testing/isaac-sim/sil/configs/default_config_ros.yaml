@@ -1,39 +1,55 @@
 isaacsim.replicator.agent:
-  version: 0.7.0
+  version: 1.6.0
+  seed: 42
+  simulation_duration: 20.0
+  environment:
+    base_stage_asset_path: /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
   character:
-    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/People/DH_Characters_Extended/
-    command_file: /isaac-sim/sil/configs/default_command.txt
-    filters: []
-    navigation_area: []
-    num: 3
-    spawn_area: []
-  global:
-    seed: 123456789
-    simulation_length: 3500
-  replicator:
-    writer: RTSPWriter
-    parameters:
-      output_dir: ''
-      rtsp_stream_url: rtsp://localhost:8553/RTSPWriter
-      rtsp_rgb: true
-      rtsp_semantic_segmentation: false
-      rtsp_instance_id_segmentation: false
-      rtsp_instance_segmentation: false
-      rtsp_normals: false
-      rtsp_distance_to_image_plane: false
-      rtsp_distance_to_camera: false
-  response:
-    response_list: []
-  robot:
-    command_file: /isaac-sim/sil/configs/default_robot_command.txt
-    iw_hub_num: 0
-    navigation_area: []
-    nova_carter_num: 0
-    spawn_area: []
-    write_data: false
-  scene:
-    asset_path: /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+    groups:
+      inspect_workers:
+        num: 1
+        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/inspect_loop.bt.json
+      gather_workers:
+        num: 1
+        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/gather_bend_loop.bt.json
+      pickup_workers:
+        num: 1
+        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/pickup_loop.bt.json
+    motion_library_path: https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/Behavior/110.0/Samples/Assets/MotionLibrary/Human/HumanMotionLibrary.usd
   sensor:
-    camera_num: 3
-  event:
-    event_list: []
+    groups:
+      ceiling_cameras:
+        num: 3
+        aim_at_targets:
+          height_range:
+          - 2.0
+          - 3.0
+          look_down_angle_range:
+          - 0.0
+          - 60.0
+          focal_length_range:
+          - 10.0
+          - 15.0
+          distance_range:
+          - 6.5
+          - 14.5
+  replicator:
+    writers:
+      IRABasicWriter:
+        output_dir: ''
+        rgb: false
+        bounding_box_2d_tight: false
+        bounding_box_2d_loose: false
+        bounding_box_3d: false
+        normals: false
+        semantic_segmentation: false
+        instance_id_segmentation: false
+        instance_segmentation: false
+        camera_params: false
+        start_frame: 0
+        end_frame: 1800
+        sensor_prim_list:
+        - /World/Cameras/ceiling_cameras

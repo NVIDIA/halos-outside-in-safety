@@ -7,8 +7,8 @@
                 double radius = 500
             }
             dictionary Perspective = {
-                double3 position = (-8.479950013389564, -11.717664384664552, 3.193212218573191)
-                double3 target = (17.088252448769246, -17.792059903648585, -2.532254227944573)
+                double3 position = (-4.74365878061642, -8.051348670945705, 2.9025986823934815)
+                double3 target = (19.09396696236756, -21.61059715599677, -2.531146419759197)
             }
             dictionary Right = {
                 double3 position = (0, -500, 0)
@@ -139,7 +139,7 @@
     endTimeCode = 576000
     metersPerUnit = 1
     startTimeCode = 0
-    timeCodesPerSecond = 30
+    timeCodesPerSecond = 60
     upAxis = "Z"
 )
 
@@ -34522,8 +34522,7 @@ def Xform "World"
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         def "SM_PaletteA_02" (
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_01.usd@
-            prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_02.usd@
+            prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_01.usd@
         )
         {
             quatf xformOp:orient = (0.70710677, 0, 0, 0.70710677)
@@ -34534,7 +34533,6 @@ def Xform "World"
 
         def "SM_CardBoxA_01_614" (
             append apiSchemas = ["SemanticsLabelsAPI:class"]
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01_613.usd@
             prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01_613.usd@
         )
         {
@@ -34547,7 +34545,6 @@ def Xform "World"
 
         def "SM_CardBoxA_01_846" (
             append apiSchemas = ["SemanticsLabelsAPI:class"]
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01_846.usd@
             prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01_846.usd@
         )
         {
@@ -34568,8 +34565,7 @@ def Xform "World"
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         def "SM_PaletteA_02" (
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_01.usd@
-            prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_02.usd@
+            prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_PaletteA_01.usd@
         )
         {
             quatf xformOp:orient = (0.70710677, 0, 0, 0.70710677)
@@ -34580,7 +34576,6 @@ def Xform "World"
 
         def "SM_CardBoxA_01_846" (
             append apiSchemas = ["SemanticsLabelsAPI:class"]
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01_846.usd@
             prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01_846.usd@
         )
         {
@@ -34593,7 +34588,6 @@ def Xform "World"
 
         def "SM_CardBoxD_05_951" (
             append apiSchemas = ["SemanticsLabelsAPI:class"]
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_05_950.usd@
             prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_05_950.usd@
         )
         {
@@ -34606,7 +34600,6 @@ def Xform "World"
 
         def "SM_CardBoxD_04_1865" (
             append apiSchemas = ["SemanticsLabelsAPI:class"]
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_04_1864.usd@
             prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxD_04_1864.usd@
         )
         {
@@ -34619,7 +34612,6 @@ def Xform "World"
 
         def "SM_CardBoxA_02" (
             append apiSchemas = ["SemanticsLabelsAPI:class"]
-            delete payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_02.usd@
             prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_02.usd@
         )
         {
@@ -34984,630 +34976,6 @@ def Xform "World"
         }
     }
 
-    def OmniGraph "ActionGraph"
-    {
-        token evaluationMode = "Automatic"
-        token evaluator:type = "execution"
-        token fabricCacheBacking = "Shared"
-        int2 fileFormatVersion = (1, 9)
-        token pipelineStage = "pipelineStageSimulation"
-        token ui:displayGroup = "Material Graphs"
-        token ui:displayName = "ActionGraph"
-        int ui:order = 1024
-        uniform token[] xformOpOrder = []
-
-        def OmniGraphNode "MakePosArray" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom int inputs:arraySize = 2
-            custom token inputs:arrayType (
-                allowedTokens = ["auto", "bool[]", "double[]", "float[]", "half[]", "int[]", "int64[]", "token[]", "uchar[]", "uint[]", "uint64[]", "double[2][]", "double[3][]", "double[4][]", "matrixd[2][]", "matrixd[3][]", "matrixd[4][]", "float[2][]", "float[3][]", "float[4][]", "half[2][]", "half[3][]", "half[4][]", "int[2][]", "int[3][]", "int[4][]", "timecode[]", "frame[4][]", "colord[3][]", "colorf[3][]", "colorh[3][]", "colord[4][]", "colorf[4][]", "colorh[4][]", "normald[3][]", "normalf[3][]", "normalh[3][]", "pointd[3][]", "pointf[3][]", "pointh[3][]", "quatd[4][]", "quatf[4][]", "quath[4][]", "texcoordd[2][]", "texcoordf[2][]", "texcoordh[2][]", "texcoordd[3][]", "texcoordf[3][]", "texcoordh[3][]", "vectord[3][]", "vectorf[3][]", "vectorh[3][]"]
-            )
-            custom token inputs:input0
-            token inputs:input0.connect = </World/ActionGraph/constant_double_zero.inputs:value>
-            custom token inputs:input1 (
-                customData = {
-                    string ExtendedAttributeType = "Union-->bool,colord[3],colord[4],colorf[3],colorf[4],colorh[3],colorh[4],double,double[2],double[3],double[4],float,float[2],float[3],float[4],frame[4],half,half[2],half[3],half[4],int,int64,int[2],int[3],int[4],matrixd[2],matrixd[3],matrixd[4],normald[3],normalf[3],normalh[3],pointd[3],pointf[3],pointh[3],quatd[4],quatf[4],quath[4],texcoordd[2],texcoordd[3],texcoordf[2],texcoordf[3],texcoordh[2],texcoordh[3],timecode,token,transform[4],uchar,uint,uint64,vectord[3],vectorf[3],vectorh[3]"
-                    dictionary omni = {
-                        dictionary graph = {
-                            string attrType = "Union-->bool,colord[3],colord[4],colorf[3],colorf[4],colorh[3],colorh[4],double,double[2],double[3],double[4],float,float[2],float[3],float[4],frame[4],half,half[2],half[3],half[4],int,int64,int[2],int[3],int[4],matrixd[2],matrixd[3],matrixd[4],normald[3],normalf[3],normalh[3],pointd[3],pointf[3],pointh[3],quatd[4],quatf[4],quath[4],texcoordd[2],texcoordd[3],texcoordf[2],texcoordf[3],texcoordh[2],texcoordh[3],timecode,token,transform[4],uchar,uint,uint64,vectord[3],vectorf[3],vectorh[3]"
-                        }
-                    }
-                }
-            )
-            token inputs:input1.connect = </World/ActionGraph/script_node_SwivelIK.outputs:steering_angle>
-            token node:type = "omni.graph.nodes.ConstructArray"
-            int node:typeVersion = 1
-            custom token outputs:array
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1787.3694, 428.18817)
-        }
-
-        def OmniGraphNode "MakeJointNames" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom int inputs:arraySize = 2
-            custom token inputs:arrayType = "auto" (
-                allowedTokens = ["auto", "bool[]", "double[]", "float[]", "half[]", "int[]", "int64[]", "token[]", "uchar[]", "uint[]", "uint64[]", "double[2][]", "double[3][]", "double[4][]", "matrixd[2][]", "matrixd[3][]", "matrixd[4][]", "float[2][]", "float[3][]", "float[4][]", "half[2][]", "half[3][]", "half[4][]", "int[2][]", "int[3][]", "int[4][]", "timecode[]", "frame[4][]", "colord[3][]", "colorf[3][]", "colorh[3][]", "colord[4][]", "colorf[4][]", "colorh[4][]", "normald[3][]", "normalf[3][]", "normalh[3][]", "pointd[3][]", "pointf[3][]", "pointh[3][]", "quatd[4][]", "quatf[4][]", "quath[4][]", "texcoordd[2][]", "texcoordf[2][]", "texcoordh[2][]", "texcoordd[3][]", "texcoordf[3][]", "texcoordh[3][]", "vectord[3][]", "vectorf[3][]", "vectorh[3][]"]
-            )
-            custom token inputs:input0
-            token inputs:input0.connect = </World/ActionGraph/constant_token.inputs:value>
-            custom token inputs:input1 (
-                customData = {
-                    string ExtendedAttributeType = "Union-->bool,colord[3],colord[4],colorf[3],colorf[4],colorh[3],colorh[4],double,double[2],double[3],double[4],float,float[2],float[3],float[4],frame[4],half,half[2],half[3],half[4],int,int64,int[2],int[3],int[4],matrixd[2],matrixd[3],matrixd[4],normald[3],normalf[3],normalh[3],pointd[3],pointf[3],pointh[3],quatd[4],quatf[4],quath[4],texcoordd[2],texcoordd[3],texcoordf[2],texcoordf[3],texcoordh[2],texcoordh[3],timecode,token,transform[4],uchar,uint,uint64,vectord[3],vectorf[3],vectorh[3]"
-                    dictionary omni = {
-                        dictionary graph = {
-                            string attrType = "Union-->bool,colord[3],colord[4],colorf[3],colorf[4],colorh[3],colorh[4],double,double[2],double[3],double[4],float,float[2],float[3],float[4],frame[4],half,half[2],half[3],half[4],int,int64,int[2],int[3],int[4],matrixd[2],matrixd[3],matrixd[4],normald[3],normalf[3],normalh[3],pointd[3],pointf[3],pointh[3],quatd[4],quatf[4],quath[4],texcoordd[2],texcoordd[3],texcoordf[2],texcoordf[3],texcoordh[2],texcoordh[3],timecode,token,transform[4],uchar,uint,uint64,vectord[3],vectorf[3],vectorh[3]"
-                        }
-                    }
-                }
-            )
-            token inputs:input1.connect = </World/ActionGraph/constant_token_01.inputs:value>
-            token node:type = "omni.graph.nodes.ConstructArray"
-            int node:typeVersion = 1
-            custom token outputs:array
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (897.1874, 499.24658)
-        }
-
-        def OmniGraphNode "MakeVelArray" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom int inputs:arraySize = 2
-            custom token inputs:arrayType (
-                allowedTokens = ["auto", "bool[]", "double[]", "float[]", "half[]", "int[]", "int64[]", "token[]", "uchar[]", "uint[]", "uint64[]", "double[2][]", "double[3][]", "double[4][]", "matrixd[2][]", "matrixd[3][]", "matrixd[4][]", "float[2][]", "float[3][]", "float[4][]", "half[2][]", "half[3][]", "half[4][]", "int[2][]", "int[3][]", "int[4][]", "timecode[]", "frame[4][]", "colord[3][]", "colorf[3][]", "colorh[3][]", "colord[4][]", "colorf[4][]", "colorh[4][]", "normald[3][]", "normalf[3][]", "normalh[3][]", "pointd[3][]", "pointf[3][]", "pointh[3][]", "quatd[4][]", "quatf[4][]", "quath[4][]", "texcoordd[2][]", "texcoordf[2][]", "texcoordh[2][]", "texcoordd[3][]", "texcoordf[3][]", "texcoordh[3][]", "vectord[3][]", "vectorf[3][]", "vectorh[3][]"]
-            )
-            custom token inputs:input0
-            token inputs:input0.connect = </World/ActionGraph/divide.outputs:result>
-            custom token inputs:input1 (
-                customData = {
-                    string ExtendedAttributeType = "Union-->bool,colord[3],colord[4],colorf[3],colorf[4],colorh[3],colorh[4],double,double[2],double[3],double[4],float,float[2],float[3],float[4],frame[4],half,half[2],half[3],half[4],int,int64,int[2],int[3],int[4],matrixd[2],matrixd[3],matrixd[4],normald[3],normalf[3],normalh[3],pointd[3],pointf[3],pointh[3],quatd[4],quatf[4],quath[4],texcoordd[2],texcoordd[3],texcoordf[2],texcoordf[3],texcoordh[2],texcoordh[3],timecode,token,transform[4],uchar,uint,uint64,vectord[3],vectorf[3],vectorh[3]"
-                    dictionary omni = {
-                        dictionary graph = {
-                            string attrType = "Union-->bool,colord[3],colord[4],colorf[3],colorf[4],colorh[3],colorh[4],double,double[2],double[3],double[4],float,float[2],float[3],float[4],frame[4],half,half[2],half[3],half[4],int,int64,int[2],int[3],int[4],matrixd[2],matrixd[3],matrixd[4],normald[3],normalf[3],normalh[3],pointd[3],pointf[3],pointh[3],quatd[4],quatf[4],quath[4],texcoordd[2],texcoordd[3],texcoordf[2],texcoordf[3],texcoordh[2],texcoordh[3],timecode,token,transform[4],uchar,uint,uint64,vectord[3],vectorf[3],vectorh[3]"
-                        }
-                    }
-                }
-            )
-            token inputs:input1.connect = </World/ActionGraph/constant_double_zero.inputs:value>
-            token node:type = "omni.graph.nodes.ConstructArray"
-            int node:typeVersion = 1
-            custom token outputs:array
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1788.2416, 170.21596)
-        }
-
-        def OmniGraphNode "ros2_context" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uchar inputs:domain_id
-            custom bool inputs:useDomainIDEnvVar
-            token node:type = "isaacsim.ros2.bridge.ROS2Context"
-            int node:typeVersion = 2
-            custom uint64 outputs:context
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (-62.352448, 276.60507)
-        }
-
-        def OmniGraphNode "ros2_subscribe_twist" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uint64 inputs:context
-            uint64 inputs:context.connect = </World/ActionGraph/ros2_context.outputs:context>
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            uint inputs:execIn.connect = </World/ActionGraph/on_playback_tick.outputs:tick>
-            custom string inputs:nodeNamespace
-            custom string inputs:qosProfile
-            custom uint64 inputs:queueSize
-            custom string inputs:topicName
-            token node:type = "isaacsim.ros2.bridge.ROS2SubscribeTwist"
-            int node:typeVersion = 1
-            custom vector3d outputs:angularVelocity
-            custom uint outputs:execOut (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            custom vector3d outputs:linearVelocity
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (560.25305, 162.30907)
-        }
-
-        def OmniGraphNode "on_playback_tick" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            token node:type = "omni.graph.action.OnPlaybackTick"
-            int node:typeVersion = 2
-            custom double outputs:deltaSeconds
-            custom double outputs:frame
-            custom uint outputs:tick (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            custom double outputs:time
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (-138.11108, 533.542)
-        }
-
-        def OmniGraphNode "articulation_controller" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom double[] inputs:effortCommand
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            uint inputs:execIn.connect = [
-                </World/ActionGraph/on_playback_tick.outputs:tick>,
-                </World/ActionGraph/ros2_subscribe_twist.outputs:execOut>,
-            ]
-            custom int[] inputs:jointIndices
-            custom token[] inputs:jointNames
-            token[] inputs:jointNames.connect = </World/ActionGraph/MakeJointNames.outputs:array>
-            custom double[] inputs:positionCommand
-            double[] inputs:positionCommand.connect = </World/ActionGraph/MakePosArray.outputs:array>
-            custom string inputs:robotPath
-            custom rel inputs:targetPrim = </World/forklift_b> (
-                customData = {
-                    dictionary omni = {
-                        dictionary graph = {
-                            string relType = "target"
-                        }
-                    }
-                }
-            )
-            custom double[] inputs:velocityCommand
-            double[] inputs:velocityCommand.connect = </World/ActionGraph/MakeVelArray.outputs:array>
-            token node:type = "isaacsim.core.nodes.IsaacArticulationController"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (2074.7974, 248.44188)
-        }
-
-        def OmniGraphNode "constant_token" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom token inputs:value = "back_wheel_drive"
-            token node:type = "omni.graph.nodes.ConstantToken"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (634.14435, 490.054)
-        }
-
-        def OmniGraphNode "constant_token_01" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom token inputs:value = "back_wheel_swivel"
-            token node:type = "omni.graph.nodes.ConstantToken"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (632.30457, 588.80835)
-        }
-
-        def OmniGraphNode "break_3_vector" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom token inputs:tuple
-            token inputs:tuple.connect = </World/ActionGraph/ros2_subscribe_twist.outputs:linearVelocity>
-            token node:type = "omni.graph.nodes.BreakVector3"
-            int node:typeVersion = 1
-            custom token outputs:x
-            custom token outputs:y
-            custom token outputs:z
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (895.7732, 96.90254)
-        }
-
-        def OmniGraphNode "break_3_vector_01" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom token inputs:tuple
-            token inputs:tuple.connect = </World/ActionGraph/ros2_subscribe_twist.outputs:angularVelocity>
-            token node:type = "omni.graph.nodes.BreakVector3"
-            int node:typeVersion = 1
-            custom token outputs:x
-            custom token outputs:y
-            custom token outputs:z
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (888.4669, 278.95474)
-        }
-
-        def OmniGraphNode "constant_double_wheelbase" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom double inputs:value = 1.49
-            token node:type = "omni.graph.nodes.ConstantDouble"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (858.2596, 664.5124)
-        }
-
-        def OmniGraphNode "constant_double_maxsteer" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom double inputs:value = 0.785
-            token node:type = "omni.graph.nodes.ConstantDouble"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1163.5184, 672.4498)
-        }
-
-        def OmniGraphNode "constant_double_zero" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom double inputs:value
-            token node:type = "omni.graph.nodes.ConstantDouble"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1426.7388, 616.6957)
-        }
-
-        def OmniGraphNode "script_node_SwivelIK" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom double inputs:angular_z
-            delete double inputs:angular_z.connect = [
-                </World/ActionGraph/script_node_playback.outputs:angular_z>,
-                </World/ActionGraph/break_3_vector_01.outputs:z>,
-            ]
-            prepend double inputs:angular_z.connect = </World/ActionGraph/script_node_playback.outputs:angular_z>
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            uint inputs:execIn.connect = </World/ActionGraph/on_playback_tick.outputs:tick>
-            custom double inputs:linear_x
-            delete double inputs:linear_x.connect = [
-                </World/ActionGraph/script_node_playback.outputs:linear_x>,
-                </World/ActionGraph/break_3_vector.outputs:x>,
-            ]
-            prepend double inputs:linear_x.connect = </World/ActionGraph/script_node_playback.outputs:linear_x>
-            custom string inputs:script = """import math
-
-MAX_STEER = math.radians(45.0)
-MIN_COS = 1e-3
-MIN_SPEED = 1e-4
-
-def compute(db):
-    linear_x = -db.inputs.linear_x
-    angular_z = db.inputs.angular_z
-    angular_z = -angular_z
-    wheelbase = db.inputs.wheelbase
-
-    
-    heading_speed = max(abs(linear_x), MIN_SPEED)
-    steer = math.atan2(angular_z * wheelbase, heading_speed)
-    steer = max(min(steer, MAX_STEER), -MAX_STEER)
-
-    # when reversing, may want to invert steering direction (optional)
-    if linear_x < 0.0:
-        steer = 0.0 if abs(angular_z) < MIN_SPEED else -steer
-        drive = -heading_speed / max(math.cos(steer), MIN_COS)
-    else:
-        drive = heading_speed / max(math.cos(steer), MIN_COS)
-
-    db.outputs.drive_velocity = drive
-    db.outputs.steering_angle = steer
-    return True"""
-            custom token inputs:scriptPath
-            custom bool inputs:usePath = 0
-            custom double inputs:wheelbase
-            double inputs:wheelbase.connect = </World/ActionGraph/constant_double_wheelbase.inputs:value>
-            token node:type = "omni.graph.scriptnode.ScriptNode"
-            int node:typeVersion = 2
-            custom double outputs:drive_velocity
-            custom uint outputs:execOut (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            custom double outputs:steering_angle
-            custom bool state:omni_initialized
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1192.6807, 249.9416)
-        }
-
-        def OmniGraphNode "divide" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom token inputs:a
-            token inputs:a.connect = </World/ActionGraph/script_node_SwivelIK.outputs:drive_velocity>
-            custom token inputs:b
-            token inputs:b.connect = </World/ActionGraph/constant_double_WheelRadius.inputs:value>
-            token node:type = "omni.graph.nodes.Divide"
-            int node:typeVersion = 1
-            custom token outputs:result
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1528.142, 142.69345)
-        }
-
-        def OmniGraphNode "constant_double_WheelRadius" (
-            apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom double inputs:value = 0.15
-            token node:type = "omni.graph.nodes.ConstantDouble"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (1283.2942, 64.4398)
-        }
-
-        def OmniGraphNode "ros2_publish_clock" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uint64 inputs:context
-            prepend uint64 inputs:context.connect = </World/ActionGraph/ros2_context.outputs:context>
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </World/ActionGraph/on_playback_tick.outputs:tick>
-            custom string inputs:nodeNamespace
-            custom string inputs:qosProfile
-            custom uint64 inputs:queueSize
-            custom double inputs:timeStamp
-            prepend double inputs:timeStamp.connect = </World/ActionGraph/on_playback_tick.outputs:time>
-            custom string inputs:topicName
-            token node:type = "isaacsim.ros2.bridge.ROS2PublishClock"
-            int node:typeVersion = 1
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (291.00067, 88.69423)
-        }
-
-        def OmniGraphNode "ros2_subscriber" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uint64 inputs:context
-            prepend uint64 inputs:context.connect = </World/ActionGraph/ros2_context.outputs:context>
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </World/ActionGraph/on_playback_tick.outputs:tick>
-            custom string inputs:messageName = "Bool"
-            custom string inputs:messagePackage = "std_msgs"
-            custom string inputs:messageSubfolder
-            custom string inputs:nodeNamespace
-            custom string inputs:qosProfile
-            custom uint64 inputs:queueSize
-            custom string inputs:topicName = "/safety/is_muted"
-            token node:type = "isaacsim.ros2.bridge.ROS2Subscriber"
-            int node:typeVersion = 1
-            custom bool outputs:data
-            custom uint outputs:execOut (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (304.07196, 747.2358)
-        }
-
-        def OmniGraphNode "script_node" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </World/ActionGraph/ros2_subscriber.outputs:execOut>
-            custom bool inputs:is_muted
-            prepend bool inputs:is_muted.connect = </World/ActionGraph/ros2_subscriber.outputs:data>
-            custom string inputs:script = '''from pxr import UsdGeom, Gf
-import omni.usd
-
-def compute(db):
-    stage = omni.usd.get_context().get_stage()
-    disk_path = "/World/forklift_b/body/body/safety_indicator"
-    
-    disk_prim = stage.GetPrimAtPath(disk_path)
-    if disk_prim.IsValid():
-        mesh = UsdGeom.Mesh(disk_prim)
-        color_attr = mesh.GetDisplayColorAttr()
-        
-        if db.inputs.is_muted:
-            # GREEN - safety muted (loading allowed)
-            color_attr.Set([Gf.Vec3f(0.0, 1.0, 0.0)])
-        else:
-            # RED/ORANGE - alarm active
-            color_attr.Set([Gf.Vec3f(1.0, 0.3, 0.0)])
-    
-    return True'''
-            custom token inputs:scriptPath
-            custom bool inputs:usePath
-            token node:type = "omni.graph.scriptnode.ScriptNode"
-            int node:typeVersion = 2
-            custom uint outputs:execOut (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            custom bool state:omni_initialized
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (669.8741, 777.00476)
-        }
-
-        def OmniGraphNode "script_node_playback" (
-            prepend apiSchemas = ["NodeGraphNodeAPI"]
-        )
-        {
-            custom uint inputs:execIn (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            prepend uint inputs:execIn.connect = </World/ActionGraph/on_playback_tick.outputs:tick>
-            custom string inputs:script = """\"\"\"
-OmniGraph Script Node - Forklift Playback
-
-Input:  sim_time (double) ← On Playback Tick.time
-Output: linear_x, angular_z (double), segment_index (int), finished (bool)
-\"\"\"
-
-import os
-import json
-
-SEGMENTS_FILE = os.environ.get(
-    \"PLAYBACK_SEGMENTS_FILE\",
-    \"/isaac-sim/sil/playback/segments.json\"
-)
-# ============ EDIT HERE ============
-SEGMENTS_FALLBACK = [
-    # (duration_sec, linear_x, angular_z, note)
-    (16.0, 1.0, 0.0, \"Forward\"),
-    (5.0, 0.0, 0.0, \"Idle\"),
-    (16.0, -1.0, 0.0, \"Backward\"),
-    (5.0, 0.0, 0.0, \"Idle\"),
-]
-LOOP = True
-FLIP_LINEAR = False
-FLIP_ANGULAR = True
-# ===================================
-def load_segments(filepath):
-    \"\"\"Load segments from JSON file, return list of tuples.\"\"\"
-    import json
-    if not os.path.exists(filepath):
-        print(f\"[Playback] File not found: {filepath}\")
-        return None
-    try:
-        with open(filepath) as f:
-            data = json.load(f)
-        segments = [(s[\"duration\"], s[\"linear_x\"], s[\"angular_z\"], s.get(\"note\", \"\")) for s in data[\"segments\"]]
-        print(f\"[Playback] Loaded {len(segments)} segments from {filepath}\")
-        for i, (dur, lx, az, note) in enumerate(segments):
-            print(f\"  [{i}] {dur}s: linear={lx}, angular={az} ({note})\")
-        return segments
-    except Exception as e:
-        print(f\"[Playback] {e}\")
-        return None
-
-SEGMENTS = load_segments(SEGMENTS_FILE) if SEGMENTS_FILE else None
-if not SEGMENTS:
-    SEGMENTS = SEGMENTS_FALLBACK
-    print(f\"[Playback] Warning: SEGMENTS was empty, using fallback\")
-
-
-def setup(db):
-    state = db.internal_state
-    state.segment_index = 0
-    state.segment_elapsed = 0.0
-    state.prev_time = -1.0
-    state.finished = False
-
-
-def cleanup(db):
-    setup(db)
-
-
-def compute(db):
-    state = db.internal_state
-    sim_time = db.inputs.sim_time
-
-    # Calculate delta time from previous tick
-    if state.prev_time < 0:
-        dt = 0.0
-    else:
-        dt = sim_time - state.prev_time
-
-    # Detect timeline reset (Stop then Play again)
-    if dt < -0.01:
-        state.segment_index = 0
-        state.segment_elapsed = 0.0
-        state.finished = False
-        dt = 0.0
-
-    state.prev_time = sim_time
-
-    # Check if finished or out of segments
-    if state.finished or state.segment_index >= len(SEGMENTS):
-        if LOOP:
-            state.segment_index = 0
-            state.segment_elapsed = 0.0
-        else:
-            state.finished = True
-            db.outputs.linear_x = 0.0
-            db.outputs.angular_z = 0.0
-            db.outputs.segment_index = state.segment_index
-            db.outputs.finished = True
-            return True
-
-    # Get current segment
-    duration, linear_x, angular_z, note = SEGMENTS[state.segment_index]
-    
-    # Print when segment changes
-    if not hasattr(state, 'last_printed_idx') or state.last_printed_idx != state.segment_index:
-        print(f\"[Playback] Segment {state.segment_index}: {note} ({duration}s, linear={linear_x}, angular={angular_z})\")
-        state.last_printed_idx = state.segment_index
-
-    # Apply flips if needed
-    if FLIP_LINEAR:
-        linear_x = -linear_x
-    if FLIP_ANGULAR:
-        angular_z = -angular_z
-
-    # Accumulate elapsed time
-    state.segment_elapsed += dt
-
-    # Move to next segment when duration exceeded
-    if state.segment_elapsed >= duration:
-        state.segment_index += 1
-        state.segment_elapsed = 0.0
-
-    # Set outputs
-    db.outputs.linear_x = linear_x
-    db.outputs.angular_z = angular_z
-    db.outputs.segment_index = state.segment_index
-    db.outputs.finished = False
-    return True
-"""
-            custom token inputs:scriptPath
-            custom double inputs:sim_time
-            prepend double inputs:sim_time.connect = </World/ActionGraph/on_playback_tick.outputs:time>
-            custom bool inputs:usePath
-            token node:type = "omni.graph.scriptnode.ScriptNode"
-            int node:typeVersion = 2
-            custom double outputs:angular_z
-            custom uint outputs:execOut (
-                customData = {
-                    bool isExecution = 1
-                }
-            )
-            custom double outputs:linear_x
-            custom bool state:omni_initialized
-            uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (281.5919, 445.41476)
-        }
-    }
-
     def "forklift_b" (
         prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd@
     )
@@ -35617,7 +34985,7 @@ def compute(db):
             doc = "Namespace of the prim in Isaac Sim"
         )
         quatf xformOp:orient = (6.123234e-17, 0, 0, 1)
-        float3 xformOp:scale = (0.8, 0.8, 0.8)
+        float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (1, -13.39, 9.964619493985083e-7)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
@@ -35649,6 +35017,11 @@ def compute(db):
                     double3 xformOp:scale = (3, 3, 1)
                     double3 xformOp:translate = (0, 2.220446049250313e-16, -2.117582368135751e-22)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                over "SM_Forklift_Body_B01_01"
+                {
+                    token visibility = "inherited"
                 }
             }
         }
@@ -35683,8 +35056,8 @@ def compute(db):
 
         over "lift_joint"
         {
-            float physics:lowerLimit = -0.11999999
-            float physics:upperLimit = 1.6
+            float physics:lowerLimit = -0.14999999
+            float physics:upperLimit = 2
             float state:linear:physics:position = 0
             float state:linear:physics:velocity = 0
         }
@@ -36260,43 +35633,6 @@ def Scope "Replicator"
             displayName = "globalSeed"
         )
         token pipelineStage = "pipelineStageSimulation"
-    }
-}
-
-over "Root" (
-    active = false
-)
-{
-    over "ActionGraph" (
-        active = false
-    )
-    {
-        over "MakePosArray"
-        {
-            custom token inputs:input0
-            delete token inputs:input0.connect = </World/ActionGraph/constant_double_zero.inputs:value>
-            prepend token inputs:input0.connect = </World/ActionGraph/constant_double_zero.inputs:value>
-            custom token inputs:input1
-            delete token inputs:input1.connect = </World/ActionGraph/script_node_SwivelIK.outputs:steering_angle>
-            prepend token inputs:input1.connect = </World/ActionGraph/script_node_SwivelIK.outputs:steering_angle>
-        }
-
-        over "MakeJointNames"
-        {
-            custom token inputs:input0
-            delete token inputs:input0.connect = </World/ActionGraph/constant_token.inputs:value>
-            prepend token inputs:input0.connect = </World/ActionGraph/constant_token.inputs:value>
-            custom token inputs:input1
-            delete token inputs:input1.connect = </World/ActionGraph/constant_token_01.inputs:value>
-            prepend token inputs:input1.connect = </World/ActionGraph/constant_token_01.inputs:value>
-        }
-
-        over "MakeVelArray"
-        {
-            custom token inputs:input1
-            delete token inputs:input1.connect = </World/ActionGraph/constant_double_zero.inputs:value>
-            prepend token inputs:input1.connect = </World/ActionGraph/constant_double_zero.inputs:value>
-        }
     }
 }
 
