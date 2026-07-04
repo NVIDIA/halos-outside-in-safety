@@ -9,6 +9,7 @@ services:
     network_mode: host
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - ROBOT_ID=${FORKLIFT_ROBOT_ID:-forklift_1}
       - BASE_SPEED=${FORKLIFT_BASE_SPEED:-1.5}
