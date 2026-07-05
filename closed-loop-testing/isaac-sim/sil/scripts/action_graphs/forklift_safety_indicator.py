@@ -25,16 +25,26 @@ from .forklift_common import (
 # by the builder. Mirrors Safety_indicator_Graph/script_node_indicator.
 _SAFETY_SCRIPT_BODY = '''
 from pxr import UsdGeom, Gf
+import omni.graph.core as og
 import omni.usd
 
 
 def compute(db):
+    # Read the subscriber output directly each tick. ROS2Subscriber creates
+    # outputs:data dynamically at runtime, and a USD-authored connection to a
+    # dynamic attribute is not reliably bound by OmniGraph (the script input
+    # then stays at its default False forever). Polling the attribute value
+    # sidesteps the binding problem entirely.
+    try:
+        is_muted = bool(og.Controller.get(og.Controller.attribute(SUB_DATA_ATTR)))
+    except Exception:
+        is_muted = bool(db.inputs.is_muted)
     stage = omni.usd.get_context().get_stage()
     disk_prim = stage.GetPrimAtPath(INDICATOR_PRIM)
     if disk_prim.IsValid():
         mesh = UsdGeom.Mesh(disk_prim)
         color_attr = mesh.GetDisplayColorAttr()
-        if db.inputs.is_muted:
+        if is_muted:
             # GREEN - safety muted (loading allowed)
             color_attr.Set([Gf.Vec3f(0.0, 1.0, 0.0)])
         else:
@@ -63,7 +73,11 @@ def _build_one_safety_graph(robot: dict) -> None:
     verify_prim_exists(stage, indicator_prim, "safety indicator")
     clear_existing_graph(stage, graph_path)
 
-    script = f"INDICATOR_PRIM = {indicator_prim!r}\n" + _SAFETY_SCRIPT_BODY
+    sub_data_attr = f"{graph_path}/SubscribeIsMuted.outputs:data"
+    script = (
+        f"INDICATOR_PRIM = {indicator_prim!r}\n"
+        f"SUB_DATA_ATTR = {sub_data_attr!r}\n" + _SAFETY_SCRIPT_BODY
+    )
 
     keys = og.Controller.Keys
     og.Controller.edit(
@@ -93,12 +107,18 @@ def _build_one_safety_graph(robot: dict) -> None:
         },
     )
 
-    # ROS2Subscriber.outputs:data is a dynamically-typed ("any"/path) output
-    # that og.Controller.connect() refuses to wire to a static bool input.
-    # The baked USD authored this edge as a plain USD connection (which is
-    # type-resolved at runtime), so we do the same here via the USD API to
-    # bypass the static type check.
+    # ROS2Subscriber.outputs:data is a dynamically-typed ("any") output that
+    # og.Controller.connect() refuses to wire to a static bool input, so the
+    # edge is authored as a plain USD connection instead. Crucially, the baked
+    # USD also persisted the resolved type of the dynamic attribute
+    # (`custom bool outputs:data`) — without pre-authoring that bool attribute
+    # OmniGraph never binds the connection at runtime and the input stays at
+    # its default (False), freezing the indicator on the unmuted color.
     from pxr import Sdf
+
+    sub_prim = stage.GetPrimAtPath(f"{graph_path}/SubscribeIsMuted")
+    if not sub_prim.GetAttribute("outputs:data"):
+        sub_prim.CreateAttribute("outputs:data", Sdf.ValueTypeNames.Bool)
 
     is_muted_attr = stage.GetAttributeAtPath(f"{graph_path}/Indicator.inputs:is_muted")
     is_muted_attr.AddConnection(Sdf.Path(f"{graph_path}/SubscribeIsMuted.outputs:data"))
