@@ -28,32 +28,31 @@ profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 **First-run note**: Isaac Sim goes quiet for ~5-10 min on first run (scene load + RT
 shader compile, cached afterwards). **Do not gate on a shader-log string** (it does not
 appear in the Isaac 6.0 kit log → poll hangs forever). Gate on the Isaac→VSS stream
-handoff completing — poll DeepStream (`vss-rtvi-cv`) for 3 active Isaac streams (the end
-of the chain, most authoritative):
+handoff completing. **Gotcha:** the VSS sample-video bootstrap also registers ~3 DeepStream
+streams *before* Isaac, so a bare "3 active streams" can fire early. Bootstrap-immune signal:
+the Isaac kit log — only Isaac emits `RTSP stream started … encoding=h264`. Gate on that
+first, then confirm DeepStream ingested them.
 
 ```bash
-# net = added - removed: docker logs accumulate across runs, so a raw count is a
-# re-run false-positive. Net active sources is correct.
+# 1) PRIMARY (bootstrap-immune): Isaac started its 3 self-hosted RTSP streams (H264)
+while :; do
+  n=$(docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); \
+        grep -c "RTSP stream started" "$KL"' 2>/dev/null)
+  [ "${n:-0}" -ge 3 ] && break
+  printf '[%s] waiting: Isaac RTSP streams=%s/3\n' "$(date +%H:%M:%S)" "${n:-0}"; sleep 20
+done
+echo "Isaac streaming 3 RTSP cams (H264: 8554/camera, 8555/camera_01, 8556/camera_02)"
+
+# 2) CONFIRM: DeepStream ingested them. net = added - removed (logs accumulate across runs)
 while :; do
   added=$(docker logs vss-rtvi-cv 2>&1 | grep -c 'new stream added \[')
   removed=$(docker logs vss-rtvi-cv 2>&1 | grep -c 'new stream removed \[')
   [ "$((added - removed))" -ge 3 ] && break
   printf '[%s] waiting: DeepStream active=%s/3 (added=%s removed=%s)\n' \
-    "$(date +%H:%M:%S)" "$((added - removed))" "$added" "$removed"
-  sleep 20
+    "$(date +%H:%M:%S)" "$((added - removed))" "$added" "$removed"; sleep 20
 done
 echo "DeepStream ingesting 3 Isaac streams — handoff complete"
 ```
-
-> **Secondary** — Isaac 6.0 self-hosted RTSP, straight from the kit log (there is no
-> `mediamtx` container in 6.0). Expect 3 `RTSP stream started ... encoding=h264` lines
-> (ports 8554/8555/8556). Filter the `Client (connected|disconnected)` reader-spam that
-> the RTSP server also logs:
-> ```bash
-> docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); \
->   grep "RTSP stream started" "$KL" | grep -oE "rtsp://localhost:[0-9]+/[a-z_0-9]+" | sort -u'
-> # expect 3: rtsp://localhost:8554/camera, :8555/camera_01, :8556/camera_02
-> ```
 
 > **`--start` auto-stops** after `simulation_length` frames (set in the IRA config
 > `default_config_ros.yaml`), and on exit it removes the VST sensors it added. For a
@@ -142,9 +141,15 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 ```
 ... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_0 (rule: Forklift tripwire OUT)
 ... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_1 (rule: Forklift tripwire IN)
+... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_4 (rule: Person restricted area ROI violation)
+... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_5 (rule: Person restricted area ROI violation cleared)
 ... NVPSB_PSD_CLIENT[34]: ... Data: PSD-Gateway: received DecisionRequest id=1 with 1 events
 ```
-- **EVENT_0 / EVENT_1**: tripwire crossings reported by perception (forklift OUT / IN the trailer).
+- **EVENT_0 / EVENT_1**: forklift tripwire crossings (OUT / IN the trailer).
+- **EVENT_4 / EVENT_5**: person restricted-area ROI violation / cleared (digital humans).
+- The loop can be driven by **either** family depending on the scene/segments — e.g. if the
+  forklift does a single pass then parks, MUTE/UNMUTE is driven by the person-ROI events.
+  Don't expect only forklift events.
 - **DecisionRequest**: the PSF decision-maker is invoked — it produces the corresponding MUTE/UNMUTE command shown in the OPC log above.
 
 ---
@@ -163,26 +168,28 @@ The system is working when:
 1. `vss-rtvi-cv` shows non-zero, **stable** FPS for **all 3** cameras — gate on "non-zero
    & steady", not an exact number. In SIL expect ~14 FPS/cam (the perception GPU is shared
    with Isaac Sim); the ~30 in NVIDIA's docs assumes a dedicated perception GPU
-2. `ros2 topic info /safety/is_muted -v` shows **`Publisher count: 1`** (see ROS isolation below)
-3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
-4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
-5. The VST UI shows the camera streams with bounding boxes
+2. **The OPC server log shows MUTE↔UNMUTE transitions after Isaac started streaming** — this
+   is the authoritative end-to-end signal (it proves perception → PSF → comm-layer → ROS →
+   Isaac all work). The documented `ros2 topic info … Publisher count: 1` is a *nice-to-have*
+   that often can't enumerate under loopback discovery — see ROS wiring below; don't block on it
+3. The PSF log shows ATL decision changes driven by **forklift tripwire (EVENT_0/1) or person
+   restricted-area ROI (EVENT_4/5)** — whichever the scene produces
+4. The VST UI shows the camera streams with bounding boxes
 
-> "Working" means **sim-driven** transitions (the forklift cycle) — not the VSS
-> sample-video bootstrap traffic that appears before Isaac streams come up.
+> "Working" means **sim-driven** transitions (from the Isaac scene — forklift cycle and/or
+> digital-human ROI) — not the VSS sample-video bootstrap traffic that appears before Isaac
+> streams come up.
 
-### ROS wiring (check once per host)
+### ROS wiring (best-effort — the functional OPC check above is authoritative)
 ```bash
 docker exec comm-layer bash -c \
   "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v" \
   | grep -E "Publisher count|Subscription count"
 ```
-- **`Publisher count: 1`** — exactly one (comm-layer). Single-host SIL scopes discovery
-  with `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (loopback only), so `2+` means another
-  host on `SUBNET` shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety
-  Indicator Flickering (Multi-Machine)". If this `ros2 topic info` query times out (daemon
-  discovery), fall back to the functional check: sim-driven MUTE/UNMUTE in the OPC log
-  already proves the comm-layer ⇄ Isaac ROS link is live.
-- **`Subscription count: 1`** — the Isaac Sim forklift Action Graph has connected and
-  is receiving safety state. `0` means Isaac isn't subscribed yet (scene not fully up,
-  or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`).
+> **Often can't enumerate under loopback.** With `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`,
+> CycloneDDS hides the bridge from the `ros2` daemon → `Unknown topic`/empty even when
+> healthy. **Not a failure** — the OPC MUTE/UNMUTE evidence above is authoritative.
+- **`Publisher count: 1`** — one (comm-layer). `2+` = another host shares your `ROS_DOMAIN_ID`
+  on `SUBNET` (multi-host only) — see `troubleshooting.md`.
+- **`Subscription count: 1`** — Isaac's forklift Action Graph is subscribed. `0` usually just
+  means the CLI can't see it over loopback; confirm via MUTE/UNMUTE changing forklift state.

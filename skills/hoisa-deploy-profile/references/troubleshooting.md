@@ -70,7 +70,8 @@ shows up as **STALE events** (see above), not low FPS.
   wrong RTSP URL, or the TensorRT engine still building (first run 15-20 min). Confirm the
   3 Isaac RTSP streams are up (see `test_scenario.md` → handoff signals), then
   `docker restart vss-rtvi-cv` if needed.
-- **Flickering bounding boxes** — set `bbox_tolerance_ms=100` in `vst_config.json`.
+
+(Flickering bounding boxes are a separate issue — see "Bounding Box Flickering" below.)
 
 ---
 
@@ -280,11 +281,49 @@ using the same domain ID.
 
 ---
 
+## `no service selected` on Halos deploy
+
+**Symptom**: `docker compose --env-file profiles/<profile>.env up -d --build` exits with
+**`no service selected`** — nothing starts.
+
+**Cause**: Halos services are gated by `profiles:` in `compose.yaml`. `<profile>.env` sets
+`COMPOSE_PROFILES=<profile>`, but Docker Compose **< 2.39 does not read `COMPOSE_PROFILES`
+from `--env-file`** — so no profile is active and `up` matches zero services.
+
+**Fix**: activate the profile explicitly (works on every version):
+```bash
+export COMPOSE_PROFILES=<profile>
+docker compose --profile <profile> --env-file profiles/<profile>.env up -d --build
+```
+
+---
+
+## `ros2 topic info` returns "Unknown topic" / `ros2 topic list` empty
+
+**Symptom**: inside `comm-layer`, `ros2 topic info /safety/is_muted -v` says the topic is
+unknown and `ros2 topic list` is empty — yet MUTE/UNMUTE **is** flowing to the OPC log and
+the forklift reacts.
+
+**Cause**: this is **not** a failure. Single-host SIL sets
+`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`; CycloneDDS loopback SPDP discovery does not
+expose the bridge participant to the `ros2` CLI daemon, so the CLI can't enumerate topics
+it isn't itself part of. The pub/sub link between comm-layer and Isaac is unaffected.
+
+**Fix**: don't rely on the CLI here. Verify **functionally** — sim-driven MUTE/UNMUTE in
+`$MDX_DATA_DIR/comm-layer/opc_server.log` proves the ROS link end-to-end:
+```bash
+grep -E "MUTE|UNMUTE" "$MDX_DATA_DIR/comm-layer/opc_server.log" | tail -5
+```
+
+---
+
 ## Quick Reference
 
 | Error | Fix |
 |-------|-----|
 | PSF Kafka connection | Deploy VSS Warehouse first |
+| `no service selected` | `export COMPOSE_PROFILES=<profile>` + `--profile <profile>` (Compose <2.39) |
+| `ros2 topic info` empty / Unknown topic | Not a failure under LOCALHOST discovery — verify via OPC MUTE/UNMUTE |
 | STALE events / MUTE stops | System ts (`attach-sys-ts-as-ntp=1`), not SEI sim-time; then widen `timeWindowSize` |
 | Low FPS (~14) in SIL | Expected on shared GPU (not SEI); `0.00000` = stream not arriving |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
