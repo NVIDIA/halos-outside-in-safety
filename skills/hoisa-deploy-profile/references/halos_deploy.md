@@ -6,8 +6,8 @@ Services and config differ per profile:
 | Profile | Services | Notes |
 |---------|----------|-------|
 | `base` | safety-core | Safety on an existing VSS feed; MUTE/UNMUTE shown as the VST `halo_safety` overlay. No Isaac Sim. |
-| `sil` | safety-core, comm-layer, isaac-sim, mediamtx | Full single-host closed loop. |
-| `hil` 🚧 | comm-layer, isaac-sim, mediamtx | 🚧 Under development — see `halos_hil.md`. |
+| `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop. |
+| `hil` 🚧 | comm-layer, isaac-sim, forklift-controller | 🚧 Under development — see `halos_hil.md`. |
 
 ---
 
@@ -24,6 +24,7 @@ fill the `# change me` placeholders (keep your filled copy local — don't commi
 | `DOCKER_GID` | run `getent group docker \| cut -d: -f3` (default `999` may not match this host) | the `safety-core` container mounts `docker.sock`, so it needs the host's docker group |
 | `ISAAC_GPU_DEVICE` | a GPU with RT cores + >20 GB **not** running VSS perception | see GPU selection below |
 | `ROS_DOMAIN_ID` | a **unique** number per machine (0-232) | prevents cross-machine `/safety/is_muted` collisions — verify `Publisher count: 1` after deploy |
+| `ROS_AUTOMATIC_DISCOVERY_RANGE` | `LOCALHOST` for single-host SIL (default in `sil.env`); leave unset/`SUBNET` for multi-host HIL | scopes ROS2 discovery to loopback. **Required on cloud VMs (e.g. Brev)** that block UDP multicast — without it Isaac ⇄ forklift-controller ⇄ comm-layer can't find each other over cyclonedds |
 
 `PSF_IMAGE` and `ISAAC_SIM_IMAGE` are pre-set in the template.
 
@@ -60,8 +61,8 @@ docker compose --env-file profiles/<profile>.env up -d --build
 Poll until the profile's services are Up (first run builds local images — takes minutes):
 
 ```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E "safety-core|comm-layer|isaac-sim|mediamtx"
-# base = safety-core ; sil = + comm-layer + isaac-sim + mediamtx (4 total)
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E "safety-core|comm-layer|isaac-sim|forklift-controller"
+# base = safety-core ; sil = + comm-layer + isaac-sim + forklift-controller (4 total)
 ```
 
 ### Safety overlay (`base`) — enable on the VSS side
@@ -92,7 +93,10 @@ echo "PSF → comm-layer wired"
 ```bash
 docker exec comm-layer bash -c \
   "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v" | grep "Publisher count"
-# Publisher count: 1 expected. If 2+, another machine shares your ROS_DOMAIN_ID — see troubleshooting.md.
+# Publisher count: 1 expected. Single-host SIL uses ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST (loopback only),
+# so a 2+ count means another host shares your ROS_DOMAIN_ID on SUBNET — see troubleshooting.md.
+# If this CLI query times out (ros2 daemon discovery), fall back to the functional check:
+# sim-driven MUTE/UNMUTE reaching the OPC log already proves the comm-layer ⇄ Isaac ROS link.
 ```
 
 ---

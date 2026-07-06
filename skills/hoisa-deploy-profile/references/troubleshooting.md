@@ -29,37 +29,48 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down &
 **Symptom**: PSF log floods with `Dropping STALE event`; safety decisions lag or don't trigger.
 
 **First — some STALE is normal.** Events reaching PSF older than `timeWindowSize`
-(default 900 ms) are dropped. Measure the **steady-state** rate **after the loop has
-run a while** — startup / bootstrap STALE before Isaac streams stabilise is expected.
-A persistent high rate (tens of % while running) indicates real pipeline latency.
+(`6000` ms / 6 s in the SIL `nvpss.conf`) are dropped. Measure the **steady-state** rate
+**after the loop has run a while** — startup / bootstrap STALE before Isaac streams
+stabilise is expected. A persistent high rate (tens of % while running) points to a real
+problem — most often the DeepStream timestamp source (below), not raw latency.
 
-**Cause**: perception→Kafka→PSF latency occasionally exceeds `timeWindowSize` (slow or
-shared GPU, frame-timing jitter, multi-camera fusion); or the SEI override is missing —
-without it, frames carry no NTP timestamp and nearly everything is dropped as STALE.
+**Cause** (most common first):
+1. **Wrong DeepStream timestamp source** — if `extract-sei-sim-time=1` (Isaac's SEI
+   sim-time fed in as the NTP timestamp), the sim clock drifts outside the 6 s window and
+   **nearly everything is dropped as STALE** (A/B tested on Isaac 6.0: ~100 STALE + MUTE
+   stops toggling). Fix by using **system time**: `attach-sys-ts-as-ntp=1`, with
+   `extract-sei-sim-time` / `drop-backward-sei` commented out (see `vss_2d_overrides.md`).
+2. perception→Kafka→PSF latency occasionally exceeds `timeWindowSize` (slow or shared GPU,
+   frame-timing jitter, multi-camera fusion).
 
 **Fix**:
 ```bash
-# 1. Confirm the DeepStream SEI override is applied (see vss_2d_overrides.md)
+# 1. Confirm DeepStream uses system timestamps: attach-sys-ts-as-ntp=1, SEI sim-time off (see vss_2d_overrides.md)
 # 2. If STALE is still high once running, widen the window:
 nano <repo>/closed-loop-testing/safety-core/configs/nvpss.conf
-# Increase timeWindowSize (e.g. 900 -> 1200)
+# Increase timeWindowSize (e.g. 6000 -> 8000)
 cd <repo>/deployments && docker compose --env-file profiles/<profile>.env restart safety-core
 ```
 
 ---
 
-## Low FPS / Flickering Bounding Boxes
+## Low / Zero FPS on `vss-rtvi-cv`
 
-**Symptom**: `vss-rtvi-cv` shows low FPS (<30), VST shows flickering boxes.
+**Symptom**: `vss-rtvi-cv` shows low FPS, or a camera stuck at `0.00000`.
 
-**Cause**: DeepStream SEI extraction enabled — incompatible with Isaac Sim RTSP.
+**On Isaac 6.0, SEI extraction does *not* cause low FPS** (A/B tested — FPS held ~14/cam
+with SEI on or off). The old "disable SEI to fix FPS" advice is obsolete; an SEI mis-config
+shows up as **STALE events** (see above), not low FPS.
 
-**Fix**: Apply DeepStream config changes (see `vss_2d_overrides.md`):
-- Comment out `extract-sei-type5-data` and `sei-uuid` in `[source-list]`
-- Set `attach-sys-ts-as-ntp=1` in `[streammux]`
-- Comment out `extract-sei-sim-time` and `drop-backward-sei`
-
-Restart perception: `docker restart vss-rtvi-cv`
+**Cause / fix by symptom**:
+- **~14 FPS/cam (not ~30)** — expected in SIL: the perception GPU is shared with Isaac
+  Sim. Gate on "non-zero & stable", not an exact number. NVIDIA's ~30 assumes a dedicated
+  perception GPU. Not a bug.
+- **A source stuck at `0.00000`** — that stream isn't arriving: Isaac not streaming yet,
+  wrong RTSP URL, or the TensorRT engine still building (first run 15-20 min). Confirm the
+  3 Isaac RTSP streams are up (see `test_scenario.md` → handoff signals), then
+  `docker restart vss-rtvi-cv` if needed.
+- **Flickering bounding boxes** — set `bbox_tolerance_ms=100` in `vst_config.json`.
 
 ---
 
@@ -229,11 +240,20 @@ docker compose up -d vss-rtvi-cv   # run from the VSS Warehouse deploy dir (see 
 **Symptom**: The safety colored disc in Isaac Sim flickers between MUTE/UNMUTE
 randomly, or one machine's safety state affects another machine on the same network.
 
-**Cause**: Multiple SIL systems on the same network share the default
-`ROS_DOMAIN_ID=0`. ROS2 nodes from different machines publish to the same
-`/safety/is_muted` topic, causing cross-machine interference.
+**Cause**: Multiple SIL systems on the same network share the default `ROS_DOMAIN_ID=0`,
+and ROS2 discovery reaches across the LAN via UDP multicast. Nodes from different machines
+then publish to the same `/safety/is_muted` topic, causing cross-machine interference.
 
-**Fix**: Assign each machine a unique `ROS_DOMAIN_ID` (0-232) in the Halos `.env`:
+**Fix (single-host SIL — preferred)**: scope discovery to loopback so it can never see
+another host. `sil.env` ships this by default:
+
+```bash
+# In deployments/profiles/<profile>.env
+ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST   # discover only on this host — also fixes cloud VMs (e.g. Brev) that block multicast
+```
+
+**Fix (multi-host / HIL, where nodes *must* span machines)**: keep discovery on `SUBNET`
+and give each machine a unique `ROS_DOMAIN_ID` (0-232):
 
 ```bash
 # In deployments/profiles/<profile>.env — a unique number per machine
@@ -254,8 +274,9 @@ docker exec comm-layer bash -c \
 Should show `Publisher count: 1`. If it shows 2+, another machine is still
 using the same domain ID.
 
-> This only affects multi-machine setups on the same network. Single-machine
-> deployments can safely use the default `ROS_DOMAIN_ID=0`.
+> Single-host SIL is already isolated by `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, so the
+> default `ROS_DOMAIN_ID=0` is fine. This section only matters if you switch discovery to
+> `SUBNET` for multi-host / HIL.
 
 ---
 
@@ -264,8 +285,8 @@ using the same domain ID.
 | Error | Fix |
 |-------|-----|
 | PSF Kafka connection | Deploy VSS Warehouse first |
-| STALE events | Increase `timeWindowSize` in nvpss.conf |
-| Low FPS / flickering | Disable SEI in DeepStream config |
+| STALE events / MUTE stops | System ts (`attach-sys-ts-as-ntp=1`), not SEI sim-time; then widen `timeWindowSize` |
+| Low FPS (~14) in SIL | Expected on shared GPU (not SEI); `0.00000` = stream not arriving |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
 | No cameras in VST | Use `--enable-vst` flag |

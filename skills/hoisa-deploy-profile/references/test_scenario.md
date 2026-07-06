@@ -21,12 +21,13 @@ profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 2. Spawns the forklift + digital humans
 3. Initializes the ROS2 Action Graph (the forklift safety disc subscribes `/safety/is_muted`)
 4. Runs the forklift playback (`segments.json`: forward into trailer → idle → backward → idle)
-5. Starts RTSP streaming (3 cameras, H265, via MediaMTX)
+5. Starts RTSP streaming — Isaac 6.0 **self-hosts** RTSP per camera (H264), no external
+   `mediamtx`: `rtsp://localhost:8554/camera`, `:8555/camera_01`, `:8556/camera_02`
 6. Registers the 3 cameras with VST — `--enable-vst` deletes existing sensors, then adds the Isaac cameras
 
 **First-run note**: Isaac Sim goes quiet for ~5-10 min on first run (scene load + RT
 shader compile, cached afterwards). **Do not gate on a shader-log string** (it does not
-appear in the Isaac 5.1.0 kit log → poll hangs forever). Gate on the Isaac→VSS stream
+appear in the Isaac 6.0 kit log → poll hangs forever). Gate on the Isaac→VSS stream
 handoff completing — poll DeepStream (`vss-rtvi-cv`) for 3 active Isaac streams (the end
 of the chain, most authoritative):
 
@@ -44,15 +45,15 @@ done
 echo "DeepStream ingesting 3 Isaac streams — handoff complete"
 ```
 
-> **Secondary** — mediamtx publishers for the **current** run (`--since`, and filter the
-> `no one is publishing` reader-spam, which otherwise always matches ≥3):
+> **Secondary** — Isaac 6.0 self-hosted RTSP, straight from the kit log (there is no
+> `mediamtx` container in 6.0). Expect 3 `RTSP stream started ... encoding=h264` lines
+> (ports 8554/8555/8556). Filter the `Client (connected|disconnected)` reader-spam that
+> the RTSP server also logs:
 > ```bash
-> docker logs --since 3m mediamtx 2>&1 \
->   | grep "is publishing to path 'RTSPWriter_World_Cameras_Camera" | grep -v 'no one' \
->   | grep -oE 'Camera[_0-9]*_rgb' | sort -u | wc -l        # expect 3
+> docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); \
+>   grep "RTSP stream started" "$KL" | grep -oE "rtsp://localhost:[0-9]+/[a-z_0-9]+" | sort -u'
+> # expect 3: rtsp://localhost:8554/camera, :8555/camera_01, :8556/camera_02
 > ```
-> A bare `grep -c RTSPWriter...` on mediamtx is wrong on both counts (matches the
-> reader-spam **and** counts across runs).
 
 > **`--start` auto-stops** after `simulation_length` frames (set in the IRA config
 > `default_config_ros.yaml`), and on exit it removes the VST sensors it added. For a
@@ -71,8 +72,7 @@ detect when it finishes. All signals below were verified on a live VSS 3.2 + Hal
 | Component | Container | ADD — scene streaming | REMOVE — scene done / teardown |
 |-----------|-----------|-----------------------|--------------------------------|
 | DeepStream (perception) | `vss-rtvi-cv` | `new stream added [<idx>:<uuid>:<Camera>]` ×3 | `new stream removed [<idx>:...]` + `gstnvtracker: Successfully removed stream <idx>` |
-| mediamtx | `mediamtx` | `is publishing to path 'RTSPWriter_World_Cameras_<Camera>_rgb'` ×3 | `session ... destroyed` |
-| Isaac Sim (kit log) | `isaac-sim` | `"rgb" of "/World/Cameras/<Camera>" will be published to "rtsp://..."` ×3 | `Subprocess on "/World/Cameras/<Camera>" has been terminated` ×3 |
+| Isaac RTSP self-hosted (6.0) | `isaac-sim` (kit log) | `[isaacsim.streaming.rtsp.impl.rtsp_writer] RTSP stream started on rtsp://localhost:{8554/camera, 8555/camera_01, 8556/camera_02} (…, encoding=h264)` ×3 (each preceded by `[omni.kit.livestream.rtsp.plugin] Started RTSP server at …`) | no dedicated teardown line (RTSP clients just log `Client disconnected`) — use DeepStream `new stream removed` (row 1) as the authoritative teardown |
 | VST sensor mgr | `vss-vios-sensor` | `"change" : "camera_add"` · `addSensor completed: <Camera>` | `"change" : "camera_remove"` · `delete sensor: <uuid>` |
 
 `<Camera>` = `Camera`, `Camera_01`, `Camera_02`.
@@ -110,9 +110,9 @@ run's MUTE/UNMUTE transition summary.
 ### Per-component handoff trace (debug)
 ```bash
 docker logs vss-rtvi-cv     2>&1 | grep -E 'new stream (added|removed) \['
-docker logs mediamtx        2>&1 | grep -E "is publishing to path 'RTSPWriter|destroyed:"
 docker logs vss-vios-sensor 2>&1 | grep -E '"change" : "camera_(add|remove)"'
-docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); grep -E "will be published|Subprocess on .* has been terminated" "$KL"'
+# Isaac 6.0 self-hosted RTSP (no mediamtx): stream-start lines from the kit log
+docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); grep -E "RTSP stream started|Started RTSP server" "$KL" | grep -v "Client "'
 ```
 
 ---
@@ -160,7 +160,9 @@ in headless mode.
 ## Verify End-to-End
 
 The system is working when:
-1. `vss-rtvi-cv` shows ~30 FPS for **all 3** cameras
+1. `vss-rtvi-cv` shows non-zero, **stable** FPS for **all 3** cameras — gate on "non-zero
+   & steady", not an exact number. In SIL expect ~14 FPS/cam (the perception GPU is shared
+   with Isaac Sim); the ~30 in NVIDIA's docs assumes a dedicated perception GPU
 2. `ros2 topic info /safety/is_muted -v` shows **`Publisher count: 1`** (see ROS isolation below)
 3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
 4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
@@ -175,9 +177,12 @@ docker exec comm-layer bash -c \
   "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v" \
   | grep -E "Publisher count|Subscription count"
 ```
-- **`Publisher count: 1`** — exactly one (comm-layer). If `2+`, another machine on the
-  network shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety Indicator
-  Flickering (Multi-Machine)".
+- **`Publisher count: 1`** — exactly one (comm-layer). Single-host SIL scopes discovery
+  with `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (loopback only), so `2+` means another
+  host on `SUBNET` shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety
+  Indicator Flickering (Multi-Machine)". If this `ros2 topic info` query times out (daemon
+  discovery), fall back to the functional check: sim-driven MUTE/UNMUTE in the OPC log
+  already proves the comm-layer ⇄ Isaac ROS link is live.
 - **`Subscription count: 1`** — the Isaac Sim forklift Action Graph has connected and
   is receiving safety state. `0` means Isaac isn't subscribed yet (scene not fully up,
   or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`).
