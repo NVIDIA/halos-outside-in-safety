@@ -23,8 +23,7 @@ fill the `# change me` placeholders (keep your filled copy local — don't commi
 | `MDX_DATA_DIR` | the **sil-data** dir (contains `collected-assets/`) | NOT the VSS app-data dir — see `ngc_artifacts.md` |
 | `DOCKER_GID` | run `getent group docker \| cut -d: -f3` (default `999` may not match this host) | the `safety-core` container mounts `docker.sock`, so it needs the host's docker group |
 | `ISAAC_GPU_DEVICE` | a GPU with RT cores + >20 GB **not** running VSS perception | see GPU selection below |
-| `ROS_DOMAIN_ID` | a **unique** number per machine (0-232) — matters on multi-host `SUBNET` only | prevents cross-machine `/safety/is_muted` collisions; single-host verifies the link functionally (OPC MUTE/UNMUTE) |
-| `ROS_AUTOMATIC_DISCOVERY_RANGE` | `LOCALHOST` for single-host SIL (default in `sil.env`); leave unset/`SUBNET` for multi-host HIL | scopes ROS2 discovery to loopback. **Required on cloud VMs (e.g. Brev)** that block UDP multicast — without it Isaac ⇄ forklift-controller ⇄ comm-layer can't find each other over cyclonedds |
+| `ROS_DOMAIN_ID` | a **unique** number per machine (0-232) | prevents cross-machine `/safety/is_muted` collisions — verify `Publisher count: 1` after deploy |
 
 `PSF_IMAGE` and `ISAAC_SIM_IMAGE` are pre-set in the template.
 
@@ -50,10 +49,8 @@ cd <repo>/deployments
 # Clean previous run logs (same profile)
 ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
 
-# --build: comm-layer / isaac-sim build from local Dockerfiles.
-# --profile: old Compose (<2.39) ignores COMPOSE_PROFILES from --env-file → "no service selected".
-export COMPOSE_PROFILES=<profile>
-docker compose --profile <profile> --env-file profiles/<profile>.env up -d --build
+# Start — --build because comm-layer / isaac-sim build from local Dockerfiles
+docker compose --env-file profiles/<profile>.env up -d --build
 ```
 
 ---
@@ -91,21 +88,11 @@ until [ -s "$MDX_DATA_DIR/comm-layer/opc_server.log" ]; do sleep 5; done
 echo "PSF → comm-layer wired"
 ```
 
-### ROS link (`sil` / `hil`)
-
-**Primary — functional.** Sim-driven MUTE/UNMUTE in the OPC log proves the bridge publishes
-`/safety/is_muted` and Isaac acts on it:
-```bash
-grep -E "MUTE|UNMUTE" "$MDX_DATA_DIR/comm-layer/opc_server.log" | tail -5
-```
-
-**CLI check (often can't enumerate — don't block on it).** Under
-`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, CycloneDDS loopback discovery hides the bridge
-from the `ros2` daemon, so this returns `Unknown topic`/empty even when healthy:
+### ROS isolation (`sil` / `hil`) — MUST be 1
 ```bash
 docker exec comm-layer bash -c \
   "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v" | grep "Publisher count"
-# 1 = healthy; 2+ = another host shares ROS_DOMAIN_ID on SUBNET; empty/Unknown = loopback, not a failure.
+# Publisher count: 1 expected. If 2+, another machine shares your ROS_DOMAIN_ID — see troubleshooting.md.
 ```
 
 ---

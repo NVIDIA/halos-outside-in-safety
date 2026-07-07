@@ -29,49 +29,38 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down &
 **Symptom**: PSF log floods with `Dropping STALE event`; safety decisions lag or don't trigger.
 
 **First — some STALE is normal.** Events reaching PSF older than `timeWindowSize`
-(`6000` ms / 6 s in the SIL `nvpss.conf`) are dropped. Measure the **steady-state** rate
-**after the loop has run a while** — startup / bootstrap STALE before Isaac streams
-stabilise is expected. A persistent high rate (tens of % while running) points to a real
-problem — most often the DeepStream timestamp source (below), not raw latency.
+(default 900 ms) are dropped. Measure the **steady-state** rate **after the loop has
+run a while** — startup / bootstrap STALE before Isaac streams stabilise is expected.
+A persistent high rate (tens of % while running) indicates real pipeline latency.
 
-**Cause** (most common first):
-1. **Wrong DeepStream timestamp source** — if `extract-sei-sim-time=1` (Isaac's SEI
-   sim-time fed in as the NTP timestamp), the sim clock drifts outside the 6 s window and
-   **nearly everything is dropped as STALE** (A/B tested on Isaac 6.0: ~100 STALE + MUTE
-   stops toggling). Fix by using **system time**: `attach-sys-ts-as-ntp=1`, with
-   `extract-sei-sim-time` / `drop-backward-sei` commented out (see `vss_2d_overrides.md`).
-2. perception→Kafka→PSF latency occasionally exceeds `timeWindowSize` (slow or shared GPU,
-   frame-timing jitter, multi-camera fusion).
+**Cause**: perception→Kafka→PSF latency occasionally exceeds `timeWindowSize` (slow or
+shared GPU, frame-timing jitter, multi-camera fusion); or the DeepStream override is
+missing — without `attach-sys-ts-as-ntp=1`, frames don't get a proper (wall-clock) NTP
+timestamp and nearly everything is dropped as STALE.
 
 **Fix**:
 ```bash
-# 1. Confirm DeepStream uses system timestamps: attach-sys-ts-as-ntp=1, SEI sim-time off (see vss_2d_overrides.md)
+# 1. Confirm the DeepStream SEI override is applied (see vss_2d_overrides.md)
 # 2. If STALE is still high once running, widen the window:
 nano <repo>/closed-loop-testing/safety-core/configs/nvpss.conf
-# Increase timeWindowSize (e.g. 6000 -> 8000)
+# Increase timeWindowSize (e.g. 900 -> 1200)
 cd <repo>/deployments && docker compose --env-file profiles/<profile>.env restart safety-core
 ```
 
 ---
 
-## Low / Zero FPS on `vss-rtvi-cv`
+## Low FPS / Flickering Bounding Boxes
 
-**Symptom**: `vss-rtvi-cv` shows low FPS, or a camera stuck at `0.00000`.
+**Symptom**: `vss-rtvi-cv` shows low FPS (<30), VST shows flickering boxes.
 
-**On Isaac 6.0, SEI extraction does *not* cause low FPS** (A/B tested — FPS held ~14/cam
-with SEI on or off). The old "disable SEI to fix FPS" advice is obsolete; an SEI mis-config
-shows up as **STALE events** (see above), not low FPS.
+**Cause**: the DeepStream SIL override isn't applied (no system timestamps) — bboxes flicker and events drop as STALE. A source stuck at `0.00000` isn't arriving at all (Isaac not streaming yet, wrong RTSP URL, or TensorRT still building).
 
-**Cause / fix by symptom**:
-- **~14 FPS/cam (not ~30)** — expected in SIL: the perception GPU is shared with Isaac
-  Sim. Gate on "non-zero & stable", not an exact number. NVIDIA's ~30 assumes a dedicated
-  perception GPU. Not a bug.
-- **A source stuck at `0.00000`** — that stream isn't arriving: Isaac not streaming yet,
-  wrong RTSP URL, or the TensorRT engine still building (first run 15-20 min). Confirm the
-  3 Isaac RTSP streams are up (see `test_scenario.md` → handoff signals), then
-  `docker restart vss-rtvi-cv` if needed.
+**Fix**: Apply DeepStream config changes (see `vss_2d_overrides.md`):
+- Comment out `extract-sei-type5-data` and `sei-uuid` in `[source-list]`
+- Set `attach-sys-ts-as-ntp=1` in `[streammux]`
+- Comment out `extract-sei-sim-time` and `drop-backward-sei`
 
-(Flickering bounding boxes are a separate issue — see "Bounding Box Flickering" below.)
+Restart perception: `docker restart vss-rtvi-cv`
 
 ---
 
@@ -241,20 +230,11 @@ docker compose up -d vss-rtvi-cv   # run from the VSS Warehouse deploy dir (see 
 **Symptom**: The safety colored disc in Isaac Sim flickers between MUTE/UNMUTE
 randomly, or one machine's safety state affects another machine on the same network.
 
-**Cause**: Multiple SIL systems on the same network share the default `ROS_DOMAIN_ID=0`,
-and ROS2 discovery reaches across the LAN via UDP multicast. Nodes from different machines
-then publish to the same `/safety/is_muted` topic, causing cross-machine interference.
+**Cause**: Multiple SIL systems on the same network share the default
+`ROS_DOMAIN_ID=0`. ROS2 nodes from different machines publish to the same
+`/safety/is_muted` topic, causing cross-machine interference.
 
-**Fix (single-host SIL — preferred)**: scope discovery to loopback so it can never see
-another host. `sil.env` ships this by default:
-
-```bash
-# In deployments/profiles/<profile>.env
-ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST   # discover only on this host — also fixes cloud VMs (e.g. Brev) that block multicast
-```
-
-**Fix (multi-host / HIL, where nodes *must* span machines)**: keep discovery on `SUBNET`
-and give each machine a unique `ROS_DOMAIN_ID` (0-232):
+**Fix**: Assign each machine a unique `ROS_DOMAIN_ID` (0-232) in the Halos `.env`:
 
 ```bash
 # In deployments/profiles/<profile>.env — a unique number per machine
@@ -275,45 +255,8 @@ docker exec comm-layer bash -c \
 Should show `Publisher count: 1`. If it shows 2+, another machine is still
 using the same domain ID.
 
-> Single-host SIL is already isolated by `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`, so the
-> default `ROS_DOMAIN_ID=0` is fine. This section only matters if you switch discovery to
-> `SUBNET` for multi-host / HIL.
-
----
-
-## `no service selected` on Halos deploy
-
-**Symptom**: `docker compose --env-file profiles/<profile>.env up -d --build` exits with
-**`no service selected`** — nothing starts.
-
-**Cause**: Halos services are gated by `profiles:` in `compose.yaml`. `<profile>.env` sets
-`COMPOSE_PROFILES=<profile>`, but Docker Compose **< 2.39 does not read `COMPOSE_PROFILES`
-from `--env-file`** — so no profile is active and `up` matches zero services.
-
-**Fix**: activate the profile explicitly (works on every version):
-```bash
-export COMPOSE_PROFILES=<profile>
-docker compose --profile <profile> --env-file profiles/<profile>.env up -d --build
-```
-
----
-
-## `ros2 topic info` returns "Unknown topic" / `ros2 topic list` empty
-
-**Symptom**: inside `comm-layer`, `ros2 topic info /safety/is_muted -v` says the topic is
-unknown and `ros2 topic list` is empty — yet MUTE/UNMUTE **is** flowing to the OPC log and
-the forklift reacts.
-
-**Cause**: this is **not** a failure. Single-host SIL sets
-`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`; CycloneDDS loopback SPDP discovery does not
-expose the bridge participant to the `ros2` CLI daemon, so the CLI can't enumerate topics
-it isn't itself part of. The pub/sub link between comm-layer and Isaac is unaffected.
-
-**Fix**: don't rely on the CLI here. Verify **functionally** — sim-driven MUTE/UNMUTE in
-`$MDX_DATA_DIR/comm-layer/opc_server.log` proves the ROS link end-to-end:
-```bash
-grep -E "MUTE|UNMUTE" "$MDX_DATA_DIR/comm-layer/opc_server.log" | tail -5
-```
+> This only affects multi-machine setups on the same network. Single-machine
+> deployments can safely use the default `ROS_DOMAIN_ID=0`.
 
 ---
 
@@ -322,10 +265,8 @@ grep -E "MUTE|UNMUTE" "$MDX_DATA_DIR/comm-layer/opc_server.log" | tail -5
 | Error | Fix |
 |-------|-----|
 | PSF Kafka connection | Deploy VSS Warehouse first |
-| `no service selected` | `export COMPOSE_PROFILES=<profile>` + `--profile <profile>` (Compose <2.39) |
-| `ros2 topic info` empty / Unknown topic | Not a failure under LOCALHOST discovery — verify via OPC MUTE/UNMUTE |
-| STALE events / MUTE stops | System ts (`attach-sys-ts-as-ntp=1`), not SEI sim-time; then widen `timeWindowSize` |
-| Low FPS (~14) in SIL | Expected on shared GPU (not SEI); `0.00000` = stream not arriving |
+| STALE events | Increase `timeWindowSize` in nvpss.conf |
+| Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
 | No cameras in VST | Use `--enable-vst` flag |

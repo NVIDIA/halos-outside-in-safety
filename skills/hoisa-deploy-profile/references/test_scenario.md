@@ -21,8 +21,8 @@ profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 2. Spawns the forklift + digital humans
 3. Initializes the ROS2 Action Graph (the forklift safety disc subscribes `/safety/is_muted`)
 4. Runs the forklift playback (`segments.json`: forward into trailer → idle → backward → idle)
-5. Starts RTSP streaming — Isaac 6.0 **self-hosts** RTSP per camera (H264), no external
-   `mediamtx`: `rtsp://localhost:8554/camera`, `:8555/camera_01`, `:8556/camera_02`
+5. Starts RTSP streaming — Isaac 6.0 **self-hosts** RTSP per camera (H264):
+   `rtsp://localhost:8554/camera`, `:8555/camera_01`, `:8556/camera_02`
 6. Registers the 3 cameras with VST — `--enable-vst` deletes existing sensors, then adds the Isaac cameras
 
 **First-run note**: Isaac Sim goes quiet for ~5-10 min on first run (scene load + RT
@@ -110,7 +110,7 @@ run's MUTE/UNMUTE transition summary.
 ```bash
 docker logs vss-rtvi-cv     2>&1 | grep -E 'new stream (added|removed) \['
 docker logs vss-vios-sensor 2>&1 | grep -E '"change" : "camera_(add|remove)"'
-# Isaac 6.0 self-hosted RTSP (no mediamtx): stream-start lines from the kit log
+# Isaac 6.0 self-hosted RTSP: stream-start lines from the kit log
 docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); grep -E "RTSP stream started|Started RTSP server" "$KL" | grep -v "Client "'
 ```
 
@@ -141,15 +141,9 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 ```
 ... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_0 (rule: Forklift tripwire OUT)
 ... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_1 (rule: Forklift tripwire IN)
-... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_4 (rule: Person restricted area ROI violation)
-... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_5 (rule: Person restricted area ROI violation cleared)
 ... NVPSB_PSD_CLIENT[34]: ... Data: PSD-Gateway: received DecisionRequest id=1 with 1 events
 ```
-- **EVENT_0 / EVENT_1**: forklift tripwire crossings (OUT / IN the trailer).
-- **EVENT_4 / EVENT_5**: person restricted-area ROI violation / cleared (digital humans).
-- The loop can be driven by **either** family depending on the scene/segments — e.g. if the
-  forklift does a single pass then parks, MUTE/UNMUTE is driven by the person-ROI events.
-  Don't expect only forklift events.
+- **EVENT_0 / EVENT_1**: tripwire crossings reported by perception (forklift OUT / IN the trailer).
 - **DecisionRequest**: the PSF decision-maker is invoked — it produces the corresponding MUTE/UNMUTE command shown in the OPC log above.
 
 ---
@@ -165,31 +159,24 @@ in headless mode.
 ## Verify End-to-End
 
 The system is working when:
-1. `vss-rtvi-cv` shows non-zero, **stable** FPS for **all 3** cameras — gate on "non-zero
-   & steady", not an exact number. In SIL expect ~14 FPS/cam (the perception GPU is shared
-   with Isaac Sim); the ~30 in NVIDIA's docs assumes a dedicated perception GPU
-2. **The OPC server log shows MUTE↔UNMUTE transitions after Isaac started streaming** — this
-   is the authoritative end-to-end signal (it proves perception → PSF → comm-layer → ROS →
-   Isaac all work). The documented `ros2 topic info … Publisher count: 1` is a *nice-to-have*
-   that often can't enumerate under loopback discovery — see ROS wiring below; don't block on it
-3. The PSF log shows ATL decision changes driven by **forklift tripwire (EVENT_0/1) or person
-   restricted-area ROI (EVENT_4/5)** — whichever the scene produces
-4. The VST UI shows the camera streams with bounding boxes
+1. `vss-rtvi-cv` shows ~30 FPS for **all 3** cameras
+2. `ros2 topic info /safety/is_muted -v` shows **`Publisher count: 1`** (see ROS isolation below)
+3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
+4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
+5. The VST UI shows the camera streams with bounding boxes
 
-> "Working" means **sim-driven** transitions (from the Isaac scene — forklift cycle and/or
-> digital-human ROI) — not the VSS sample-video bootstrap traffic that appears before Isaac
-> streams come up.
+> "Working" means **sim-driven** transitions (the forklift cycle) — not the VSS
+> sample-video bootstrap traffic that appears before Isaac streams come up.
 
-### ROS wiring (best-effort — the functional OPC check above is authoritative)
+### ROS wiring (check once per host)
 ```bash
 docker exec comm-layer bash -c \
   "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v" \
   | grep -E "Publisher count|Subscription count"
 ```
-> **Often can't enumerate under loopback.** With `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`,
-> CycloneDDS hides the bridge from the `ros2` daemon → `Unknown topic`/empty even when
-> healthy. **Not a failure** — the OPC MUTE/UNMUTE evidence above is authoritative.
-- **`Publisher count: 1`** — one (comm-layer). `2+` = another host shares your `ROS_DOMAIN_ID`
-  on `SUBNET` (multi-host only) — see `troubleshooting.md`.
-- **`Subscription count: 1`** — Isaac's forklift Action Graph is subscribed. `0` usually just
-  means the CLI can't see it over loopback; confirm via MUTE/UNMUTE changing forklift state.
+- **`Publisher count: 1`** — exactly one (comm-layer). If `2+`, another machine on the
+  network shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety Indicator
+  Flickering (Multi-Machine)".
+- **`Subscription count: 1`** — the Isaac Sim forklift Action Graph has connected and
+  is receiving safety state. `0` means Isaac isn't subscribed yet (scene not fully up,
+  or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`).

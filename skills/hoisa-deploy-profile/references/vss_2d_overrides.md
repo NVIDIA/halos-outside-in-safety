@@ -15,13 +15,10 @@ standard deploy flow — this file specifies only what must be **different** for
 > `--env-file industry-profiles/warehouse-operations/.env`. Edit the override files
 > below in place, then let `vss-deploy-profile` bring VSS up.
 
-These overrides exist because of **how Isaac Sim's timestamps reach PSF** — not because
-SEI is missing. Isaac 6.0 RTSP *does* embed SEI (including a simulation-time value) and
-DeepStream extracts it fine; FPS is healthy either way. The real issue is the *timestamp
-source*: if DeepStream feeds Isaac's SEI **sim-time** in as the NTP timestamp, the sim
-clock lands outside PSF's decision window and events get dropped as **STALE**. So these
-overrides force **system timestamps** instead of SEI sim-time. (Verified on a live VSS 3.2
-+ Isaac 6.0 SIL run — see the A/B results below.)
+Isaac 6.0 RTSP *does* embed SEI, but **PSF currently doesn't support sim time** — so these
+overrides **disable SEI extraction** and use **system (wall-clock) timestamps**. Feeding
+Isaac's SEI sim-time as the frame timestamp makes PSF drop events as STALE; system time
+keeps decisions flowing.
 
 ---
 
@@ -55,11 +52,9 @@ File:
 <wh_ops>/warehouse-2d-app/deepstream/configs/ds-main-config.txt
 ```
 
-### Leave SEI type-5 extraction commented in `[source-list]`
+### Disable SEI extraction in `[source-list]`
 
-Keep these commented (matches NVIDIA's official SIL config). Isaac 6.0 *does* send SEI,
-and A/B testing showed extracting the type-5 metadata on its own is harmless (FPS and
-STALE unaffected) — but it buys nothing for SIL, so leave it off:
+Keep SEI extraction off for SIL (comment these out; default = enabled):
 
 ```ini
 [source-list]
@@ -67,29 +62,20 @@ STALE unaffected) — but it buys nothing for SIL, so leave it off:
 # sei-uuid=NVDS_CUSTOMMETA
 ```
 
-### Use system timestamp in `[streammux]` — the critical setting
+### Use system timestamp in `[streammux]`
 
 ```ini
 [streammux]
-attach-sys-ts-as-ntp=1       # change from 0 to 1 — tag frames with system (wall-clock) time
-# extract-sei-sim-time=1     # comment out — do NOT use Isaac's SEI sim-time as the timestamp
-# drop-backward-sei=1        # comment out — only relevant when driving off SEI sim-time
+attach-sys-ts-as-ntp=1       # change from 0 to 1
+# extract-sei-sim-time=1     # comment out
+# drop-backward-sei=1        # comment out
 ```
 
-**Why (A/B tested on Isaac 6.0):**
-
-| DeepStream config | FPS/cam | PSF STALE | MUTE/UNMUTE |
-|-------------------|---------|-----------|-------------|
-| system ts (this config: `attach-sys-ts-as-ntp=1`, SEI sim-time off) | ~14, stable | 0 | normal |
-| SEI type-5 extract **on**, still system ts | ~14, stable | 0 | normal |
-| SEI **sim-time** as NTP (`extract-sei-sim-time=1`, `attach-sys-ts-as-ntp=0`) | ~14, stable | ~100 | degraded / stalls |
-
-The takeaway: **the timestamp source is what matters, not SEI extraction.** Isaac's
-sim-time drifts relative to PSF's ~6 s decision window, so using it as the NTP timestamp
-makes PSF drop events as STALE and MUTE stops toggling. Extracting SEI does **not** hurt
-FPS — the old "SEI → 0 FPS" claim did not reproduce on 6.0. Tag frames with **system
-time** and safety decisions flow correctly. (`bbox_tolerance_ms` below handles residual
-VST bbox flicker.)
+**Why**: `attach-sys-ts-as-ntp=1` tags each frame with the host's system (wall-clock) time.
+Isaac 6.0 RTSP embeds SEI (which carries a sim-time value), but **PSF currently doesn't
+support sim time** — using it as the frame timestamp makes PSF drop events as STALE, so
+system time keeps the perception → PSF decisions flowing. (`bbox_tolerance_ms` below handles
+residual VST bbox flicker.)
 
 ---
 
@@ -124,11 +110,8 @@ echo "vss-rtvi-cv READY:"
 docker logs vss-rtvi-cv 2>&1 | grep 'PERF' | tail -3
 ```
 
-> All 3 sources must show **non-zero**, stable FPS (~14/cam in SIL — the GPU is shared
-> with Isaac; NVIDIA's ~30 assumes a dedicated perception GPU). A source stuck at
-> `0.00000` means that stream isn't arriving (Isaac not streaming yet, wrong RTSP URL, or
-> the TensorRT engine still building) — **not** an SEI issue; SEI extraction does not
-> affect FPS on Isaac 6.0.
+> All 3 sources must show **non-zero** FPS. If one stays at `0.00000`, that stream
+> isn't arriving yet (Isaac not streaming, wrong RTSP URL, or the TensorRT engine still building).
 
 ### Ready signal 2: Kafka `mdx-events` topic has data
 

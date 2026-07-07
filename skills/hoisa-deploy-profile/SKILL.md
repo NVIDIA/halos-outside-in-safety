@@ -26,8 +26,7 @@ Deployment has two stacks that must come up in order — do NOT skip or reorder.
 
 ## Profiles
 
-Pick one profile and activate it with `--profile <profile>` (+ `COMPOSE_PROFILES`) — see
-`halos_deploy.md` (old Compose ignores `COMPOSE_PROFILES` from `--env-file`). Services started:
+Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services started:
 
 | Profile | Services | Use |
 |---------|----------|-----|
@@ -99,10 +98,10 @@ Each phase ends when its ready signal becomes true. Poll, don't wait by time.
 | VSS Kafka | `docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-events --max-messages 1 --timeout-ms 30000` exits 0 |
 | Halos services | The profile's services are all Up (`sil` = 4: safety-core, comm-layer, isaac-sim, forklift-controller; `base` = 1) |
 | PSF wired | `<sil-data>/comm-layer/opc_server.log` exists and is non-empty |
-| **ROS link** | **Primary:** sim-driven MUTE↔UNMUTE in `<sil-data>/comm-layer/opc_server.log` proves the bridge publishes `/safety/is_muted` and Isaac acts on it. The documented `ros2 topic info /safety/is_muted -v` (`Publisher count: 1`) **often can't enumerate** from inside `comm-layer` under `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (CycloneDDS loopback SPDP hides the participant from the ros2 CLI daemon) — returns `Unknown topic`/empty even when healthy, so **don't block on it**. `2+` publishers only matter on `SUBNET`/multi-host — see `troubleshooting.md`. |
-| Isaac Sim streaming | Isaac's 3 self-hosted RTSP streams are live **and** DeepStream ingested them. **Bootstrap-immune gate:** kit-log `RTSP stream started … encoding=h264` ×3 (only Isaac emits it — the VSS sample-video bootstrap also registers ~3 DeepStream streams, so a bare "net `added`−`removed` ≥3" can fire *early* on bootstrap). Then confirm DeepStream net active ≥3. Gate on this handoff, **not** a shader-log string (first-run RT compile is slow). Poll commands in `test_scenario.md`. |
-| Isaac Sim wired | Same evidence as **ROS link** above — MUTE/UNMUTE actually toggling Isaac's forklift proves its Action Graph is subscribed. `ros2 topic info … Subscription count: 1` is the documented check but usually can't enumerate under loopback discovery. |
-| Sim-driven safety | Safety transitions **after** Isaac streams came up (not sample-video bootstrap). **Authoritative:** MUTE↔UNMUTE in `<sil-data>/comm-layer/opc_server.log`. The driver may be **forklift tripwire IN/OUT** (`EVENT_0/1`) **or person restricted-area ROI** (`EVENT_4/5`) depending on the scene/segments — either counts; don't require forklift events specifically (the forklift may do a single pass then park). |
+| **ROS isolation** | `docker exec comm-layer bash -c "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v"` shows **`Publisher count: 1`** (if 2+, multi-machine `ROS_DOMAIN_ID` collision — see `troubleshooting.md`) |
+| Isaac Sim streaming | Isaac's 3 self-hosted RTSP streams live **and** DeepStream ingested them (the Isaac→VSS handoff). Gate on the handoff, **not** a shader-log string; a bare "3 active streams" can false-positive on VSS bootstrap — bootstrap-immune poll commands in `test_scenario.md`. |
+| Isaac Sim wired | `ros2 topic info /safety/is_muted -v` shows **`Subscription count: 1`** (Isaac forklift Action Graph connected) |
+| Sim-driven safety | forklift/trailer transitions in `<sil-data>/psf-log/pss.log` **after** Isaac streams came up (not sample-video bootstrap traffic) |
 
 The exact poll command for each signal is in the corresponding reference doc.
 
@@ -121,8 +120,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 - [ ] 5. Poll VSS perception + Kafka ready signals
 - [ ] 6. Configure deployments/profiles/<profile>.env, then
         deploy Halos (setup.sh + cleanup + compose up --build)   → references/halos_deploy.md
-- [ ] 7. ROS: single-host keeps ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST; verify the link
-        functionally via OPC MUTE/UNMUTE (multi-host: unique ROS_DOMAIN_ID + Publisher count=1)
+- [ ] 7. Set a unique ROS_DOMAIN_ID (0-232) + verify Publisher count=1
 - [ ] 8. (sil) Run the Isaac Sim test scenario                   → references/test_scenario.md
 - [ ] 9. Monitor until sim-driven safety transitions appear (the "complete" signal)
 ```
@@ -152,14 +150,14 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
 | `VSS_BEFORE_HALOS` | VSS Warehouse **must** be running and healthy before deploying Halos | `vss_2d_overrides.md` |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
-| `DEEPSTREAM_SEI` | Use **system timestamps** (`attach-sys-ts-as-ntp=1`) + do **not** use SEI sim-time in DeepStream. Isaac 6.0 RTSP *does* embed SEI and DeepStream extracts it fine (FPS stays healthy), but feeding its sim-time as NTP desyncs PSF's decision window → events dropped as STALE, MUTE stops. Keep `extract-sei-sim-time`/`drop-backward-sei` off. | `vss_2d_overrides.md` |
+| `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md` |
 | `BP_PROFILE_KAFKA` | VSS must use `BP_PROFILE=bp_wh_kafka` (not `bp_wh`) for Halos integration | `vss_2d_overrides.md` |
 | `LLM_VLM_NONE` | Set `LLM_MODE=none` and `VLM_MODE=none` — not needed for safety SIL | `vss_2d_overrides.md` |
 | `HALO_SAFETY_BASE` | **`base` profile**: to render the safety overlay, set `halo_safety_udp_port` in the VSS 2D `vst_config.json` from `-1` → `12345` (must equal `COMM_UDP_PORT`), then restart VST | `halos_deploy.md`, `vss_2d_overrides.md` |
 | `THOR_BASE` | **`base`: detect the platform** (`uname -m`). `x86_64` → standard container base. **`aarch64` (IGX Thor)** → **ask the user** which SDM target before deploying — **CCPLEX** (decision-maker as host software on the Thor application cores; simpler, no firmware change) or **FSI** (decision-maker on the Functional Safety Island, the on-die safety microcontroller; needs a one-time firmware reflash) — then launch via `launch_thor_safety.sh` (hybrid container + host binaries, **not** `docker compose`) | `halos_thor.md` |
 | `HOST_IP_BOTH` | `HOST_IP` must be set in **both** the VSS and Halos run-env files | `halos_deploy.md` |
 | `SIL_DATA_PATH` | Halos `MDX_DATA_DIR` points to **sil-data** (has `collected-assets/`), not VSS app-data | `halos_deploy.md`, `ngc_artifacts.md` |
-| `ROS_DOMAIN_UNIQUE` | Single-host SIL: keep `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (scopes ROS2 discovery to loopback — fixes cloud VMs blocking multicast). `ROS_DOMAIN_ID` uniqueness (0-232) only matters on `SUBNET`/multi-host; verify the link functionally via OPC MUTE/UNMUTE (the `ros2` CLI often can't enumerate under loopback) | `halos_deploy.md`, `troubleshooting.md` |
+| `ROS_DOMAIN_UNIQUE` | Assign a unique `ROS_DOMAIN_ID` (0-232) per machine; verify `Publisher count: 1` on `/safety/is_muted` | `halos_deploy.md`, `troubleshooting.md` |
 | `GPU_NOT_PERCEPTION` | Run Isaac Sim on a GPU (RT cores, >20 GB) that is **not** running VSS perception | `prerequisites.md`, `halos_deploy.md` |
 | `SETUP_BEFORE_UP` | Run `setup.sh <profile>` and `cleanup_all_datalog.sh <profile>` **before** `docker compose up` (both read `profiles/<profile>.env`) | `halos_deploy.md` |
 | `POLL_NEVER_WAIT` | First VSS startup takes 10-15 min (TensorRT build); Isaac shaders ~5-10 min — **poll** the ready signal, never `docker logs -f` or a fixed timer | (this file) |
