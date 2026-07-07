@@ -5,12 +5,12 @@ description: >-
   (base / sil / hil) on top of the VSS Warehouse 3.2 perception backend.
   Clone the OSS repo, pick a profile, deploy. Covers prerequisites, NGC
   artifacts (sil-data + PSF + VSS images), VSS SIL overrides, the Halos
-  stack (PSF, comm-layer, Isaac Sim, MediaMTX), test scenario, and
+  stack (PSF, comm-layer, Isaac Sim, forklift-controller), test scenario, and
   monitoring. Use when asked to deploy Halos, deploy HOISA, deploy SIL,
   set up warehouse safety simulation, or run outside-in safety testing.
 metadata:
   author: NVIDIA
-  version: 1.0.0
+  version: 1.3.0
 ---
 
 # Halos Outside-In Safety — Deploy by Profile (VSS 3.2)
@@ -31,8 +31,8 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 | Profile | Services | Use |
 |---------|----------|-----|
 | `base` | safety-core | Safety on an existing VSS feed; MUTE/UNMUTE rendered as the VST `halo_safety` overlay ("Standard"/"Efficient Mode" + proximity bubble). No Isaac Sim. |
-| `sil` | safety-core, comm-layer, isaac-sim, mediamtx | Full single-host closed loop: Isaac Sim stimulus → VSS perception → PSF → ROS → Isaac forklift. |
-| `hil` 🚧 | comm-layer, isaac-sim, mediamtx | 🚧 **Under development.** |
+| `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop: Isaac Sim stimulus → VSS perception → PSF → ROS → Isaac forklift. |
+| `hil` 🚧 | comm-layer, isaac-sim, forklift-controller | 🚧 **Under development.** |
 
 > **2D today. A 3D (Sparse4D) profile is 🚧 under development** — see
 > `references/vss_3d_overrides.md` when it lands.
@@ -45,7 +45,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 
 ```
 Isaac Sim (forklift + digital humans, segments-driven)
-     ↓ RTSP (3 cameras, H265, via MediaMTX)
+     ↓ RTSP (3 cameras, H264, self-hosted per-camera 8554/8555/8556)
 VSS Warehouse 3.2 (AI Perception)
      ├─ vss-rtvi-cv: detection + tracking
      └─ vss-behavior-analytics: ROI / tripwire (forklift-in-trailer)
@@ -96,10 +96,10 @@ Each phase ends when its ready signal becomes true. Poll, don't wait by time.
 | NGC artifacts | sil-data extracted (`collected-assets/` present) + `PSF_IMAGE` pulled + VSS images present |
 | VSS perception | `docker logs vss-rtvi-cv 2>&1 \| grep -c "stream_name Camera"` returns ≥ 3, all non-zero FPS |
 | VSS Kafka | `docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-events --max-messages 1 --timeout-ms 30000` exits 0 |
-| Halos services | The profile's services are all Up (`sil` = 4: safety-core, comm-layer, isaac-sim, mediamtx; `base` = 1) |
+| Halos services | The profile's services are all Up (`sil` = 4: safety-core, comm-layer, isaac-sim, forklift-controller; `base` = 1) |
 | PSF wired | `<sil-data>/comm-layer/opc_server.log` exists and is non-empty |
 | **ROS isolation** | `docker exec comm-layer bash -c "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v"` shows **`Publisher count: 1`** (if 2+, multi-machine `ROS_DOMAIN_ID` collision — see `troubleshooting.md`) |
-| Isaac Sim streaming | DeepStream `vss-rtvi-cv` has 3 active Isaac streams: count of `new stream added [` **minus** `new stream removed [` ≥ 3 (net handles re-runs). First-run RT shader compile is slow — gate on this handoff, **not** a shader-log string (absent on Isaac 5.1.0). Poll command in `test_scenario.md`. |
+| Isaac Sim streaming | Isaac's 3 self-hosted RTSP streams live **and** DeepStream ingested them (the Isaac→VSS handoff). Gate on the handoff, **not** a shader-log string; a bare "3 active streams" can false-positive on VSS bootstrap — bootstrap-immune poll commands in `test_scenario.md`. |
 | Isaac Sim wired | `ros2 topic info /safety/is_muted -v` shows **`Subscription count: 1`** (Isaac forklift Action Graph connected) |
 | Sim-driven safety | forklift/trailer transitions in `<sil-data>/psf-log/pss.log` **after** Isaac streams came up (not sample-video bootstrap traffic) |
 
@@ -150,7 +150,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
 | `VSS_BEFORE_HALOS` | VSS Warehouse **must** be running and healthy before deploying Halos | `vss_2d_overrides.md` |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
-| `DEEPSTREAM_SEI` | **Disable** SEI extraction + enable system timestamps in DeepStream — Isaac Sim RTSP carries no SEI | `vss_2d_overrides.md` |
+| `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md` |
 | `BP_PROFILE_KAFKA` | VSS must use `BP_PROFILE=bp_wh_kafka` (not `bp_wh`) for Halos integration | `vss_2d_overrides.md` |
 | `LLM_VLM_NONE` | Set `LLM_MODE=none` and `VLM_MODE=none` — not needed for safety SIL | `vss_2d_overrides.md` |
 | `HALO_SAFETY_BASE` | **`base` profile**: to render the safety overlay, set `halo_safety_udp_port` in the VSS 2D `vst_config.json` from `-1` → `12345` (must equal `COMM_UDP_PORT`), then restart VST | `halos_deploy.md`, `vss_2d_overrides.md` |
@@ -171,7 +171,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | Stack | Services | Source |
 |-------|----------|--------|
 | VSS Warehouse 3.2 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | `vss-deploy-profile` skill (VSS repo) |
-| Halos (profile) | safety-core, comm-layer, isaac-sim, mediamtx | this OSS repo (`deployments/compose.yaml`) + `PSF_IMAGE` from NGC |
+| Halos (profile) | safety-core, comm-layer, isaac-sim, forklift-controller | this OSS repo (`deployments/compose.yaml`) + `PSF_IMAGE` from NGC |
 
 ---
 

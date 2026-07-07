@@ -1,0 +1,150 @@
+{
+    "schemaVersion": "2.0.0",
+    "nodeLibraries": [
+        {
+            "name": "omni.behavior.tree.core",
+            "version": "1.0"
+        },
+        {
+            "name": "omni.anim.behavior.tree",
+            "version": "0.1"
+        }
+    ],
+    "root": {
+        "type": "Sequence",
+        "source": "omni.behavior.tree.core",
+        "name": "Root",
+        "children": [
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Prelude_Idle_10s",
+                "portOverrides": {
+                    "duration": 10.0
+                }
+            },
+            {
+                "type": "Sequence",
+                "source": "omni.behavior.tree.core",
+                "name": "SuperCycle_2Trips",
+                "children": [
+                    {
+                        "type": "MoveTo",
+                        "source": "omni.anim.behavior.tree",
+                        "name": "MoveTo_A_Trip1",
+                        "portOverrides": {
+                            "target": {
+                                "type": "carb::Float3",
+                                "value": [
+                                    9.2,
+                                    -11.65,
+                                    0.0
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "Wait",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Wait_PreInspect_Trip1",
+                        "portOverrides": {
+                            "duration": 1.0
+                        }
+                    },
+                    {
+                        "type": "Wait",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Wait_InspectPlans_Trip1",
+                        "portOverrides": {
+                            "duration": 6.0
+                        }
+                    },
+                    {
+                        "type": "MoveTo",
+                        "source": "omni.anim.behavior.tree",
+                        "name": "MoveTo_B_Trip1",
+                        "portOverrides": {
+                            "target": {
+                                "type": "carb::Float3",
+                                "value": [
+                                    2.26,
+                                    -10.3,
+                                    0.0
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "Wait",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Wait_Long_Trip1_30s",
+                        "portOverrides": {
+                            "duration": 30.0
+                        }
+                    },
+                    {
+                        "type": "MoveTo",
+                        "source": "omni.anim.behavior.tree",
+                        "name": "MoveTo_A_Trip2",
+                        "portOverrides": {
+                            "target": {
+                                "type": "carb::Float3",
+                                "value": [
+                                    9.2,
+                                    -11.65,
+                                    0.0
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "Wait",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Wait_PreInspect_Trip2",
+                        "portOverrides": {
+                            "duration": 1.0
+                        }
+                    },
+                    {
+                        "type": "Wait",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Wait_InspectPlans_Trip2",
+                        "portOverrides": {
+                            "duration": 6.0
+                        }
+                    },
+                    {
+                        "type": "MoveTo",
+                        "source": "omni.anim.behavior.tree",
+                        "name": "MoveTo_B_Trip2",
+                        "portOverrides": {
+                            "target": {
+                                "type": "carb::Float3",
+                                "value": [
+                                    2.26,
+                                    -10.3,
+                                    0.0
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "Wait",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Wait_Short_Trip2_10s",
+                        "portOverrides": {
+                            "duration": 10.0
+                        }
+                    }
+                ],
+                "modifiers": [
+                    {
+                        "type": "Repeat",
+                        "source": "omni.behavior.tree.core",
+                        "name": "Repeat"
+                    }
+                ]
+            }
+        ]
+    }
+}
