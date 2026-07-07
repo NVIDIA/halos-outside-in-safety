@@ -6,8 +6,8 @@ Services and config differ per profile:
 | Profile | Services | Notes |
 |---------|----------|-------|
 | `base` | safety-core | Safety on an existing VSS feed; MUTE/UNMUTE shown as the VST `halo_safety` overlay. No Isaac Sim. |
-| `sil` | safety-core, comm-layer, isaac-sim, mediamtx | Full single-host closed loop. |
-| `hil` 🚧 | comm-layer, isaac-sim, mediamtx | 🚧 Under development — see `halos_hil.md`. |
+| `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop. |
+| `hil` 🚧 | comm-layer, isaac-sim, forklift-controller | 🚧 Under development — see `halos_hil.md`. |
 
 ---
 
@@ -60,8 +60,8 @@ docker compose --env-file profiles/<profile>.env up -d --build
 Poll until the profile's services are Up (first run builds local images — takes minutes):
 
 ```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E "safety-core|comm-layer|isaac-sim|mediamtx"
-# base = safety-core ; sil = + comm-layer + isaac-sim + mediamtx (4 total)
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E "safety-core|comm-layer|isaac-sim|forklift-controller"
+# base = safety-core ; sil = + comm-layer + isaac-sim + forklift-controller (4 total)
 ```
 
 ### Safety overlay (`base`) — enable on the VSS side

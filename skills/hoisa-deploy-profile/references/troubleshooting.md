@@ -34,8 +34,9 @@ run a while** — startup / bootstrap STALE before Isaac streams stabilise is ex
 A persistent high rate (tens of % while running) indicates real pipeline latency.
 
 **Cause**: perception→Kafka→PSF latency occasionally exceeds `timeWindowSize` (slow or
-shared GPU, frame-timing jitter, multi-camera fusion); or the SEI override is missing —
-without it, frames carry no NTP timestamp and nearly everything is dropped as STALE.
+shared GPU, frame-timing jitter, multi-camera fusion); or the DeepStream override is
+missing — without `attach-sys-ts-as-ntp=1`, frames don't get a proper (wall-clock) NTP
+timestamp and nearly everything is dropped as STALE.
 
 **Fix**:
 ```bash
@@ -52,7 +53,7 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env restar
 
 **Symptom**: `vss-rtvi-cv` shows low FPS (<30), VST shows flickering boxes.
 
-**Cause**: DeepStream SEI extraction enabled — incompatible with Isaac Sim RTSP.
+**Cause**: the DeepStream SIL override isn't applied (no system timestamps) — bboxes flicker and events drop as STALE. A source stuck at `0.00000` isn't arriving at all (Isaac not streaming yet, wrong RTSP URL, or TensorRT still building).
 
 **Fix**: Apply DeepStream config changes (see `vss_2d_overrides.md`):
 - Comment out `extract-sei-type5-data` and `sei-uuid` in `[source-list]`
@@ -265,7 +266,7 @@ using the same domain ID.
 |-------|-----|
 | PSF Kafka connection | Deploy VSS Warehouse first |
 | STALE events | Increase `timeWindowSize` in nvpss.conf |
-| Low FPS / flickering | Disable SEI in DeepStream config |
+| Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
 | No cameras in VST | Use `--enable-vst` flag |
