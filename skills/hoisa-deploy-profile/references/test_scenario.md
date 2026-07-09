@@ -143,7 +143,7 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 ... nv_mdx_client[59]: ... Endpoint: NVPSB_PSS_SOURCE Data: Safety event reported: EVENT_1 (rule: Forklift tripwire IN)
 ... NVPSB_PSD_CLIENT[34]: ... Data: PSD-Gateway: received DecisionRequest id=1 with 1 events
 ```
-- **EVENT_0 / EVENT_1**: tripwire crossings reported by perception (forklift OUT / IN the trailer).
+- **EVENT_0 / EVENT_1**: tripwire crossings reported by perception (forklift OUT / IN the trailer). The full ATL event map (`EVENT_0`–`EVENT_5` → forklift/person tripwire + person ROI) is documented in `closed-loop-testing/safety-core/configs/nvpss.conf` (the `bypassFusionEvents` block).
 - **DecisionRequest**: the PSF decision-maker is invoked — it produces the corresponding MUTE/UNMUTE command shown in the OPC log above.
 
 ---
