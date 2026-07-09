@@ -109,7 +109,7 @@ def deactivate_optional_scene_components(stage) -> None:
         "HALOS_REMOVE_FORKLIFT_FULL", "HALOS_REMOVE_ALL_DYNAMIC",
         "HALOS_DEACTIVATE_DOME", "HALOS_DEACTIVATE_RECT", "HALOS_DEACTIVATE_RECT01",
         "HALOS_REMOVE_MATERIALS", "HALOS_REMOVE_LIGHTS_ALL", "HALOS_REMOVE_MESHES",
-        "HALOS_REMOVE_LOADING_ZONE", "HALOS_REMOVE_BAKED_CAMS", "HALOS_REMOVE_NAVMESH",
+        "HALOS_REMOVE_LOADING_ZONE", "HALOS_REMOVE_NAVMESH",
         "HALOS_REMOVE_PHYSICS_SCENE", "HALOS_REMOVE_RENDER_SETTINGS",
         "HALOS_REMOVE_VIEWPORT_MEASURE", "HALOS_FORCE_TIMECODES_60", "HALOS_FORCE_TIMECODES_30",
         "HALOS_DEBUG_DUMP",
@@ -143,13 +143,9 @@ def deactivate_optional_scene_components(stage) -> None:
             "/World/Loading_Zone_Objects_01",
             "/World/Objects_In_Trailer",
         ], "loading_zone_remove")
-    if _env_flag("HALOS_REMOVE_BAKED_CAMS"):
-        _remove_prims(stage, [
-            "/World/Cameras/Camera_03",
-            "/World/Cameras/Camera_04",
-            "/World/Cameras/Camera_05",
-            "/World/Cameras/Camera_06",
-        ], "baked_cams_remove")
+    # HALOS_REMOVE_BAKED_CAMS retired: the baked Camera_03..11 defs were
+    # removed from the scene USD when cameras went config-driven
+    # (camera_loader.py + cameras.yaml spawn: blocks).
     if _env_flag("HALOS_REMOVE_NAVMESH"):
         _remove_prims(stage, ["/World/Navmesh"], "navmesh_remove")
     if _env_flag("HALOS_REMOVE_PHYSICS_SCENE"):

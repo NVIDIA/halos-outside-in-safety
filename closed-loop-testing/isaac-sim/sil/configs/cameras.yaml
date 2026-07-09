@@ -9,6 +9,16 @@
 #   - port        : TCP port of the in-process RTSP server (unique per camera)
 #   - mount_path  : URL suffix (must start with "/")
 #   - camera_prim : USD prim path of the camera in the stage
+#   - spawn       : OPTIONAL — when present, camera_loader.py creates the
+#                   Camera prim at camera_prim from these values at scene
+#                   init (dynamic loading; the baked def must be removed
+#                   from the scene USD). Omit to use a baked camera prim.
+#       position            : world-space [x, y, z] (meters)
+#       rotation_yxz_deg    : xformOp:rotateYXZ [x, y, z] degrees
+#                             (baked-camera convention — do NOT convert)
+#       focal_length        : mm (baked cams: 8.0 ≈ 105.3° HFOV)
+#       horizontal_aperture : mm (baked cams: 20.955)
+#       vertical_aperture   : mm (baked cams: 15.2908)
 #
 # RTSP URL build formula (consumed by VST registration in vst_sensor_manager.py):
 #
@@ -25,21 +35,43 @@
 #   - ADD per-camera `port`, `mount_path`, `camera_prim`
 #   - KEEP top-level `rtsp.host: ${HOST_IP}` so vst_sensor_manager.py builds URL
 
+# spawn: values below replicate the baked production cameras 1:1
+# (extracted from indicator_warehouse_20x20_layout_overflow_test.usd) so
+# the existing calibration (warehouse-loading-dock-3cams-synthetic)
+# stays valid without regeneration.
 cameras:
   - name: Camera
     camera_prim: /World/Cameras/Camera
     port: 8554
     mount_path: /camera
+    spawn:
+      position: [0.5953581163925358, -15.33611879594478, 3.199676475989638]
+      rotation_yxz_deg: [51.569855, 0.0, -92.38173]
+      focal_length: 8.0
+      horizontal_aperture: 20.955
+      vertical_aperture: 15.2908
 
   - name: Camera_01
     camera_prim: /World/Cameras/Camera_01
     port: 8555
     mount_path: /camera_01
+    spawn:
+      position: [1.50524864810146, -18.289830255256245, 3.2816807558936696]
+      rotation_yxz_deg: [54.531548, 0.0, -65.93993]
+      focal_length: 8.0
+      horizontal_aperture: 20.955
+      vertical_aperture: 15.2908
 
   - name: Camera_02
     camera_prim: /World/Cameras/Camera_02
     port: 8556
     mount_path: /camera_02
+    spawn:
+      position: [2.3578930991148206, -8.960121806528345, 3.2136745244517453]
+      rotation_yxz_deg: [52.302307, 0.0, -133.59724]
+      focal_length: 8.0
+      horizontal_aperture: 20.955
+      vertical_aperture: 15.2908
 
 # RTSP Server Configuration
 # Only `host` remains at top level -- port is now per-camera above.
