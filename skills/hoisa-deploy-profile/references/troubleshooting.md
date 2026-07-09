@@ -29,7 +29,7 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down &
 **Symptom**: PSF log floods with `Dropping STALE event`; safety decisions lag or don't trigger.
 
 **First — some STALE is normal.** Events reaching PSF older than `timeWindowSize`
-(default 900 ms) are dropped. Measure the **steady-state** rate **after the loop has
+(6000 ms / 6 s in the SIL `nvpss.conf`; code fallback 200 ms) are dropped. Measure the **steady-state** rate **after the loop has
 run a while** — startup / bootstrap STALE before Isaac streams stabilise is expected.
 A persistent high rate (tens of % while running) indicates real pipeline latency.
 
@@ -43,7 +43,7 @@ timestamp and nearly everything is dropped as STALE.
 # 1. Confirm the DeepStream SEI override is applied (see vss_2d_overrides.md)
 # 2. If STALE is still high once running, widen the window:
 nano <repo>/closed-loop-testing/safety-core/configs/nvpss.conf
-# Increase timeWindowSize (e.g. 900 -> 1200)
+# Increase timeWindowSize (e.g. 6000 -> 8000)
 cd <repo>/deployments && docker compose --env-file profiles/<profile>.env restart safety-core
 ```
 
