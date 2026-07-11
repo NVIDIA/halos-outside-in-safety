@@ -34,8 +34,14 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 | `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop: Isaac Sim stimulus → VSS perception → PSF → ROS → Isaac forklift. |
 | `hil` 🚧 | comm-layer, isaac-sim, forklift-controller | 🚧 **Under development.** |
 
-> **2D today. A 3D (Sparse4D) profile is 🚧 under development** — see
-> `references/vss_3d_overrides.md` when it lands.
+> **The `sil` profile runs against either a 2D or a 3D perception backend.** 2D
+> (RT-DETR detect + track) is the default — `references/vss_2d_overrides.md`. For **3D
+> (Sparse4D multi-view + BEV tracking)** — better small / occluded object detection —
+> apply the 3D references instead: `references/vss_3d_overrides.md`,
+> `references/model_r101.md`, `references/calibration_3d.md`.
+> The Halos stack (safety-core, comm-layer, isaac-sim, forklift-controller) is **identical**
+> for 2D and 3D — including the Isaac Sim launch (`--enable-vst`, see `references/test_scenario.md`);
+> only the VSS perception side, the model, and the calibration change.
 
 > **`base` on IGX Thor (aarch64)** — the skill detects the platform and, on Thor, asks whether to run the SDM on **CCPLEX** or **FSI** (covered in `references/halos_thor.md`). The CCPLEX path follows the x86 flow; the FSI path is advanced (a one-time firmware reflash).
 
@@ -134,7 +140,9 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | [references/prerequisites.md](references/prerequisites.md) | Hardware/software requirements, Docker, NGC CLI, driver, GPU selection |
 | [references/ngc_artifacts.md](references/ngc_artifacts.md) | Pulling sil-data + PSF image + VSS images from NGC; **Thor Safety Core `.deb`s (`psf-tegra` + `psf-tegra-fsi`)** |
 | [references/vss_2d_overrides.md](references/vss_2d_overrides.md) | VSS Warehouse 2D `.env`, DeepStream config, and VST config for Isaac Sim |
-| [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | 🚧 **Under development** — 3D (Sparse4D) profile overrides |
+| [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | **3D (Sparse4D) profile** — VSS `.env`, DeepStream + `config.yaml`, VST overrides |
+| [references/model_r101.md](references/model_r101.md) | **3D** — the R101 Sparse4D model recipe (deployable ONNX + trainable kmeans anchor, version-matched) |
+| [references/calibration_3d.md](references/calibration_3d.md) | **3D** — the 3-camera BEV calibration (`group` / `rois` / `tripwires`) |
 | [references/halos_deploy.md](references/halos_deploy.md) | Configuring and deploying the Halos stack by profile |
 | [references/halos_thor.md](references/halos_thor.md) | Deploying `base` on IGX Thor (aarch64) — SDM on CCPLEX or FSI |
 | [references/halos_hil.md](references/halos_hil.md) | 🚧 **Under development** — HIL profile |
@@ -150,7 +158,8 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
 | `VSS_BEFORE_HALOS` | VSS Warehouse **must** be running and healthy before deploying Halos | `vss_2d_overrides.md` |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
-| `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md` |
+| `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
+| `SIL_3D_MODEL` | **3D profile:** the R101 Sparse4D model needs the **deployable ONNX + the trainable-package kmeans anchor at the same version** — mixing versions/sources gives silently wrong detections | `model_r101.md` |
 | `BP_PROFILE_KAFKA` | VSS must use `BP_PROFILE=bp_wh_kafka` (not `bp_wh`) for Halos integration | `vss_2d_overrides.md` |
 | `LLM_VLM_NONE` | Set `LLM_MODE=none` and `VLM_MODE=none` — not needed for safety SIL | `vss_2d_overrides.md` |
 | `HALO_SAFETY_BASE` | **`base` profile**: to render the safety overlay, set `halo_safety_udp_port` in the VSS 2D `vst_config.json` from `-1` → `12345` (must equal `COMM_UDP_PORT`), then restart VST | `halos_deploy.md`, `vss_2d_overrides.md` |

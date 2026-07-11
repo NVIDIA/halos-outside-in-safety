@@ -109,6 +109,65 @@ GPU crash dump is successfully written
 
 ---
 
+## RTSP Streams "no caps / could not create SDP" (Cold-Start Race)
+
+**Symptom**: after a **cold** Isaac restart on a heavy scene, the perception client
+can't pull Isaac Sim's self-hosted RTSP streams; DeepStream stays at `Active sources : 0`:
+
+```
+stream has no caps
+could not create SDP
+```
+
+The encoder looks idle even though the RTSP server is accepting connections.
+Warmer / lighter scenes that pre-roll quickly don't hit this.
+
+**Cause** (not a network problem): Isaac Sim 6.0 self-hosts RTSP **in-process**. On a
+cold run the RTX render + encoder **pre-roll is slow** — the RTSP server starts
+listening and accepts a client **before the encoder has produced its first frame**, so
+a client that DESCRIBEs in that window gets "no caps". Critically, a client that
+**DESCRIBE-churns** the not-yet-ready media *actively blocks* its caps negotiation, so
+the media **wedges and does NOT self-recover** even after the render warms (verified: a
+run left untouched stayed wedged for 16 min). It is churn-induced — **not** a timed
+transient you can wait out. Clearing it needs both: **stop the churn** *and* a **warm
+render**.
+
+**Prevention (built-in)**: the SIL launch (`run_actor_sdg.py --enable-vst`) **defers VST
+sensor registration until the render is warm** — it waits for the timeline to advance
+`--vst-register-warmup-sec` of sim-time under Play (default 1.0s) before registering, so
+VST never DESCRIBEs a capless stream (look for `[vst-warmup]` in the run log). A fresh
+`--start --enable-vst` run should not hit this. You can still hit it if **stale** VST
+sensors from a previous run are pointed at Isaac's RTSP and churn it during pre-roll.
+
+**Recovery** — if you do wedge (e.g. stale sensors churning), stop the churn and
+re-provision cleanly:
+
+```bash
+# 1. Confirm the render is actually warm (producing frames). If the timeline never
+#    advances / GPU is idle, the render isn't warming — that's a GPU/scene/navmesh
+#    fault, not this race (check the GPU is visible INSIDE the container):
+docker exec isaac-sim nvidia-smi -L
+
+# 2. Stop the DESCRIBE-churn and re-register: delete all VST sensors, then re-add from
+#    config. The fresh sensor-add events are forwarded to the LIVE DeepStream, which
+#    returns to N active sources in ~1 min.
+docker exec isaac-sim /isaac-sim/kit/python/bin/python3 \
+  /isaac-sim/sil/scripts/vst_sensor_manager.py --delete-all
+docker exec isaac-sim /isaac-sim/kit/python/bin/python3 \
+  /isaac-sim/sil/scripts/vst_sensor_manager.py --add-from-config \
+  /isaac-sim/sil/configs/cameras.yaml
+```
+
+**Do NOT** "recover" by restarting the config-adaptor chain (`vss-configurator` →
+`vss-rtvi-cv-config-adaptor` → `vss-rtvi-cv`): it duplicates sensors and does **not**
+re-push the source list to a freshly-restarted DeepStream (`use-nvmultiurisrcbin=1`
+only ingests on sensor-add events), leaving DeepStream at 0. The heavier fallback is
+relaunching the Isaac kit (`docker restart isaac-sim`) so the built-in warm-up gate
+registers cleanly. This is a cold-start race — not a symptom of a broken network,
+RTSP config, or GPU.
+
+---
+
 ## Cameras Not Showing in VST
 
 **Symptom**: VST UI at `http://<HOST_IP>:30888/vst/` shows no cameras.
@@ -269,6 +328,7 @@ using the same domain ID.
 | Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
+| RTSP "no caps / could not create SDP" | Cold-start race — warm render first, restart perception ingest |
 | No cameras in VST | Use `--enable-vst` flag |
 | NGC 403 | Re-authenticate NGC + docker login |
 | Compose errors | Upgrade to Docker Compose v2.39+ |
