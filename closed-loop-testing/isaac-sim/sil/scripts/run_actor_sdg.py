@@ -58,6 +58,8 @@ class ActorSDGRunner:
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
+        vst_register_warmup_sec=1.0,
+        vst_register_timeout_sec=1200.0,
     ):
         self._sim_app = sim_app
         # Inputs
@@ -77,6 +79,15 @@ class ActorSDGRunner:
         self.cameras_config_path = cameras_config_path
         self._vst_manager = None
         self._vst_cleaned = False  # Track cleanup status
+        # Defer VST registration until the RTSP encoder is warm (producing frames).
+        # Registering while Isaac's in-process RTSP is still cold makes VST
+        # DESCRIBE-churn a capless stream, which wedges the media ("has no caps",
+        # DeepStream 0 sources) with no self-recovery. See _render_is_warm() + run().
+        self.vst_register_warmup_sec = vst_register_warmup_sec      # sim-time (s) to advance under Play before registering
+        self.vst_register_timeout_sec = vst_register_timeout_sec    # wall-clock (s) ceiling -> register best-effort
+        self._warm_t0 = None          # monotonic wall-clock latched when Play first seen
+        self._warm_time0 = None       # timeline time latched when Play first seen
+        self._warm_last_log = 0.0     # heartbeat throttle
 
         # Post-setup stage modifiers + ActionGraph builders.
         # See closed-loop-testing/isaac-sim/sil/scripts/action_graphs/README.md
@@ -174,9 +185,10 @@ class ActorSDGRunner:
                 from action_graphs import build_clock_graph
                 build_clock_graph(self.robots_config_path)
 
-            # VST Integration: Register cameras after simulation setup
-            if self.enable_vst:
-                self._vst_register_cameras()
+            # VST Integration: registration is DEFERRED to after Play + render-warm
+            # (see the run loop below). Registering here — before the RTSP encoder is
+            # producing frames — makes VST DESCRIBE-churn Isaac's cold in-process RTSP
+            # media and wedges it ("has no caps", DeepStream 0 sources), no self-recovery.
 
             # If setup-only mode, don't start data generation
             if self.setup_only:
@@ -190,13 +202,20 @@ class ActorSDGRunner:
                 import omni.timeline
                 print("Pressing Play (timeline.play())")
                 omni.timeline.get_timeline_interface().play()
-                while not self._sim_app.is_exiting():
-                    await self._sim_app.app.next_update_async()
             else:
                 print("Simulation ready. Waiting for data generation...")
                 print("Use the UI to start data generation or pass --start flag")
-                while not self._sim_app.is_exiting():
-                    await self._sim_app.app.next_update_async()
+
+            # Run loop. VST sensor registration is deferred until the RTSP encoder is
+            # warm (producing frames) — see _render_is_warm(). This holds for both the
+            # auto-start path and a manual UI Play, so VST never DESCRIBEs a capless
+            # stream (the cause of the "has no caps" / DS-0 cold-restart wedge).
+            vst_registered = False
+            while not self._sim_app.is_exiting():
+                await self._sim_app.app.next_update_async()
+                if self.enable_vst and not vst_registered and self._render_is_warm():
+                    self._vst_register_cameras()
+                    vst_registered = True
 
             return True
 
@@ -287,6 +306,72 @@ class ActorSDGRunner:
             print(f"WARNING: VST integration unavailable (missing module): {e}")
         except Exception as e:
             print(f"WARNING: VST registration failed: {e}")
+
+    def _render_is_warm(self):
+        """Return True once the RTSP encoder is producing frames, so VST can
+        register without DESCRIBE-churning a capless stream.
+
+        isaacsim.streaming.rtsp exposes no first-frame signal, so we use a robust
+        proxy: OnPlaybackTick -> RenderProduct -> RTSPCameraHelper encodes one frame
+        per playback tick, and the timeline only advances as frames are actually
+        rendered (a cold scene stalls the timeline while shaders/PhysX compile). So
+        once the timeline has been PLAYING and advanced by `vst_register_warmup_sec`
+        of sim-time, warm encoded frames exist and a VST DESCRIBE negotiates caps
+        immediately instead of wedging. A wall-clock timeout registers best-effort so
+        a permanently-cold scene (GPU/navmesh fault) surfaces instead of hanging.
+        """
+        import time
+        import omni.timeline
+
+        tl = omni.timeline.get_timeline_interface()
+        if not tl.is_playing():
+            return False
+
+        now = time.monotonic()
+        t = tl.get_current_time()
+
+        # Latch the baseline the first time we observe Play.
+        if self._warm_t0 is None:
+            self._warm_t0 = now
+            self._warm_time0 = t
+            print(
+                f"[vst-warmup] Play detected — deferring VST registration until render "
+                f"warms (>= {self.vst_register_warmup_sec:.1f}s sim-time advance).",
+                flush=True,
+            )
+            return False
+
+        advanced = t - self._warm_time0
+        elapsed = now - self._warm_t0
+
+        if advanced >= self.vst_register_warmup_sec:
+            print(
+                f"[vst-warmup] Render warm: sim-time advanced {advanced:.1f}s in "
+                f"{elapsed:.0f}s wall -> registering VST sensors now.",
+                flush=True,
+            )
+            return True
+
+        # Best-effort fallback: a scene that never renders (GPU/navmesh fault) would
+        # otherwise defer forever. Register anyway past the ceiling, loudly.
+        if elapsed >= self.vst_register_timeout_sec:
+            print(
+                f"[vst-warmup] WARNING: {elapsed:.0f}s elapsed but sim-time only advanced "
+                f"{advanced:.1f}s (render not warming - check GPU/scene/navmesh). "
+                f"Registering VST best-effort; stream may still be cold.",
+                flush=True,
+            )
+            return True
+
+        # Heartbeat ~every 5s so a long warm-up is visible in the log.
+        if now - self._warm_last_log >= 5.0:
+            self._warm_last_log = now
+            print(
+                f"[vst-warmup] waiting: sim-time advanced {advanced:.1f}/"
+                f"{self.vst_register_warmup_sec:.1f}s (wall {elapsed:.0f}s)...",
+                flush=True,
+            )
+        return False
 
     def _vst_cleanup_cameras(self):
         """Remove all cameras from VST on shutdown."""
@@ -502,6 +587,15 @@ Examples:
     # VST Integration arguments
     parser.add_argument("--enable-vst", action="store_true", help="Enable VST sensor registration")
     parser.add_argument("--cameras-config", help="Path to cameras.yaml config file for VST + RTSP graph")
+    # Defer VST registration until the RTSP encoder is warm (producing frames), so VST does
+    # not DESCRIBE-churn Isaac's cold in-process RTSP media (which wedges it: "has no caps" /
+    # DS 0, no self-recovery). Registration fires once the timeline has advanced by
+    # --vst-register-warmup-sec of sim-time under Play; --vst-register-timeout-sec is a
+    # wall-clock ceiling past which it registers best-effort (surfaces a permanently-cold scene).
+    parser.add_argument("--vst-register-warmup-sec", type=float, default=1.0,
+                        help="Sim-time (s) the timeline must advance under Play before VST registration (default: 1.0)")
+    parser.add_argument("--vst-register-timeout-sec", type=float, default=1200.0,
+                        help="Wall-clock (s) ceiling before VST registers best-effort even if render never warms (default: 1200)")
 
     # Post-setup stage modifiers (default ON; use --no-* to disable).
     # See sil/scripts/action_graphs/README.md for what each does.
@@ -651,6 +745,8 @@ def main():
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,
+        vst_register_warmup_sec=args.vst_register_warmup_sec,
+        vst_register_timeout_sec=args.vst_register_timeout_sec,
     )
 
     from omni.kit.async_engine import run_coroutine
