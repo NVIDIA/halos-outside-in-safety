@@ -24,7 +24,6 @@ import logging
 import time
 from typing import List, Dict, Optional, Any
 from urllib.parse import urljoin
-from datetime import datetime
 
 try:
     import requests
@@ -197,79 +196,92 @@ class VSTSensorManager:
         camera_url: str,
     ) -> bool:
         """
-        Direct API call to perception-2d to remove camera.
+        Best-effort direct DeepStream (:9000) source purge, self-verified.
 
-        This is needed because VST sometimes sends empty camera_url in the remove event.
-        We bypass VST and call perception-2d directly with the correct camera_url.
+        ``delete_sensor`` ignores the return value -- the load-bearing cleanup is the VST
+        DELETE that stops the RTSP DESCRIBE-churn. DeepStream matches
+        ``/api/v1/stream/remove`` on the EXACT ``camera_url`` used at add time (there is no
+        remove-by-id or clear endpoint), and the url it holds can drift from VST's current
+        proxy url after churn/redeploy -- so this remove may legitimately fail to match.
+        We POST the remove, then confirm via ``get-stream-info`` whether the source
+        actually left, and return the truth: a plain HTTP 200 can still carry a
+        ``STREAM_REMOVE_FAIL "No record found"`` body.
 
         Args:
-            camera_id: Camera/sensor ID
+            camera_id: Camera/sensor ID (DeepStream source key)
             camera_name: Camera name
-            camera_url: RTSP URL of the camera
+            camera_url: RTSP url DeepStream was provisioned with (VST proxy url)
 
         Returns:
-            True if successful, False otherwise
+            True only if the source is confirmed gone from DeepStream, else False.
         """
+        if not camera_url:
+            logger.info(
+                f"No DeepStream url for {camera_name}; skipping direct purge "
+                f"(the VST DELETE is the load-bearing cleanup)."
+            )
+            return False
+
+        endpoint = f"{self.perception_url}/api/v1/stream/remove"
+        payload = {
+            "key": "sensor",
+            "value": {
+                "camera_id": camera_id,
+                "camera_name": camera_name,
+                "camera_url": camera_url,
+                # nvmultiurisrcbin needs the change string at value.change; a VST-style
+                # event envelope returns HTTP 400 "Sensor API change string not supported".
+                "change": "camera_remove",
+                "metadata": {},
+            },
+        }
+        headers = {"Content-Type": "application/json"}
+
         try:
-            perception_endpoint = f"{self.perception_url}/api/v1/stream/remove"
-
-            payload = {
-                "alert_type": "camera_status_change",
-                "created_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "event": {
-                    "camera_id": camera_id,
-                    "camera_name": camera_name,
-                    "camera_url": camera_url,
-                    "change": "camera_remove",
-                    "tags": ""
-                },
-                "source": "vst"
-            }
-
-            headers = {
-                "Content-Type": "application/json",
-            }
-
-            # print(f"Calling perception-2d directly to remove camera: {camera_name}")
-            # print(f"URL: {perception_endpoint}")
-            # print(f"Payload: {json.dumps(payload, indent=2)}")
-
             if requests:
-                response = requests.post(
-                    perception_endpoint,
-                    headers=headers,
-                    json=payload,
-                    timeout=self.timeout,
-                    verify=False
+                resp = requests.post(
+                    endpoint, headers=headers, json=payload,
+                    timeout=self.timeout, verify=False,
                 )
-
-                print(f"Response status: {response.status_code}")
-                print(f"Response body: {response.text}")
-
-                if response.status_code == 200:
-                    print(f"Successfully removed camera")
-                    return True
-                else:
-                    print(f"Returned status {response.status_code}")
-                    return False
+                logger.info(f"DeepStream remove {camera_name}: HTTP {resp.status_code} {resp.text.strip()}")
             else:
-                # Fallback to urllib
                 import urllib.request
                 req = urllib.request.Request(
-                    perception_endpoint,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers=headers,
-                    method="POST"
+                    endpoint, data=json.dumps(payload).encode("utf-8"),
+                    headers=headers, method="POST",
                 )
-
-                with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                    body = response.read().decode("utf-8")
-                    print(f"Response: {body}")
-                    print(f"Successfully removed camera from perception-2d")
-                    return True
-
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    logger.info(f"DeepStream remove {camera_name}: {resp.read().decode('utf-8').strip()}")
         except Exception as e:
-            print(f"Failed to remove camera from perception-2d: {e}")
+            logger.warning(f"DeepStream remove POST failed for {camera_name}: {e}")
+
+        # Self-verify: HTTP 200 does not prove the source left (the body may be
+        # STREAM_REMOVE_FAIL "No record found"). Confirm against get-stream-info.
+        time.sleep(0.5)
+        if self._ds_source_present(camera_id):
+            logger.warning(
+                f"DeepStream still lists {camera_name} ({camera_id}) after remove -- the url "
+                f"likely does not match DeepStream's provisioned url (churn/port drift). This "
+                f"orphan needs the exact provisioned url (host-side) or a WDM reconcile."
+            )
+            return False
+        logger.info(f"DeepStream source purged: {camera_name} ({camera_id}).")
+        return True
+
+    def _ds_source_present(self, camera_id: str) -> bool:
+        """True if DeepStream still lists a source with this camera_id."""
+        endpoint = f"{self.perception_url}/api/v1/stream/get-stream-info"
+        try:
+            if requests:
+                info = requests.get(endpoint, timeout=self.timeout, verify=False).json()
+            else:
+                import urllib.request
+                with urllib.request.urlopen(endpoint, timeout=self.timeout) as r:
+                    info = json.loads(r.read().decode("utf-8"))
+            streams = (info.get("stream-info") or {}).get("stream-info") or []
+            return any(s.get("camera_id") == camera_id for s in streams)
+        except Exception as e:
+            logger.warning(f"Could not read DeepStream stream-info to verify removal: {e}")
             return False
 
     def add_sensor(
@@ -329,8 +341,8 @@ class VSTSensorManager:
 
         Args:
             sensor_id: ID of the sensor to delete
-            use_workaround: If True, also call perception-2d directly to ensure removal
-                           (workaround for VST sending empty camera_url)
+            use_workaround: If True, also best-effort purge the DeepStream source directly
+                           on :9000 (the VST DELETE is the load-bearing cleanup)
 
         Returns:
             True if successful (or if VST returns 501 which often still deletes), False otherwise

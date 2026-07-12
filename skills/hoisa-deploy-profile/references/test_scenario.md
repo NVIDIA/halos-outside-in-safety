@@ -43,22 +43,77 @@ while :; do
 done
 echo "Isaac streaming 3 RTSP cams (H264: 8554/camera, 8555/camera_01, 8556/camera_02)"
 
-# 2) CONFIRM: DeepStream ingested them. net = added - removed (logs accumulate across runs)
+# 2) CONFIRM: DeepStream is PRODUCING FPS on all 3 cameras — not merely "added".
+#    Do NOT gate on (added - removed): a stuck/zombie source stays "added" (it never logs
+#    "removed") at 0 FPS, so that count reads 3 while only 2 cameras are actually live.
+#    Gate on the latest per-camera current-FPS from the PERF lines instead.
 while :; do
-  added=$(docker logs vss-rtvi-cv 2>&1 | grep -c 'new stream added \[')
-  removed=$(docker logs vss-rtvi-cv 2>&1 | grep -c 'new stream removed \[')
-  [ "$((added - removed))" -ge 3 ] && break
-  printf '[%s] waiting: DeepStream active=%s/3 (added=%s removed=%s)\n' \
-    "$(date +%H:%M:%S)" "$((added - removed))" "$added" "$removed"; sleep 20
+  live=$(docker logs --tail 800 vss-rtvi-cv 2>&1 | grep 'stream_name Camera' | awk '
+    { fps=$1+0; for(i=1;i<=NF;i++) if($i=="stream_name") n=$(i+1); last[n]=fps }
+    END{ c=0; for(k in last) if(last[k]>0) c++; print c }')
+  [ "${live:-0}" -ge 3 ] && break
+  printf '[%s] waiting: DeepStream live cameras=%s/3 (current FPS > 0)\n' \
+    "$(date +%H:%M:%S)" "${live:-0}"; sleep 20
 done
-echo "DeepStream ingesting 3 Isaac streams — handoff complete"
+echo "DeepStream producing FPS on 3 Isaac cameras — handoff complete"
 ```
+
+> **If `live` never reaches 3** — one camera stays at 0 FPS (`No data from source ...
+> trying reconnection`) — that source is a stale/zombie bin, **not** a slow start. Recover
+> it via `troubleshooting.md` → "DeepStream Stuck at ≤2/3 Active Sources (Zombie Source
+> Bins)". A bare `added - removed` count would have hidden this (it stays 3).
 
 > **`--start` auto-stops** after `simulation_length` frames (set in the IRA config
 > `default_config_ros.yaml`), and on exit it removes the VST sensors it added. For a
 > long, watchable run, raise `simulation_length`. Stopping the run with SIGINT can
 > leave the Isaac VST sensors registered (orphaned) — re-running with `--enable-vst`
 > cleans them (it deletes, then re-adds).
+
+### Confirm the full chain (VST ↔ DeepStream identity)
+
+The FPS gate proves 3 cameras are live, but not that DeepStream is ingesting **the VST
+sensors it should**. After churn/re-registration DeepStream can hold a stale uuid's proxy
+bin (a zombie) or a duplicate while still reporting FPS. This cross-checks each hop the way
+the recovery does: VST must have exactly the 3 expected sensors **online**, and every
+DeepStream `camera_id` must map to one of them (no stale/zombie id, no dup).
+
+```bash
+python3 - <<'PY'
+import urllib.request, json, subprocess, os
+HOST = os.environ.get("HOST_IP", "127.0.0.1")
+def _get(u): return json.load(urllib.request.urlopen(u, timeout=10))
+vst = {s["sensorId"]: s.get("name")
+       for s in (lambda d: d if isinstance(d, list) else d.get("sensors", []))(
+           _get(f"http://{HOST}:30888/vst/api/v1/sensor/list"))
+       if s.get("state") == "online"}
+ds = {s["camera_id"]: s["camera_name"]
+      for s in _get("http://localhost:9000/api/v1/stream/get-stream-info")["stream-info"]["stream-info"]}
+fps = {}
+for ln in subprocess.run(["bash", "-c",
+        "docker logs --tail 800 vss-rtvi-cv 2>&1 | grep 'stream_name Camera'"],
+        capture_output=True, text=True).stdout.splitlines():
+    t = ln.split()
+    try: fps[t[t.index("stream_name") + 1]] = float(t[0])
+    except Exception: pass
+EXPECT = {"Camera", "Camera_01", "Camera_02"}
+print("VST online :", sorted(vst.values()))
+print("DS sources :", sorted(ds.values()), "| fps:", {n: fps.get(n, 0) for n in sorted(set(ds.values()))})
+faults = []
+if set(vst.values()) != EXPECT: faults.append(f"VST online != {sorted(EXPECT)} (missing/extra sensor)")
+if len(ds) != 3:                faults.append(f"DeepStream has {len(ds)} sources, want 3 (dup/zombie)")
+stale = [c for c in ds if c not in vst]
+if stale:                       faults.append(f"DS holds source(s) not in VST online set (stale/zombie): {stale}")
+dead = [n for n in EXPECT if fps.get(n, 0) <= 0]
+if dead:                        faults.append(f"cameras at 0 FPS (no data / zombie): {dead}")
+print("HEALTHY 3/3" if not faults
+      else "UNHEALTHY -> troubleshooting.md 'DeepStream Stuck at <=2/3':\n  - " + "\n  - ".join(faults))
+PY
+```
+
+`HEALTHY 3/3` = VST has exactly `Camera/Camera_01/Camera_02` online **and** DeepStream is
+ingesting exactly those three at FPS > 0. Any `UNHEALTHY` line names the exact hop that
+broke (missing VST sensor, wrong source count, a DeepStream id VST doesn't have = zombie,
+or a 0-FPS camera) — each routes to the zombie-bin recovery in `troubleshooting.md`.
 
 ---
 
@@ -159,7 +214,9 @@ in headless mode.
 ## Verify End-to-End
 
 The system is working when:
-1. `vss-rtvi-cv` shows ~30 FPS for **all 3** cameras
+1. `vss-rtvi-cv` shows **non-zero** FPS for **all 3** cameras — a source stuck at **0 FPS**
+   (`No data from source ... trying reconnection`) is a stale/zombie bin, **not** "ready";
+   recover via `troubleshooting.md` → "DeepStream Stuck at ≤2/3 Active Sources"
 2. `ros2 topic info /safety/is_muted -v` shows **`Publisher count: 1`** (see ROS isolation below)
 3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
 4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
