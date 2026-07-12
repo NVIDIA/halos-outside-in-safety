@@ -122,15 +122,42 @@ could not create SDP
 The encoder looks idle even though the RTSP server is accepting connections.
 Warmer / lighter scenes that pre-roll quickly don't hit this.
 
-**Cause** (not a network problem): Isaac Sim 6.0 self-hosts RTSP **in-process**. On a
-cold run the RTX render + encoder **pre-roll is slow** — the RTSP server starts
-listening and accepts a client **before the encoder has produced its first frame**, so
-a client that DESCRIBEs in that window gets "no caps". Critically, a client that
-**DESCRIBE-churns** the not-yet-ready media *actively blocks* its caps negotiation, so
-the media **wedges and does NOT self-recover** even after the render warms (verified: a
-run left untouched stayed wedged for 16 min). It is churn-induced — **not** a timed
-transient you can wait out. Clearing it needs both: **stop the churn** *and* a **warm
-render**.
+**Cause** (not a network problem): Isaac Sim 6.0 self-hosts RTSP **in-process**, one
+server per camera. Two things provoke "no caps":
+
+1. **Cold pre-roll** — on a cold run the RTX render + encoder pre-roll is slow; the RTSP
+   server accepts a client **before the encoder has produced its first frame**, so a
+   client that DESCRIBEs in that window gets "no caps".
+2. **Concurrent DESCRIBE (the persistent trigger)** — a **single, sequential** client
+   negotiates clean caps even on a fairly cold server, but **multiple clients DESCRIBEing
+   at the same instant race and all get "no caps"**. Isaac's only RTSP client is **VST**
+   (`vss-vios-streamprocessing`): it DESCRIBEs each registered sensor **eagerly, each on its
+   own thread**, so registering 3 sensors fires ~3 simultaneous DESCRIBEs at Isaac. (DeepStream
+   is **not** the client here — it pulls VST's `/live/<id>` **proxy** re-stream, never Isaac
+   directly.) This bites only when Isaac is **cold** at registration time.
+
+Either way, a client that **DESCRIBE-churns** the wedged media keeps blocking caps
+negotiation, so it **does NOT self-recover** (verified: a run left untouched stayed
+wedged for 16 min). Clearing it needs **both** a **warm render** *and* the churn stopped —
+i.e. re-register VST sensors only once Isaac is warm (the built-in warm-up gate does this).
+
+**Confirm which trigger** — from inside the `isaac-sim` container, probe each port
+sequentially, then all at once, on a **freshly restarted** Isaac (one concurrent churn
+already wedges the media, so the contrast only shows cleanly before anything else probes):
+
+```bash
+declare -A MP=( [8554]=camera [8555]=camera_01 [8556]=camera_02 )
+# sequential — each should print video/x-h264 caps
+for p in 8554 8555 8556; do
+  gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:$p/${MP[$p]} protocols=tcp \
+    num-buffers=1 ! fakesink 2>&1 | grep -aE "video/x-h264|no caps|could not"
+done
+# concurrent — if these fail but the sequential pass worked, it's the concurrency race
+for p in 8554 8555 8556; do
+  gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:$p/${MP[$p]} protocols=tcp \
+    num-buffers=1 ! fakesink >/tmp/gst_$p.log 2>&1 & done; wait
+grep -lE "no caps|could not|ERROR" /tmp/gst_855*.log   # <- wedged ports
+```
 
 **Prevention (built-in)**: the SIL launch (`run_actor_sdg.py --enable-vst`) **defers VST
 sensor registration until the render is warm** — it waits for the timeline to advance
@@ -165,6 +192,57 @@ only ingests on sensor-add events), leaving DeepStream at 0. The heavier fallbac
 relaunching the Isaac kit (`docker restart isaac-sim`) so the built-in warm-up gate
 registers cleanly. This is a cold-start race — not a symptom of a broken network,
 RTSP config, or GPU.
+
+---
+
+## DeepStream Stuck at ≤2/3 Active Sources (Zombie Source Bins)
+
+**Symptom**: DeepStream comes up but never reaches 3/3 — `vss-rtvi-cv` logs
+`Active sources : 1` or `2`, and the missing camera is stuck at 0 fps with
+`No data from source ... trying reconnection`. A **specific** camera stays dead (the one
+whose sensor uuid drifted) — it doesn't "reshuffle". For the 3D (Sparse4D) profile this is
+**not** healthy: Sparse4D fuses all 3
+views (`num_sensors: 3`), so 2/3 corrupts the BEV — treat anything below 3/3 as a failure.
+
+**Cause — stale-identity provisioning gap, NOT a caps race.** DeepStream ingests VST's
+`/live/<uuid>` **proxy** re-stream (not Isaac directly). Each time a camera **re-registers**
+(Isaac restart / RTSP churn) VST mints a **new sensor uuid**; DeepStream keeps the **old**
+uuid's proxy source bin — a **zombie** whose `/live/<old-uuid>` mount is now 404 (its proxy
+port was torn down) → it loops "No data / reconnection" at 0 fps — while the **live** uuid is
+never re-added to DeepStream. Net: one slot stuck at 0 fps → <3/3. A clean, un-churned bring-up
+reaches 3/3; this is a **churn / re-registration** artifact, not a concurrency race.
+
+**Fix — purge the zombie, then add the live uuid** (validated live: 2/3 → 3/3 @~12 fps). Drive
+the DeepStream `nvmultiurisrcbin` REST on `:9000`:
+
+```bash
+# 1. Identify live vs zombie. VST lists each ONLINE sensor's real /live/<uuid> proxy url:
+curl -s http://<HOST_IP>:30888/vst/api/v1/sensor/list      # names + uuids + state
+curl -s http://<HOST_IP>:30888/vst/api/v1/sensor/streams   # live rtsp://.../live/<uuid> per sensor
+# What DeepStream currently holds (the 0-fps camera_id is the zombie):
+curl -s http://localhost:9000/api/v1/stream/get-stream-info
+
+# 2. Remove the zombie. TWO things must be exact:
+#    - change at value.change (else HTTP 400 "Sensor API change string not supported" -> it survives)
+#    - camera_url = the EXACT url DS registered it with — often an OLD, torn-down proxy port, NOT
+#      the current one; a wrong url returns "No record found". Recover it from the logs:
+#      docker logs sdr-controller 2>&1 | grep <zombie-uuid>
+curl -s -X POST http://localhost:9000/api/v1/stream/remove -H 'Content-Type: application/json' \
+  -d '{"key":"sensor","value":{"camera_id":"<zombie-uuid>","camera_name":"<name>",
+       "camera_url":"rtsp://<HOST_IP>:<OLD_PORT>/live/<zombie-uuid>","change":"camera_remove","metadata":{}}}'
+#      -> expect: STREAM_REMOVE_SUCCESS
+
+# 3. Add the live uuid — AFTER the remove succeeds: max-batch-size is 3, so the zombie must free
+#    its slot first, or the add fails "Active sources exceeded max-batch-size".
+curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: application/json' \
+  -d '{"key":"sensor","value":{"camera_id":"<live-uuid>","camera_name":"Camera_01",
+       "camera_url":"rtsp://<HOST_IP>:<PORT>/live/<live-uuid>","change":"camera_add","metadata":{}}}'
+#      -> expect: STREAM_ADD_SUCCESS, then `Active sources : 3`
+```
+
+> ℹ️ **Separate issue** — the Isaac **cold**-DESCRIBE wedge (`Active sources : 0`, "no caps") is
+> the section above; its upstream fix is an Isaac RFE: gate the RTSP server's DESCRIBE response on
+> the **first encoded frame** so caps are cached before VST's concurrent DESCRIBEs arrive.
 
 ---
 
@@ -328,7 +406,8 @@ using the same domain ID.
 | Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
-| RTSP "no caps / could not create SDP" | Cold-start race — warm render first, restart perception ingest |
+| RTSP "no caps / could not create SDP" | Cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
+| DeepStream stuck ≤2/3 active (zombie bins) | Stale-identity: purge the 0-fps zombie (`value.change`, **exact old proxy url**) then add the live uuid via `:9000` |
 | No cameras in VST | Use `--enable-vst` flag |
 | NGC 403 | Re-authenticate NGC + docker login |
 | Compose errors | Upgrade to Docker Compose v2.39+ |
