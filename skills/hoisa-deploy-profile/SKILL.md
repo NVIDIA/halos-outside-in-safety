@@ -100,7 +100,7 @@ Each phase ends when its ready signal becomes true. Poll, don't wait by time.
 |-------|--------------------------------|
 | Prerequisites | All checks in `prerequisites.md` Summary checklist pass |
 | NGC artifacts | sil-data extracted (`collected-assets/` present) + `PSF_IMAGE` pulled + VSS images present |
-| VSS perception | `docker logs vss-rtvi-cv 2>&1 \| grep -c "stream_name Camera"` returns ≥ 3, all non-zero FPS |
+| VSS perception | DeepStream shows **3 distinct cameras at current FPS > 0** (use the FPS-based poll in `test_scenario.md`; a plain `grep -c "stream_name Camera"` count **accumulates** across the log and false-passes on a 0-FPS zombie) |
 | VSS Kafka | `docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-events --max-messages 1 --timeout-ms 30000` exits 0 |
 | Halos services | The profile's services are all Up (`sil` = 4: safety-core, comm-layer, isaac-sim, forklift-controller; `base` = 1) |
 | PSF wired | `<sil-data>/comm-layer/opc_server.log` exists and is non-empty |
