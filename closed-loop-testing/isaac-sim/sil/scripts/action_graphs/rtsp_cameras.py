@@ -14,6 +14,11 @@ UUID aa71e48f-0711-5d80-a247-cd31ca6fa49c) to its own port.
 Fired from `run_actor_sdg.py`'s `SET_UP_SIMULATION_DONE_EVENT`
 callback (or directly via the `__main__` block in Script Editor).
 
+Requires the `camera_prim` paths to already exist on the stage (it
+fail-fasts otherwise). The Halos SIL warehouse scene no longer bakes
+cameras — run_actor_sdg.py spawns them via camera_loader before calling
+this builder; a standalone Script Editor run must spawn them first too.
+
 YAML schema (Halos SIL cameras.yaml 6.0):
 
     cameras:

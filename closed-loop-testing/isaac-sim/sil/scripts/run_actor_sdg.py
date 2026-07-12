@@ -541,6 +541,13 @@ Examples:
 def main():
     args = get_args()
 
+    # VST registers camera stream URLs that only exist once the RTSP graph
+    # is built, so --enable-vst without RTSP would register dead URLs.
+    if args.enable_vst and not args.enable_rtsp:
+        print("ERROR: --enable-vst requires RTSP (do not pass --no-rtsp with --enable-vst).",
+              file=sys.stderr)
+        sys.exit(2)
+
     # Validate config file
     config_file_path = os.path.abspath(args.config_file)
     if not os.path.isfile(config_file_path):

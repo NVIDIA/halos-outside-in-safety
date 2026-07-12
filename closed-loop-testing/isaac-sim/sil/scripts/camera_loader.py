@@ -22,6 +22,11 @@ Per-camera `spawn:` block (all fields required when present):
           horizontal_aperture: 20.955
           vertical_aperture: 15.2908
 
+`position` and `rotation_yxz_deg` are WORLD-space and authored directly
+as the camera's local ops, so the parent chain (e.g. /World/Cameras and
+/World) must be an identity transform. The loader fail-fasts if a
+parent's world transform is non-identity.
+
 Cameras without a `spawn:` block are left untouched (assumed baked in
 the scene USD) — the loader is a no-op for them, which keeps this file
 backward-compatible during migration.
@@ -74,6 +79,11 @@ def _load_cameras_yaml(yaml_path: str) -> list[dict]:
     return cameras
 
 
+def _is_number(x) -> bool:
+    # bool is a subclass of int; reject it so `true`/`false` don't pass as numbers.
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
 def _validate_spawn_block(name: str, spawn: dict) -> None:
     if not isinstance(spawn, dict):
         raise ValueError(f"cameras.yaml: '{name}'.spawn must be a mapping")
@@ -82,8 +92,11 @@ def _validate_spawn_block(name: str, spawn: dict) -> None:
         raise ValueError(f"cameras.yaml: '{name}'.spawn missing fields: {missing}")
     for field in ("position", "rotation_yxz_deg"):
         val = spawn[field]
-        if not isinstance(val, (list, tuple)) or len(val) != 3:
-            raise ValueError(f"cameras.yaml: '{name}'.spawn.{field} must be [x, y, z]")
+        if not isinstance(val, (list, tuple)) or len(val) != 3 or not all(_is_number(v) for v in val):
+            raise ValueError(f"cameras.yaml: '{name}'.spawn.{field} must be 3 numbers [x, y, z]")
+    for field in ("focal_length", "horizontal_aperture", "vertical_aperture"):
+        if not _is_number(spawn[field]):
+            raise ValueError(f"cameras.yaml: '{name}'.spawn.{field} must be a number, got {spawn[field]!r}")
 
 
 def _spawn_one(stage, cam: dict) -> str:
@@ -113,6 +126,21 @@ def _spawn_one(stage, cam: dict) -> str:
     camera = UsdGeom.Camera.Define(stage, path)
     prim = camera.GetPrim()
 
+    # spawn.position/rotation are world-space and authored directly as the
+    # camera's local ops below, which is only correct when the parent chain
+    # is identity (assumption documented in the module docstring). Fail loud
+    # if it isn't, rather than silently placing the camera at the wrong world
+    # pose and breaking calibration.
+    parent_world = UsdGeom.XformCache().GetLocalToWorldTransform(prim.GetParent())
+    identity = Gf.Matrix4d(1.0)
+    if not all(Gf.IsClose(parent_world.GetRow(i), identity.GetRow(i), 1e-6) for i in range(4)):
+        raise RuntimeError(
+            f"[camera-loader] Parent of {path} has a non-identity transform; "
+            f"spawn.position/rotation are world-space and assume an identity "
+            f"parent. Author the camera under an identity Xform, or convert the "
+            f"pose to local first."
+        )
+
     camera.GetFocalLengthAttr().Set(float(spawn["focal_length"]))
     camera.GetHorizontalApertureAttr().Set(float(spawn["horizontal_aperture"]))
     camera.GetVerticalApertureAttr().Set(float(spawn["vertical_aperture"]))
@@ -129,6 +157,10 @@ def _spawn_one(stage, cam: dict) -> str:
     xformable.AddScaleOp().Set(Gf.Vec3f(1.0, 1.0, 1.0))
 
     prim.CreateAttribute(_MARKER_ATTR, Sdf.ValueTypeNames.String).Set(_MARKER_VALUE)
+    # Kit has no per-prim transform lock authored on the USD (viewport camera
+    # lock is session-only). `no_delete` is the closest travels-with-scene
+    # guard: it stops accidental deletion in the GUI (no-op headless).
+    prim.SetMetadata("no_delete", True)
 
     return path
 
