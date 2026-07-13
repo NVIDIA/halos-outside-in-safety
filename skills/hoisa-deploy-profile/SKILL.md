@@ -32,7 +32,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 |---------|----------|-----|
 | `base` | safety-core | Safety on an existing VSS feed; MUTE/UNMUTE rendered as the VST `halo_safety` overlay ("Standard"/"Efficient Mode" + proximity bubble). No Isaac Sim. |
 | `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop: Isaac Sim stimulus → VSS perception → PSF → ROS → Isaac forklift. |
-| `hil` 🚧 | comm-layer, isaac-sim, forklift-controller | 🚧 **Under development.** |
+| `hil` | comm-layer, isaac-sim, forklift-controller | Two-host closed loop: this x86 stimulus stack + an IGX Thor safety host running VSS perception and the Thor Safety Core — `references/halos_hil.md`. |
 
 > **The `sil` profile runs against either a 2D or a 3D perception backend.** 2D
 > (RT-DETR detect + track) is the default — `references/vss_2d_overrides.md`. For **3D
@@ -145,7 +145,8 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | [references/calibration_3d.md](references/calibration_3d.md) | **3D** — the 3-camera BEV calibration (`group` / `rois` / `tripwires`) |
 | [references/halos_deploy.md](references/halos_deploy.md) | Configuring and deploying the Halos stack by profile |
 | [references/halos_thor.md](references/halos_thor.md) | Deploying `base` on IGX Thor (aarch64) — SDM on CCPLEX or FSI |
-| [references/halos_hil.md](references/halos_hil.md) | 🚧 **Under development** — HIL profile |
+| [references/vss_hil_overrides.md](references/vss_hil_overrides.md) | **HIL** — VSS deltas for a remote Isaac source: stream URLs, sensor-registration ownership, fresh state |
+| [references/halos_hil.md](references/halos_hil.md) | **HIL profile** — the two-host closed loop runbook (x86 stimulus + IGX Thor safety host) |
 | [references/test_scenario.md](references/test_scenario.md) | Running the simulation, monitoring safety commands, viewing camera streams |
 | [references/troubleshooting.md](references/troubleshooting.md) | Fixing deployment errors |
 
@@ -204,3 +205,9 @@ docker volume prune -f
 
 # Stop VSS Warehouse — see the vss-deploy-profile skill
 ```
+
+> ⚠️ `docker volume prune -f` deletes **every** dangling volume on the host. Safe while VSS
+> is still running (its volumes are in-use), but if the VSS stack is already down it also
+> deletes the perception TensorRT engine cache (a 15-20 min rebuild on the next deploy) and
+> the sensor database. **Ask the user before running it**; to clear only Halos state, skip
+> the prune — the `down` + datalog cleanup above already remove the per-run state.

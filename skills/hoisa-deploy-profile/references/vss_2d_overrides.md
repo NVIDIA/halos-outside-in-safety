@@ -81,14 +81,24 @@ residual VST bbox flicker.)
 
 ## VST Config
 
-File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json`
+File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
+`vst_config.json` exist in the deploy tree; edit the one the VST container actually mounts)
 
-```json
-"bbox_tolerance_ms": 100
+```jsonc
+"rtsp_streaming_over_tcp": true,    // ingest Isaac's RTSP over TCP (not UDP)
+"use_sensor_ntp_time": false,       // use arrival time, consistent with attach-sys-ts-as-ntp
+"always_recording": false,          // recording off — SIL does not need clips
+"bbox_tolerance_ms": 100            // default 0; widen metadata-to-frame match to reduce bbox flicker
 ```
 
-Default is `0`. Increasing to 100 ms reduces bounding-box flickering by widening
-the metadata-to-frame matching tolerance window.
+- `rtsp_streaming_over_tcp: true`: Isaac's self-hosted RTSP is served over TCP; forcing TCP
+  ingest avoids UDP packet loss / jitter.
+- `use_sensor_ntp_time: false`: pair with `attach-sys-ts-as-ntp=1` so VST and DeepStream
+  agree on wall-clock arrival time rather than the (drifting) sim-time.
+- Recording off: SIL is a live closed loop, not a capture run — leaving recording on wastes
+  disk and I/O.
+- `bbox_tolerance_ms: 100`: widens the metadata-to-frame matching tolerance window, reducing
+  bounding-box flickering.
 
 ---
 

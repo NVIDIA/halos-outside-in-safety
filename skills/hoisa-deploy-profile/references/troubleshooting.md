@@ -246,6 +246,42 @@ curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: applic
 
 ---
 
+## Perception 0 FPS With Sensors Online (Stale Sensor History Replay)
+
+**Symptom**: on a host that ran VSS **before**, sensors show `online` in VST, perception
+logs show the right stream names, no errors anywhere — and the sources sit at 0 fps.
+Re-adding the streams helps, but they die again after the next perception restart.
+
+**Cause**: the sensor distribution service (`sdr-controller`) (re)provisions perception by
+replaying the **Kafka sensor history**. On a previously-used deploy the topics hold the whole
+add/remove history — including stale stream URLs from earlier runs — and every perception
+restart replays it, pushing the stale URLs back in over the live ones.
+
+**Fix** — fresh state before redeploy: tear the VSS stack down and clear the Kafka state.
+
+```bash
+# From the VSS deploy dir: down WITHOUT -v (keeps the TensorRT engine cache + sensor DB)
+docker compose --env-file industry-profiles/warehouse-operations/.env down --remove-orphans
+
+# Remove ONLY the kafka volumes — targeted, NOT `docker volume prune`: with the stack down,
+# prune also deletes the dangling perception engine cache (a 15-20 min rebuild) and the
+# sensor database.
+docker volume ls | grep -i kafka
+docker volume rm <the kafka volumes>
+
+# then bring VSS back up
+```
+
+Related state rules:
+
+- Replacing sensors mints new VST UUIDs; refresh anything that embeds the old stream URLs
+  (e.g. the safety-core sensor config).
+- If a source stalls at 0 fps once after an Isaac restart, just re-add the stream (or restart
+  the perception container and let the configurator re-provision). If it recurs after **every**
+  perception restart, it is this replay issue — wipe the Kafka state.
+
+---
+
 ## Cameras Not Showing in VST
 
 **Symptom**: VST UI at `http://<HOST_IP>:30888/vst/` shows no cameras.
