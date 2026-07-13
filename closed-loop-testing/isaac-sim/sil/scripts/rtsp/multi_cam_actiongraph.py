@@ -11,7 +11,11 @@ a single OnPlaybackTick.
 the SimulationApp wrapper has a lifecycle issue with RTSP server bind timing).
 
 1. Launch Isaac Sim 6.0: `./isaac-sim.sh --enable isaacsim.streaming.rtsp`
-2. Open the target scene (warehouse scene / etc).
+2. Open the target scene (warehouse scene / etc). The scene must already
+   contain the `camera_prim` prims listed in the YAML — the Halos SIL
+   warehouse scene no longer bakes them, so first spawn them by running
+   camera_loader.py (or add `spawn:` blocks to the YAML and let
+   run_actor_sdg.py spawn them).
 3. Edit the `CONFIG_PATH` constant below to point at the right YAML for the
    scene, or override via env var ISAAC_RTSP_CAMERAS_YAML.
 4. Window > Script Editor > paste + Run.

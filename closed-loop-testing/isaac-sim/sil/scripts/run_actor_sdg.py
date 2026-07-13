@@ -55,6 +55,7 @@ class ActorSDGRunner:
         cameras_config_path=None,
         enable_runtime_patches=True,
         enable_rtsp=True,
+        enable_camera_spawn=True,
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
@@ -94,6 +95,10 @@ class ActorSDGRunner:
         # for the pattern + lifecycle ordering.
         self.enable_runtime_patches = enable_runtime_patches
         self.enable_rtsp = enable_rtsp
+        # Dynamic camera spawning from cameras.yaml `spawn:` blocks.
+        # Config-driven no-op when no camera carries a spawn block.
+        # See sil/scripts/camera_loader.py.
+        self.enable_camera_spawn = enable_camera_spawn
 
         # Forklift control/odometry/safety + clock graphs (replace the
         # baked OmniGraphs that used to live in the scene USD). Driven by
@@ -169,6 +174,13 @@ class ActorSDGRunner:
             if self.enable_runtime_patches:
                 from runtime_patches import apply_halos_runtime_patches
                 apply_halos_runtime_patches()
+            #   2a. camera_loader spawns Camera prims declared with a
+            #      `spawn:` block in cameras.yaml. Must run BEFORE
+            #      build_rtsp_graph (the RTSP builder fail-fasts on
+            #      missing camera prims).
+            if self.enable_camera_spawn and self.cameras_config_path:
+                from camera_loader import spawn_cameras
+                spawn_cameras(self.cameras_config_path)
             if self.enable_rtsp and self.cameras_config_path:
                 from action_graphs import build_rtsp_graph
                 build_rtsp_graph(self.cameras_config_path)
@@ -605,6 +617,9 @@ Examples:
     parser.add_argument("--no-rtsp", dest="enable_rtsp", action="store_false",
                         default=True,
                         help="Skip build_rtsp_graph (RTSP multi-camera Action Graph build)")
+    parser.add_argument("--no-camera-spawn", dest="enable_camera_spawn", action="store_false",
+                        default=True,
+                        help="Skip camera_loader (dynamic Camera prim spawn from cameras.yaml spawn: blocks)")
     parser.add_argument("--robots-config", help="Path to robots.yaml for forklift control/odom/safety + clock graphs")
     parser.add_argument("--no-forklift", dest="enable_forklift", action="store_false",
                         default=True,
@@ -619,6 +634,13 @@ Examples:
 
 def main():
     args = get_args()
+
+    # VST registers camera stream URLs that only exist once the RTSP graph
+    # is built, so --enable-vst without RTSP would register dead URLs.
+    if args.enable_vst and not args.enable_rtsp:
+        print("ERROR: --enable-vst requires RTSP (do not pass --no-rtsp with --enable-vst).",
+              file=sys.stderr)
+        sys.exit(2)
 
     # Validate config file
     config_file_path = os.path.abspath(args.config_file)
@@ -702,11 +724,11 @@ def main():
     print(f"Asset root override: {isaac_asset_root}")
     sim_app = SimulationApp(launch_config=app_config, experience=BASE_EXP_PATH)
 
-    # Default cameras_config_path to canonical location when --no-rtsp not
-    # set and operator did not pass --cameras-config. This lets the default
-    # invocation (`./python.sh run_actor_sdg.py -c default_config_ros.yaml
-    # --start --headless`) build the RTSP graph without extra flags.
-    if args.enable_rtsp and cameras_config_path is None:
+    # Default cameras_config_path to the canonical location when the
+    # operator did not pass --cameras-config. Both consumers (RTSP graph
+    # build and camera spawn) need it, so either being enabled resolves
+    # the default — mirroring the robots.yaml default below.
+    if (args.enable_rtsp or args.enable_camera_spawn) and cameras_config_path is None:
         default_cameras_yaml = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
         )
@@ -742,6 +764,7 @@ def main():
         cameras_config_path=cameras_config_path,
         enable_runtime_patches=args.enable_runtime_patches,
         enable_rtsp=args.enable_rtsp,
+        enable_camera_spawn=args.enable_camera_spawn,
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,

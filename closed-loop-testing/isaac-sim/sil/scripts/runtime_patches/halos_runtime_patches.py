@@ -62,18 +62,14 @@ _LEGACY_BAKED_CHARS = [
     "/World/Characters/Biped_Setup",
 ]
 
-# Cap each Camera's render rate at 30 Hz so the RTSP wire stops emitting
-# duplicated frames. Isaac Sim 6.0 multi-tick rendering (globally enabled
-# by base.kit `rtx.hydra.supportMultiTickRate=true`)
-# reads `omni:sensor:tickRate` per sensor prim. Without this, the renderer
-# captures at the full main-loop rate (~60 Hz) and the encoder pipeline
-# pushes duplicates with identical DTS, which backs up VST / DS.
-_HALOS_CAMERA_PRIMS = [
-    "/World/Cameras/Camera",
-    "/World/Cameras/Camera_01",
-    "/World/Cameras/Camera_02",
-]
-_HALOS_CAMERA_TICK_RATE_HZ = 0.0
+# Camera render tick rate (`omni:sensor:tickRate`) is intentionally NOT
+# authored here. Since the tc=60 fix (commit 595534a) the production value
+# is 0.0 (no cap), which is already the sensor default — the dup-DTS
+# collision it used to work around was a USD timeCodesPerSecond
+# quantization bug, not a capture-rate problem. The 30 Hz divider now
+# lives in the RTSP graph's IsaacSimulationGate (see action_graphs/
+# rtsp_cameras.py). To deliberately throttle capture, set a positive
+# `omni:sensor:tickRate` on the camera in cameras.yaml / camera_loader.
 
 # Articulation roots whose PhysX TGS solver iterations must be re-balanced for
 # Isaac Sim 6.0 (PhysX SDK 5.3). The forklift asset (Isaac 5.1 ForkliftB) was
@@ -183,19 +179,7 @@ def apply_halos_runtime_patches() -> None:
             f"({target[0]:.2f}, {target[1]:.2f}, {target[2]:.2f})"
         )
 
-    # 3) Cap each Camera prim's render tick rate so RTSP wire emits at 30 Hz.
-    for cam_path in _HALOS_CAMERA_PRIMS:
-        cam = stage.GetPrimAtPath(cam_path)
-        if not cam or not cam.IsValid():
-            print(f"[halos-runtime-patches] WARN: camera prim not found: {cam_path}")
-            continue
-        attr = cam.GetAttribute("omni:sensor:tickRate")
-        if not attr or not attr.IsValid():
-            attr = cam.CreateAttribute("omni:sensor:tickRate", Sdf.ValueTypeNames.Float)
-        attr.Set(_HALOS_CAMERA_TICK_RATE_HZ)
-        print(f"[halos-runtime-patches] Set tickRate={_HALOS_CAMERA_TICK_RATE_HZ} Hz on {cam_path}")
-
-    # 4) Re-balance forklift TGS solver iterations to match the 5.1 baseline
+    # 3) Re-balance forklift TGS solver iterations to match the 5.1 baseline
     #    (PhysX 5.3 no longer auto-converts velocity iters >4 to position iters).
     _rebalance_tgs_iterations(stage)
 
