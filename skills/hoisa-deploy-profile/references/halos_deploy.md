@@ -7,7 +7,7 @@ Services and config differ per profile:
 |---------|----------|-------|
 | `base` | safety-core | Safety on an existing VSS feed; MUTE/UNMUTE shown as the VST `halo_safety` overlay. No Isaac Sim. |
 | `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop. |
-| `hil` 🚧 | comm-layer, isaac-sim, forklift-controller | 🚧 Under development — see `halos_hil.md`. |
+| `hil` | comm-layer, isaac-sim, forklift-controller | Two-host closed loop: x86 stimulus + IGX Thor safety host — see `halos_hil.md`. |
 
 ---
 
