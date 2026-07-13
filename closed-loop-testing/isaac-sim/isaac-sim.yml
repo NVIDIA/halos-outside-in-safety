@@ -23,10 +23,11 @@ services:
       - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
       - HOST_IP=${HOST_IP}
       - VST_BASE_URL=${VST_BASE_URL}
+      - PERCEPTION_BASE_URL=${PERCEPTION_BASE_URL:-http://localhost:9000}
       - ROS_DISTRO=jazzy
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/jazzy/lib
-      - PLAYBACK_SEGMENTS_FILE=${PLAYBACK_SEGMENTS_FILE}
+      - PLAYBACK_SEGMENTS_FILE=${PLAYBACK_SEGMENTS_FILE:-}
     volumes:
       - ${HOME}/.Xauthority:/isaac-sim/.Xauthority:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw

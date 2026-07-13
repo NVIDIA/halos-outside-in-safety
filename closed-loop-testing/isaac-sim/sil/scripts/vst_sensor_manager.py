@@ -63,7 +63,7 @@ class VSTSensorManager:
         self.base_url = base_url or os.environ.get("VST_BASE_URL", "http://localhost:30888/vst/api")
         self.auth_token = auth_token or os.environ.get("VST_AUTH_TOKEN", "")
         self.timeout = timeout
-        self.perception_url = "http://localhost:9000"
+        self.perception_url = os.environ.get("PERCEPTION_BASE_URL", "http://localhost:9000")
 
         # Ensure base_url ends without trailing slash for consistent joining
         self.base_url = self.base_url.rstrip("/")
