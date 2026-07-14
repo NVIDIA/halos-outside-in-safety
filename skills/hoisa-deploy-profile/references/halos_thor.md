@@ -75,9 +75,12 @@ needed on 3.2. Wait until perception serves all cameras (`Active sources : 3`) a
 >    `nvstreamer-2d` service ships `runtime: nvidia` **commented out** (perception / `rtvi-cv`
 >    has it set). On IGX Thor the bare `deploy.resources.reservations.devices` GPU path does not
 >    inject the GPU, so `nvstreamer-2d` fails to start — `vss-rtvi-cv` then runs but reports
->    `Active sources : 0`. **Uncomment `runtime: nvidia` on `nvstreamer-2d`.** This edit is
->    reverted whenever VSS state is wiped (`down -v`, or the datalog cleanup restores the stock
->    config), so re-apply it before each `up`.
+>    `Active sources : 0`. **Uncomment `runtime: nvidia` on `nvstreamer-2d`**, or — sturdier —
+>    add a `deploy/docker/docker-compose.override.yml` declaring `runtime: nvidia` for the
+>    service and pass it at `up` (`-f compose.yml -f docker-compose.override.yml`, per the
+>    HOISA Quick Start Guide, Annex A): the override file survives the VSS state wipes that
+>    revert an in-place edit (`down -v`, or the datalog cleanup restoring the stock config),
+>    which otherwise must be re-applied before each `up`.
 > 2. **Docker Hub rate limit (HTTP 429) with `--pull always`.** Public base-image pulls (e.g.
 >    `alpine`) can hit `toomanyrequests`. Drop `--pull always` after the first successful pull,
 >    or use an authenticated / mirrored pull.
