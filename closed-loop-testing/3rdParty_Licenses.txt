@@ -4,7 +4,7 @@ This file contains the license texts for all dependencies used in Halos SIL (Sof
 
 Components:
 - Communication Layer (ROS 2 Jazzy)
-- Isaac Sim (Isaac Sim 5.1.0)
+- Isaac Sim (Isaac Sim 6.0.0)
 - MediaMTX (RTSP streaming server)
 - SRR Regression Reporter (srr-service, ros:jazzy-ros-base)
 
@@ -1428,7 +1428,7 @@ Isaac Sim and Omniverse are NVIDIA proprietary products governed by separate lic
 These components are proprietary NVIDIA products and do not require full license text reproduction.
 
 ===============================================================================
-Isaac Sim 5.1.0 - NVIDIA Software License Agreement
+Isaac Sim 6.0.0 - NVIDIA Software License Agreement
 ===============================================================================
 
 Licensed under NVIDIA Software License Agreement and Product-Specific Terms for NVIDIA Omniverse.
