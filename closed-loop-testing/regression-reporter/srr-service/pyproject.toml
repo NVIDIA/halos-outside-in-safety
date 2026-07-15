@@ -1,0 +1,18 @@
+[project]
+name = "srr"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "SRR service — records ROS GT + safety + Kafka mdx-events to parquet for SRR demo Phase 1"
+# rclpy / tf2-ros come from ROS apt packages in the Docker image, not pip.
+# Listed for documentation only.
+dependencies = [
+    "kafka-python",
+    "pyarrow",
+    "pandas",
+    "pydantic>=2.0",
+    "shapely",
+    "numpy",
+    # Phase 2 — decode mdx-bev nv.Frame protobuf (vendored mdx_schema_pb2.py,
+    # generated with protoc 5.27.3; same protobuf major required at runtime).
+    "protobuf>=5.27.3",
+]

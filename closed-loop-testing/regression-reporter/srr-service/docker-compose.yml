@@ -1,0 +1,49 @@
+# SRR service — joins host network so rclpy + Kafka work without bridging.
+# Kafka broker is exposed on localhost:9092 by the mdx-kafka container that
+# Halos compose brings up.
+#
+# Configuration precedence:
+#   1. Repo-root .env (auto-loaded by Compose for ${VAR} substitution below)
+#   2. Halos profile env (env_file → HOST_IP, ROS_DOMAIN_ID, VST_BASE_URL, ...)
+#   3. `environment:` block (uses ${VAR:-default} substitution from step 1)
+#
+# Set HALOS_ENV_FILE (in shell or in repo .env) so env_file can resolve. The
+# GitHub Halos layout has no deployments/.env — shared vars live in
+# deployments/profiles/<profile>.env, which HALOS_ENV_FILE points at.
+# Run from this dir:
+#   docker compose up --build -d
+#   docker logs -f srr
+#
+# Volumes:
+#   ${RUNS_HOST_DIR:-./runs}      → /app/runs                  (test outputs)
+#   ${CALIBRATION_JSON:-...}      → /app/calibration.json:ro    (ROI + TW bounds)
+
+services:
+  srr:
+    build:
+      # Context is the repo root so the Dockerfile can COPY scripts/ (one level
+      # up from srr-service/). See regression-reporter/.dockerignore to keep it small.
+      context: ..
+      dockerfile: srr-service/Dockerfile
+    image: srr-service:phase1
+    container_name: srr
+    network_mode: host
+    env_file:
+      # Pulls HOST_IP, ROS_DOMAIN_ID, VST_BASE_URL, MDX_DATA_DIR, etc. from the
+      # deployed Halos profile env (e.g. deployments/profiles/sil.env).
+      - ${HALOS_ENV_FILE}
+    environment:
+      # SRR-specific. Compose auto-loads `.env` from this dir for ${VAR}
+      # substitution (no need to list it under env_file).
+      KAFKA_BROKERS: "${KAFKA_BROKERS:-localhost:9092}"
+      KAFKA_TOPIC:   "${KAFKA_TOPIC:-mdx-events}"
+      SRR_OUT_DIR:   "/app/runs"
+      SENSORS:       "${SENSORS:-Camera,Camera_01,Camera_02}"
+      # Match Isaac Sim 6.0 + the Halos ROS 2 stack (CycloneDDS). Humble's
+      # FastRTPS default only partially interops with CycloneDDS: /gt/*/tf
+      # samples fail to deserialize ("sequence size exceeds remaining buffer").
+      RMW_IMPLEMENTATION: "${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
+    volumes:
+      - ${RUNS_HOST_DIR:-./runs}:/app/runs
+      - ${CALIBRATION_JSON}:/app/calibration.json:ro
+    restart: unless-stopped
