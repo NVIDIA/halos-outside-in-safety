@@ -27,6 +27,11 @@ Modules:
   - clock.py -> build_clock_graph(yaml_path)
        ROS 2 /clock publisher AG, replacing the baked
        Clock_Publisher_Graph. Driven by robots.yaml `clock:` block.
+  - srr_ground_truth.py -> build_srr_gt_graph()
+       OPT-IN (run_actor_sdg.py --srr-gt, default OFF). SRR regression
+       harness /gt/*/tf publisher (/World/SRRGraph). Resolves the
+       IRA-spawned characters + forklift from the live stage and pumps
+       their Fabric world transforms each frame. No effect on a normal run.
   - (future) <name>.py -> build_<name>_graph(...)
 
 For non-graph stage tweaks (deactivate prims, set xform, etc),
@@ -66,6 +71,7 @@ from .forklift_control import build_control_graph
 from .forklift_odometry import build_odometry_graph
 from .forklift_safety_indicator import build_safety_graph
 from .clock import build_clock_graph
+from .srr_ground_truth import build_srr_gt_graph
 
 __all__ = [
     "build_rtsp_graph",
@@ -75,4 +81,5 @@ __all__ = [
     "build_forklift_graphs",
     "strip_baked_scene_graphs",
     "build_clock_graph",
+    "build_srr_gt_graph",
 ]

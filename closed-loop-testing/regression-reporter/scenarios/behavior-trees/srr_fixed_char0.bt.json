@@ -1,0 +1,7206 @@
+{
+  "schemaVersion": "2.0.0",
+  "nodeLibraries": [
+    {
+      "name": "omni.behavior.tree.core",
+      "version": "1.0"
+    },
+    {
+      "name": "omni.anim.behavior.tree",
+      "version": "0.1"
+    }
+  ],
+  "root": {
+    "type": "Sequence",
+    "source": "omni.behavior.tree.core",
+    "name": "Root",
+    "children": [
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n0_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n1_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.45,
+              -10.83,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n1_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n2_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n3_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n4_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.85,
+              -11.9,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n4_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n5_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n6_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n7_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              4.35,
+              -11.51,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n7_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n8_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n9_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n10_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.36,
+              -10.53,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n10_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n11_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n12_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              6.75,
+              -11.18,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n12_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n13_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n14_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n15_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.35,
+              -12.34,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n15_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n16_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n17_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n18_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.28,
+              -10.0,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n18_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n19_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n20_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n21_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.47,
+              -10.44,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n21_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n22_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n23_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.1,
+              -9.85,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n23_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n24_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n25_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n26_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.29,
+              -8.84,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n26_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n27_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n28_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n29_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.01,
+              -10.76,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n29_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n30_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n31_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n32_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.05,
+              -10.22,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n32_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n33_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n34_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.14,
+              -9.4,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n34_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n35_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n36_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n37_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.9,
+              -9.89,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n37_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n38_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n39_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n40_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.12,
+              -12.07,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n40_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n41_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n42_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n43_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.92,
+              -10.19,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n43_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n44_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n45_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.2,
+              -9.64,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n45_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n46_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n47_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n48_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.72,
+              -8.71,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n48_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n49_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n50_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n51_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.68,
+              -10.6,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n51_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n52_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n53_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n54_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.3,
+              -10.49,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n54_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n55_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n56_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.93,
+              -9.79,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n56_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n57_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n58_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n59_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.15,
+              -10.97,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n59_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n60_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n61_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n62_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.03,
+              -9.87,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n62_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n63_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n64_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n65_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.3,
+              -10.52,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n65_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n66_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n67_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.99,
+              -12.29,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n67_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n68_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n69_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n70_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.34,
+              -11.62,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n70_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n71_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n72_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n73_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.63,
+              -11.94,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n73_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n74_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n75_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n76_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.52,
+              -10.61,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n76_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n77_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n78_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.62,
+              -9.72,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n78_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n79_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n80_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n81_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              6.55,
+              -11.12,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n81_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n82_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n83_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n84_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.5,
+              -10.36,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n84_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n85_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n86_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n87_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.22,
+              -10.46,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n87_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n88_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n89_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.75,
+              -9.34,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n89_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n90_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n91_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n92_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.93,
+              -8.88,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n92_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n93_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n94_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n95_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.06,
+              -11.02,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n95_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n96_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n97_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n98_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.31,
+              -10.0,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n98_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n99_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n100_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.77,
+              -8.74,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n100_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n101_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n102_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n103_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.44,
+              -10.99,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n103_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n104_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n105_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n106_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.92,
+              -11.96,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n106_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n107_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n108_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n109_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.17,
+              -10.02,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n109_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n110_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n111_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.41,
+              -8.68,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n111_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n112_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n113_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n114_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.61,
+              -11.63,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n114_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n115_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n116_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n117_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.99,
+              -11.78,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n117_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n118_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n119_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n120_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.87,
+              -9.95,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n120_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n121_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n122_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.49,
+              -11.35,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n122_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n123_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n124_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n125_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.5,
+              -11.87,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n125_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n126_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n127_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n128_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.94,
+              -8.9,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n128_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n129_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n130_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n131_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.92,
+              -9.9,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n131_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n132_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n133_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.95,
+              -10.75,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n133_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n134_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n135_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n136_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.14,
+              -8.72,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n136_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n137_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n138_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n139_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.33,
+              -11.58,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n139_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n140_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n141_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n142_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.88,
+              -10.41,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n142_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n143_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n144_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.67,
+              -9.7,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n144_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n145_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n146_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n147_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n148_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n149_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              5.92,
+              -11.14,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n149_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n150_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n151_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n152_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.36,
+              -10.51,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n152_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n153_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n154_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.55,
+              -10.5,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n154_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n155_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n156_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n157_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.16,
+              -10.05,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n157_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n158_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n159_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n160_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.13,
+              -10.88,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n160_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n161_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n162_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n163_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.44,
+              -10.22,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n163_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n164_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n165_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.21,
+              -8.87,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n165_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n166_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n167_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n168_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.53,
+              -10.17,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n168_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n169_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n170_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n171_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.71,
+              -8.96,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n171_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n172_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n173_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n174_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.42,
+              -10.07,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n174_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n175_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n176_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.38,
+              -8.9,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n176_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n177_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n178_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n179_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.46,
+              -9.85,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n179_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n180_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n181_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n182_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.6,
+              -9.64,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n182_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n183_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n184_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n185_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.1,
+              -10.46,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n185_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n186_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n187_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.32,
+              -10.58,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n187_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n188_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n189_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n190_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.94,
+              -8.64,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n190_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n191_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n192_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n193_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              4.17,
+              -10.98,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n193_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n194_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n195_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n196_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.26,
+              -9.99,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n196_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n197_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n198_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.12,
+              -9.25,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n198_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n199_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n200_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n201_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.4,
+              -9.05,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n201_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n202_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n203_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n204_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.81,
+              -9.4,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n204_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n205_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n206_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n207_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.26,
+              -10.23,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n207_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n208_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n209_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.58,
+              -9.27,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n209_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n210_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n211_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n212_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              5.47,
+              -11.13,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n212_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n213_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n214_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n215_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.35,
+              -11.79,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n215_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n216_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n217_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n218_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.4,
+              -10.22,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n218_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n219_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n220_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.97,
+              -9.26,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n220_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n221_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n222_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n223_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.04,
+              -9.61,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n223_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n224_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n225_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n226_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.3,
+              -9.33,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n226_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n227_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n228_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n229_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.64,
+              -10.03,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n229_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n230_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n231_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.62,
+              -11.13,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n231_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n232_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n233_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n234_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.93,
+              -9.82,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n234_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n235_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n236_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n237_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.35,
+              -9.42,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n237_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n238_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n239_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n240_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.42,
+              -10.58,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n240_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n241_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n242_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.97,
+              -11.65,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n242_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n243_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n244_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n245_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              5.58,
+              -11.12,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n245_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n246_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n247_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n248_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.43,
+              -8.87,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n248_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n249_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n250_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n251_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.93,
+              -10.37,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n251_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n252_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n253_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              7.16,
+              -11.12,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n253_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n254_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n255_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n256_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.59,
+              -10.15,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n256_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n257_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n258_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n259_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.44,
+              -9.24,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n259_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n260_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n261_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n262_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.13,
+              -10.55,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n262_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n263_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n264_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.11,
+              -10.9,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n264_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n265_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n266_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n267_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.17,
+              -11.93,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n267_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n268_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n269_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n270_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.76,
+              -10.03,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n270_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n271_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n272_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n273_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.06,
+              -10.2,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n273_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n274_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n275_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.48,
+              -9.03,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n275_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n276_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n277_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n278_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.68,
+              -9.88,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n278_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n279_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n280_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n281_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.27,
+              -9.59,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n281_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n282_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n283_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n284_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.18,
+              -10.4,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n284_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n285_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n286_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.8,
+              -10.31,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n286_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n287_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n288_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n289_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.81,
+              -10.31,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n289_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n290_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n291_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n292_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.72,
+              -11.39,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n292_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n293_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n294_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n295_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.0,
+              -10.33,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n295_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n296_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n297_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.31,
+              -10.64,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n297_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n298_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n299_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n300_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.3,
+              -10.69,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n300_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n301_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n302_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n303_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.57,
+              -9.94,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n303_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n304_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n305_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n306_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.33,
+              -10.31,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n306_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n307_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n308_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.49,
+              -9.69,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n308_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n309_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n310_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n311_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.33,
+              -11.36,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n311_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n312_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n313_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n314_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              4.49,
+              -11.05,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n314_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n315_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n316_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n317_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.01,
+              -10.68,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n317_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n318_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n319_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.22,
+              -11.32,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n319_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n320_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n321_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n322_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.11,
+              -11.5,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n322_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n323_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n324_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n325_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.76,
+              -8.98,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n325_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n326_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n327_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n328_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.14,
+              -10.34,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n328_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n329_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n330_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.07,
+              -11.7,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n330_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n331_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n332_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n333_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.36,
+              -9.72,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n333_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n334_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n335_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n336_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.08,
+              -11.34,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n336_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n337_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n338_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n339_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.95,
+              -9.98,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n339_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n340_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n341_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.39,
+              -10.24,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n341_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n342_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n343_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n344_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.29,
+              -11.05,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n344_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n345_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n346_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n347_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.61,
+              -10.6,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n347_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n348_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n349_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n350_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.65,
+              -10.18,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n350_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n351_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n352_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.21,
+              -10.7,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n352_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n353_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n354_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n355_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.62,
+              -10.66,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n355_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n356_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n357_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n358_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.89,
+              -10.77,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n358_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n359_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n360_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n361_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.19,
+              -10.23,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n361_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n362_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n363_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.05,
+              -11.72,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n363_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n364_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n365_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n366_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.24,
+              -11.4,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n366_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n367_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n368_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n369_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.42,
+              -10.55,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n369_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n370_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n371_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n372_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.19,
+              -10.5,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n372_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n373_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n374_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.55,
+              -10.21,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n374_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n375_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n376_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n377_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.34,
+              -12.03,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n377_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n378_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n379_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n380_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.7,
+              -8.7,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n380_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n381_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n382_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n383_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.64,
+              -10.36,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n383_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n384_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n385_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.88,
+              -11.18,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n385_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n386_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n387_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n388_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.76,
+              -8.91,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n388_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n389_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n390_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n391_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.29,
+              -9.87,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n391_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n392_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n393_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n394_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.87,
+              -10.11,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n394_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n395_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n396_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.76,
+              -9.18,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n396_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n397_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n398_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n399_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.16,
+              -10.86,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n399_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n400_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n401_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n402_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.3,
+              -12.04,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n402_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n403_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n404_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n405_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.01,
+              -10.23,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n405_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n406_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n407_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.38,
+              -11.59,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n407_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n408_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n409_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n410_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.75,
+              -8.88,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n410_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n411_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n412_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n413_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.37,
+              -10.44,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n413_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n414_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n415_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n416_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.38,
+              -10.12,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n416_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n417_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n418_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.89,
+              -9.77,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n418_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n419_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n420_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n421_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.78,
+              -9.56,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n421_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n422_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n423_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n424_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              7.18,
+              -11.14,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n424_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n425_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n426_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n427_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.16,
+              -10.53,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n427_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n428_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n429_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.38,
+              -10.45,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n429_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n430_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n431_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n432_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.6,
+              -11.18,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n432_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n433_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n434_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n435_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.43,
+              -9.33,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n435_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n436_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n437_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n438_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.89,
+              -9.98,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n438_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n439_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n440_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.19,
+              -11.29,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n440_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n441_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n442_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n443_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.16,
+              -11.96,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n443_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n444_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n445_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n446_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.99,
+              -10.78,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n446_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n447_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n448_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n449_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.93,
+              -10.13,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n449_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n450_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n451_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.68,
+              -11.98,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n451_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n452_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n453_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n454_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.96,
+              -10.39,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n454_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n455_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n456_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n457_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.24,
+              -9.95,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n457_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n458_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n459_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n460_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.92,
+              -10.16,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n460_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n461_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n462_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.34,
+              -12.1,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n462_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n463_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n464_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n465_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.55,
+              -9.61,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n465_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n466_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n467_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n468_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.52,
+              -11.27,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n468_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n469_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n470_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n471_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.64,
+              -10.39,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n471_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n472_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n473_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.09,
+              -11.3,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n473_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n474_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n475_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n476_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              0.15,
+              -8.65,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n476_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n477_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n478_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n479_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.28,
+              -11.43,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n479_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n480_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n481_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n482_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.28,
+              -10.11,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n482_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n483_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n484_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.52,
+              -10.24,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n484_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n485_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n486_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n487_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.03,
+              -9.19,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n487_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n488_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n489_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n490_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.05,
+              -11.55,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n490_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n491_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n492_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n493_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.12,
+              -10.33,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n493_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n494_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n495_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.37,
+              -9.03,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n495_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n496_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n497_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n498_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.3,
+              -11.57,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n498_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n499_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n500_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n501_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.75,
+              -11.66,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n501_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n502_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n503_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n504_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.46,
+              -10.41,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n504_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n505_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n506_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              6.05,
+              -11.23,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n506_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n507_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n508_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n509_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              4.23,
+              -10.88,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n509_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n510_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n511_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n512_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.53,
+              -11.71,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n512_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n513_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n514_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n515_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.18,
+              -10.2,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n515_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n516_Wait",
+        "portOverrides": {
+          "duration": 30.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n517_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.24,
+              -10.12,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n517_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n518_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n519_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n520_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.21,
+              -11.65,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n520_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n521_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n522_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n523_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.05,
+              -10.6,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n523_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n524_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n525_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n526_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.51,
+              -10.21,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n526_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n527_Wait",
+        "portOverrides": {
+          "duration": 15.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n528_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -2.42,
+              -9.14,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n528_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n529_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n530_Wait",
+        "portOverrides": {
+          "duration": 5.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n531_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              3.05,
+              -8.93,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n531_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n532_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n533_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n534_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.05,
+              -9.44,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n534_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n535_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n536_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n537_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              2.52,
+              -10.24,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n537_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n538_Wait",
+        "portOverrides": {
+          "duration": 10.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n539_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -0.48,
+              -8.86,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n539_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n540_Wait",
+        "portOverrides": {
+          "duration": 2.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n541_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n542_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              -1.81,
+              -11.48,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n542_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n543_Wait",
+        "portOverrides": {
+          "duration": 1.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n544_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n545_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.28,
+              -11.95,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n545_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n546_Wait",
+        "portOverrides": {
+          "duration": 3.0
+        }
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n547_Wait",
+        "portOverrides": {
+          "duration": 4.0
+        }
+      },
+      {
+        "type": "MoveTo",
+        "source": "omni.anim.behavior.tree",
+        "name": "n548_MoveTo",
+        "portOverrides": {
+          "target": {
+            "type": "carb::Float3",
+            "value": [
+              1.96,
+              -10.5,
+              0.0
+            ]
+          }
+        },
+        "modifiers": [
+          {
+            "type": "ForceStatus",
+            "source": "omni.behavior.tree.core",
+            "name": "n548_MoveTo_ForceSuccess"
+          }
+        ]
+      },
+      {
+        "type": "Wait",
+        "source": "omni.behavior.tree.core",
+        "name": "n549_Wait",
+        "portOverrides": {
+          "duration": 25.0
+        }
+      }
+    ]
+  }
+}

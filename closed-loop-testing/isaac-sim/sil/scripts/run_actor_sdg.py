@@ -59,6 +59,7 @@ class ActorSDGRunner:
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
+        enable_srr_gt=False,
         vst_register_warmup_sec=1.0,
         vst_register_timeout_sec=1200.0,
     ):
@@ -106,6 +107,10 @@ class ActorSDGRunner:
         self.robots_config_path = robots_config_path
         self.enable_forklift = enable_forklift
         self.enable_clock = enable_clock
+
+        # SRR regression-harness ground-truth /gt/*/tf publisher (opt-in via
+        # --srr-gt; default OFF). See action_graphs/srr_ground_truth.py.
+        self.enable_srr_gt = enable_srr_gt
 
         self.output_path = None
         # NOTE(IRA 6.0): camera_placements_json, _setup_sim_sub, _setup_sim_succeed removed —
@@ -196,6 +201,13 @@ class ActorSDGRunner:
             if self.enable_clock and self.robots_config_path:
                 from action_graphs import build_clock_graph
                 build_clock_graph(self.robots_config_path)
+            #   5. action_graphs.build_srr_gt_graph publishes /gt/*/tf for the
+            #      SRR regression harness (opt-in via --srr-gt, default OFF).
+            #      Runs LAST — after IRA spawned the chars + runtime_patches
+            #      repositioned them — then pumps live Fabric transforms.
+            if self.enable_srr_gt:
+                from action_graphs import build_srr_gt_graph
+                build_srr_gt_graph()
 
             # VST Integration: registration is DEFERRED to after Play + render-warm
             # (see the run loop below). Registering here — before the RTSP encoder is
@@ -627,6 +639,10 @@ Examples:
     parser.add_argument("--no-clock", dest="enable_clock", action="store_false",
                         default=True,
                         help="Skip build_clock_graph (ROS 2 /clock publisher)")
+    parser.add_argument("--srr-gt", dest="enable_srr_gt", action="store_true",
+                        default=False,
+                        help="Build the SRR ground-truth /gt/*/tf publisher graph "
+                             "(default OFF; SRR regression harness only)")
 
     args, _ = parser.parse_known_args()
     return args
@@ -768,6 +784,7 @@ def main():
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,
+        enable_srr_gt=args.enable_srr_gt,
         vst_register_warmup_sec=args.vst_register_warmup_sec,
         vst_register_timeout_sec=args.vst_register_timeout_sec,
     )

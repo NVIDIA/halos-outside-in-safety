@@ -1,0 +1,32 @@
+# Local config
+.env
+.env.local
+# Allow the symlink: srr-service/.env → ../.env so compose auto-resolves ${VAR}
+!srr-service/.env
+
+# SRR test outputs (never tracked)
+srr-service/runs/
+runs/
+
+# Large binaries that may live alongside outputs
+*.parquet
+*.mp4
+
+# Python build / runtime
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
+/tmp/
