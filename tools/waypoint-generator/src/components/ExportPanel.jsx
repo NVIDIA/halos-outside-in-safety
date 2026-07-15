@@ -6,30 +6,11 @@ import yaml from 'js-yaml';
 import { generateCurvedPath } from '../utils/bezier';
 
 /**
- * ExportPanel - Export waypoints to YAML/JSON
+ * ExportPanel - Export waypoints to JSON (with interpolated poses); import JSON or YAML
  */
 export default function ExportPanel({ waypoints, origin, onImport }) {
-  const [exportFormat, setExportFormat] = useState('yaml');
-  const [includePoses, setIncludePoses] = useState(true);  // Default on for curve following
   const [fileName, setFileName] = useState('waypoints');
   const [showImport, setShowImport] = useState(false);
-
-  const generateYaml = () => {
-    const data = {
-      waypoints: waypoints.map((wp, index) => ({
-        x: parseFloat(wp.x.toFixed(3)),
-        y: parseFloat(wp.y.toFixed(3)),
-        theta_deg: Math.round(wp.theta_deg),
-        ...(wp.reverse ? { reverse: true } : {}),
-        ...(wp.note ? { note: wp.note } : {}),
-      })),
-    };
-    return yaml.dump(data, { 
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-    });
-  };
 
   const generateJson = () => {
     // Convert waypoints to world coordinates for path generation
@@ -75,8 +56,8 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
       })),
     };
 
-    // Optionally include intermediate poses for curve following
-    if (includePoses && pathData.poses.length > 0) {
+    // Include intermediate poses for curve following
+    if (pathData.poses.length > 0) {
       data.poses = pathData.poses.map(p => ({
         x: parseFloat(p.x.toFixed(4)),
         y: parseFloat(p.y.toFixed(4)),
@@ -94,13 +75,13 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
   };
 
   const handleExport = () => {
-    const content = exportFormat === 'yaml' ? generateYaml() : generateJson();
+    const content = generateJson();
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${fileName}.${exportFormat === 'yaml' ? 'yaml' : 'json'}`;
+    a.download = `${fileName}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -108,7 +89,7 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
   };
 
   const handleCopyToClipboard = () => {
-    const content = exportFormat === 'yaml' ? generateYaml() : generateJson();
+    const content = generateJson();
     navigator.clipboard.writeText(content).then(() => {
       alert('Copied to clipboard!');
     });
@@ -144,47 +125,13 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
     reader.readAsText(file);
   };
 
-  const previewContent = exportFormat === 'yaml' ? generateYaml() : generateJson();
+  const previewContent = generateJson();
 
   return (
     <div className="export-panel">
       <h3>Export / Import</h3>
       
       <div className="export-options">
-        <div className="format-selector">
-          <label>
-            <input
-              type="radio"
-              name="format"
-              value="yaml"
-              checked={exportFormat === 'yaml'}
-              onChange={(e) => setExportFormat(e.target.value)}
-            />
-            YAML
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="format"
-              value="json"
-              checked={exportFormat === 'json'}
-              onChange={(e) => setExportFormat(e.target.value)}
-            />
-            JSON
-          </label>
-        </div>
-        
-        {exportFormat === 'json' && (
-          <label className="include-poses-toggle">
-            <input
-              type="checkbox"
-              checked={includePoses}
-              onChange={(e) => setIncludePoses(e.target.checked)}
-            />
-            Include intermediate poses (for curve following)
-          </label>
-        )}
-        
         <div className="filename-input">
           <label>Filename:</label>
           <input
@@ -192,7 +139,7 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
             value={fileName}
             onChange={(e) => setFileName(e.target.value)}
           />
-          <span>.{exportFormat === 'yaml' ? 'yaml' : 'json'}</span>
+          <span>.json</span>
         </div>
         
         <div className="export-buttons">

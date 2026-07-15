@@ -11,8 +11,8 @@ A web-based tool to visually create waypoints for forklift navigation on the war
 - **Origin point selection** for odom frame reference
 - **Heading control** via Shift+Scroll or slider
 - **Drag-and-drop** waypoint reordering
-- **Export** to YAML and JSON formats
-- **Import** existing waypoint files
+- **Export** to JSON (waypoints plus interpolated poses for curve following)
+- **Import** existing waypoint files (JSON or YAML)
 - **Path Management System** - Save, open, delete, and rename paths with Redux store 
 - **Auto-save** to localStorage for persistent storage
 
@@ -42,7 +42,7 @@ npm run dev
 
 4. **Save Path**: Click the 💾 **Save** button in the header to save your path for later use.
 
-5. **Export**: Choose YAML or JSON format and download or copy the waypoint file.
+5. **Export**: Download or copy the JSON waypoint file.
 
 ### Path Management
 ![Path Manager](assets/path-manager.png)
@@ -59,18 +59,9 @@ npm run dev
 - **World**: Isaac Sim global coordinates (meters)
 - **Odom**: Relative to origin point
 
-## Output Formats
+## Output Format
 
 The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment, set `FORKLIFT_WAYPOINT_FILE` to your exported file or replace `closed-loop-testing/forklift-controller/waypoints/waypoints.json`.
-
-### YAML
-```yaml
-waypoints:
-  - x: -10.0
-    y: 0.0
-    theta_deg: 180
-    note: "Forward 10m"
-```
 
 ### JSON (for the forklift controller)
 ```json
