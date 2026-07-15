@@ -485,14 +485,23 @@ Borrows the ready signals defined in
    Parse the 3 FPS values from the most recent PERF block. ALL three must
    be ≥ $FPS_MIN (≥25 on 2D, ≥5 on 3D Sparse4D). If any reads 0.00000 → perception is dead, abort.
 
-3. Kafka mdx-events has events flowing (30 s consume probe):
+3. Kafka mdx-events has events flowing (bounded consume probe — break on first msg):
    docker exec srr python3 -c "
    from kafka import KafkaConsumer
    c = KafkaConsumer('mdx-events', bootstrap_servers='${HOST_IP}:9092',
-                    consumer_timeout_ms=30000, auto_offset_reset='latest')
-   print('events:', sum(1 for _ in c))
+                     consumer_timeout_ms=6000, auto_offset_reset='latest')
+   n = 0
+   for _ in c:
+       n += 1
+       if n >= 1: break
+   c.close()
+   print('events:', n)
    "
-   Must print events: ≥ 1.
+   Must print events: ≥ 1. ⚠️ mdx-events flows CONTINUOUSLY, so the probe MUST
+   break early (the `consumer_timeout_ms` is only an idle fallback for a dead
+   topic). A bare `sum(1 for _ in c)` NEVER returns on a live topic — it only
+   stops after a full idle gap — and it leaks an in-container consumer you then
+   have to kill. This mirrors `run_multi.sh` `phase_wait_scene_ready`.
 
 4. (Phase 2 only — skip if mdx-bev not in use) mdx-bev decodes REAL detections:
    docker exec srr python3 -c "
@@ -501,7 +510,11 @@ Borrows the ready signals defined in
    c = KafkaConsumer('mdx-bev', bootstrap_servers='localhost:9092',
                      auto_offset_reset='latest', value_deserializer=None,
                      consumer_timeout_ms=8000)
-   n = sum(1 for m in c if (parse_mdx_bev_bytes(m.value).get('detections') or []))
+   n = 0
+   for m in c:
+       if (parse_mdx_bev_bytes(m.value).get('detections') or []): n += 1
+       if n >= 1: break
+   c.close()
    print('bev_frames_with_detections:', n)
    "
    Must print ≥ 1. (run_multi's scene-ready gate requires 2 consecutive non-empty
