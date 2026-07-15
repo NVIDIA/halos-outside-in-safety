@@ -29,8 +29,11 @@ WORKDIR /app
 COPY srr-service/pyproject.toml ./
 # Noble (Jazzy base) marks the system Python as externally-managed (PEP 668);
 # this is a dedicated container, so install straight into it.
+# numpy intentionally NOT pip-installed — the base image already provides it
+# (python3-numpy); keep this pin set in sync with srr-service/pyproject.toml.
 RUN pip install --no-cache-dir --break-system-packages \
-        kafka-python pyarrow pandas 'pydantic>=2.0' shapely numpy matplotlib 'protobuf>=5.27.3'
+        kafka-python==3.0.8 pyarrow==25.0.0 pandas==3.0.3 pydantic==2.13.4 \
+        shapely==2.1.2 matplotlib==3.11.0 protobuf==7.35.1
 
 COPY srr-service/srr /app/srr
 # Heatmap / density renderers (render_perception_heatmap.py, …). matplotlib above

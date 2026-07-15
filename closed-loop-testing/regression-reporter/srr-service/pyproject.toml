@@ -6,13 +6,17 @@ description = "SRR service — regression-reporter"
 # rclpy / tf2-ros come from ROS apt packages in the Docker image, not pip.
 # Listed for documentation only.
 dependencies = [
-    "kafka-python",
-    "pyarrow",
-    "pandas",
-    "pydantic>=2.0",
-    "shapely",
+    "kafka-python==3.0.8",
+    "pyarrow==25.0.0",
+    "pandas==3.0.3",
+    "pydantic==2.13.4",
+    "shapely==2.1.2",
+    # numpy is provided by the ros:jazzy-ros-base image (python3-numpy);
+    # intentionally unpinned so the image never re-installs it via pip.
     "numpy",
+    # Heatmap / coverage renderers under scripts/ (baked into the image).
+    "matplotlib==3.11.0",
     # Phase 2 — decode mdx-bev nv.Frame protobuf (vendored mdx_schema_pb2.py,
-    # generated with protoc 5.27.3; same protobuf major required at runtime).
-    "protobuf>=5.27.3",
+    # generated with protoc 5.27.3; newer runtimes are compatible).
+    "protobuf==7.35.1",
 ]
