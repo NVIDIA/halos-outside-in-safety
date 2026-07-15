@@ -2,7 +2,7 @@
 name = "srr"
 version = "0.1.0"
 requires-python = ">=3.10"
-description = "SRR service — records ROS GT + safety + Kafka mdx-events to parquet for SRR demo Phase 1"
+description = "SRR service — regression-reporter"
 # rclpy / tf2-ros come from ROS apt packages in the Docker image, not pip.
 # Listed for documentation only.
 dependencies = [
