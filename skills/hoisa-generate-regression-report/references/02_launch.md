@@ -6,8 +6,7 @@ Run for EACH scenario in the plan. **Restart both Halos and SRR compose between 
 > below that says `vss-rtvi-cv` / `vss-behavior-analytics` / `FPS ≥ 5` refers to the
 > resolved container. On VSS Warehouse 3.2 perception is **`vss-rtvi-cv`** (Sparse4D 3D,
 > FPS ~12–14 → use **≥ 5**) and behavior analytics is **`vss-behavior-analytics`** — the
-> names no longer carry a `-2d`/`-3d` suffix. (Legacy Halos SIL used `perception-2d`/`-3d`
-> at ~30 FPS → **≥ 25**.) Resolve once at the top of the run and substitute:
+> names no longer carry a `-2d`/`-3d` suffix. Resolve once at the top of the run and substitute:
 > ```bash
 > PERCEPTION=$(docker ps --format '{{.Names}}' | grep -E '^(vss-rtvi-cv|perception-[23]d)$' | head -1)
 > BEHAVIOR=$(docker ps --format '{{.Names}}' | grep -E '^(vss-behavior-analytics|vss-behavior-analytics-[23]d)$' | head -1)

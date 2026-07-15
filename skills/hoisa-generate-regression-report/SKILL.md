@@ -204,9 +204,7 @@ The "Clip N" lines come from the live forklift-TF monitor (`../scripts/live_clip
 > Warehouse 3.2 the perception container is **`vss-rtvi-cv`** (Sparse4D 3D warehouse,
 > `DS_MODEL_FAMILY=sparse4d-warehouse`; heavier ~12–14 FPS → floor **≥ 5**) and behavior
 > analytics is **`vss-behavior-analytics`** — the container names no longer carry a
-> `-2d`/`-3d` suffix. (The legacy SIL stack used `perception-2d`/`perception-3d` and
-> `vss-behavior-analytics-2d`/`-3d`, with 2D Sparse-free ~30 FPS → **≥ 25**.) **Don't
-> hard-code any single name** — resolve once, then pick the FPS floor:
+> `-2d`/`-3d` suffix. **Don't hard-code any single name** — resolve once, then pick the FPS floor:
 > ```bash
 > PERCEPTION=$(docker ps --format '{{.Names}}' | grep -E '^(vss-rtvi-cv|perception-[23]d)$' | head -1)
 > BEHAVIOR=$(docker ps --format '{{.Names}}' | grep -E '^(vss-behavior-analytics|vss-behavior-analytics-[23]d)$' | head -1)

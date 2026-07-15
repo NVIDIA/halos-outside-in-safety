@@ -65,6 +65,9 @@ isaacsim.replicator.agent:
         num: 1
         asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/srr_char0.bt.json
+        # semantic_labels: stock IRA replicator label pairs as [[key, value]]
+        # lists — `class: character` tags the spawned pedestrian mesh for the
+        # segmentation / bounding-box writers. Same block on all 3 groups.
         semantic_labels:
         - - class
           - character
