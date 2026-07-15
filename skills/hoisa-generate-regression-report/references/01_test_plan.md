@@ -26,7 +26,7 @@ If user did not specify, **ask which scenarios** before proceeding (do NOT defau
 | `fast`      | 1200 | `srr_fast_char{0,1,2}.bt.json` |
 
 Each scenario is 3 IRA 1.6 behavior trees `srr_<name>_char{0,1,2}.bt.json` at
-`${HALOS_SIL_DIR}/configs/` (GitHub layout:
+`${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/` (GitHub layout:
 `<halos-repo>/closed-loop-testing/isaac-sim/sil/configs/`), emitted directly by
 `scenarios/tools/randomize_paths.py` (canonical source: `scenarios/behavior-trees/`).
 
@@ -56,14 +56,14 @@ Before declaring planning complete, spawn one Explore agent with this prompt:
 
 ```
 Verify the SRR multi-test environment is ready:
-1. Halos deployment dir exists at ${HALOS_COMPOSE_DIR}/ (holds compose.yaml + profiles/)
-   and `docker compose --env-file ${HALOS_ENV_FILE} ps` shows the services configured (safety-core, comm-layer, isaac-sim, mediamtx).
+1. Halos deployment dir exists at ${HOISA_ROOT_PATH}/deployments/ (holds compose.yaml + profiles/)
+   and `docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env ps` shows the configured services (safety-core, comm-layer, isaac-sim).
 2. SRR compose dir exists at ${SRR_SERVICE_DIR}/
    and `docker compose ps` shows srr service.
 3. The selected scenarios' behavior trees exist:
    <list of srr_<name>_char{0,1,2}.bt.json paths>
-4. The working scene file exists:
-   ${HALOS_SIL_DIR}/scenes/indicator_warehouse_20x20_odom_srr_nav_clear.usd
+4. The stock scene file exists:
+   ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
 5. Output base dir is writable; free disk on the runs output filesystem ≥ 10 GB.
 6. VST API health (cheap fail-fast probes):
    a. `curl -sf -o /dev/null -w '%{http_code}' "${VST_BASE_URL}/v1/record/streams"` → must be 200

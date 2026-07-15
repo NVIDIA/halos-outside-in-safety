@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Verify the 4 SRR ground-truth TF topics from host ROS.
-# Assumes Isaac Sim scene is loaded, /World/SRRGraph created (add_srr_gt_pubs.py
-# was run), and timeline is playing.
+# Assumes Isaac Sim scene is loaded, /World/SRRGraph created (Isaac launched
+# with --srr-gt), and timeline is playing.
 #
 # Run: source ROS setup first if you haven't (Humble or Jazzy), then:
 #   bash scenarios/host-scripts/verify_gt_topics.sh   (from the regression-reporter root)

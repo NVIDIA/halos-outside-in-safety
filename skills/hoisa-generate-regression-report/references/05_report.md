@@ -185,7 +185,7 @@ Multi-test done. Evidence bundle ready at:
   ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}.zip
 
 Want to open the SRR debug viewer in browser?
-  (scrub-sync per-clip MP4 ↔ GT positions ↔ PSF state ↔ BA events ↔ pss.log)
+  (scrub-sync per-clip MP4 ↔ GT positions ↔ Safety Core state ↔ BA events ↔ pss.log)
 
 [y]es, launch viewer  /  [n]o, just give me paths
 ```
@@ -197,7 +197,7 @@ Output:
 - Per-clip reports: ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}/<run>/reports/scn_*.md
 - Per-clip videos:  ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}/<run>/videos/scn_*.mp4 (if VST pull succeeded)
 - Evidence bundle:  ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}.zip
-- PSF log snapshot: ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}/pss.log
+- Safety Core log snapshot: ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}/pss.log
 - Perception heatmaps (if rendered in Step 6e): ${RUNS_HOST_DIR}/multi-test-${TIMESTAMP}/perception_heatmaps[_fovmask]/
 ```
 
@@ -270,7 +270,7 @@ Open in browser and click the multi-test-${TIMESTAMP} card.
 Ctrl+C in the terminal to stop the server.
 ```
 
-> Note: viewer is single-user, no auth — fine for local dev, not for shared deployment. See [`quickstart.md`](../../../closed-loop-testing/regression-reporter/docs/quickstart.md) for the full setup and [srr-debug-viewer README](../../../tools/srr-debug-viewer/README.md) for the data schema.
+> Note: viewer is single-user, no auth — fine for local dev, not for shared deployment. See the [srr-debug-viewer README](../../../tools/srr-debug-viewer/README.md) for the data schema.
 
 ### Step 6d — HEVC transcode fallback (only if viewer reports stuck video)
 

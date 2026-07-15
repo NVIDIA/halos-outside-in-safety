@@ -6,7 +6,7 @@ isaac python: docker exec isaac-sim /isaac-sim/python.sh path/to/this.py
 from pxr import Usd
 import sys
 
-DEFAULT = "/isaac-sim/sil/scenes/indicator_warehouse_20x20_odom_srr_nav_clear.usd"
+DEFAULT = "/isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd"
 path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT
 print(f"Opening {path}")
 stage = Usd.Stage.Open(path)

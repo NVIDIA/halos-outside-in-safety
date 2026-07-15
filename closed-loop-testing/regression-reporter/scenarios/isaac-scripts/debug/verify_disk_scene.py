@@ -7,8 +7,7 @@ Include changes."""
 from pxr import Sdf
 
 PATHS = [
-    "/isaac-sim/sil/scenes/indicator_warehouse_20x20_odom_srr_nav_clear.usd",
-    "/isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test_odom_srr.usd",
+    "/isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd",
 ]
 
 VOLUMES = [

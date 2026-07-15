@@ -13,14 +13,15 @@ because they were written for SRR scene prep + GT-publisher verification
 | `host-scripts/` (this folder) | Host shell with ROS2 sourced (or `python3 + usd-core`) | Verifying state from outside Isaac — topic probes, USD inspection on disk, post-hoc analysis |
 | `../isaac-scripts/` | **Isaac Sim Script Editor** (needs `omni.kit.*` / `pxr.Usd` / `omni.anim.navigation.core`) | Modifying a live scene — NavMesh bake, publisher injection, scene prep |
 
-The `/gt/*` publisher scripts (`add_srr_gt_pubs.py`, `check_srr_prereqs.py`) do
-**not** live here — they live only in
+The GT machinery does **not** live here. The `/gt/*` publisher graph is built at
+run time by
+`closed-loop-testing/isaac-sim/sil/scripts/action_graphs/srr_ground_truth.py` when
+Isaac is launched with `--srr-gt` (see `scripts/run_multi.sh`); the live prereq
+diagnostic `check_srr_prereqs.py` lives in
 [`../isaac-scripts/srr_pubs/`](../isaac-scripts/srr_pubs/) (Isaac-Kit runtime).
-That copy is canonical: `sync_to_halos.sh` copies it into the Halos SIL tree and
-`run_multi.sh` runs `add_srr_gt_pubs.py` at scene start via Kit `--exec` (see
-`skills/hoisa-generate-regression-report/references/02_launch.md` Step 3d). The scripts in *this* folder are
-host-shell probes (`verify_gt_topics.sh`, `monitor_gt_5min.py`, `scene_scan.py`,
-…) that read live ROS/USD state from outside Isaac.
+The scripts in *this* folder are host-shell probes (`verify_gt_topics.sh`,
+`monitor_gt_5min.py`, `scene_scan.py`, …) that read live ROS/USD state from
+outside Isaac.
 
 ## Quick reference
 
@@ -48,7 +49,7 @@ cadence, hence different folder.
 
 All scripts assume:
 - Python 3.10+
-- ROS2 (jazzy or matching halos compose) sourced (`source /opt/ros/<distro>/setup.bash`)
+- ROS2 (jazzy or matching the compose stack) sourced (`source /opt/ros/<distro>/setup.bash`)
 - For `scene_scan.py`: `pip install usd-core` (NOT the full Isaac runtime — just the USD lib)
 
 ### `verify_gt_topics.sh`
@@ -102,24 +103,21 @@ python3 scene_scan.py /path/to/saved_scene.usd
   publisher-side bug, it's a bridging issue. Check `ROS_DOMAIN_ID` matches
   between host and `isaac-sim` container.
 - **Stale character zones**: the polygon definitions inside these scripts
-  are hardcoded for the canonical `indicator_warehouse_20x20_odom_srr_nav_clear.usd`
+  are set for the stock `indicator_warehouse_20x20_layout_overflow_test.usd`
   scene. If a new scene moves the zones, these scripts need their zone
   constants updated to match.
 - **`scene_scan.py` needs `usd-core` (small)** not Isaac Sim's bundled USD
   — `pip install usd-core` will install a clean copy. Don't try to
   source Isaac's USD from outside the container.
 
-## Where the `/gt/*` publisher scripts live
+## Where the `/gt/*` machinery lives
 
-`add_srr_gt_pubs.py` (IRA 6.0 GT builder + auto-trigger) and
-`check_srr_prereqs.py` (live diagnostic) have a **single canonical copy** in
-`../isaac-scripts/srr_pubs/`. There is no host-side duplicate:
-- `add_srr_gt_pubs.py` runs inside Isaac Kit (fired via `--exec` at scene start,
-  or pasted into the Script Editor) — it needs `omni.graph` / `pxr.Usd`, so it
-  can't run on the host anyway.
-- `check_srr_prereqs.py` is a read-only diagnostic you paste into the Script
-  Editor while the scene is running.
+The `/gt/*` publisher graph is built at run time by
+`closed-loop-testing/isaac-sim/sil/scripts/action_graphs/srr_ground_truth.py`
+(the `--srr-gt` flag on `run_multi.sh` turns it on). The live prereq diagnostic
+`check_srr_prereqs.py` lives in `../isaac-scripts/srr_pubs/`. Neither has a
+host-side duplicate — both need `omni.graph` / `pxr.Usd` and only run inside
+Isaac Kit.
 
-`randomize_paths.py` lives at `../randomize_paths.py` (parent dir, host-side
-canonical — runs on host with `usd-core` + numpy). The demo/isaac copy is
-the same file.
+`randomize_paths.py` lives at `../tools/randomize_paths.py` (host-side canonical —
+runs on host with `usd-core` + numpy).

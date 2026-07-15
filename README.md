@@ -56,8 +56,8 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 |-----------|-------------|
 | [`ai-perception/`](ai-perception/) | Perception integration: pointer to the reference VSS Blueprint backend and the event-stream integration contract. |
 | [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). |
-| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, MediaMTX, the Safety Core deployment, and helper scripts. |
-| [`skills/`](skills/) | Agentic skills (for Claude Code) to deploy and operate the system. |
+| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. |
+| [`skills/`](skills/) | Agentic skills to deploy and operate the system. |
 | [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`). |
 | [`tools/`](tools/) | Repo-wide tooling. |
 | [`whitepaper/`](whitepaper/) | Technical narrative. |

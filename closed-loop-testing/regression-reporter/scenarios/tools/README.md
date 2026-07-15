@@ -19,7 +19,7 @@ sides of the test-fixture lifecycle.
 
 | Script | Purpose |
 |---|---|
-| [`randomize_paths.py`](randomize_paths.py) | Generator. Reads polygon zones (ZONE_CHAR0/1/2 — per-character spawn + wander areas, hardcoded in the script) + the baked NavMesh (`../scenes/navmesh.json`), samples reachable waypoints per character, and emits **IRA 1.6 behavior trees** `srr_<name>_char{0,1,2}.bt.json` into `../behavior-trees/` (`GoTo → MoveTo`, `Idle → Wait`; each `MoveTo` wrapped in a `ForceStatus→success` modifier so an unreachable waypoint is skipped rather than freezing the character). |
+| [`randomize_paths.py`](randomize_paths.py) | Generator. Reads polygon zones (ZONE_CHAR0/1/2 — per-character spawn + wander areas, defined as constants in the script) + the baked NavMesh (`../scenes/navmesh.json`), samples reachable waypoints per character, and emits **IRA 1.6 behavior trees** `srr_<name>_char{0,1,2}.bt.json` into `../behavior-trees/` (`GoTo → MoveTo`, `Idle → Wait`; each `MoveTo` wrapped in a `ForceStatus→success` modifier so an unreachable waypoint is skipped rather than freezing the character). |
 | [`validate_waypoints.py`](validate_waypoints.py) | Post-hoc check that every `MoveTo` target in a `.bt.json` (or a whole dir of them) lands on the NavMesh AND the agent body (16-point circle of radius `--agent-radius`) doesn't overlap unwalkable areas. Mostly a pre-flight gate — `randomize_paths.py` produces walkable waypoints by construction, and `ForceStatus` makes any stragglers non-fatal at runtime. |
 
 ## Why these aren't with the data they produce
@@ -28,7 +28,7 @@ Conceptually `randomize_paths.py` belongs WITH the `behavior-trees/` files it
 emits, but it's actually a **tool** — the same source code regenerates any
 of the canonical scenarios + arbitrary new ones. Keeping it in
 `tools/` instead of `behavior-trees/` keeps that dir as a data-only dir
-(easy to grep, easy to diff, easy to sync to the halos compose dir
+(easy to grep, easy to diff, easy to sync to the SIL compose dir
 without dragging tooling along).
 
 ## Usage — regenerating a scenario
@@ -60,7 +60,7 @@ python3 scenarios/tools/randomize_paths.py \
 
 This writes `scenarios/behavior-trees/srr_balanced_char{0,1,2}.bt.json`. Then
 run [`../../halos-integration/sync_to_halos.sh`](../../halos-integration/sync_to_halos.sh)
-to copy the trees into the Halos SIL configs dir.
+to copy the trees into the SIL configs dir.
 
 ## Generator flags reference
 
@@ -78,7 +78,7 @@ to copy the trees into the Halos SIL configs dir.
 | `--name NAME` | Scenario name for the `.bt.json` filenames (`srr_<name>_char{0,1,2}.bt.json`; default: `custom`) |
 | `--bt-out-dir DIR` | Where to write `.bt.json` (default: `scenarios/behavior-trees/`) |
 
-## Hardcoded constants
+## Zone constants
 
 `randomize_paths.py` carries three Python constants you may need to edit
 if the scene layout changes:
@@ -89,10 +89,8 @@ if the scene layout changes:
 | `ZONE_CHAR1` | Same, for Char_01 |
 | `ZONE_CHAR2` | Same, for Char_02 |
 
-These were redrawn 2026-04-30 to be wider than the original 0.17 m
-corridors. If you change them, **regenerate all behavior trees** —
-existing waypoints baked against the old zones won't match the new
-spawn boxes.
+If you change them, **regenerate all behavior trees** — existing waypoints
+baked against the old zones won't match the new spawn boxes.
 
 ## Validation
 

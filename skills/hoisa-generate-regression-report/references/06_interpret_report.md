@@ -12,7 +12,7 @@ Use this when the user asks for a verdict, when triaging a failure, or when summ
 runs/multi-test-${TIMESTAMP}/
 ├── summary.md                      ← top-level (cross-run): Phase 1 + Phase 2
 ├── failures.json
-├── pss.log                         ← cross-run PSF gateway log (concat of per-scn)
+├── pss.log                         ← cross-run Safety Core gateway log (concat of per-scn)
 ├── perception_heatmaps[_fovmask]/  ← optional (Phase 6e): detect-fail/tracking-loss/density PNGs
 ├── coverage_polygons/              ← optional (Phase 6e)
 └── <run-label>/
@@ -31,7 +31,7 @@ runs/multi-test-${TIMESTAMP}/
 |---|---|
 | **Top-level** `summary.md` | Headline + per-run rollup table + 66-clip detail table with mp4 links. **Open this first.** |
 | **Per-run** `<run>/reports/summary.md` | Same structure, scoped to one scenario; per-clip table only |
-| **Per-clip** `<run>/reports/scn_*.md` | The actual ground truth, the deepest evidence. GT events vs PSF state, mismatch windows with timestamps, BA detection per event, links to MP4 |
+| **Per-clip** `<run>/reports/scn_*.md` | The actual ground truth, the deepest evidence. GT events vs Safety Core state, mismatch windows with timestamps, BA detection per event, links to MP4 |
 | **failures.json** | List of clips with verdict=FAIL (match% < 80) and key fields, ready for programmatic triage |
 
 ---
@@ -68,7 +68,7 @@ BA perception — per-event match (window ≤ 3 s):
 | **BA ROI** | Per-event detection rate for "person enters ROI" events. BA fires while person is INSIDE; we match each GT entry to nearest BA event within ±3 s | ≥ 95 %; median delay ~600–800 ms is normal |
 | **BA TW IN/OUT** | Per-event detection rate for forklift trailer crossings. Direction field comes from BA. | 100 % expected after run-pool fix |
 | **TW events missing `direction`** | Raw count of BA TW Forklift events that didn't include the `direction` field. ~10 % is normal; means VSS/perception dropped the field on those emissions | ≤ 15 % |
-| **worst UNMUTE/MUTE lag** | Max time in ms between a GT transition and the matching PSF state change. Long lag (> 3 s) signals state-machine drift | UNMUTE lag ≤ 1 s (safety-critical), MUTE lag ≤ 5 s |
+| **worst UNMUTE/MUTE lag** | Max time in ms between a GT transition and the matching Safety Core state change. Long lag (> 3 s) signals state-machine drift | UNMUTE lag ≤ 1 s (safety-critical), MUTE lag ≤ 5 s |
 | **mismatch frame totals** | Disjoint counts of over-mute (suppressed when shouldn't) vs under-mute (didn't suppress when should). High under-mute = annoying false alarm; high over-mute = **alarm suppressed when person present** = safety-critical |
 
 ---
@@ -101,9 +101,9 @@ Since BA emits no ROI exit event, each per-clip report shows: for each GT exit, 
 
 ## Phase 2 — Perception metrics (3D detection + tracking)
 
-Everything above is **Phase 1** — the PSF *decision* (mute/unmute) scored against GT
+Everything above is **Phase 1** — the Safety Core *decision* (mute/unmute) scored against GT
 safety truth. The aggregator also emits a **Phase 2** section scoring the **perception
-upstream of PSF**: the `mdx-bev` 3D detections (Sparse4D `bbox3d` centre) and
+upstream of Safety Core**: the `mdx-bev` 3D detections (Sparse4D `bbox3d` centre) and
 `mdx-behavior` BA positions vs Isaac GT TF. Present only when the run captured the 3D
 pipeline columns (`detections_json` non-null). **The formula source of truth is
 `srr-service/srr/aggregator.py` → `compute_phase2_metrics`; read it before
@@ -200,7 +200,7 @@ Read pattern:
 
 | Pattern | What it looks like | What it means |
 |---|---|---|
-| **Best** | `psf-edge-5min`: 95.6 % match · 100 % unmute · 84 % mute · 0 fail | Fresh PSF state; drift hasn't accumulated. Use as control baseline for any future regression. |
+| **Best** | `psf-edge-5min`: 95.6 % match · 100 % unmute · 84 % mute · 0 fail | Fresh Safety Core state; drift hasn't accumulated. Use as control baseline for any future regression. |
 | **Length-driven drift** | `fast-20min`: 82.4 % match · 86 % unmute · 9 fails | Counter accumulates ENTRY/EXIT errors over time → state diverges from reality |
 | **Cold-start (in-roi)** | mute% = `n/a (unmute-test scenario)`; ~226 frames marked under-mute | Walking-into-ROI window at start; not a real test failure |
 
@@ -220,7 +220,7 @@ Each per-clip MD has:
 | **Verdict + Window** | Quick gist: PASS/FAIL, ISO times for cross-referencing |
 | **Video link** | Open the MP4 directly to see what reality looked like |
 | **Ground truth** | %char_in_roi, %forklift_in_trailer, %expected_mute — what the test expected |
-| **Observed PSF state** | %actual_mute + command breakdown — what PSF did |
+| **Observed Safety Core state** | %actual_mute + command breakdown — what Safety Core did |
 | **Match — over-mute / under-mute** | Direction of the mismatch. Under-mute = safety-critical |
 | **Mismatch windows** | **Most useful section.** Lists every contiguous (≥ 0.5 s) window with `start/end/duration/direction`. Reviewer can `ffmpeg -ss <start>` directly to inspect that exact moment in the MP4 |
 | **Reaction lag** | UNMUTE/MUTE: median + p95 + max + transition count |
@@ -234,7 +234,7 @@ Each per-clip MD has:
 3. Read the Mismatch windows table — when (in clip-relative seconds) did the bad behaviour happen?
 4. Open the MP4, scrub to that timestamp, see what the cameras saw
 5. Cross-check BA detection table: did perception have valid input at that moment?
-6. If yes → PSF logic / counter drift; if no → perception issue
+6. If yes → Safety Core logic / counter drift; if no → perception issue
 ```
 
 ---
@@ -243,13 +243,13 @@ Each per-clip MD has:
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| **Mute correct% < 50 %** in a long run | Counter drift accumulated (known PSF counter-drift issue) | Restart Halos compose; rerun shorter scenario. **Don't blame as a new regression** — see Counter-drift signature note below. |
-| **Unmute correct% < 90 %** | **Safety-critical** — alarm suppressed when person present (counter went negative). Pattern matches the known PSF counter-drift issue. | Open the FAIL clips' MD; cross-check BA ROI events were emitted; if BA was firing but PSF still muted → counter bug (Direction A) |
+| **Mute correct% < 50 %** in a long run | Counter drift accumulated (known Safety Core counter-drift issue) | Restart Halos compose; rerun shorter scenario. **Don't blame as a new regression** — see Counter-drift signature note below. |
+| **Unmute correct% < 90 %** | **Safety-critical** — alarm suppressed when person present (counter went negative). Pattern matches the known Safety Core counter-drift issue. | Open the FAIL clips' MD; cross-check BA ROI events were emitted; if BA was firing but Safety Core still muted → counter bug (Direction A) |
 | **BA ROI < 95 %** | Person tracker lost something — partial occlusion, motion blur, or VSS regression | Open the missed-clip MD; look at the "extra BA events" count; check `pct_any_char_in_roi` |
 | **BA TW IN/OUT < 100 %** | Used to mean scene-boundary spillover (now fixed via run-pool) — if it reappears, BA pool didn't load. | Verify `<run>/run-*.parquet` exists and is non-empty |
 | **24 / 246 TW events missing direction** | VSS/perception drops `direction` on some emissions (closed-source) — known | No action; counted in raw total only |
-| **Mute lag > 10 s** | Counter-drift residual; PSF state stuck | Restart between runs is the workaround |
-| **Mismatch window covers entire clip** | Cold-start (PSF newly booted) OR the scenario is fundamentally ill-defined for the test (e.g. chars walking into ROI mid-clip) | Check scn_0000 specifically; if cold-start, expected; otherwise drill down |
+| **Mute lag > 10 s** | Counter-drift residual; Safety Core state stuck | Restart between runs is the workaround |
+| **Mismatch window covers entire clip** | Cold-start (Safety Core newly booted) OR the scenario is fundamentally ill-defined for the test (e.g. chars walking into ROI mid-clip) | Check scn_0000 specifically; if cold-start, expected; otherwise drill down |
 | **`n/a` on Mute correct%** | Unmute-test scenario auto-detected (chars ≥ 95 % in ROI) | Don't try to interpret; that direction wasn't tested |
 | **🚜 forklift detect-fail% high (30–40%) while 🧍 person is low (<5%)** | Forklift LOST **deep in the trailer** (genuine occlusion, outside camera FOV), not a detector regression | Cross-check the trailer-boundary slice (≈0.96 recall at the edge) + `recall_raw`; render the `--fov-mask` heatmap. Expected pattern, don't open a bug. |
 | **forklift `pos median` ~0.35 m** | Reading a *stale* report (pre-2026-06-15) where the `body`-vs-box-centre anchor offset wasn't removed | Re-run the current aggregator; median should drop to ~0.08 m. The 0.35 m is geometry, never "tracking 0.35 m wrong". |
@@ -258,17 +258,17 @@ Each per-clip MD has:
 
 ### Counter-drift signature — recognize, don't blame
 
-The PSF counter-drift bug is a **known upstream PSF issue**, acknowledged by the
-Halos PSF team, with a fix planned post-v1.3.
+The Safety Core counter-drift bug is a **known upstream Safety Core issue**, acknowledged by the
+Halos Safety Core team, with a fix planned post-v1.3.
 This means **every SRR run through v1.3 will surface this bug** —
 recognize the signature so you don't waste time re-investigating it as
-a new PSF regression:
+a new Safety Core regression:
 
 - `Unmute correct% < 90%` (especially when paired with high `%char_in_roi`
   and forklift-in-trailer activity) → Direction A (over-mute, safety-critical)
 - Alternating PASS/FAIL pattern aligned with forklift_in_trailer state
   (FAIL when fk in, PASS when out) → classic counter-drift
-- PSF muted N% while GT-expected-mute was 0% → PSF internal state has
+- Safety Core muted N% while GT-expected-mute was 0% → Safety Core internal state has
   drifted out of sync with reality
 - `pss.log` shows `ATL: Human present (ROI: Yes, HiT: 0)` while BA
   reported 0 ROI events → decision was made on stale counter, not on

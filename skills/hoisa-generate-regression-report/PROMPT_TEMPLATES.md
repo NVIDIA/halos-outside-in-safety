@@ -1,6 +1,6 @@
 # Prompt templates for the `hoisa-generate-regression-report` skill
 
-Copy-paste any of these into Claude Code (with the skill enabled). The skill will recognize the intent and invoke its workflow phases automatically.
+Copy-paste any of these into your coding agent (with the skill enabled). The skill will recognize the intent and invoke its workflow phases automatically.
 
 ---
 
@@ -112,7 +112,7 @@ Run SRR full triage — all 5 cases, 2 minutes each. Just need a quick pass to c
 ## 10. Targeted re-run after fix
 
 ```
-Run SRR with just balanced, 10 minutes — checking if the PSF counter drift fix landed.
+Run SRR with just balanced, 10 minutes — checking if the Safety Core counter drift fix landed.
 ```
 
 → ~22 min wall clock. Use when you've made a code change and want a focused regression check on the scenario that previously failed.
@@ -146,7 +146,7 @@ skill says so rather than rendering empty heatmaps.
 | **Default duration** if not specified | 5 minutes (NOT each scenario's natural length) |
 | **Whether to skip the cross-run report** | `"smoke test"` / `"skip the cross-run report"` |
 | **Demo log emphasis** | `"show demo log"` / `"optimize log for screen recording"` |
-| **Skip warm-up** (faster but expect cold-start outlier on scn_0000) | `"skip PSF warm-up"` (not recommended) |
+| **Skip warm-up** (faster but expect cold-start outlier on scn_0000) | `"skip Safety Core warm-up"` (not recommended) |
 
 The skill parses these from the natural-language prompt — no rigid syntax required.
 
@@ -155,8 +155,8 @@ The skill parses these from the natural-language prompt — no rigid syntax requ
 ## Tips
 
 - **Default is 5 min** per scenario. To run a scenario at its natural length, say so explicitly (`"balanced for 10 minutes"` or `"all at natural lengths"`).
-- **Skill always restarts both Halos and SRR compose** between scenarios (do NOT ask it to skip — PSF counter drift carries across runs and corrupts the next).
-- **PSF cold-start outlier** is expected on scn_0000 (mute_lag spikes). Skill inserts a 30 s warm-up between scene-ready and `/srr/record true` to mitigate, but the first clip may still be slightly worse than the rest.
+- **Skill always restarts both Halos and SRR compose** between scenarios (do NOT ask it to skip — Safety Core counter drift carries across runs and corrupts the next).
+- **Safety Core cold-start outlier** is expected on scn_0000 (mute_lag spikes). Skill inserts a 30 s warm-up between scene-ready and `/srr/record true` to mitigate, but the first clip may still be slightly worse than the rest.
 - **Live clip monitor** prints one line per forklift TW crossing during recording — these are the demo's "heartbeat" between phase headers.
 - **Cross-run REPORT.md** is produced in Phase 5 — stored at `runs/multi-test-${TIMESTAMP}-REPORT.md`.
 

@@ -4,16 +4,19 @@
 
 Paste into Isaac Sim's Script Editor with the scene loaded AND RUNNING (press
 Play first): IRA spawns the pedestrians at runtime, so the target prims only
-exist after setup. Prints PASS/FAIL per target so you can confirm the graph
-`add_srr_gt_pubs.py` will build against the right prims.
+exist after setup. Prints PASS/FAIL per target so you can confirm the opt-in
+`--srr-gt` builder (action_graphs/srr_ground_truth.py) will build against the
+right prims.
 
-Self-contained (does NOT import add_srr_gt_pubs.py, which arms an update-loop
-subscription on import). Read-only: creates no nodes.
+Self-contained (does NOT import the builder). Read-only: creates no nodes.
 
-This is exactly the state add_srr_gt_pubs.py needs: it publishes each character
-on a ROS2PublishRawTransformTree fed every frame from that ManRoot's
-UsdGeom.ComputeLocalToWorldTransform (the check below computes the same pose), so
-a PASS here means the /gt/character_<i> pump will track the walking character.
+srr_ground_truth.build_srr_gt_graph() publishes each character on a
+ROS2PublishRawTransformTree fed every frame from the ManRoot's live FABRIC
+worldMatrix (IRA drives locomotion in Fabric; the USD-authored transform stays
+frozen at spawn). This pre-flight uses UsdGeom.ComputeLocalToWorldTransform only
+as a lightweight "prim resolves + has been spawned (non-zero pose)" sanity check
+— the value may differ from the live Fabric pose, but a PASS means the
+/gt/character_<i> targets are resolvable and the graph will build cleanly.
 
 Checks:
   1. isaacsim.ros2.bridge extension enabled (else publishers won't work).
@@ -22,13 +25,13 @@ Checks:
      is xformable, and reports a non-zero world pose (a zero pose usually means
      the char has not spawned / not been repositioned yet).
   3. Forklift /World/forklift_b exists + xformable.
-Group order below MUST match add_srr_gt_pubs.DEFAULT_CHAR_GROUPS and the SRR
+Group order below MUST match srr_ground_truth.DEFAULT_CHAR_GROUPS and the SRR
 recorder's /gt/character_<i> topics.
 """
 import omni.usd
 from pxr import Usd, UsdGeom
 
-# Keep in sync with add_srr_gt_pubs.DEFAULT_CHAR_GROUPS (positional -> /gt index).
+# Keep in sync with srr_ground_truth.DEFAULT_CHAR_GROUPS (positional -> /gt index).
 CHAR_GROUPS = ["inspect_workers", "gather_workers", "pickup_workers"]
 CHAR_ROOT_FMT = "/World/Characters/{group}/{group}_0"
 SKEL_ROOT_NAME = "ManRoot"
@@ -50,7 +53,7 @@ def _check_ext():
         if ros2:
             _ok("isaacsim.ros2.bridge enabled")
         else:
-            _bad("isaacsim.ros2.bridge NOT enabled (add_srr_gt_pubs.py auto-enables it, "
+            _bad("isaacsim.ros2.bridge NOT enabled (srr_ground_truth.py auto-enables it, "
                  "but a manual check helps)")
         return ros2
     except Exception as e:
@@ -108,7 +111,7 @@ def main():
 
     sg = stage.GetPrimAtPath(NEW_GRAPH_PATH)
     if sg and sg.IsValid():
-        _info(f"{NEW_GRAPH_PATH} already exists — add_srr_gt_pubs.py will rebuild it (idempotent)")
+        _info(f"{NEW_GRAPH_PATH} already exists — the --srr-gt builder will rebuild it (idempotent)")
     print()
 
     print("[2] SRR character ManRoots (discovered under each IRA group)")
@@ -130,7 +133,7 @@ def main():
 
     print("Summary")
     if ros2_ok and all(results):
-        print("  ALL PASS — add_srr_gt_pubs.py will build /World/SRRGraph cleanly")
+        print("  ALL PASS — the --srr-gt builder will build /World/SRRGraph cleanly")
     else:
         print("  ATTENTION — fix the FAIL lines above (usually: press Play so IRA spawns "
               "the chars, or the config character groups don't match CHAR_GROUPS)")

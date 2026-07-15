@@ -10,7 +10,7 @@ These need Isaac Sim's `omni.kit.*` / `pxr.Usd` / `omni.anim.navigation.core` ru
 |---|---|---|
 | Prep a fresh scene for SRR (one-time) | [scene_prep/](scene_prep/) | run all 3 in order |
 | Bake + export NavMesh JSON for waypoint generator | [navmesh/](navmesh/) | `clear_cache_and_rebake.py` → `export_navmesh.py` |
-| Wire `/gt/*` publishers (IRA 6.0, runtime) | [srr_pubs/](srr_pubs/) | auto via run_multi `--exec add_srr_gt_pubs.py`; `check_srr_prereqs.py` = live diagnostic |
+| Publish `/gt/*` topics (IRA 6.0, runtime) | [srr_pubs/](srr_pubs/) | auto via `run_multi.sh --srr-gt` (builds `action_graphs/srr_ground_truth.py`); `check_srr_prereqs.py` = live diagnostic |
 | NavMesh has a hole / chars stuck | [debug/](debug/) | start with `why_navmesh_hole.py` (with prim selected) |
 
 ## End-to-end workflow for a NEW scene
@@ -20,9 +20,9 @@ These need Isaac Sim's `omni.kit.*` / `pxr.Usd` / `omni.anim.navigation.core` ru
 2. Script Editor → run scene_prep/disable_exclude_root_layer.py
 3. Script Editor → run scene_prep/clear_navmesh_blockers.py
 4. Script Editor → run navmesh/clear_cache_and_rebake.py   (sync re-bake)
-5. Script Editor → run navmesh/export_navmesh.py           (writes navmesh.json)
-6. File → Save As… "indicator_warehouse_..._nav_clear.usd"
-   (bakes the NavMesh into the scene; GT publishers are NOT baked — see below)
+5. Script Editor → run navmesh/export_navmesh.py           (writes navmesh.json — this is what SRR consumes)
+6. (optional) File → Save As… if you want to persist the re-baked scene;
+   SRR itself only needs navmesh.json from step 5 (GT publishers are NOT baked — see below)
 
 7. On host: generate behavior trees
     cd <regression-reporter>/scenarios
@@ -32,15 +32,13 @@ These need Isaac Sim's `omni.kit.*` / `pxr.Usd` / `omni.anim.navigation.core` ru
         --navmesh /path/to/navmesh.json
 ```
 
-**Ground truth (`/gt/*/tf`) is wired at RUN time, not baked into the scene.** IRA
+**Ground truth (`/gt/*/tf`) is built at RUN time, not baked into the scene.** IRA
 6.0 spawns the pedestrians at runtime (asset-dependent `ManRoot` path), so
-`run_multi.sh` launches Isaac with `--exec scripts/isaac/add_srr_gt_pubs.py`; that
-script discovers each char's `ManRoot` and builds `/World/SRRGraph` once they
-spawn. There is no "paste + Save the graph" step anymore. Use
+`run_multi.sh` launches Isaac with `--srr-gt`; the builder
+`action_graphs/srr_ground_truth.py` discovers each char's `ManRoot` and builds
+`/World/SRRGraph` once they spawn. There is no "paste + Save the graph" step. Use
 `srr_pubs/check_srr_prereqs.py` (Script Editor, while running) as a live
 read-only diagnostic if GT looks wrong.
-
-To **reset** a scene back to original (undo steps 2-3): run `scene_prep/reactivate_and_save.py`.
 
 ## Subdir details
 
@@ -50,8 +48,7 @@ To **reset** a scene back to original (undo steps 2-3): run `scene_prep/reactiva
 |---|---|
 | `disable_exclude_root_layer.py` | Iterates all `NavMeshVolume_exclude_*` prims and flips `nav:volume:type` token from `Exclude` → `Include` on the **root layer** (so the change is persisted, not session-only). NavMesh bake reads this attribute, NOT `IsActive` — so flipping the token is required (deactivating the prim does nothing). |
 | `disable_exclude_volumes.py` | Same end goal as `disable_exclude_root_layer.py` but writes to the **session layer** instead of the root layer. Use when you want to test the "no excludes" state without modifying the on-disk USD — handy for "would the NavMesh bake without these holes?" experiments where you don't want to commit the change yet. Pair with `debug/verify_disk_scene.py` to confirm the edit is session-only (won't survive `File → Save`). |
-| `clear_navmesh_blockers.py` | Deactivates 4 obstacle Xforms that have collider/rigidbody overlapping the work zones: `SM_HeavyDutyPalletTruck_A01_01`, `SM_Forklift_A01_Blue_01`, `Loading_Zone_Objects`, `Loading_Zone_Objects_01`. These are non-NavMesh prims, so `prim.SetActive(False)` works correctly here (unlike NavMesh volumes). |
-| `reactivate_and_save.py` | Inverse: re-activate the 4 Xforms + flip excludes back. Use to roll the scene back to original state. Includes a save step. |
+| `clear_navmesh_blockers.py` | Deactivates 4 obstacle Xforms that have collider/rigidbody overlapping the work zones: `SM_HeavyDutyPalletTruck_A01_01`, `SM_Forklift_A01_Blue_01`, `Loading_Zone_Objects`, `Loading_Zone_Objects_01`. These are non-NavMesh prims, so `prim.SetActive(False)` works correctly here (unlike NavMesh volumes). To roll a scene back to its original state, re-open the original USD (these prep edits are only needed when re-baking a fresh scene). |
 
 ### `navmesh/` — bake and export
 
@@ -65,12 +62,24 @@ To **reset** a scene back to original (undo steps 2-3): run `scene_prep/reactiva
 | `get_navmesh_data.py` | Probes the nav extension's internal `get_navmesh()` API — useful when the viz mesh prim never materializes (some Isaac Sim versions). Returns triangle data directly from the nav extension instead of reading the stage. Last resort for `export_navmesh.py` when the viz prim path is broken. |
 | `dump_navmesh_volume_disk.py` | Opens a USD on disk via `Usd.Stage.Open()` (NOT the live in-memory stage) and dumps every `NavMeshVolume` prim's `nav:volume:type` + `IsActive()`. Use to verify a saved scene actually has the expected `Include` / `Exclude` values persisted — catches "the bake worked in the session but Save dropped the change" bugs. Can be invoked outside Script Editor: `docker exec isaac-sim /isaac-sim/python.sh dump_navmesh_volume_disk.py <scene.usd>`. |
 
-### `srr_pubs/` — wire `/gt/*` topics into a scene
+### `srr_pubs/` — GT prereq diagnostic
 
 | Script | What it does |
 |---|---|
-| `add_srr_gt_pubs.py` | **IRA 6.0 GT builder + auto-trigger + USD pump.** `build_srr_graph()` discovers each SRR group's animated `ManRoot` under `/World/Characters/<group>/<group>_0` and builds `/World/SRRGraph` (1 `OnPlaybackTick` + 1 `ROS2Context` + one **`ROS2PublishRawTransformTree` per char** + one `ROS2PublishTransformTree` for the forklift) publishing `/gt/character_{0,1,2}/tf` + `/gt/forklift/tf`. **Why raw for chars:** IRA-spawned pedestrians live on the USD stage but are NOT in Fabric, so the normal transform-tree node fails `getObjectType` (`eInvalid`) and freezes them at spawn; the raw node takes an explicit translation/rotation which the module's update-loop pump feeds each frame from `UsdGeom.ComputeLocalToWorldTransform` (never touches Fabric). The baked forklift IS in Fabric, so it keeps the simpler transform-tree node. run_multi.sh fires it via Kit `--exec`; the module bottom arms an app-update-loop poll, builds once IRA spawns the chars, then that same subscription pumps the transforms (also works pasted in the Script Editor). NOT baked into the scene — chars spawn at runtime. |
 | `check_srr_prereqs.py` | Read-only **live** diagnostic (IRA 6.0). Paste in the Script Editor while the scene is running: verifies ROS2 bridge enabled + each group's `ManRoot` + the forklift exist, are xformable, and report a non-zero world pose. |
+
+The `/gt/*` publisher graph itself is **not** here — it's built at run time by
+`closed-loop-testing/isaac-sim/sil/scripts/action_graphs/srr_ground_truth.py` when
+Isaac is launched with `--srr-gt` (see `scripts/run_multi.sh`). It discovers each
+group's animated `ManRoot` under `/World/Characters/<group>/<group>_0` and builds
+`/World/SRRGraph` — one **`ROS2PublishRawTransformTree` per char** + one
+`ROS2PublishTransformTree` for the forklift — publishing `/gt/character_{0,1,2}/tf`
++ `/gt/forklift/tf`. **Why raw for chars:** IRA-spawned pedestrians live on the USD
+stage but are NOT in Fabric, so the normal transform-tree node fails
+`getObjectType` (`eInvalid`) and freezes them at spawn; the raw node takes an
+explicit translation/rotation which the builder's update-loop pump feeds each
+frame from `UsdGeom.ComputeLocalToWorldTransform` (never touches Fabric). The
+forklift IS in Fabric, so it keeps the simpler transform-tree node.
 
 ### `debug/` — when something is broken
 

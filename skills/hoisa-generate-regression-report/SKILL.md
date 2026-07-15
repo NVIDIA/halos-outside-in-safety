@@ -1,20 +1,18 @@
 ---
 name: hoisa-generate-regression-report
 description: >-
-  Run SRR (Safety Regression Reporter) multi-scenario test pipeline on the
-  Halos SIL stack. Picks one or more of 6 pre-built test cases (in-roi,
-  psf-edge, psf-clear, balanced, fast, fixed), launches each in Isaac Sim with a
-  clean compose restart, records 30 Hz parquet of GT TF + PSF state + BA
-  Kafka events + 3D detections (mdx-bev) + BA positions (mdx-behavior),
-  splits by forklift tripwire crossings, runs the aggregator to produce
-  per-clip match% (PSF decision) + Phase 2 perception reports
-  (detect-fail% / tracking-loss% per class), per-clip MP4 videos, and
-  optional spatial heatmaps. Use when asked to "run SRR multi-test",
-  "regression-test PSF", "produce SRR report on these scenarios", "score
+  Run the SRR (Safety Regression Reporter) multi-scenario test pipeline on the
+  SIL stack. Picks one or more of 6 pre-built test cases (in-roi, psf-edge,
+  psf-clear, balanced, fast, fixed), launches each in Isaac Sim with a clean
+  compose restart, records 30 Hz parquet of GT + Safety Core state + BA / 3D
+  perception Kafka events, splits by forklift tripwire crossings, and runs the
+  aggregator to produce per-clip match% + Phase 2 perception reports, per-clip
+  MP4 videos, and optional heatmaps. Use when asked to "run SRR multi-test",
+  "regression-test Safety Core", "produce SRR report on these scenarios", "score
   perception detection/tracking", or "demo SRR pipeline".
 metadata:
-  author: Huy To <hnto@nvidia.com>,Huy Bui <hbui@nvidia.com>
-  version: 0.8.0
+  author: NVIDIA
+  version: 1.3.0
 ---
 
 # SRR Skill — Multi-scenario Test Pipeline
@@ -26,31 +24,27 @@ When this skill is active:
 4. **Stop on real errors** — never silently retry. Surface the failure with a 1-line diagnosis from the verifying agent.
 5. **Cancel `ScheduleWakeup` calls when their trigger condition is resolved.** If you set a wakeup to retry a probe (e.g. Kafka mdx-events consume in Step 3f.7) and the probe passes or you recover via another path, **explicitly cancel the wakeup** before moving on. Stale wakeups can fire during Phase 6 (post-process) and confuse the agent into re-running probes against a torn-down state. One wakeup outstanding per probe maximum.
 
-This skill assumes Halos SIL + SRR are already deployed and healthy on the host (see `hoisa-deploy-profile` skill for first-time setup), **and SRR fixtures (scenes, behavior trees, navmesh, Script-Editor utilities) have been synced into the Isaac SIL dir** via [`halos-integration/sync_to_halos.sh`](../../closed-loop-testing/regression-reporter/halos-integration/sync_to_halos.sh). The skill's launch phase verifies this and offers to sync if missing — see [references/02_launch.md](references/02_launch.md) Step 3.−1.
+This skill assumes the SIL + SRR stacks are already deployed and healthy on the host (see `hoisa-deploy-profile` skill for first-time setup), **and SRR fixtures (behavior trees, navmesh, Script-Editor utilities) have been synced into the Isaac SIL dir** via [`halos-integration/sync_to_halos.sh`](../../closed-loop-testing/regression-reporter/halos-integration/sync_to_halos.sh). The skill's launch phase verifies this and offers to sync if missing — see [references/02_launch.md](references/02_launch.md) Step 3.−1.
 
 ---
 
 ## Phase 0 — Required reading (ONE-TIME, before any compose work)
 
-SRR runs **on top of** the Halos SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** and **`vss-deploy-profile`** skills — NOT this skill. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
+SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** and **`vss-deploy-profile`** skills — NOT this skill. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
 
 **Read these BEFORE running any compose command:**
 
 | File | Why |
 |---|---|
-| `~/.claude/skills/hoisa-deploy-profile/SKILL.md` § Cleanup, § Ready Signals, § Critical Rules (`SETUP_BEFORE_UP`, `VSS_BEFORE_HALOS`, `POLL_NEVER_WAIT`) | Defines `cleanup_all_datalog.sh` mandate before every `docker compose up`, the `sil`-profile ready-signal set (safety-core, comm-layer, isaac-sim, mediamtx), VSS-must-come-up-first ordering |
-| `~/.claude/skills/hoisa-deploy-profile/references/troubleshooting.md` | Failure recipes for "compose up exits but services missing", safety-core (PSF) stuck, comm-layer dead. Consult before retrying a failed restart |
-| `~/.claude/skills/vss-deploy-profile/SKILL.md` (Deployment Flow / Tear Down + `references/teardown.md`, `references/warehouse.md`, `references/warehouse-debug.md`) | VSS Warehouse teardown + data-volume wipe, deploy/bring-up flow, and perception ready signals (FPS check on `vss-rtvi-cv`). Needed when VSS is unhealthy and SRR's launch HARD GATE (3a.5 or 3f.7) fails |
+| `skills/hoisa-deploy-profile/SKILL.md` § Cleanup, § Ready Signals, § Critical Rules (`SETUP_BEFORE_UP`, `VSS_BEFORE_HALOS`, `POLL_NEVER_WAIT`) | Defines `cleanup_all_datalog.sh` mandate before every `docker compose up`, the `sil`-profile ready-signal set (safety-core, comm-layer, isaac-sim), VSS-must-come-up-first ordering |
+| `skills/hoisa-deploy-profile/references/troubleshooting.md` | Failure recipes for "compose up exits but services missing", safety-core stuck, comm-layer dead. Consult before retrying a failed restart |
+| `vss-deploy-profile` skill (Deployment Flow / Tear Down + `references/teardown.md`, `references/warehouse.md`, `references/warehouse-debug.md`) | VSS Warehouse teardown + data-volume wipe, deploy/bring-up flow, and perception ready signals (FPS check on `vss-rtvi-cv`). Needed when VSS is unhealthy and SRR's launch HARD GATE (3a.5 or 3f.7) fails |
 
 **Quickly internalize:**
 
-1. **`SETUP_BEFORE_UP` rule (hoisa-deploy-profile)** — `cleanup_all_datalog.sh` is for the **one-time fresh start before the FIRST scenario only**. It truncates `psf-log/pss.log` and wipes `comm-layer/` — running it **between scenarios destroys the per-scn pss.log evidence** the skill just spent compute capturing. Per-scenario compose restart on its own already truncates pss.log via PSF container init, so the in-loop restart in Step 3a does NOT call cleanup_all_datalog.sh. The per-scn snapshot in Phase 4 Step 1b is what preserves PSF data.
-2. **`VSS_BEFORE_HALOS` rule (hoisa-deploy-profile)** — if both stacks need restart together (e.g. VSS Warehouse recovery from 3a.5 VST gate fail), order is asymmetric:
-   - **Tear down**: Halos first, then VSS (Halos depends on VSS; stop the dependent first).
-   - **Bring up**: VSS first (wait for perception FPS green), then Halos.
-
-   This is NOT per-scenario behavior — only when recovering from a VSS-side incident.
-3. **`POLL_NEVER_WAIT` rule (hoisa-deploy-profile)** — `compose up --detach` exits before containers serve. Always poll `docker ps` + service-specific ready check; never assume "command returned 0 → ready."
+1. **`SETUP_BEFORE_UP`** — `cleanup_all_datalog.sh` is a one-time fresh start before the FIRST scenario only (truncates `psf-log/pss.log` + wipes `comm-layer/`). **Never run it between scenarios** — it destroys the per-scn pss.log evidence. The per-scenario compose restart already truncates pss.log via Safety Core init.
+2. **`VSS_BEFORE_HALOS`** — when restarting both stacks (e.g. VSS recovery from a 3a.5 gate fail): tear down Halos first, then VSS; bring up VSS first (wait for FPS green), then Halos. Only on VSS-side incident recovery, not per-scenario.
+3. **`POLL_NEVER_WAIT`** — `compose up --detach` exits before containers serve. Always poll `docker ps` + a service-specific ready check; never assume "returned 0 → ready".
 
 If a compose restart fails during Phase 3a/3b, **stop and read the two troubleshooting docs above** before retrying. Do not just `docker compose up` again.
 
@@ -58,11 +52,11 @@ If a compose restart fails during Phase 3a/3b, **stop and read the two troublesh
 
 ## 6 pre-built test cases
 
-All 6 use the working scene `indicator_warehouse_20x20_odom_srr_nav_clear.usd` and `--agent-radius 0.8`.
+All 6 use the stock scene `indicator_warehouse_20x20_layout_overflow_test.usd` and `--agent-radius 0.8`.
 
 | Name | Length | Stress focus |
 |---|---:|---|
-| **in-roi**    |  5 min | Person stays inside work zone constantly (PSF "person constantly present" stress) |
+| **in-roi**    |  5 min | Person stays inside work zone constantly (Safety Core "person constantly present" stress) |
 | **psf-edge**  |  5 min | Person sits ON ROI boundary — tests hysteresis / debounce |
 | **psf-clear** |  5 min | Person clearly inside or clearly outside (clean A/B partner of `psf-edge`) |
 | **balanced**  | 10 min | Mixed activity, baseline pre-redraw scenario |
@@ -72,21 +66,19 @@ All 6 use the working scene `indicator_warehouse_20x20_odom_srr_nav_clear.usd` a
 > **`all` and `full` run the first 5 (the randomized sweep) only.** `fixed` is
 > **opt-in** — select it explicitly (`../scripts/run_multi.sh fixed`, or name it
 > in the prompt). It's excluded from `all`/`full` because the person is always in
-> ROI (mute untestable → inflates the blended headline) and it only adds wall
-> clock to a regression sweep. This matches the historical behaviour: `fixed` has
-> existed as a fixture since the command-file era but was never part of `all`.
+> ROI (mute untestable → inflates the blended headline).
 
 Scenario waypoints — IRA 1.6 behavior trees (Isaac 6.0 dropped command files):
 - Canonical trees: `../scenarios/behavior-trees/srr_{name}_char{0,1,2}.bt.json`
   (emitted directly by `../scenarios/tools/randomize_paths.py`)
-- Synced (Isaac reads from here): `${HALOS_SIL_DIR}/configs/srr_char{0,1,2}.bt.json`
+- Synced (Isaac reads from here): `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/srr_char{0,1,2}.bt.json`
   (the active scenario; `run_multi.sh` swaps the selected scenario onto these
   fixed names. GitHub layout: `<halos-repo>/closed-loop-testing/isaac-sim/sil/configs/`)
 
 The canonical scene + NavMesh live at `../scenarios/scenes/`. To add or
 re-generate scenarios, run `../scenarios/tools/randomize_paths.py --name <new-name>`
 (writes `../scenarios/behavior-trees/srr_<new-name>_char{0,1,2}.bt.json`), then
-re-run `../halos-integration/sync_to_halos.sh` to push into halos compose.
+re-run `../halos-integration/sync_to_halos.sh` to push into the Isaac SIL tree.
 
 **Default recording duration: 5 minutes** for any scenario unless user overrides. The "Length" column above shows each scenario's *natural* length, but 5 min is the default for demo / regression — enough to surface most issues without burning wall clock.
 
@@ -109,10 +101,10 @@ User can request any subset, or `all` for the full multi-test (still 5 min each 
 
 ```
 [Isaac Sim] -- /gt/character_*/tf, /gt/forklift/tf -----> [SRR rclpy]  (GT, the reference)
-            -- 3 RTSP cams -> mediamtx -> [VSS] --+--> Kafka mdx-events    --> [SRR consumer]  BA ROI/TW events
+            -- 3 RTSP cams (Isaac self-hosted) -> [VSS] --+--> Kafka mdx-events    --> [SRR consumer]  BA ROI/TW events
                                                   +--> Kafka mdx-bev       --> [SRR consumer]  3D detections (Sparse4D bbox3d)
                                                   +--> Kafka mdx-behavior  --> [SRR consumer]  BA track positions
-                                                         [PSF]
+                                                         [Safety Core]
                                                           ↓ /safety/{is_muted,command,is_alarm}
                                                           ↓
                                                        [SRR rclpy subscribers]
@@ -121,16 +113,14 @@ User can request any subset, or `all` for the full multi-test (still 5 min each 
 ```
 
 **Two scoring layers in one recording:**
-- **Phase 1 (PSF decision)** — GT-expected-mute vs actual `is_muted` → `match%`, mute/unmute-correct%, reaction lag, BA ROI/TW event detection.
+- **Phase 1 (Safety Core decision)** — GT-expected-mute vs actual `is_muted` → `match%`, mute/unmute-correct%, reaction lag, BA ROI/TW event detection.
 - **Phase 2 (perception, 3D)** — GT TF vs `mdx-bev` 3D detections + `mdx-behavior` positions → per-class **detect-fail%** / **tracking-loss%**, precision/recall/F1, position offset-vs-jitter, id-switches, coverage. See [references/06_interpret_report.md](references/06_interpret_report.md) (formula source of truth: `srr-service/srr/aggregator.py` → `compute_phase2_metrics`).
 
-> **Depends on whether Sparse4D 3D detections are flowing (two flows):** VSS Warehouse
-> 3.2 runs Sparse4D perception in **`vss-rtvi-cv`** → `mdx-bev` (3D detections) +
-> **`vss-behavior-analytics`** → `mdx-behavior` (BA positions), which enables **Phase 2**.
-> A 2D-only feed (only `mdx-events`, no `mdx-bev`) gives **Phase 1 only**: `detections_json`
-> is all-null and the Phase 2 section is omitted — expected, not a failure. Availability is
-> keyed off `mdx-bev` actually decoding detections (see the Step 3f.7 gate), not the
-> container name. See [`quickstart.md`](../../closed-loop-testing/regression-reporter/docs/quickstart.md) § "Two perception flows".
+> **Phase 2 depends on Sparse4D 3D detections flowing.** VSS Warehouse 3.2 runs
+> Sparse4D in `vss-rtvi-cv` → `mdx-bev` + `vss-behavior-analytics` → `mdx-behavior`,
+> enabling Phase 2. A 2D-only feed (only `mdx-events`) gives **Phase 1 only**:
+> `detections_json` is all-null and the Phase 2 section is omitted — expected, not
+> a failure. Availability is keyed off `mdx-bev` decoding detections (Step 3f.7 gate).
 
 The two new Kafka consumers (`BEV_TOPIC=mdx-bev`, `BEHAVIOR_TOPIC=mdx-behavior`) add five parquet columns — `detections_json`, `tracker_state_json`, `bev_frame_id`, `bev_create_time`, `ba_positions_json` — all nullable, so a Phase-1-only deploy still works. Set either topic env to empty to disable that consumer.
 
@@ -156,8 +146,8 @@ When running the skill, print exactly this format. The phases / sections are anc
 
   Test 1/3 starts: in-roi (5 min)
   [00:00] Halos compose restarting...
-  [02:48] Containers up (safety-core, comm-layer, isaac-sim, mediamtx, srr).
-  [02:48] /safety/is_muted publishing — PSF chain alive.
+  [02:48] Containers up (safety-core, comm-layer, isaac-sim, srr).
+  [02:48] /safety/is_muted publishing — Safety Core chain alive.
   [02:48] Scene loading...
   [05:18] Scene loaded. Replicator generating data.
   [05:18] /srr/record true → recording active.
@@ -196,30 +186,25 @@ When running the skill, print exactly this format. The phases / sections are anc
   Perception (Phase 2): 🧍 detect-fail 2.5% / tracking-loss 1.9% · 🚜 detect-fail 32.0% / tracking-loss 29.1% · pos-offset 0.09 m
 ```
 
-> Pull these from the summary's `## Phase 2 — perception` block, which prints a
-> per-class line `🧍 Person: recall .. · detect-fail X% · tracking-loss Y% · ..
-> pos-offset Z m` (and a per-scenario perception rollup table). The
-> **Perception (Phase 2)** line is present only when the 3D pipeline was active
-> (mdx-bev / mdx-behavior flowing → non-null `detections_json`); a Phase-1-only
-> run omits it. See
-> [references/06_interpret_report.md](references/06_interpret_report.md) §
-> Phase 2 for what `detect-fail%` vs `tracking-loss%` mean.
+> The **Perception (Phase 2)** line is present only when the 3D pipeline was
+> active (mdx-bev / mdx-behavior flowing); a Phase-1-only run omits it. Pull the
+> numbers from the summary's `## Phase 2 — perception` block. See
+> [references/06_interpret_report.md](references/06_interpret_report.md) for what
+> `detect-fail%` vs `tracking-loss%` mean and the FAIL-clip drill-down.
 
-For drill-down on any FAIL clip or interpretation of the metrics, see [references/06_interpret_report.md](references/06_interpret_report.md).
-
-The "Clip N" lines come from the live forklift-TF monitor (`../scripts/live_clip_monitor.py`). Each line prints at the moment of the TW crossing.
+The "Clip N" lines come from the live forklift-TF monitor (`../scripts/live_clip_monitor.py`), printed at each TW crossing.
 
 ---
 
 ## Agent autonomy rules — AGENT MUST ALWAYS CHECK PROGRESS
 
-**Core rule**: never run a `sleep` longer than 60 seconds without an Explore agent actively verifying that progress is happening. If the underlying process stalled (PSF crashed, isaac-sim hung, parquet stopped growing), we want to know in ≤60 s, not at the end of the timer.
+**Core rule**: never run a `sleep` longer than 60 seconds without an Explore agent actively verifying that progress is happening. If the underlying process stalled (Safety Core crashed, isaac-sim hung, parquet stopped growing), we want to know in ≤60 s, not at the end of the timer.
 
 > ⚠️ **Resolve the perception + behavior container names first (VSS 3.2).** On VSS
 > Warehouse 3.2 the perception container is **`vss-rtvi-cv`** (Sparse4D 3D warehouse,
 > `DS_MODEL_FAMILY=sparse4d-warehouse`; heavier ~12–14 FPS → floor **≥ 5**) and behavior
 > analytics is **`vss-behavior-analytics`** — the container names no longer carry a
-> `-2d`/`-3d` suffix. (Legacy Halos SIL used `perception-2d`/`perception-3d` and
+> `-2d`/`-3d` suffix. (The legacy SIL stack used `perception-2d`/`perception-3d` and
 > `vss-behavior-analytics-2d`/`-3d`, with 2D Sparse-free ~30 FPS → **≥ 25**.) **Don't
 > hard-code any single name** — resolve once, then pick the FPS floor:
 > ```bash
@@ -234,9 +219,9 @@ This applies to every long wait in the workflow:
 
 | Long wait | What to verify each tick | Tick interval | Max patience |
 |---|---|---:|---:|
-| Halos compose up after `down` | `docker ps` shows new container IDs for the 5 services | 30 s | 5 min |
+| Halos compose up after `down` | `docker ps` shows new container IDs for the services | 30 s | 5 min |
 | Scene load + shader compile | Tail `/tmp/isaac-scenario-<TS>-<LBL>.log`; expect 3 RTSPWriter lines | 30 s | 8 min (first), 3 min (subsequent) |
-| PSF warm-up (30 s) | Confirm `/safety/is_muted` still publishing | 15 s | 90 s |
+| Safety Core warm-up (30 s) | Confirm `/safety/is_muted` still publishing | 15 s | 90 s |
 | **Recording window** (5–20 min) | Verify (a) parquet file size growing, (b) parquet `ba_events_json` rows > 0 (after 90 s), (c) `$PERCEPTION` FPS ≥ `$FPS_MIN` on all 3 cams (≥25 for 2D, ≥5 for 3D) | **60 s** | RECORD_S |
 | Analysis (tw_split + aggregator + vst pull) | `ls scenes/scn_*.parquet` count, `summary.md` size > 0, mp4 count | 15 s | 5 min |
 
@@ -270,19 +255,15 @@ as STALLED.
 ```
 
 If the agent reports STALLED, **stop the recording phase** and surface the
-issue. Do not let a hung scenario burn 20 minutes of wall clock.
-
-> The previous heartbeat checked `ros2 topic hz /gt/forklift/tf` from the
-> host, but the host↔container DDS bridge is unreliable in this deployment
-> (host rclpy subscribers see 0 messages even when Isaac is publishing).
-> The new checks use only `docker exec` / `docker logs` so they don't
-> depend on host ROS env at all.
+issue. Do not let a hung scenario burn 20 minutes of wall clock. (Heartbeats use
+only `docker exec` / `docker logs` — the host↔container DDS bridge is unreliable
+here, so host `ros2 topic hz` probes can falsely read 0.)
 
 **Other rules**:
 1. **Pre-check before recording**: containers Up + `/safety/is_muted` publishing + opcua 4840 listening. If any fails, do NOT start recording — diagnose first.
 2. **Background processes**: launch `live_clip_monitor.py` BEFORE `/srr/record true`, kill it after `/srr/record false`. Stream its stdout into the demo log.
 3. **Never declare a scenario "done"** until the aggregator produced N rows in `summary.md` AND N per-clip videos exist (count files in `runs/multi-test-.../<label>/videos/`).
-4. **Cross-scenario isolation**: ALWAYS restart both Halos compose AND SRR compose between scenarios. Do not skip — PSF counter drift carries across runs and corrupts the next scenario's results.
+4. **Cross-scenario isolation**: ALWAYS restart both Halos compose AND SRR compose between scenarios. Do not skip — Safety Core counter drift carries across runs and corrupts the next scenario's results.
 5. **Do NOT just `bash ../scripts/run_multi.sh ...` in one shot**. The bash script is a reference/template; the skill agent orchestrates step-by-step and inserts the verification agents between every phase. One-shot invocation skips the verification layer.
 
 ---
@@ -293,8 +274,8 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
 
 | Phase | Ready signal (poll until true) |
 |-------|--------------------------------|
-| Compose restart | `docker ps --format '{{.Names}}'` shows all 5: safety-core, comm-layer, isaac-sim, mediamtx, srr |
-| PSF chain alive | `ros2 topic echo /safety/is_muted --once` exits 0 |
+| Compose restart | `docker ps --format '{{.Names}}'` shows all 4: safety-core, comm-layer, isaac-sim, srr |
+| Safety Core chain alive | `ros2 topic echo /safety/is_muted --once` exits 0 |
 | Scene loaded | `/tmp/isaac-scenario.log` contains `RTSPWriter_World_Cameras_Camera*_rgb` for all 3 cams |
 | Recording active | `ros2 service call /srr/record SetBool` returned `success: True` |
 | Recording done | The above plus parquet file size > 100 KB and incrementing stops |
@@ -342,7 +323,7 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
     - [ ] 3d. Start scene in isaac-sim (--start --headless --enable-vst)
     - [ ] 3e. Wait for shaders + 3 RTSP streams ready
     - [ ] 3f. Launch live_clip_monitor.py (background — known-broken; see 03_monitor.md)
-    - [ ] 3f.5 PSF warm-up 30 s
+    - [ ] 3f.5 Safety Core warm-up 30 s
     - [ ] 3f.7 **VSS perception health gate** (FPS ≥ 5 on 3 cams + Kafka mdx-events flowing; for Phase 2 also require **mdx-bev** decoding real detections > 0) — HARD GATE, fail → abort
     - [ ] 3g. /srr/record SetBool true
     - [ ] 3h. Sleep RECORD_S (with BA event + perception FPS heartbeat)
@@ -391,7 +372,6 @@ User-facing + companion docs elsewhere in the repo:
 
 | Document | Use When |
 |---|---|
-| [`quickstart.md`](../../closed-loop-testing/regression-reporter/docs/quickstart.md) | First-time setup walk-through (Halos deploy → configure → run → view). Send users here, not the skill. |
 | [`references/06_interpret_report.md`](references/06_interpret_report.md) | What every Phase 1 / Phase 2 number means + the FAIL-clip drill-down workflow. Read before answering perception-metric questions. Formula source of truth: `srr-service/srr/aggregator.py` → `compute_phase2_metrics`. |
 | [`../../tools/srr-debug-viewer/README.md`](../../tools/srr-debug-viewer/README.md) | Browser viewer for per-clip MP4 + sync panels. Launched optionally in Phase 6c (see [05_report.md](references/05_report.md) Step 6). |
 
@@ -412,18 +392,19 @@ User-facing + companion docs elsewhere in the repo:
 | `BEHAVIOR_TOPIC` | `$BEHAVIOR_TOPIC` (default `mdx-behavior`) | Kafka topic for BA track positions. Empty string disables the BA-position consumer |
 | `SAMPLE_HZ` (3D too) | 30 (built-in, `service.py`) | mdx-bev is **replace-not-append** per tick; mdx-behavior kept per `track_id` with `BA_POS_TTL_S=1.0` |
 | `gate_m` | 1.5 m (built-in, `aggregator.py`) | nearest-GT match gate for detect-fail / recall. Multi-gate recall also reported @0.5/1.0/1.5 m |
-| `coverage_pad_m` | **0.0** (changed 2026-06-15; was 2.0) | coverage = convex hull of detections, **pad=0**. The 2 m pad over-reported detect-fail by counting out-of-FOV GT as misses |
+| `coverage_pad_m` | **0.0** (built-in) | coverage = convex hull of detections, pad=0 (a nonzero pad over-reports detect-fail by counting out-of-FOV GT as misses) |
 | `boundary_m` | 2.0 m (built-in) | forklift trailer-boundary slice (±2 m of `TW_X`) |
 | `split_dist_m` | 1.0 m (built-in) | same-class split/fragmentation threshold |
 | forklift GT origin offset | estimated per-run (~0.39 m → ~0.08 m residual) | GT `body` TF is behind the 3D-box centre; aggregator infers + removes the bias before matching |
-| Halos deployment dir | `$HALOS_COMPOSE_DIR` (REQUIRED) | GitHub `deployments/` (compose.yaml + profiles/) |
-| Halos profile env | `$HALOS_ENV_FILE` (REQUIRED) | `deployments/profiles/<profile>.env` — source of all shared values |
-| Halos Isaac SIL dir | `$HALOS_SIL_DIR` (REQUIRED) | `closed-loop-testing/isaac-sim/sil` — scenes/configs/behavior-trees/scripts |
+| Repo root | `$HOISA_ROOT_PATH` (REQUIRED) | halos-outside-in-safety repo root — everything below derives from it |
+| ⤷ deployment dir | `$HOISA_ROOT_PATH/deployments` | compose.yaml + profiles/ |
+| ⤷ profile env | `$HOISA_ROOT_PATH/deployments/profiles/sil.env` | source of all shared values |
+| ⤷ Isaac SIL dir | `$HOISA_ROOT_PATH/closed-loop-testing/isaac-sim/sil` | scenes/configs/behavior-trees/scripts |
 | SRR service dir | `${SRR_PIPELINE_DIR}/srr-service/` | where to `docker compose up` |
 | Output base | `${RUNS_HOST_DIR:-${SRR_PIPELINE_DIR}/srr-service/runs}/multi-test-YYYYMMDD-HHMMSS/` | per-scenario subdirs containing `scenes/`, `videos/`, `reports/` |
 | Top-level summary | `<output-base>/summary.md` | cross-run rollup, written by aggregator `--top-level` |
 
-> All host paths above resolve from the repo's `.env` (which sources `${HALOS_ENV_FILE}`, the deployed Halos profile env). Skill scripts self-locate via `$(dirname "$0")` — no absolute path is baked into them.
+> All host paths above resolve from the repo's `.env` (which sets `HOISA_ROOT_PATH`; scripts source the derived profile env for shared values). Skill scripts self-locate via `$(dirname "$0")` — no absolute path is baked into them.
 
 ---
 
@@ -475,13 +456,13 @@ for SID in $(curl -sf "${VST_BASE_URL}/v1/sensor/list" \
 done
 
 # 5. Restart Halos compose so Isaac re-registers fresh sensors
-cd ${HALOS_COMPOSE_DIR}
-docker compose --env-file ${HALOS_ENV_FILE} down && docker compose --env-file ${HALOS_ENV_FILE} up -d
+cd ${HOISA_ROOT_PATH}/deployments
+docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env down && docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env up -d
 ```
 
 For full warehouse lifecycle (NGC artifact download, env config, etc.) see the
-`vss-deploy-profile` skill (`~/.claude/skills/vss-deploy-profile/SKILL.md`) — Deployment Flow + `references/teardown.md`.
+`vss-deploy-profile` skill — Deployment Flow + `references/teardown.md`.
 
-For full Halos lifecycle (safety-core/PSF, comm-layer, Isaac scene config) see the
-`hoisa-deploy-profile` skill (`~/.claude/skills/hoisa-deploy-profile/SKILL.md`).
+For full Halos lifecycle (safety-core, comm-layer, Isaac scene config) see the
+`hoisa-deploy-profile` skill (`skills/hoisa-deploy-profile/SKILL.md`).
 

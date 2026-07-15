@@ -1,16 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""SRR ground-truth `/gt/*/tf` publisher Action Graph — Isaac Sim 6.0 / IRA 1.6.x.
+"""Halos SIL SRR ground-truth `/gt/*/tf` publisher Action Graph — Isaac Sim 6.0 / IRA 1.6.x.
+
+Opt-in graph for the SRR closed-loop regression harness
+(`closed-loop-testing/regression-reporter/`). OFF by default; enabled with
+`run_actor_sdg.py --srr-gt`. On a normal Halos run the flag is absent and this
+module is never imported, so there is zero effect on the default pipeline.
 
 Builds `/World/SRRGraph`: one `OnPlaybackTick` + one `ROS2Context`, then
-  - the FORKLIFT (scene-baked) on a `ROS2PublishTransformTree` (reads the prim
-    transform straight from Fabric — works because the payload is present in
-    Fabric from load), publishing `/gt/forklift/tf` (child frames body + lift);
+  - the FORKLIFT (scene prim `/World/forklift_b`) on a `ROS2PublishTransformTree`
+    (reads the prim transform straight from Fabric — works because the payload is
+    present in Fabric from load), publishing `/gt/forklift/tf` (child frames
+    body + lift);
   - each SRR PEDESTRIAN on a `ROS2PublishRawTransformTree`, publishing
     `/gt/character_<i>/tf` (parent "world"). The raw node takes an EXPLICIT
     translation input, which we feed each frame from the character's live
     FABRIC world transform (see the pump below).
-SRR-OWNED; Halos' `run_actor_sdg.py` is NOT modified.
 
 Why the characters need the RAW node + a FABRIC-fed pump:
   IRA 6.0 spawns the walking pedestrians at RUNTIME under
@@ -27,16 +32,14 @@ Why the characters need the RAW node + a FABRIC-fed pump:
   forklift IS in Fabric for PoseTree, so it keeps the simpler
   ROS2PublishTransformTree.
 
-TWO ways this runs (both call `build_srr_graph()`):
-  1. Automated (run_multi.sh): Isaac is launched with
-        ./python.sh run_actor_sdg.py ... --exec scripts/isaac/add_srr_gt_pubs.py
-     `--exec` is a Kit startup arg; run_actor_sdg.py parses its own flags with
-     argparse.parse_known_args() and forwards leftover argv to Kit, so Kit runs
-     THIS file at boot — no Halos code change. `--exec` fires at boot, BEFORE IRA
-     spawns the characters, so the module bottom arms an app-update-loop poll and
-     builds ONCE the chars are on stage; that SAME subscription then stays alive
-     and pumps the per-frame USD transforms into the raw publishers.
-  2. Manual: paste into Isaac's Script Editor with the scene loaded + running.
+Lifecycle (same shape as the sibling builders in this package):
+  `run_actor_sdg.py` calls `build_srr_gt_graph()` from its
+  SET_UP_SIMULATION_DONE_EVENT block — AFTER `setup_simulation()` +
+  `apply_halos_runtime_patches()`, so IRA has already spawned the character
+  groups and the forklift is on stage. The builder resolves targets, edits the
+  graph ONCE, then arms a lightweight app-update subscription whose only job is
+  to pump the live Fabric transforms into the raw character publishers each
+  frame. Can also be pasted into Isaac's Script Editor (scene loaded + running).
 
 Prim targets:
   - Characters: the `ManRoot` prim discovered under each
@@ -48,8 +51,6 @@ arrives under parent "world", so the exact child string is not load-bearing.
 """
 
 from __future__ import annotations
-
-import os
 
 # Default graph path under /World/ so operators find it in the Stage panel.
 DEFAULT_GRAPH_PATH = "/World/SRRGraph"
@@ -129,7 +130,7 @@ def _resolve_targets(stage, char_groups: list[str]) -> tuple[list[tuple[str, str
         raise RuntimeError(
             "[srr-gt] Missing prims on stage:\n  - "
             + "\n  - ".join(missing)
-            + "\nThe SRR graph must be built AFTER setup_simulation() + "
+            + "\nbuild_srr_gt_graph() must run AFTER setup_simulation() + "
             "apply_halos_runtime_patches(). Check IRA spawned the character "
             "groups and the scene contains the forklift."
         )
@@ -154,6 +155,7 @@ def _clear_existing_graph(stage, graph_path: str) -> None:
 _pump: list[dict] = []      # [{src, ns, t_attr, r_attr}, ...]
 _meters_per_unit = 1.0
 _rt_stage = None            # cached usdrt stage handle
+_pump_sub = None            # app-update subscription (module-global; keeps pump alive)
 
 
 def _find_fabric_pump_prim(stage, skel_root_path: str) -> str:
@@ -246,7 +248,32 @@ def _pump_frame(stage) -> None:
             pass
 
 
-def build_srr_graph(
+def _arm_pump() -> None:
+    """Subscribe the per-frame Fabric->raw pump to the app update stream.
+
+    Idempotent: drops any prior subscription first. The subscription only pumps
+    (the graph is already built by the time this is armed), so it is cheap and
+    keeps running for the life of the app.
+    """
+    global _pump_sub
+    import omni.kit.app
+    import omni.usd
+
+    _pump_sub = None  # dropping the last ref cancels a prior subscription
+
+    def _on_update(_event) -> None:
+        stage = omni.usd.get_context().get_stage()
+        if stage is not None:
+            _pump_frame(stage)
+
+    _pump_sub = (
+        omni.kit.app.get_app()
+        .get_update_event_stream()
+        .create_subscription_to_pop(_on_update, name="srr_gt_pump")
+    )
+
+
+def build_srr_gt_graph(
     config_path: str | None = None,
     *,
     graph_path: str = DEFAULT_GRAPH_PATH,
@@ -256,12 +283,13 @@ def build_srr_graph(
 
     Characters -> ROS2PublishRawTransformTree (fed each frame from the live
     Fabric worldMatrix, see _pump_frame); forklift -> ROS2PublishTransformTree
-    (reads Fabric directly via PoseTree).
+    (reads Fabric directly via PoseTree). After the edit, arms the per-frame
+    Fabric pump (see _arm_pump).
 
     Args:
         config_path: accepted for signature parity with the Halos builders
-            (build_rtsp_graph etc.); unused today. The character groups +
-            forklift prim are resolved from the live stage.
+            (build_rtsp_graph / build_forklift_graphs etc.); unused today. The
+            character groups + forklift prim are resolved from the live stage.
         graph_path: USD path where the graph prim is created.
         char_groups: ordered character group names mapped positionally to
             /gt/character_<i>. Defaults to DEFAULT_CHAR_GROUPS.
@@ -292,7 +320,7 @@ def build_srr_graph(
     set_values = []
     connect = []
 
-    # Characters: raw publishers driven from USD (Fabric-independent).
+    # Characters: raw publishers driven from the live Fabric transform.
     for idx, (namespace, _prim_path) in enumerate(char_targets):
         node = f"RawPub{idx}"
         create_nodes.append((node, "isaacsim.ros2.bridge.ROS2PublishRawTransformTree"))
@@ -308,7 +336,7 @@ def build_srr_graph(
             ("Context.outputs:context", f"{node}.inputs:context"),
         ])
 
-    # Forklift: scene-baked -> Fabric read works, keep the transform-tree node.
+    # Forklift: scene prim -> Fabric read works, keep the transform-tree node.
     create_nodes.append(("PubForklift", "isaacsim.ros2.bridge.ROS2PublishTransformTree"))
     set_values.extend([
         ("PubForklift.inputs:nodeNamespace", _FORKLIFT_NAMESPACE),
@@ -331,92 +359,14 @@ def build_srr_graph(
     )
 
     _cache_pump(stage, graph_path, char_targets)
+    _arm_pump()
 
     print(f"[srr-gt] Action Graph built at {graph_path} "
           f"({len(char_targets)} raw char pubs + 1 forklift, "
-          f"metersPerUnit={_meters_per_unit})")
+          f"metersPerUnit={_meters_per_unit}); Fabric pump armed")
     for namespace, prim_path in char_targets:
         print(f"  - {namespace}/tf  (raw, Fabric-pumped)  <-  {prim_path}")
     print(f"  - {_FORKLIFT_NAMESPACE}/tf  (transform-tree)  <-  {forklift_path}")
     print("[srr-gt] Press Play; then `ros2 topic echo /gt/character_0/tf` on the host.")
 
     return graph
-
-
-# --- auto-trigger + pump ----------------------------------------------------
-# `--exec` fires at Kit boot, before IRA spawns the pedestrians, so we can't just
-# call build_srr_graph() here. Instead subscribe to the app update loop and poll
-# cheaply each frame until all SRR char groups + the forklift are on the stage,
-# then build ONCE. After building, the SAME subscription keeps running and pumps
-# the per-frame live Fabric transforms into the raw char publishers (_pump_frame).
-# On a non-SRR run the gate never trips (chars absent) -> a no-op that
-# self-cancels after a frame budget. We poll rather than bind IRA's internal
-# SET_UP_SIMULATION_DONE_EVENT (private API, not importable this early).
-_MAX_FRAMES = int(os.environ.get("SRR_GT_BOOTSTRAP_MAX_FRAMES", "36000"))  # ~10 min @60fps
-_sub = None  # keep the update subscription alive (module-global)
-_frames = 0
-_built = False
-
-
-def _drop_subscription() -> None:
-    global _sub
-    _sub = None  # dropping the last ref cancels the update subscription
-
-
-def _stage_ready(stage) -> bool:
-    """True once every SRR char group's ManRoot + the forklift are on the stage
-    (exactly what build_srr_graph() needs to succeed / not raise)."""
-    for group in DEFAULT_CHAR_GROUPS:
-        if _find_skel_root(stage, _CHAR_ROOT_FMT.format(group=group)) is None:
-            return False
-    fk = stage.GetPrimAtPath(_FORKLIFT_PRIM)
-    return bool(fk and fk.IsValid())
-
-
-def _on_update(_event) -> None:
-    global _frames, _built
-
-    import omni.usd
-
-    stage = omni.usd.get_context().get_stage()
-
-    # Built already: keep pumping Fabric -> raw char publishers every frame.
-    if _built:
-        if stage is not None:
-            _pump_frame(stage)
-        return
-
-    _frames += 1
-    if stage is not None and _stage_ready(stage):
-        try:
-            build_srr_graph()
-            print("[srr-gt] SRRGraph built (SRR chars detected on stage); "
-                  "now pumping live Fabric transforms into raw char publishers")
-        except Exception as err:  # never wedge the run
-            print(f"[srr-gt] build_srr_graph failed: {err}")
-        _built = True
-        return
-
-    if _frames >= _MAX_FRAMES:
-        print(
-            f"[srr-gt] SRR chars not found after {_frames} frames — "
-            "no-op (non-SRR run?); cancelling."
-        )
-        _drop_subscription()
-
-
-def _arm() -> None:
-    global _sub
-    import omni.kit.app
-
-    _sub = (
-        omni.kit.app.get_app()
-        .get_update_event_stream()
-        .create_subscription_to_pop(_on_update, name="srr_gt_add_pubs")
-    )
-    print("[srr-gt] armed; will build /World/SRRGraph once SRR chars spawn, "
-          "then pump USD transforms each frame")
-
-
-# Runs on --exec (Kit boot) and on Script-Editor paste alike.
-_arm()

@@ -7,9 +7,9 @@
 #   2. Halos profile env (env_file → HOST_IP, ROS_DOMAIN_ID, VST_BASE_URL, ...)
 #   3. `environment:` block (uses ${VAR:-default} substitution from step 1)
 #
-# Set HALOS_ENV_FILE (in shell or in repo .env) so env_file can resolve. The
-# GitHub Halos layout has no deployments/.env — shared vars live in
-# deployments/profiles/<profile>.env, which HALOS_ENV_FILE points at.
+# Set HOISA_ROOT_PATH (in shell or in repo .env) so env_file can resolve — shared
+# vars live in $HOISA_ROOT_PATH/deployments/profiles/sil.env (there is no
+# deployments/.env).
 # Run from this dir:
 #   docker compose up --build -d
 #   docker logs -f srr
@@ -31,7 +31,7 @@ services:
     env_file:
       # Pulls HOST_IP, ROS_DOMAIN_ID, VST_BASE_URL, MDX_DATA_DIR, etc. from the
       # deployed Halos profile env (e.g. deployments/profiles/sil.env).
-      - ${HALOS_ENV_FILE}
+      - ${HOISA_ROOT_PATH}/deployments/profiles/sil.env
     environment:
       # SRR-specific. Compose auto-loads `.env` from this dir for ${VAR}
       # substitution (no need to list it under env_file).

@@ -1,6 +1,6 @@
 # Phase 2/3 — Per-Scenario Launch
 
-Run for EACH scenario in the plan. **Restart both Halos and SRR compose between scenarios** — PSF counter drift carries across runs and corrupts the next scenario's results.
+Run for EACH scenario in the plan. **Restart both Halos and SRR compose between scenarios** — Safety Core counter drift carries across runs and corrupts the next scenario's results.
 
 > ⚠️ **Resolve the perception + behavior container names first (VSS 3.2).** Every command
 > below that says `vss-rtvi-cv` / `vss-behavior-analytics` / `FPS ≥ 5` refers to the
@@ -94,39 +94,39 @@ Skip this step on the 2nd–Nth scenarios of a multi-test — image state is sta
 
 ## Step 3.−1 — Verify SRR fixtures synced into the Isaac SIL dir (one-time / first scenario)
 
-SRR's canonical test fixtures (the 6 scenarios' IRA 1.6 behavior trees, 2 USD
-scenes, NavMesh JSON, and 22 Script-Editor utilities) live under
+SRR's canonical test fixtures (the 6 scenarios' IRA 1.6 behavior trees,
+NavMesh JSON, and the Script-Editor utilities) live under
 `regression-reporter/scenarios/{behavior-trees,scenes,isaac-scripts}/`. Isaac Sim reads
 those at the in-container path `/isaac-sim/sil/...`, which is bind-mounted
-from the Halos Isaac SIL tree `${HALOS_SIL_DIR}` (GitHub layout:
-`<halos-repo>/closed-loop-testing/isaac-sim/sil/`).
+from the Isaac SIL tree `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil` (GitHub layout:
+`<halos-repo>/closed-loop-testing/isaac-sim/sil/`). SRR ships no custom scene —
+it runs against the stock scene already present in that tree.
 
 So before any scenario can start, the SRR fixtures must be **copied into
-the Halos compose dir**. This is a one-time setup per checkout (or after
+the SIL configs dir**. This is a one-time setup per checkout (or after
 SRR-side updates); not per scenario.
 
-**Verify all 5 fixture groups present** — Explore agent:
+**Verify all fixture groups present** — Explore agent:
 
 ```
-Check each path exists under ${HALOS_SIL_DIR}/:
+Check each path exists under ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/:
   configs/srr_char0.bt.json                (active tree — Character)
   configs/srr_char1.bt.json                (active tree — Character_01)
   configs/srr_char2.bt.json                (active tree — Character_02)
   configs/srr_in-roi_char0.bt.json         (per-scenario trees; 6 scenarios x 3 chars)
   configs/srr_fast_char0.bt.json           (spot-check a couple more names)
   configs/navmesh.json
-  scenes/indicator_warehouse_20x20_odom_srr_nav_clear.usd
-  scripts/isaac/add_srr_gt_pubs.py
+  scripts/isaac/check_srr_prereqs.py       (GT pre-flight diagnostic)
 Report [ok] if all present, or [missing: <list>] otherwise.
 ```
 
 **On missing files** — run the sync once:
 
 ```bash
-${SRR_PIPELINE_DIR}/halos-integration/sync_to_halos.sh ${HALOS_SIL_DIR}
+${SRR_PIPELINE_DIR}/halos-integration/sync_to_halos.sh ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil
 ```
 
-This copies the canonical IRA 1.6 behavior trees plus SRR scenes / navmesh /
+This copies the canonical IRA 1.6 behavior trees plus navmesh /
 isaac-scripts into the correct SIL subdirs. Idempotent — safe to re-run. See
 `halos-integration/README.md` for the Pattern A (sync) vs Pattern B
 (planned bind-mount) discussion.
@@ -146,9 +146,9 @@ files are stable across compose restarts.
 If the user wants a clean slate (e.g. first run after a code change, or recovering from a previously-aborted multi-test), run hoisa-deploy-profile's `cleanup_all_datalog.sh` ONCE **before the first scenario's compose restart**:
 
 ```bash
-cd ${HALOS_COMPOSE_DIR}
-docker compose --env-file ${HALOS_ENV_FILE} down     # ensure PSF isn't writing
-bash ${HALOS_COMPOSE_DIR}/../closed-loop-testing/scripts/cleanup_all_datalog.sh   # truncates pss.log + wipes comm-layer/
+cd ${HOISA_ROOT_PATH}/deployments
+docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env down     # ensure Safety Core isn't writing
+bash ${HOISA_ROOT_PATH}/deployments/../closed-loop-testing/scripts/cleanup_all_datalog.sh   # truncates pss.log + wipes comm-layer/
 ```
 
 What it does (the script lives at `<halos-repo>/closed-loop-testing/scripts/cleanup_all_datalog.sh`, ~95 lines):
@@ -156,7 +156,7 @@ What it does (the script lives at `<halos-repo>/closed-loop-testing/scripts/clea
 - Removes everything under `${MDX_DATA_DIR}/comm-layer/`
 - Removes auxiliary files in `psf-log/` (keeps the dir + pss.log file inode)
 
-**NEVER run between scenarios** — it destroys the previous scenario's PSF log evidence (the source the Phase 4 Step 1b per-scn snapshot reads). The PSF container's own startup truncates pss.log naturally, so per-scenario freshness is already handled.
+**NEVER run between scenarios** — it destroys the previous scenario's Safety Core log evidence (the source the Phase 4 Step 1b per-scn snapshot reads). The Safety Core container's own startup truncates pss.log naturally, so per-scenario freshness is already handled.
 
 When to skip Step 3.0: continuing a multi-test partial-run, or after `hoisa-deploy-profile` finished within the past few minutes (the deploy itself does this cleanup as part of `SETUP_BEFORE_UP`).
 
@@ -170,12 +170,12 @@ Log:
 ## Step 3a — Halos compose restart
 
 ```bash
-cd ${HALOS_COMPOSE_DIR}
-docker compose --env-file ${HALOS_ENV_FILE} down
-docker compose --env-file ${HALOS_ENV_FILE} up -d
+cd ${HOISA_ROOT_PATH}/deployments
+docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env down
+docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env up -d
 ```
 
-> **Do NOT call `cleanup_all_datalog.sh` here.** Per hoisa-deploy-profile `SETUP_BEFORE_UP`, that script truncates `psf-log/pss.log` and wipes `comm-layer/` — running it between scenarios destroys the per-scn pss.log evidence captured in the prior scenario's Phase 4 Step 1b. Fresh-start cleanup belongs in Phase 2 pre-check (one-time before the first scenario only). The PSF container's own startup truncates pss.log naturally, so between-scenarios state is already fresh on the PSF side.
+> **Do NOT call `cleanup_all_datalog.sh` here.** Per hoisa-deploy-profile `SETUP_BEFORE_UP`, that script truncates `psf-log/pss.log` and wipes `comm-layer/` — running it between scenarios destroys the per-scn pss.log evidence captured in the prior scenario's Phase 4 Step 1b. Fresh-start cleanup belongs in Phase 2 pre-check (one-time before the first scenario only). The Safety Core container's own startup truncates pss.log naturally, so between-scenarios state is already fresh on the Safety Core side.
 
 **Demo log line at start**:
 ```
@@ -185,8 +185,8 @@ docker compose --env-file ${HALOS_ENV_FILE} up -d
 
 **Ready signal** — verify via Explore agent:
 ```
-Check `docker ps --format '{{.Names}}'` until all 4 names are listed:
-  safety-core, comm-layer, isaac-sim, mediamtx
+Check `docker ps --format '{{.Names}}'` until all names are listed:
+  safety-core, comm-layer, isaac-sim
 Poll every 30 s, max 5 min total. Print one heartbeat line per poll
 ("[MM:SS] waiting on <missing-name>"). Report [ok] when all 4 are up,
 or [fail: <reason>] if 5 min elapses with services missing.
@@ -210,7 +210,7 @@ no BA events flow. Symptom matches a ghost result (BA TW IN 0/N) but root
 cause is upstream of BA — perception is feeding empty frames.
 
 The compose stack does have a tear-down script at
-`${HALOS_SIL_DIR}/scripts/run_actor_sdg.py` (GitHub layout:
+`${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/scripts/run_actor_sdg.py` (GitHub layout:
 `closed-loop-testing/isaac-sim/sil/scripts/run_actor_sdg.py`) that removes the
 sensor entries from VST cleanly, but it only runs on a graceful Isaac
 shutdown. Stopping Isaac early (e.g. multi-test killing the scenario after
@@ -312,7 +312,7 @@ scenario we copy that scenario's three trees onto the fixed names (no YAML edit
 needed for the character binding):
 
 ```bash
-CFG_DIR=${HALOS_SIL_DIR}/configs
+CFG_DIR=${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs
 NAME=$1   # one of: in-roi, psf-edge, psf-clear, balanced, fast, fixed
 for i in 0 1 2; do
   cp -f "${CFG_DIR}/srr_${NAME}_char${i}.bt.json" "${CFG_DIR}/srr_char${i}.bt.json"
@@ -343,11 +343,11 @@ IRA 1.6 uses `simulation_duration` (seconds), replacing the old
 Isaac mid-scenario — symptom: scene exits early, `isaac=3` drops to 0 partway
 through the recording window, parquet ends short.
 
-Set it to outlast scene-load + PSF warm-up + the recording window (buffer):
+Set it to outlast scene-load + Safety Core warm-up + the recording window (buffer):
 ```bash
-CONFIG=${HALOS_SIL_DIR}/configs/default_config_ros.yaml
+CONFIG=${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/default_config_ros.yaml
 RECORD_S=$2                       # this scenario's recording seconds
-SIM_DUR=$(( RECORD_S + 30 + 600 ))   # + PSF warm-up + scene-load/margin buffer
+SIM_DUR=$(( RECORD_S + 30 + 600 ))   # + Safety Core warm-up + scene-load/margin buffer
 sed -i "s|^\(\s*\)simulation_duration:.*|\1simulation_duration: ${SIM_DUR}.0|" "$CONFIG"
 ```
 
@@ -362,7 +362,7 @@ If the value didn't change, abort — the sed didn't match. (`run_multi.sh`'s
 
 ---
 
-## Step 3d — Start scenario in isaac-sim (+ wire /gt via `--exec`)
+## Step 3d — Start scenario in isaac-sim (+ wire /gt via `--srr-gt`)
 
 ```bash
 docker exec -d isaac-sim ./python.sh \
@@ -370,20 +370,19 @@ docker exec -d isaac-sim ./python.sh \
   -c /isaac-sim/sil/configs/default_config_ros.yaml \
   --start --headless --enable-vst \
   --cameras-config /isaac-sim/sil/configs/cameras.yaml \
-  --exec /isaac-sim/sil/scripts/isaac/add_srr_gt_pubs.py \
+  --srr-gt \
   > /tmp/isaac-scenario-${TIMESTAMP}-${LABEL}.log 2>&1
 ```
 
-**`--exec` wires the SRR ground-truth publishers at run time — SRR-owned, Halos
-driver UNTOUCHED.** `--exec <path>` is a Kit startup arg; Halos'
-`run_actor_sdg.py` parses its own flags with `argparse.parse_known_args()` and
-forwards the leftover `sys.argv` straight to `SimulationApp`/Kit, so Kit runs our
-`add_srr_gt_pubs.py` at boot without any Halos code change. That script arms an
-app-update-loop poll and builds `/World/SRRGraph` (the `/gt/character_{0,1,2}/tf`
-+ `/gt/forklift/tf` publishers) once IRA has spawned the SRR char groups (it
-discovers each char's animated `ManRoot`). There is **no** "paste + Save the
-graph into the scene" step anymore — IRA 6.0 spawns chars at runtime so the
-targets only exist live. Expect these lines in the scenario log:
+**`--srr-gt` wires the SRR ground-truth publishers at run time.** It's an opt-in
+flag on `run_actor_sdg.py` (default OFF, so normal runs are unaffected). When set,
+`run_actor_sdg.py` calls `action_graphs/srr_ground_truth.py`'s `build_srr_gt_graph()`
+in its post-setup block — AFTER IRA has spawned the SRR char groups — which builds
+`/World/SRRGraph` (the `/gt/character_{0,1,2}/tf` + `/gt/forklift/tf` publishers) by
+discovering each char's animated `ManRoot` and pumping their live Fabric transforms
+each frame. There is **no** "paste + Save the graph into the scene" step — IRA 6.0
+spawns chars at runtime so the targets only exist live. Expect these lines in the
+scenario log:
 ```
 [srr-gt] armed; will build /World/SRRGraph once SRR chars spawn
 [srr-gt] Action Graph built at /World/SRRGraph (4 publishers)
@@ -442,9 +441,9 @@ The monitor subscribes to `/gt/forklift/tf` (BEST_EFFORT QoS) and prints one lin
 
 ---
 
-## Step 3f.5 — PSF cold-start warm-up (IMPORTANT)
+## Step 3f.5 — Safety Core cold-start warm-up (IMPORTANT)
 
-**PSF container starts fast, but its safety state machine takes ~30-60 s to fully settle** after first /safety/is_muted publish. If you start `/srr/record true` immediately after containers go Up, the **first clip (scn_0000) will show a cold-start outlier** — typical mute_lag spikes to 5-10+ s and match% drops to 70-80% in scn_0000 even when the rest of the run is clean.
+**Safety Core container starts fast, but its safety state machine takes ~30-60 s to fully settle** after first /safety/is_muted publish. If you start `/srr/record true` immediately after containers go Up, the **first clip (scn_0000) will show a cold-start outlier** — typical mute_lag spikes to 5-10+ s and match% drops to 70-80% in scn_0000 even when the rest of the run is clean.
 
 Concrete evidence: in the multi-test-20260430-081223 dataset, `in-roi-5min` scn_0000 had mute_lag = 9133 ms vs subsequent clips at 0 ms. Watching `scn_0000.mp4` shows the unmute lag visually — that's the symptom.
 
@@ -453,7 +452,7 @@ Concrete evidence: in the multi-test-20260430-081223 dataset, `in-roi-5min` scn_
 **Recommended**: between Step 3e (scene streams ready) and Step 3g (`/srr/record true`), insert:
 
 ```bash
-echo "  [$(date +%M:%S)] PSF warm-up (30 s)..."
+echo "  [$(date +%M:%S)] Safety Core warm-up (30 s)..."
 sleep 30
 ```
 
@@ -463,7 +462,7 @@ This trades 30 s of wall clock per scenario for cleaner scn_0000 results.
 
 ## Step 3f.7 — VSS perception health gate (CRITICAL)
 
-After PSF warm-up, before opening record, verify VSS perception is actually
+After Safety Core warm-up, before opening record, verify VSS perception is actually
 producing events. Without this gate, a broken VSS pipeline (FPS=0, empty
 Kafka) records 5+ minutes of meaningless data — see ghost-result issue
 documented in `06_interpret_report.md`.

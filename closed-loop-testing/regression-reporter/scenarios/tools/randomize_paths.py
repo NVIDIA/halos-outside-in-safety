@@ -118,7 +118,7 @@ def write_behavior_trees(sections, name, out_dir):
     return written
 
 
-# --- polygon zones (redrawn 2026-04-30 for nav_clear scene) ---
+# --- polygon zones (per-character spawn + wander areas) ---
 # Simple rectangles that extend INTO ROI substantially. Forklift corridor
 # sits in the y∈[-12.0, -14.5] gap between the two zones.
 ZONE_CHAR0: list[tuple[float, float]] = [

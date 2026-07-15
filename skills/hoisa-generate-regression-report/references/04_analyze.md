@@ -2,7 +2,7 @@
 
 After `/srr/record false`, run **per-scenario**: move parquet → snapshot pss.log → tw_split → aggregator → pull MP4. Every step in this list must complete for the CURRENT scenario before the next scenario's `phase_compose_restart` (Step 3a in the main checklist) — otherwise:
 
-- PSF compose restart **truncates** the bind-mounted `/var/log/pss.log` → previous scenario's PSF logs are LOST.
+- Safety Core compose restart **truncates** the bind-mounted `/var/log/pss.log` → previous scenario's Safety Core logs are LOST.
 - Isaac scene tear-down **removes VST sensors** → `vst_video split-run` returns `null streams` and no MP4 can be pulled.
 
 This is why the skill MUST drive each scenario's analyze inline, not batch it after all scenarios. See `phase_analyze` in [`run_multi.sh`](../../../closed-loop-testing/regression-reporter/scripts/run_multi.sh) for the reference ordering.
@@ -31,7 +31,7 @@ Expected: parquet size ≥ 100 KB. If smaller, recording failed — surface erro
 
 ## Step 1b — Snapshot pss.log (per-scn) — FORENSIC, RUN BEFORE NEXT COMPOSE RESTART
 
-The next scenario's `phase_compose_restart` will truncate the source pss.log. Snapshot the current scenario's PSF data NOW, into its scenario subdir. The end-of-multi-test step then concatenates these into the run-level `pss.log` consumed by `clip_logs` default fallback.
+The next scenario's `phase_compose_restart` will truncate the source pss.log. Snapshot the current scenario's Safety Core data NOW, into its scenario subdir. The end-of-multi-test step then concatenates these into the run-level `pss.log` consumed by `clip_logs` default fallback.
 
 ```bash
 "${SRR_PIPELINE_DIR}/scripts/snapshot_pss.sh" \
@@ -39,7 +39,7 @@ The next scenario's `phase_compose_restart` will truncate the source pss.log. Sn
 # → writes ${LABEL}/pss.log (copy of source at this instant)
 ```
 
-Skipping this step means only the last scenario's PSF data survives: an end-of-run-only snapshot catches only the LAST scenario's PSF data, and the first scenario's clip_logs ends up with `pss_raw=0` lines. The mtime-window fallback in `snapshot_pss.sh` does not help — the source file itself has been truncated.
+Skipping this step means only the last scenario's Safety Core data survives: an end-of-run-only snapshot catches only the LAST scenario's Safety Core data, and the first scenario's clip_logs ends up with `pss_raw=0` lines. The mtime-window fallback in `snapshot_pss.sh` does not help — the source file itself has been truncated.
 
 ---
 

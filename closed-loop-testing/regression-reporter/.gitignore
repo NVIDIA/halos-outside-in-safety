@@ -4,7 +4,7 @@
 # Allow the symlink: srr-service/.env → ../.env so compose auto-resolves ${VAR}
 !srr-service/.env
 
-# SRR test outputs — never tracked. Use shared storage to share specific runs.
+# SRR test outputs (never tracked)
 srr-service/runs/
 runs/
 

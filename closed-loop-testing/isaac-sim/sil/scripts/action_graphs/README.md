@@ -14,7 +14,7 @@ For one-shot USD prim tweaks (deactivate prims, set xform attributes, etc) see t
 | `forklift_odometry.py` | `build_odometry_graph(config_path)` | Per-robot `IsaacComputeOdometry` → ROS 2 odom/tf graph. Replaces the baked `Odometry_Graph`. |
 | `forklift_safety_indicator.py` | `build_safety_graph(config_path)` | Per-robot `/safety/is_muted` → indicator-color graph. Replaces the baked `Safety_indicator_Graph`. |
 | `clock.py` | `build_clock_graph(config_path)` | ROS 2 `/clock` publisher graph. Replaces the baked `Clock_Publisher_Graph`. Driven by `robots.yaml` `clock:` block. |
-| *(future)* `srr_gt_pubs.py` | `build_srr_graph(config_path)` | SRR ground-truth ROS 2 publishers Action Graph. Currently a standalone paste-script; promote per architecture doc. |
+| `srr_ground_truth.py` | `build_srr_gt_graph()` | **Opt-in** (`run_actor_sdg.py --srr-gt`, default OFF). SRR regression-harness ground-truth `/gt/*/tf` publisher (`/World/SRRGraph`). Resolves the IRA-spawned characters + forklift from the live stage and pumps their Fabric world transforms each frame. No effect on a normal Halos run. |
 
 ## Invocation contract
 
@@ -41,7 +41,7 @@ Each builder:
 
 5. Export the entry from `__init__.py` and add the name to `__all__`.
 6. In `run_actor_sdg.py`:
-   - Add a CLI flag (`--no-<name>`).
+   - Add a CLI flag: `--no-<name>` (`store_false`) for a default-ON graph, or `--<name>` (`store_true`) for an opt-in default-OFF graph (e.g. `--srr-gt`).
    - Import and call inside the setup-done callback when the flag is set.
 
 ## Design notes
@@ -74,6 +74,7 @@ SET_UP_SIMULATION_DONE_EVENT dispatched ──┐
                       action_graphs.build_rtsp_graph()                  <- this package
                       action_graphs.build_forklift_graphs()             <- this package (control+odometry+safety)
                       action_graphs.build_clock_graph()                 <- this package
+                      action_graphs.build_srr_gt_graph()                <- this package (opt-in, --srr-gt)
         |
         v
 timeline.play()  ──> all Python-built graphs tick together

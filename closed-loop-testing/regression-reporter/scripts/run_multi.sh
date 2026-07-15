@@ -20,7 +20,7 @@
 # Default duration if not specified: 300 seconds (5 minutes).
 #
 # Each scenario name maps to 3 behavior trees (IRA 1.6, one per pedestrian):
-#   - srr_<name>_char{0,1,2}.bt.json  in $HALOS_SIL_DIR/configs/
+#   - srr_<name>_char{0,1,2}.bt.json  in $SIL_DIR/configs/
 #     (GitHub layout: <halos-repo>/closed-loop-testing/isaac-sim/sil/configs/)
 #   authored in scenarios/behavior-trees/ (regenerate with
 #   scenarios/tools/randomize_paths.py) and synced into configs/ by
@@ -38,28 +38,30 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Load .env files in precedence: repo .env (sets HALOS_COMPOSE_DIR + HALOS_ENV_FILE
-# + HALOS_SIL_DIR + SRR-specific), then the Halos profile env for shared values
-# (HOST_IP, ROS_DOMAIN_ID, VST_BASE_URL, ...).
+# Load .env files in precedence: repo .env (sets HOISA_ROOT_PATH + SRR-specific),
+# then the deployment profile env for shared values (HOST_IP, ROS_DOMAIN_ID,
+# VST_BASE_URL, ...).
 if [ -f "$REPO_ROOT/.env" ]; then
   set -a; source "$REPO_ROOT/.env"; set +a
 fi
-HALOS_DIR="${HALOS_COMPOSE_DIR:?HALOS_COMPOSE_DIR not set — define in $REPO_ROOT/.env}"
-# GitHub Halos layout keeps shared infra vars in profiles/<profile>.env, not a
-# single .env. Fall back to profiles/sil.env if HALOS_ENV_FILE is unset.
-HALOS_ENV_FILE="${HALOS_ENV_FILE:-$HALOS_DIR/profiles/sil.env}"
-if [ -f "$HALOS_ENV_FILE" ]; then
-  set -a; source "$HALOS_ENV_FILE"; set +a
+# One var to rule them all: HOISA_ROOT_PATH = the halos-outside-in-safety repo
+# root. The deployment dir, profile env, and Isaac SIL tree all derive from it.
+HOISA_ROOT_PATH="${HOISA_ROOT_PATH:?HOISA_ROOT_PATH not set — define in $REPO_ROOT/.env}"
+COMPOSE_DIR="$HOISA_ROOT_PATH/deployments"
+# Shared infra vars live in profiles/<profile>.env; default to the sil profile
+# (override PROFILE_ENV to use a different one).
+PROFILE_ENV="${PROFILE_ENV:-$COMPOSE_DIR/profiles/sil.env}"
+if [ -f "$PROFILE_ENV" ]; then
+  set -a; source "$PROFILE_ENV"; set +a
 fi
 
 SRR_DIR="${SRR_SERVICE_DIR:-$REPO_ROOT/srr-service}"
-# Isaac SIL asset tree. GitHub layout: <halos-repo>/closed-loop-testing/isaac-sim/sil
-# (was compose/halos-sil/isaac-sim/sil). Fall back to the sibling of deployments/.
-HALOS_SIL_DIR="${HALOS_SIL_DIR:-$HALOS_DIR/../closed-loop-testing/isaac-sim/sil}"
-ISAAC_CONFIG="${HALOS_SIL_DIR}/configs/default_config_ros.yaml"
+# Isaac SIL asset tree the isaac-sim container bind-mounts at /isaac-sim/sil.
+SIL_DIR="$HOISA_ROOT_PATH/closed-loop-testing/isaac-sim/sil"
+ISAAC_CONFIG="${SIL_DIR}/configs/default_config_ros.yaml"
 SCENE_LOG_BASE="/tmp/isaac-scenario"
 LIVE_MON="$SCRIPT_DIR/live_clip_monitor.py"
-VST_MGR="${HALOS_SIL_DIR}/scripts/vst_sensor_manager.py"
+VST_MGR="${SIL_DIR}/scripts/vst_sensor_manager.py"
 
 # Host-side path of the srr container's /app/runs mount, for host tools like
 # snapshot_pss.sh. Mirrors srr-service/docker-compose.yml's
@@ -164,10 +166,10 @@ phase_vst_purge() {
 
 phase_compose_restart() {
   log "Halos compose down..."
-  ( cd "$HALOS_DIR" && docker compose --env-file "$HALOS_ENV_FILE" down >/dev/null 2>&1 ) || true
+  ( cd "$COMPOSE_DIR" && docker compose --env-file "$PROFILE_ENV" down >/dev/null 2>&1 ) || true
   phase_vst_purge
   log "Halos compose up..."
-  ( cd "$HALOS_DIR" && docker compose --env-file "$HALOS_ENV_FILE" up -d ) >/dev/null
+  ( cd "$COMPOSE_DIR" && docker compose --env-file "$PROFILE_ENV" up -d ) >/dev/null
   log "SRR compose restarting..."
   ( cd "$SRR_DIR"   && docker compose down >/dev/null 2>&1 && docker compose up -d ) >/dev/null
 }
@@ -181,7 +183,7 @@ phase_set_behavior_tree() {
   # trees (srr_<name>_char{0,1,2}.bt.json) onto the fixed names, then set
   # simulation_duration.
   local name="$1" rec_s="$2"
-  local cfg_dir="${HALOS_SIL_DIR}/configs"
+  local cfg_dir="${SIL_DIR}/configs"
   local i src dst
   for i in 0 1 2; do
     src="${cfg_dir}/srr_${name}_char${i}.bt.json"
@@ -213,18 +215,17 @@ phase_set_behavior_tree() {
 phase_start_scene() {
   local label="$1" log_path="${SCENE_LOG_BASE}-${TIMESTAMP}-${label}.log"
   log "Scene loading..."
-  # SRR ground-truth trigger — SRR-OWNED, Halos driver UNTOUCHED. --exec is a Kit
-  # startup arg: run_actor_sdg.py uses parse_known_args() + forwards leftover
-  # sys.argv to SimulationApp/Kit, so Kit runs our script at boot. The script
-  # (scripts/isaac/add_srr_gt_pubs.py, synced from regression-reporter/scenarios) polls the app
-  # update loop and builds /World/SRRGraph (/gt/*/tf) once IRA has spawned the SRR
-  # char groups. No Halos file is modified to wire this.
+  # SRR ground-truth publisher — opt-in Halos ActionGraph builder. --srr-gt tells
+  # run_actor_sdg.py to build /World/SRRGraph (/gt/*/tf) from its post-setup
+  # builder block (action_graphs/srr_ground_truth.py), AFTER IRA has spawned the
+  # SRR char groups + runtime_patches repositioned them, then pump live Fabric
+  # transforms. The flag defaults OFF, so a normal Halos run is unaffected.
   docker exec -d isaac-sim bash -c "
     ./python.sh /isaac-sim/sil/scripts/run_actor_sdg.py \
       -c /isaac-sim/sil/configs/default_config_ros.yaml \
       --start --headless --enable-vst \
       --cameras-config /isaac-sim/sil/configs/cameras.yaml \
-      --exec /isaac-sim/sil/scripts/isaac/add_srr_gt_pubs.py \
+      --srr-gt \
       > $log_path 2>&1
   "
 }
