@@ -392,6 +392,11 @@ phase_analyze() {
   if [[ -x "$snap_script" && -d "$scn_host_dir" ]]; then
     log "snapshotting pss.log (per-scn)..."
     bash "$snap_script" "$scn_host_dir" --per-scn || log "snapshot_pss WARN (non-fatal)"
+    # Refresh the run-level concat right away, not only at end-of-multi-test:
+    # if the run is aborted or resumed later, a stale run-level pss.log makes
+    # clip_logs slice every clip recorded after its last timestamp to 0 lines.
+    bash "$snap_script" "${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}" \
+      || log "snapshot_pss cross-run WARN (non-fatal)"
   fi
 
   # Guard the flush-vs-read race: the recorder's writer.close() footer may not
