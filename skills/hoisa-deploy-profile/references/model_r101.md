@@ -54,27 +54,39 @@ bump `R101_DEPLOYABLE_RESOURCE` and `R101_TRAINABLE_RESOURCE` in `deployments/pr
 
 ---
 
-## 2. Place the files where the 3D `config.yaml` expects them
+## 2. Install the model at the bind-mount source
 
-The 3D perception `config.yaml`
-(`<wh_ops>/warehouse-3d-app/deepstream/configs/config.yaml`) references the model + anchor by
-path. Put both files at that path, and **rename to the canonical filenames** the config
-expects if the downloaded filenames differ (the config keys, not the NGC filenames, are what
-matter):
+The model reaches the perception container through a **bind mount**, not through `config.yaml`
+directly. `warehouse-3d-app.yml:259-260` mounts two specific host files onto the container paths
+that `config.yaml`'s `onnx_file` / `anchor` keys read:
+
+| `config.yaml` key | Container path (read by DeepStream) | Host file (bind-mount source) |
+|---|---|---|
+| `onnx_file` | `…/sparse4d/sparse4d_warehouse_v2.2.onnx` | `$VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx` |
+| `anchor` | `…/sparse4d/_ov_kmeans900_v2.2.npy` | `$VSS_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.2.npy` |
+
+Install the downloaded ONNX and anchor at the **host** paths (right column), under the mount's
+exact filenames. The mount references those filenames literally, so a file under any other name
+is not mounted and the model is silently ignored.
 
 ```bash
-MODEL_DIR=<wh_ops>/warehouse-3d-app/deepstream/models   # path referenced by config.yaml
+MODEL_DIR="$VSS_DATA_DIR/models/sparse4d/ov"   # bind-mount source (warehouse-3d-app.yml:259-260)
 mkdir -p "$MODEL_DIR"
 
-# from the deployable package
-cp <deployable_download>/*.onnx  "$MODEL_DIR/"           # rename to the config's ONNX filename if needed
+# Back up any model already installed, then place the R101 files under the canonical names.
+ts=$(date +%Y%m%d-%H%M%S)
+for f in sparse4d_warehouse_v2.2.onnx _ov_kmeans900_v2.2.npy; do
+  [ -e "$MODEL_DIR/$f" ] && cp -a "$MODEL_DIR/$f" "$MODEL_DIR/$f.bak-$ts"
+done
 
-# from the trainable package — the kmeans anchor
-cp <trainable_download>/**/*.npy "$MODEL_DIR/"           # rename to the config's anchor filename if needed
+cp <deployable_download>/*.onnx   "$MODEL_DIR/sparse4d_warehouse_v2.2.onnx"   # deployable package (ONNX)
+cp <trainable_download>/**/*.npy  "$MODEL_DIR/_ov_kmeans900_v2.2.npy"         # trainable package (kmeans anchor)
 ```
 
-Then confirm `config.yaml` points `num_sensors`, the ONNX path, and the anchor `.npy` path
-at these files (see `vss_3d_overrides.md` for the other `config.yaml` keys).
+> **Using a different filename.** The filenames are fixed by the bind mount, so renaming means
+> updating all three references together: both mount lines in `warehouse-3d-app.yml` (host **and**
+> container side) and the matching `onnx_file` / `anchor` in `config.yaml`. Installing in place
+> under the canonical names above avoids that — nothing else needs to change.
 
 ---
 

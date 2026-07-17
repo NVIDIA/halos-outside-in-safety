@@ -190,8 +190,12 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | Service | URL |
 |---------|-----|
 | VST UI (camera streams) | `http://<HOST_IP>:30888/vst/` |
-| Grafana (monitoring) | `http://<HOST_IP>:32900` |
-| Kibana (analytics) | `http://<HOST_IP>:5601` |
+| Grafana (monitoring) | `http://<HOST_IP>:35000` — extended profile only |
+| Kibana (analytics) | `http://<HOST_IP>:5601` — extended profile only |
+
+> **Grafana/Kibana only exist in the extended profile** (`MINIMAL_PROFILE=""`). VSS ships
+> `MINIMAL_PROFILE="true"` (minimal) by default, which excludes all monitoring — so on a
+> default deploy neither URL is reachable. Only VST UI is always up.
 
 ---
 
