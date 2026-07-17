@@ -1,4 +1,4 @@
-# VSS Warehouse — 3D (Sparse4D) Profile Overrides (VSS 3.2)
+# VSS Warehouse — 3D (Sparse4D) Profile Overrides (VSS 3.2.1)
 
 When running the `sil` profile against the **3D (Sparse4D) perception backend**
 (multi-view detection + BEV tracking) instead of 2D, apply these overrides **before**
@@ -11,7 +11,7 @@ model. Pair this file with `model_r101.md` (the R101 Sparse4D model recipe) and
 `calibration_3d.md` (the 3-camera BEV calibration). The Isaac Sim launch is the
 **same** as 2D (`--enable-vst`) — see `test_scenario.md`.
 
-> `<wh_ops>` = the VSS 3.2 warehouse-operations directory
+> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory
 > `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. The 3D app files
 > below live under `<wh_ops>/warehouse-3d-app/` (the 2D equivalents are under
 > `warehouse-2d-app/`).

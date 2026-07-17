@@ -1,10 +1,10 @@
-# VSS Warehouse — 2D Profile Overrides (VSS 3.2)
+# VSS Warehouse — 2D Profile Overrides (VSS 3.2.1)
 
-When deploying VSS Warehouse 3.2 for Halos SIL, apply these overrides **before**
+When deploying VSS Warehouse 3.2.1 for Halos SIL, apply these overrides **before**
 running its `docker compose up`. The `vss-deploy-profile` skill handles the
 standard deploy flow — this file specifies only what must be **different** for SIL.
 
-> `<wh_ops>` = the VSS 3.2 warehouse-operations directory
+> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory
 > `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/` — this is where the
 > override files below live (`.env`, the DeepStream config, the VST config).
 >
@@ -24,7 +24,7 @@ keeps decisions flowing.
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env` (in 3.2 these are often already the `bp_wh_kafka` defaults —
+Set in `<wh_ops>/.env` (in 3.2.1 these are often already the `bp_wh_kafka` defaults —
 confirm they are set):
 
 ```bash

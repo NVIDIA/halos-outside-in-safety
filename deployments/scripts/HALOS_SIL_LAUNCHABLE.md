@@ -20,14 +20,14 @@ This doc has two audiences:
 SIL runs the closed safety loop on a single host across **two Docker Compose stacks**:
 
 ```
-Isaac Sim (forklift + humans) ──RTSP/HEVC (self-hosted per cam)──▶ VSS Warehouse 3.2 (AI perception, 3 cams)
+Isaac Sim (forklift + humans) ──RTSP/HEVC (self-hosted per cam)──▶ VSS Warehouse 3.2.1 (AI perception, 3 cams)
         ▲                                                          │
         │ ROS2 /safety/is_muted                                    │ Kafka mdx-events
         │                                                          ▼
   forklift safety disc ◀── comm-layer ◀── Safety Core / PSF (MUTE / UNMUTE decision)
 ```
 
-- **Stack 1 — VSS Warehouse 3.2** (perception backend), deployed first with SIL-specific overrides.
+- **Stack 1 — VSS Warehouse 3.2.1** (perception backend), deployed first with SIL-specific overrides.
 - **Stack 2 — Halos SIL**: `safety-core` (PSF), `comm-layer` (UDP→ROS bridge), `isaac-sim`, `forklift-controller`.
 
 The forklift in Isaac Sim drives camera streams → perception → PSF decides MUTE (forklift in

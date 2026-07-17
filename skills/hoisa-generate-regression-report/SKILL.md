@@ -116,7 +116,7 @@ User can request any subset, or `all` for the full multi-test (still 5 min each 
 - **Phase 1 (Safety Core decision)** — GT-expected-mute vs actual `is_muted` → `match%`, mute/unmute-correct%, reaction lag, BA ROI/TW event detection.
 - **Phase 2 (perception, 3D)** — GT TF vs `mdx-bev` 3D detections + `mdx-behavior` positions → per-class **detect-fail%** / **tracking-loss%**, precision/recall/F1, position offset-vs-jitter, id-switches, coverage. See [references/06_interpret_report.md](references/06_interpret_report.md) (formula source of truth: `srr-service/srr/aggregator.py` → `compute_phase2_metrics`).
 
-> **Phase 2 depends on Sparse4D 3D detections flowing.** VSS Warehouse 3.2 runs
+> **Phase 2 depends on Sparse4D 3D detections flowing.** VSS Warehouse 3.2.1 runs
 > Sparse4D in `vss-rtvi-cv` → `mdx-bev` + `vss-behavior-analytics` → `mdx-behavior`,
 > enabling Phase 2. A 2D-only feed (only `mdx-events`) gives **Phase 1 only**:
 > `detections_json` is all-null and the Phase 2 section is omitted — expected, not
@@ -200,8 +200,8 @@ The "Clip N" lines come from the live forklift-TF monitor (`../scripts/live_clip
 
 **Core rule**: never run a `sleep` longer than 60 seconds without an Explore agent actively verifying that progress is happening. If the underlying process stalled (Safety Core crashed, isaac-sim hung, parquet stopped growing), we want to know in ≤60 s, not at the end of the timer.
 
-> ⚠️ **Resolve the perception + behavior container names first (VSS 3.2).** On VSS
-> Warehouse 3.2 the perception container is **`vss-rtvi-cv`** (Sparse4D 3D warehouse,
+> ⚠️ **Resolve the perception + behavior container names first (VSS 3.2.1).** On VSS
+> Warehouse 3.2.1 the perception container is **`vss-rtvi-cv`** (Sparse4D 3D warehouse,
 > `DS_MODEL_FAMILY=sparse4d-warehouse`; heavier ~12–14 FPS → floor **≥ 5**) and behavior
 > analytics is **`vss-behavior-analytics`** — the container names no longer carry a
 > `-2d`/`-3d` suffix. **Don't hard-code any single name** — resolve once, then pick the FPS floor:

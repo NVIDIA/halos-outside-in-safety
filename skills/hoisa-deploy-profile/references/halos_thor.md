@@ -46,7 +46,7 @@ On a `base` deploy the skill detects the platform: x86 runs the standard contain
 
 - IGX Thor flashed with a current IGX SW **GA release** (RT kernel `6.8.0-1019-nvidia-tegra-rt`).
   The GA release resolves the earlier IGX-Thor perception (VIC) issue, so **no extra DeepStream
-  config edits are needed on VSS 3.2** (pre-GA non-RT stacks needed `compute-hw=1` plus a
+  config edits are needed on VSS 3.2.1** (pre-GA non-RT stacks needed `compute-hw=1` plus a
   camera-count reduction; the GA release removes that need).
 - NVIDIA driver, Container Toolkit, and Docker per `prerequisites.md`.
 - The **nv-psf container image** — multi-arch (arm64 + amd64) under one tag; Docker on Thor
@@ -61,11 +61,11 @@ On a `base` deploy the skill detects the platform: x86 runs the standard contain
   `fsicom-agent` FSI bridge binary (installed on the Thor). Plus the `nvFsiCom` daemon at
   `/opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom` (ships with the GA OS).
 
-## 2. Deploy VSS Warehouse 3.2 on Thor (perception)
+## 2. Deploy VSS Warehouse 3.2.1 on Thor (perception)
 
-Deploy VSS Warehouse 3.2 (2D) on the Thor via the `vss-deploy-profile` skill. The GA RT
+Deploy VSS Warehouse 3.2.1 (2D) on the Thor via the `vss-deploy-profile` skill. The GA RT
 release resolves the perception VIC issue, so the old `compute-hw=1` / nvmap edits are **not**
-needed on 3.2. Wait until perception serves all cameras (`Active sources : 3`) and the
+needed on 3.2.1. Wait until perception serves all cameras (`Active sources : 3`) and the
 `mdx-events` Kafka topic has data. See `vss_2d_overrides.md` for the base-vs-SIL override notes.
 
 > **⚠ Two IGX-Thor VSS workarounds.** These apply to the VSS Warehouse deployment itself, but

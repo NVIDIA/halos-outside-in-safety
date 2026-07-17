@@ -2,7 +2,7 @@
 name: hoisa-deploy-profile
 description: >-
   Deploy Halos Outside-In Safety (HOISA) closed-loop testing by PROFILE
-  (base / sil / hil) on top of the VSS Warehouse 3.2 perception backend.
+  (base / sil / hil) on top of the VSS Warehouse 3.2.1 perception backend.
   Clone the OSS repo, pick a profile, deploy. Covers prerequisites, NGC
   artifacts (sil-data + PSF + VSS images), VSS SIL overrides, the Halos
   stack (PSF, comm-layer, Isaac Sim, forklift-controller), test scenario, and
@@ -13,14 +13,14 @@ metadata:
   version: 1.3.0
 ---
 
-# Halos Outside-In Safety — Deploy by Profile (VSS 3.2)
+# Halos Outside-In Safety — Deploy by Profile (VSS 3.2.1)
 
 This skill deploys **from the HOISA OSS repository you cloned** — the compose
 files, profiles, configs, and this skill all live in the repo. When active,
 **ALWAYS read the relevant reference document before running commands.**
 Deployment has two stacks that must come up in order — do NOT skip or reorder.
 
-> Targets **VSS Warehouse 3.2**.
+> Targets **VSS Warehouse 3.2.1**.
 
 ---
 
@@ -52,7 +52,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 ```
 Isaac Sim (forklift + digital humans, segments-driven)
      ↓ RTSP (3 cameras, H264, self-hosted per-camera 8554/8555/8556)
-VSS Warehouse 3.2 (AI Perception)
+VSS Warehouse 3.2.1 (AI Perception)
      ├─ vss-rtvi-cv: detection + tracking
      └─ vss-behavior-analytics: ROI / tripwire (forklift-in-trailer)
      ↓ Kafka events (mdx-events topic)
@@ -64,7 +64,7 @@ Communication Layer → ROS2 /safety/is_muted → Isaac Sim Action Graph (forkli
 ```
 
 **Two separate stacks**:
-- **Stack 1**: VSS Warehouse 3.2 (perception) — deploy via the `vss-deploy-profile` skill (or the public VSS Warehouse docs: github.com/NVIDIA-AI-Blueprints/video-search-and-summarization); must be up + healthy first.
+- **Stack 1**: VSS Warehouse 3.2.1 (perception) — deploy via the `vss-deploy-profile` skill (or the public VSS Warehouse docs: github.com/NVIDIA-AI-Blueprints/video-search-and-summarization); must be up + healthy first.
 - **Stack 2**: Halos (`base`/`sil`/`hil`) — this skill.
 
 ---
@@ -121,7 +121,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 - [ ] 1. Clone the HOISA OSS repo (this skill lives in skills/)
 - [ ] 2. Check prerequisites (host setup overlaps VSS — run VSS prereq first) → references/prerequisites.md
 - [ ] 3. Pull NGC artifacts (sil-data + PSF image + VSS images)  → references/ngc_artifacts.md
-- [ ] 4. Deploy VSS Warehouse 3.2 via `vss-deploy-profile`,
+- [ ] 4. Deploy VSS Warehouse 3.2.1 via `vss-deploy-profile`,
         apply SIL overrides BEFORE its compose up                → references/vss_2d_overrides.md
 - [ ] 5. Poll VSS perception + Kafka ready signals
 - [ ] 6. Configure deployments/profiles/<profile>.env, then
@@ -156,7 +156,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 
 | Tag | Rule | Details in |
 |-----|------|-----------|
-| `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
+| `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2.1 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
 | `VSS_BEFORE_HALOS` | VSS Warehouse **must** be running and healthy before deploying Halos | `vss_2d_overrides.md` |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
 | `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
@@ -180,7 +180,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 
 | Stack | Services | Source |
 |-------|----------|--------|
-| VSS Warehouse 3.2 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | `vss-deploy-profile` skill (VSS repo) |
+| VSS Warehouse 3.2.1 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | `vss-deploy-profile` skill (VSS repo) |
 | Halos (profile) | safety-core, comm-layer, isaac-sim, forklift-controller | this OSS repo (`deployments/compose.yaml`) + `PSF_IMAGE` from NGC |
 
 ---
