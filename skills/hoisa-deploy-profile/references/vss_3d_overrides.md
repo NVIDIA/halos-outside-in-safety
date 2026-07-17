@@ -84,31 +84,28 @@ Keep SEI extraction off for SIL — comment these out (the app config ships them
 
 ```ini
 [source-list]
-# extract-sei-type5-data=1    # SEI off — use system timestamps (see rationale above)
+# extract-sei-type5-data=1    # SEI off for SIL — use system timestamps (see rationale above)
 # sei-uuid=NVDS_CUSTOMMETA    # comment out
-num-sources=3                 # = camera count (NUM_STREAMS)
+low-latency-mode=0            # prioritise throughput over latency for 3D multi-view inference
 ```
 
 ### `[streammux]`
 
 ```ini
 [streammux]
-attach-sys-ts-as-ntp=1        # tag each frame with the host arrival (wall-clock) time
-# extract-sei-sim-time=1      # comment out — do NOT use Isaac SEI sim-time as the timestamp
-# drop-backward-sei=1         # comment out — moot with SEI extraction off (2D style)
-sync-inputs-ntp=0             # NTP input-sync stalls on the Isaac RTSP feed -> zero Kafka output
+attach-sys-ts-as-ntp=1        # timestamp each frame with host arrival (wall-clock) time
+# extract-sei-sim-time=1      # SEI off — do not use Isaac SEI sim-time as the timestamp
+# drop-backward-sei=1         # moot with SEI extraction off
+sync-inputs-ntp=0             # avoid NTP input-sync stalling on the Isaac RTSP feed (zero Kafka output)
 align-first-buffer=0          # do not gate the batch on first-buffer alignment (multi-cam start)
 batched-push-timeout=75000    # looser batch timeout — 3D runs at a lower FPS than 2D
-low-latency-mode=0            # prioritise throughput over latency for 3D inference
-latency=2000                  # tolerate multi-view arrival skew across the 3 cameras
-drop-pipeline-eos=1           # a single stream EOS must not tear down the batched pipeline
-batch-size=3                  # = camera count (see note below)
+drop-pipeline-eos=1           # one stream's EOS must not tear down the batched pipeline
 ```
 
-> **Batch size:** set `batch-size` (and any `max-batch-size`) to the camera count (3). If
-> the 3D configurator auto-derives batch sizes from `NUM_STREAMS` at startup, let it — do
-> not hand-edit values it manages; only the SEI / timestamp / timeout keys above are set
-> here.
+> **Section placement matters** — DeepStream reads each key only from its own section:
+> `low-latency-mode` belongs to `[source-list]`, the timing keys to `[streammux]`. Leave
+> `num-sources`, `latency`, and `batch-size` to the shipped config — the configurator derives
+> them from `NUM_STREAMS` / `max-batch-size` at startup.
 
 **Why these differ from a latency-first default:** 3D (Sparse4D) multi-view inference is
 heavier than 2D per-camera detection, so it runs at a **lower frame rate**. The looser
@@ -173,6 +170,17 @@ File: `<wh_ops>/warehouse-3d-app/vst/configs/vst_config.json`
   agree on wall-clock arrival time rather than the (drifting) sim-time.
 - Recording off: SIL is a live closed loop, not a capture run — leaving recording on wastes
   disk and I/O.
+- **⚠ `always_recording` is configurator-managed — a pre-`up` edit here is silently reverted.**
+  The blueprint-configurator runs a `json_update` op that hard-writes `data.always_recording: true`
+  into this exact file on every `up` (VSS `.../blueprint-configurator/blueprint_config.yml`,
+  the `warehouse-3d-app/.../vst/configs/vst_config.json` op ~line 494 — identical in 3.2.0 and 3.2.1),
+  so a `false` set before `up` is overwritten before the VST container (`vss-vios-streamprocessing`,
+  which mounts this file) reads it. To make `false` stick, do ONE of:
+    - **(preferred)** edit `blueprint_config.yml` too: change `data.always_recording: true` → `false`
+      in that op before `up`; or
+    - after the configurator has finished, edit this file and `docker restart vss-vios-streamprocessing`.
+  The configurator does NOT touch `event_recording`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time`,
+  or `bbox_tolerance_ms`, so those pre-`up` edits survive as written.
 - `bbox_tolerance_ms: 100`: widens the metadata-to-frame matching window, reducing
   bounding-box flicker at the lower 3D frame rate.
 
@@ -188,9 +196,14 @@ The Sparse4D TensorRT engine builds on first deploy (~10-15 min). Poll the perce
 container until all 3 sources report FPS:
 
 ```bash
-until [ "$(docker logs vss-rtvi-cv 2>&1 | grep -c 'stream_name Camera')" -ge 3 ]; do
-  printf '[%s] 3D perception not ready yet...\n' "$(date +%H:%M:%S)"
-  docker logs --tail 3 vss-rtvi-cv 2>&1
+# Ready = 3 cameras each reporting a current FPS > 0. Read each camera's latest PERF value;
+# a plain log line-count would false-pass on a 0-FPS zombie source.
+while :; do
+  live=$(docker logs --tail 800 vss-rtvi-cv 2>&1 | grep 'stream_name Camera' | awk '
+    { fps=$1+0; for(i=1;i<=NF;i++) if($i=="stream_name") n=$(i+1); last[n]=fps }
+    END{ c=0; for(k in last) if(last[k]>0) c++; print c }')
+  [ "${live:-0}" -ge 3 ] && break
+  printf '[%s] 3D perception live cameras=%s/3 (current FPS > 0)...\n' "$(date +%H:%M:%S)" "${live:-0}"
   sleep 30
 done
 echo "3D perception READY:"

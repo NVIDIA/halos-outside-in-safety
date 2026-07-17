@@ -97,6 +97,17 @@ File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
   agree on wall-clock arrival time rather than the (drifting) sim-time.
 - Recording off: SIL is a live closed loop, not a capture run — leaving recording on wastes
   disk and I/O.
+- **⚠ `always_recording` is configurator-managed — a pre-`up` edit here is silently reverted.**
+  The blueprint-configurator runs a `json_update` op that hard-writes `data.always_recording: true`
+  into this exact file on every `up` (VSS `.../blueprint-configurator/blueprint_config.yml`,
+  the `warehouse-2d-app/.../vst/configs/vst_config.json` op ~line 407 — identical in 3.2.0 and 3.2.1),
+  so a `false` set before `up` is overwritten before the VST container (`vss-vios-streamprocessing`,
+  which mounts this file) reads it. To make `false` stick, do ONE of:
+    - **(preferred)** edit `blueprint_config.yml` too: change `data.always_recording: true` → `false`
+      in that op before `up`; or
+    - after the configurator has finished, edit this file and `docker restart vss-vios-streamprocessing`.
+  The other keys above (`rtsp_streaming_over_tcp`, `use_sensor_ntp_time`, `bbox_tolerance_ms`) are
+  NOT touched by the configurator, so those pre-`up` edits survive as written.
 - `bbox_tolerance_ms: 100`: widens the metadata-to-frame matching tolerance window, reducing
   bounding-box flickering.
 
@@ -111,9 +122,14 @@ File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
 The TensorRT engine builds on first deploy (~10-15 min). Poll until ready:
 
 ```bash
-until [ "$(docker logs vss-rtvi-cv 2>&1 | grep -c 'stream_name Camera')" -ge 3 ]; do
-  printf '[%s] vss-rtvi-cv not ready yet...\n' "$(date +%H:%M:%S)"
-  docker logs --tail 3 vss-rtvi-cv 2>&1
+# Ready = 3 cameras each reporting a current FPS > 0. Read each camera's latest PERF value;
+# a plain log line-count would false-pass on a 0-FPS zombie source.
+while :; do
+  live=$(docker logs --tail 800 vss-rtvi-cv 2>&1 | grep 'stream_name Camera' | awk '
+    { fps=$1+0; for(i=1;i<=NF;i++) if($i=="stream_name") n=$(i+1); last[n]=fps }
+    END{ c=0; for(k in last) if(last[k]>0) c++; print c }')
+  [ "${live:-0}" -ge 3 ] && break
+  printf '[%s] vss-rtvi-cv live cameras=%s/3 (current FPS > 0)...\n' "$(date +%H:%M:%S)" "${live:-0}"
   sleep 30
 done
 echo "vss-rtvi-cv READY:"
