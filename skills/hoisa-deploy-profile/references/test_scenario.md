@@ -121,7 +121,7 @@ or a 0-FPS camera) — each routes to the zombie-bin recovery in `troubleshootin
 
 The Isaac→VSS handoff logs matching events on **add** (scene start / streaming) and
 **remove** (scene stop / teardown). Use them to confirm the scene is running and to
-detect when it finishes. All signals below were verified on a live VSS 3.2 + Halos SIL run.
+detect when it finishes. All signals below were verified on a live VSS 3.2.1 + Halos SIL run.
 
 | Component | Container | ADD — scene streaming | REMOVE — scene done / teardown |
 |-----------|-----------|-----------------------|--------------------------------|

@@ -2,9 +2,9 @@
 
 Run for EACH scenario in the plan. **Restart both Halos and SRR compose between scenarios** — Safety Core counter drift carries across runs and corrupts the next scenario's results.
 
-> ⚠️ **Resolve the perception + behavior container names first (VSS 3.2).** Every command
+> ⚠️ **Resolve the perception + behavior container names first (VSS 3.2.1).** Every command
 > below that says `vss-rtvi-cv` / `vss-behavior-analytics` / `FPS ≥ 5` refers to the
-> resolved container. On VSS Warehouse 3.2 perception is **`vss-rtvi-cv`** (Sparse4D 3D,
+> resolved container. On VSS Warehouse 3.2.1 perception is **`vss-rtvi-cv`** (Sparse4D 3D,
 > FPS ~12–14 → use **≥ 5**) and behavior analytics is **`vss-behavior-analytics`** — the
 > names no longer carry a `-2d`/`-3d` suffix. Resolve once at the top of the run and substitute:
 > ```bash
@@ -13,7 +13,7 @@ Run for EACH scenario in the plan. **Restart both Halos and SRR compose between 
 > case "$PERCEPTION" in vss-rtvi-cv|*-3d) FPS_MIN=5;; *) FPS_MIN=25;; esac
 > ```
 > (See SKILL.md § "Agent autonomy rules" for the same note.) Phase 2 metrics require
-> `mdx-bev` + `mdx-behavior` to be flowing (Sparse4D warehouse) — present on VSS 3.2.
+> `mdx-bev` + `mdx-behavior` to be flowing (Sparse4D warehouse) — present on VSS 3.2.1.
 
 ---
 
@@ -201,7 +201,7 @@ When agent reports [ok], log:
 ## Step 3a.1 — Restart perception (`vss-rtvi-cv`) to clear stale RTSP sources
 
 After every Halos compose cycle, the perception container (`$PERCEPTION` —
-`vss-rtvi-cv` on VSS 3.2; legacy `perception-2d`/`-3d`) must be restarted to
+`vss-rtvi-cv` on VSS 3.2.1; legacy `perception-2d`/`-3d`) must be restarted to
 drop RTSP source URLs left over from the previous scenario's deleted
 `nvstreamer-default` cams. Skipping this is a silent failure:
 `docker logs "$PERCEPTION"` shows pipeline running, but FPS reports 0.0 and
@@ -217,7 +217,7 @@ shutdown. Stopping Isaac early (e.g. multi-test killing the scenario after
 reliable workaround.
 
 ```bash
-docker restart "$PERCEPTION"   # vss-rtvi-cv (VSS 3.2; legacy perception-2d/-3d)
+docker restart "$PERCEPTION"   # vss-rtvi-cv (VSS 3.2.1; legacy perception-2d/-3d)
 ```
 
 **Ready signal** — verify via Explore agent:
@@ -528,7 +528,7 @@ with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
 
 **On fail**: do NOT call `/srr/record true`. Apply the staged recovery below — escalate only if the cheap step doesn't fix it. This pattern is common: a scenario hits FPS=0 right after a compose restart, and a single `docker restart "$PERCEPTION"` + re-poll recovers without user intervention.
 
-> **`SENSOR_INFO_SOURCE=file` RTSP race (Isaac 6.0 + VSS 3.2).** When VSS reads
+> **`SENSOR_INFO_SOURCE=file` RTSP race (Isaac 6.0 + VSS 3.2.1).** When VSS reads
 > sensor info from the static file that points at Isaac's live RTSP endpoints,
 > VST spams reconnect attempts at those endpoints *while Isaac's stream still
 > "has no caps"* — Isaac then fails to create the SDP (`could not create SDP`),
@@ -551,7 +551,7 @@ with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
 
 ```bash
 # Tier 1 — perception restart (covers ~80% of fresh-restart FPS=0 cases)
-docker restart "$PERCEPTION"            # vss-rtvi-cv (VSS 3.2; legacy perception-2d/-3d)
+docker restart "$PERCEPTION"            # vss-rtvi-cv (VSS 3.2.1; legacy perception-2d/-3d)
 sleep 30
 docker logs --tail 200 "$PERCEPTION" 2>&1 | grep PERF -A1 | tail -5
 # If all 3 FPS values now ≥ $FPS_MIN → re-run the Step 3f.7 gate and continue.

@@ -6,7 +6,7 @@ The 3D (Sparse4D / BEV) profile needs a calibration dataset with **BEV sensor gr
 is a **structural** conversion (adding fields), not a re-computation. Do this **before** the
 VSS deploy so the 3D behavior-analytics service loads the ROIs / tripwires on startup.
 
-> `<wh_ops>` = the VSS 3.2 warehouse-operations directory (see `vss_3d_overrides.md`). The
+> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory (see `vss_3d_overrides.md`). The
 > calibration datasets live under `<wh_ops>/warehouse-2d-app/calibration/sample-data/` (2D
 > source) and `<wh_ops>/warehouse-3d-app/calibration/sample-data/` (3D destination).
 

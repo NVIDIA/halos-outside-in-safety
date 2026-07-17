@@ -1,6 +1,6 @@
 # Halos Deployment by Profile (Stack 2)
 
-Deploy the Halos stack **after** VSS Warehouse 3.2 is up + healthy (Stack 1).
+Deploy the Halos stack **after** VSS Warehouse 3.2.1 is up + healthy (Stack 1).
 Services and config differ per profile:
 
 | Profile | Services | Notes |
