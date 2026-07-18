@@ -13,6 +13,9 @@ docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
   --cameras-config /isaac-sim/sil/configs/cameras.yaml'
 ```
 
+Two-forklift variant: swap in the 2FL config pair — `-c /isaac-sim/sil/configs/default_config_ros_2fl.yaml
+--robots-config /isaac-sim/sil/configs/robots-2fl.yaml` (plus `COMPOSE_PROFILES=sil,multi-robot` — notes in `robots.yaml`/`sil.env`).
+
 The container already has `VST_BASE_URL`, `HOST_IP`, and `ROS_DOMAIN_ID` from the
 profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 
@@ -234,6 +237,11 @@ docker exec comm-layer bash -c \
 - **`Publisher count: 1`** — exactly one (comm-layer). If `2+`, another machine on the
   network shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety Indicator
   Flickering (Multi-Machine)".
-- **`Subscription count: 1`** — the Isaac Sim forklift Action Graph has connected and
-  is receiving safety state. `0` means Isaac isn't subscribed yet (scene not fully up,
-  or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`).
+- **`Subscription count: 1`** — one SafetyGraph subscriber per robot with
+  `safety_indicator.enabled` in the robots config (expected = the number of such
+  robot blocks; **1** with the default `robots.yaml`, **2** with the two-forklift
+  variant `robots-2fl.yaml` — the count follows the robots config passed to Isaac,
+  not `COMPOSE_PROFILES`). `0` means Isaac isn't subscribed yet (scene
+  not fully up, or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`);
+  a count *below* the expected number means one robot's graph didn't build (check
+  the `run_actor_sdg` log).
