@@ -109,7 +109,7 @@ drop-pipeline-eos=1           # one stream's EOS must not tear down the batched 
 
 **Why these differ from a latency-first default:** 3D (Sparse4D) multi-view inference is
 heavier than 2D per-camera detection, so it runs at a **lower frame rate**. The looser
-`batched-push-timeout`, `latency`, and `low-latency-mode=0` let the muxer wait long enough
+`batched-push-timeout` and `low-latency-mode=0` let the muxer wait long enough
 to assemble a complete 3-camera batch instead of pushing partial batches (which produce
 gaps / zero Kafka output); `sync-inputs-ntp=0` keeps the muxer from stalling on the Isaac
 RTSP feed's timing.
@@ -249,5 +249,5 @@ echo "mdx-events READY"
 | `batched-push-timeout` | (default) | **`75000`** |
 | `low-latency-mode` | (default `1`) | **`0`** |
 | `config.yaml` | n/a | `num_sensors=3`, `num_torch_threads=8`, `gpu_postprocess: False` |
-| VST | `bbox_tolerance_ms=100` | + `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false`, recording off |
+| VST | `bbox_tolerance_ms=100`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false`, recording off | **same** |
 | Isaac launch | `--enable-vst` | **same** — `--enable-vst` (`test_scenario.md`) |
