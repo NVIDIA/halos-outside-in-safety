@@ -178,7 +178,9 @@ class ActorSDGRunner:
             # Both packages are idempotent.
             if self.enable_runtime_patches:
                 from runtime_patches import apply_halos_runtime_patches
-                apply_halos_runtime_patches()
+                # Pass the robots config so the TGS solver rebalance covers
+                # exactly the robots this launch drives (yaml-only contract).
+                apply_halos_runtime_patches(self.robots_config_path)
             #   2a. camera_loader spawns Camera prims declared with a
             #      `spawn:` block in cameras.yaml. Must run BEFORE
             #      build_rtsp_graph (the RTSP builder fail-fasts on

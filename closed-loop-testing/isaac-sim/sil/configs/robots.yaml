@@ -1,18 +1,23 @@
-# Halos SIL forklift / robot Action Graph config (6.0).
+# Halos SIL forklift / robot Action Graph config (6.0) — DEFAULT: single robot.
 #
 # Drives the Python OmniGraph builders in
 # sil/scripts/action_graphs/forklift_control.py:
 #   - build_control_graph    (cmd_vel -> swivel IK -> articulation)
-#   - build_odometry_graph   (IsaacComputeOdometry -> /odom + TF tree)
+#   - build_odometry_graph   (IsaacComputeOdometry -> odom + TF tree)
 #   - build_safety_graph     (/safety/is_muted -> indicator disk color)
 #
-# One block per robot. Add a robot = add a block here, no code change.
-# Topic/frame fields left out fall back to the ROS2 bridge node defaults
-# (matching the empty fields in the original baked USD graphs).
+# This file is the default for EVERY profile (sil and hil): one forklift,
+# matching the stock scene. run_actor_sdg fails fast if a listed
+# articulation prim is missing from the loaded scene.
 #
-# Source of truth this was extracted from (named graphs, pre-refactor):
-#   ROS_Forklift_Control_Graph / Odometry_Graph / Safety_indicator_Graph
-#   in indicator_warehouse_20x20_layout_overflow_test.usd
+# TWO-FORKLIFT variant: configs/robots-2fl.yaml. To switch, launch Isaac with
+# the 2FL config pair (both flags together):
+#   -c /isaac-sim/sil/configs/default_config_ros_2fl.yaml \
+#   --robots-config /isaac-sim/sil/configs/robots-2fl.yaml
+# and COMPOSE_PROFILES including `multi-robot` for the second controller
+# container.
+# Keep the forklift_b block in both files in sync by hand.
+# Sync check: the `- name: forklift_b` block must be byte-identical in both files.
 
 robots:
   - name: forklift_b
@@ -23,7 +28,7 @@ robots:
     # --- control (ROS_Forklift_Control_Graph) ---
     control:
       enabled: true
-      cmd_vel_topic: cmd_vel          # ROS2SubscribeTwist.topicName (USD: default)
+      cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
       drive_joint: back_wheel_drive   # velocity-controlled wheel joint
       swivel_joint: back_wheel_swivel # position-controlled steer joint
       wheelbase: 1.49                 # constant_double_wheelbase
@@ -39,7 +44,7 @@ robots:
     # --- odometry (Odometry_Graph) ---
     odometry:
       enabled: true
-      odom_topic: odom                # ROS2PublishOdometry.topicName (USD: default)
+      odom_topic: forklift_b/odom     # per-robot namespace
       tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
       robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
 

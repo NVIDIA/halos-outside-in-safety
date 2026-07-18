@@ -84,25 +84,71 @@ _LEGACY_BAKED_CHARS = [
 # onto the position-iteration count (old_pos + (old_vel - 4)). Values are read
 # live from the loaded payload (the asset is a remote S3 payload, so we can't
 # author them statically in the scene USD).
+# (articulation root path, required). Fallback list for callers that don't
+# pass a robots config (e.g. Script Editor use). The normal launch path
+# derives the list from the same robots yaml the graph builders consume
+# (see _articulations_from_robots_config), so adding a robot stays a
+# yaml-only change. required=False marks prims that exist only in the
+# opt-in two-forklift scene (configs/robots-2fl.yaml); their absence from
+# the default single-forklift scene is expected, not an error.
 _HALOS_FORKLIFT_ARTICULATIONS = [
-    "/World/forklift_b",
+    ("/World/forklift_b", True),
+    ("/World/forklift_b2", False),  # only in the 2FL scene variant
 ]
+
+
+def _articulations_from_robots_config(robots_config_path):
+    """Derive the articulation-root list from the robots config yaml (the
+    same file build_forklift_graphs consumes). Entries are optional
+    (required=False): the graph builders that run right after this patch
+    are the authoritative missing-prim fail-fast, so the patch just skips
+    absent prims with an info line. Falls back to the built-in list on any
+    read/parse problem.
+    """
+    import yaml
+
+    try:
+        with open(robots_config_path) as f:
+            cfg = yaml.safe_load(f)
+        roots = [
+            (robot["articulation_prim"], False)
+            for robot in (cfg or {}).get("robots", [])
+            if robot.get("articulation_prim")
+        ]
+        if roots:
+            return roots
+        print(
+            f"[halos-runtime-patches] WARN: no robots in {robots_config_path}, "
+            f"using built-in articulation list"
+        )
+    except Exception as exc:
+        print(
+            f"[halos-runtime-patches] WARN: could not read {robots_config_path} "
+            f"({exc}), using built-in articulation list"
+        )
+    return _HALOS_FORKLIFT_ARTICULATIONS
 _PHYSX_MAX_TGS_VELOCITY_ITERS = 4
 _PHYSX_POS_ITER_ATTR = "physxArticulation:solverPositionIterationCount"
 _PHYSX_VEL_ITER_ATTR = "physxArticulation:solverVelocityIterationCount"
 
 
-def _rebalance_tgs_iterations(stage) -> None:
+def _rebalance_tgs_iterations(stage, articulations) -> None:
     """Clamp TGS velocity iterations to 4 on the forklift articulation(s),
     moving the excess onto the position-iteration count to preserve the PhysX
     5.2 (Isaac Sim 5.1) effective solver behavior. Idempotent.
     """
     from pxr import Usd, Sdf
 
-    for root_path in _HALOS_FORKLIFT_ARTICULATIONS:
+    for root_path, required in articulations:
         root = stage.GetPrimAtPath(root_path)
         if not root or not root.IsValid():
-            print(f"[halos-runtime-patches] WARN: forklift root not found: {root_path}")
+            if required:
+                print(f"[halos-runtime-patches] WARN: forklift root not found: {root_path}")
+            else:
+                print(
+                    f"[halos-runtime-patches] {root_path}: not in scene "
+                    f"(single-forklift default), skipping"
+                )
             continue
 
         # The PhysxArticulationAPI attrs live on whichever prim in the subtree
@@ -138,9 +184,14 @@ def _rebalance_tgs_iterations(stage) -> None:
             )
 
 
-def apply_halos_runtime_patches() -> None:
+def apply_halos_runtime_patches(robots_config_path=None) -> None:
     """Apply post-setup Halos stage modifications. Safe to call multiple
     times (idempotent).
+
+    robots_config_path: the robots yaml the launch passed via --robots-config
+    (or its default). When given, the TGS solver rebalance covers exactly the
+    robots listed there; when None (e.g. Script Editor), the built-in
+    _HALOS_FORKLIFT_ARTICULATIONS list is used.
     """
     # Late imports: this module is imported from `run_actor_sdg.py` at
     # the top of file, before SimulationApp is instantiated. omni.usd
@@ -181,7 +232,12 @@ def apply_halos_runtime_patches() -> None:
 
     # 3) Re-balance forklift TGS solver iterations to match the 5.1 baseline
     #    (PhysX 5.3 no longer auto-converts velocity iters >4 to position iters).
-    _rebalance_tgs_iterations(stage)
+    articulations = (
+        _articulations_from_robots_config(robots_config_path)
+        if robots_config_path
+        else _HALOS_FORKLIFT_ARTICULATIONS
+    )
+    _rebalance_tgs_iterations(stage, articulations)
 
     # Scene-component isolation toggles (env-var driven, no-op when no HALOS_DEACTIVATE_* set)
     from .scene_component_isolation import deactivate_optional_scene_components

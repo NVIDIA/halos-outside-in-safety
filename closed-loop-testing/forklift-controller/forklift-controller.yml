@@ -11,17 +11,46 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      - ROBOT_ID=${FORKLIFT_ROBOT_ID:-forklift_1}
+      - ROBOT_ID=${FORKLIFT_ROBOT_ID:-forklift_b}   # fallback matches robots.yaml block name (contract: ROBOT_ID == robots.yaml name == prim leaf)
       - BASE_SPEED=${FORKLIFT_BASE_SPEED:-1.5}
       - ANGULAR_SPEED=${FORKLIFT_ANGULAR_SPEED:-0.4}
       - HEADING_OFFSET=${FORKLIFT_HEADING_OFFSET:-180.0}
-      - USE_NAMESPACE=${FORKLIFT_USE_NAMESPACE:-false}
+      - USE_NAMESPACE=${FORKLIFT_USE_NAMESPACE:-true}   # robots.yaml topics are namespaced (forklift_b/cmd_vel, forklift_b/odom) — false = silent no-op
       - LOOP_PATH=${FORKLIFT_LOOP_PATH:-true}
       - NO_INVERT=${FORKLIFT_NO_INVERT:-false}
       - END_TOLERANCE=${FORKLIFT_END_TOLERANCE:-1.0}
       - END_POSE_COUNT=${FORKLIFT_END_POSE_COUNT:-5}
       - SPIRAL_TIMEOUT=${FORKLIFT_SPIRAL_TIMEOUT:-10.0}
-      - WAYPOINT_FILE=${FORKLIFT_WAYPOINT_FILE:-/app/waypoints/waypoints.json}
+      - WAYPOINT_FILE=${FORKLIFT_WAYPOINT_FILE:-/app/waypoints/forklift_b.json}   # <ROBOT_ID>.json convention
+    volumes:
+      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints}:/app/waypoints:ro
+      - .:/app:ro
+    restart: unless-stopped
+
+  # Second forklift controller (multi-robot). Same image, literal env values
+  # (the FORKLIFT_* interpolation vars above belong to the primary service).
+  # Enable via COMPOSE_PROFILES=sil,multi-robot in the env file.
+  forklift-controller-b2:
+    image: forklift-controller:latest
+    pull_policy: never   # image is built by the primary service; never try a registry pull
+    container_name: forklift-controller-b2
+    profiles: ["multi-robot"]
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - ROBOT_ID=forklift_b2
+      - BASE_SPEED=1.0                # per-robot static speed (m/s) — tune freely
+      - ANGULAR_SPEED=0.4
+      - HEADING_OFFSET=180.0          # same asset/orientation as forklift_b
+      - USE_NAMESPACE=true            # required: without it both robots share /odom and /cmd_vel
+      - LOOP_PATH=true
+      - NO_INVERT=false               # clone keeps forklift_b's 180-deg Z orientation
+      - END_TOLERANCE=1.0
+      - END_POSE_COUNT=5
+      - SPIRAL_TIMEOUT=10.0
+      - WAYPOINT_FILE=/app/waypoints/forklift_b2.json
     volumes:
       - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints}:/app/waypoints:ro
       - .:/app:ro
