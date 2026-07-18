@@ -54,7 +54,10 @@ class RobotController(Node):
                  end_tolerance: float = 1.5,
                  end_pose_count: int = 3,
                  spiral_timeout: float = 15.0):
-        super().__init__('robot_controller')
+        # Node name must be unique per robot: N controller instances (one
+        # container per robot) with the same name collide on parameter
+        # services and rosout.
+        super().__init__(f'{robot_id}_controller')
         
         self.robot_id = robot_id
         self.base_linear_speed = base_linear_speed
@@ -257,6 +260,12 @@ class RobotController(Node):
             
             # Handle reset command directly (not a state machine command)
             if command == 'reset':
+                # The early return below skips state_machine.handle_command, so
+                # apply the speed factor here (params default 1.0 restores full
+                # speed; honors `reset --speed X`). Deliberately NOT inside
+                # _reset_path: that path is shared with the sim-reset/odom-jump
+                # auto-recovery, which must not wipe an operator's `slow` factor.
+                self.state_machine.set_speed_factor(params['speed_factor'])
                 self._reset_path()
                 return
             

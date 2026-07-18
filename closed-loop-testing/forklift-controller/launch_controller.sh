@@ -2,23 +2,27 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Launch robot controller with common options
-# Usage: ./launch_controller.sh [robot_id] [path_file] [--namespace]
+# Usage: ./launch_controller.sh [robot_id] [path_file] [--no-namespace]
 #
-# By default uses global topics (/odom, /cmd_vel) for single robot
-# Add --namespace to use /{robot_id}/odom, /{robot_id}/cmd_vel for multi-robot
+# Namespaced topics by default: /{robot_id}/odom, /{robot_id}/cmd_vel.
+# CONTRACT: robot_id MUST match a robots.yaml `name` (forklift_b | forklift_b2)
+# — the Isaac graphs only subscribe /<robot_id>/cmd_vel and publish
+# /<robot_id>/odom. Example (second forklift):
+#   ./launch_controller.sh forklift_b2 waypoints/forklift_b2.json
+# Pass --no-namespace for the legacy global-topic mode (/odom, /cmd_vel).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROBOT_ID="${1:-forklift_1}"
-PATH_FILE="${2:-$SCRIPT_DIR/waypoints/waypoints.json}"
-USE_NAMESPACE="${3:-}"
+ROBOT_ID="${1:-forklift_b}"
+PATH_FILE="${2:-$SCRIPT_DIR/waypoints/${ROBOT_ID}.json}"
+NAMESPACE_ARG="${3:-}"
 
-# Check if --namespace flag is passed
-NAMESPACE_FLAG="--no-namespace"
-if [ "$USE_NAMESPACE" == "--namespace" ]; then
-    NAMESPACE_FLAG=""
-    echo "Using namespaced topics: /${ROBOT_ID}/odom, /${ROBOT_ID}/cmd_vel"
+# Namespaced by default; --no-namespace switches to legacy global topics
+NAMESPACE_FLAG=""
+if [ "$NAMESPACE_ARG" == "--no-namespace" ]; then
+    NAMESPACE_FLAG="--no-namespace"
+    echo "Using global topics: /odom, /cmd_vel (legacy mode — current robots.yaml graphs won't listen)"
 else
-    echo "Using global topics: /odom, /cmd_vel"
+    echo "Using namespaced topics: /${ROBOT_ID}/odom, /${ROBOT_ID}/cmd_vel"
 fi
 
 echo "═══════════════════════════════════════════════════"
