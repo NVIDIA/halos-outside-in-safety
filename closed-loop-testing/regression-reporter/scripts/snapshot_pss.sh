@@ -94,12 +94,20 @@ fi
 # ---- cross-run mode ----
 
 # Prefer concat of per-scn snapshots (preserves PSF data even across restarts).
-PER_SCN_FILES=( "$RUN_DIR"/*/pss.log )
-if [[ -f "${PER_SCN_FILES[0]:-}" ]]; then
-  # Concat then sort by leading ISO timestamp (line-stable sort -k1,1).
-  # Skipping dedupe is fine — sorted view is what clip_logs reads.
+# Exclude _discarded/ (aborted attempts) and drop exact-duplicate lines: when
+# the source log is NOT truncated between scenarios (stack kept up between
+# runs), each per-scn snapshot is a cumulative copy of the same source — a
+# plain concat would then repeat every line once per overlapping snapshot.
+PER_SCN_FILES=()
+for f in "$RUN_DIR"/*/pss.log; do
+  [[ "$f" == *"_discarded"* ]] && continue
+  [[ -f "$f" ]] && PER_SCN_FILES+=( "$f" )
+done
+if [[ ${#PER_SCN_FILES[@]} -gt 0 ]]; then
+  # Concat, sort by leading ISO timestamp (line-stable sort -k1,1), dedupe
+  # exact lines (first occurrence wins; output stays timestamp-sorted).
   TMP=$(mktemp)
-  cat "${PER_SCN_FILES[@]}" | sort -s -k1,1 > "$TMP"
+  cat "${PER_SCN_FILES[@]}" | sort -s -k1,1 | awk '!seen[$0]++' > "$TMP"
   write_out "$TMP" "$OUT"
   LINES=$(wc -l < "$TMP")
   SIZE=$(du -h "$TMP" | awk '{print $1}')

@@ -510,6 +510,11 @@ def _emit_clip(parquet_path: Path, out_dir: Path, roi: Polygon, tw_x: float,
     if video_src.exists() and copy_mp4:
         shutil.copy2(video_src, out_dir / "video.mp4")
         video_dst_name = "video.mp4"
+    elif (out_dir / "video.mp4").exists():
+        # Re-export over an existing bundle (e.g. --no-mp4): the clip already
+        # has its video — keep the manifest pointing at it instead of blanking
+        # the reference and disconnecting the viewer.
+        video_dst_name = "video.mp4"
 
     verdict = _load_verdict(parquet_path)
     gt_sum = _gt_summary(gt_csv)
