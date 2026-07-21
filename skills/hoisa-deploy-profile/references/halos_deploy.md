@@ -120,3 +120,60 @@ docker exec isaac-sim sh -c 'tail -5 /isaac-sim/kit/logs/Kit/*/*/kit_*.log'
 ```
 Don't gate on a shader-log string — readiness = the Isaac→VSS stream handoff completing,
 polled via DeepStream net active streams (`vss-rtvi-cv`). See `test_scenario.md`.
+
+---
+
+## Reset to a fresh deployment (keep the caches)
+
+A first bring-up is the cleanest state the stack ever has: an empty VST sensor
+registry and an empty event backlog. Heavy restart/re-registration churn slowly
+pollutes the **state layers** — `removed`-tombstone entries accumulate in the VST
+registry, and the sensor lifecycle events pile up in the Redis stream that
+`sdr-controller` replays in full whenever it restarts. When a box misbehaves in
+ways the targeted recoveries in `troubleshooting.md` don't resolve, reset those
+state layers and redeploy instead of debugging further — it reproduces the
+proven-clean first bring-up **without** paying the expensive first-run costs.
+
+What to clear vs. what to keep:
+
+| | Contains | Action |
+|---|---|---|
+| VST postgres volume | sensor registry (uuids, tombstones, ghosts) | **remove** |
+| Redis state | sensor lifecycle event backlog + SDR workload cache | **clear** (`FLUSHALL`, step 3) |
+| TensorRT engine / model store | built perception engine | **KEEP** (rebuild costs 10-20 min) |
+| `isaac-cache/` host dirs | compiled RT shaders | **KEEP** (recompile costs ~10 min) |
+| Images, `sil-data/` | pulled images, scene assets | KEEP (unaffected) |
+
+Procedure (≈10-15 minutes end-to-end):
+
+```bash
+# 1. Stop the scenario, then the Halos stack
+docker exec isaac-sim bash -c 'pgrep -f run_actor_sdg.py | xargs -r kill -9'
+cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down
+bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
+
+# 2. Tear down VSS *with* its state volumes — but selectively.
+#    Follow the vss-deploy-profile skill's teardown reference for the compose
+#    project specifics; the state volume to remove is the VST postgres data
+#    volume (docker volume ls | grep -iE 'pg|postgres').
+#    Do NOT blanket `down -v`: that also removes the TensorRT engine volume.
+
+# 3. Redeploy in the standard order: VSS Warehouse first (engine and caches are
+#    reused, so this pass is fast), then clear redis (below), then the Halos
+#    stack, then launch the scenario. VST starts empty -> the driver registers
+#    the cameras at render-warm exactly as on a first bring-up.
+```
+
+Clear redis after the VSS redeploy, before relaunching the scenario (works whether
+redis persists to a named volume or a host bind mount):
+
+```bash
+docker exec redis redis-cli FLUSHALL
+docker restart sdr-controller
+docker restart vss-rtvi-cv
+```
+
+Scope guidance: this is the third tier of recovery. Routine restarts use
+`restart_isaac.sh` (~2 min, `test_scenario.md`); polluted provisioning uses the
+Redis-flush runbook (~3 min, `troubleshooting.md` → "Provisioning Chain
+Polluted"); reset + redeploy is for when the state itself is suspect.

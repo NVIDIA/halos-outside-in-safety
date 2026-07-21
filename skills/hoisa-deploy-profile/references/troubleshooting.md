@@ -166,6 +166,19 @@ VST never DESCRIBEs a capless stream (look for `[vst-warmup]` in the run log). A
 `--start --enable-vst` run should not hit this. You can still hit it if **stale** VST
 sensors from a previous run are pointed at Isaac's RTSP and churn it during pre-roll.
 
+**Prevention (restarts)**: the warm-up gate cannot help across a **restart** — the
+previous run's sensors are still registered and their VST clients hammer the new Isaac
+the instant its ports open. Restart via the wrapper, which pauses
+`vss-vios-streamprocessing` for the boot window and resumes it once the mounts deliver:
+
+```bash
+bash closed-loop-testing/scripts/restart_isaac.sh   # see test_scenario.md for expected behavior
+```
+
+Single-host stacks only (`base`/`sil`): the wrapper pauses a **local** VST container.
+On the two-host `hil` profile it cannot reach the Thor-side VST — follow "Restart the
+scenario (hil)" in `halos_hil.md` instead.
+
 **Recovery** — if you do wedge (e.g. stale sensors churning), stop the churn and
 re-provision cleanly:
 
@@ -243,6 +256,42 @@ curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: applic
 > ℹ️ **Separate issue** — the Isaac **cold**-DESCRIBE wedge (`Active sources : 0`, "no caps") is
 > the section above; its upstream fix is an Isaac RFE: gate the RTSP server's DESCRIBE response on
 > the **first encoded frame** so caps are cached before VST's concurrent DESCRIBEs arrive.
+
+---
+
+## Provisioning Chain Polluted (Duplicate DS Sources / Event Replay Storms)
+
+**Symptom**: after many sensor re-registration cycles (repeated Isaac restarts, recovery
+attempts), DeepStream's `get-stream-info` shows **duplicate camera names** (e.g.
+`Camera_02` twice) or a camera never lands no matter how often you re-register; restarting
+`sdr-controller` makes it *worse* (a burst of `camera_add` pushes replays).
+
+**Cause**: the sensor lifecycle events live in a **Redis stream** with a long retention.
+`sdr-controller` replays it on restart — including every stale add/remove from previous
+cycles — and stale entries steal DeepStream's `max-batch-size` slots.
+
+**Fix — flush the event backlog, then ONE clean registration round** (order matters):
+
+```bash
+docker exec redis redis-cli FLUSHALL          # clears the event backlog + SDR workload cache
+docker restart sdr-controller                 # comes up with an empty, clean cache
+docker restart vss-rtvi-cv                    # DeepStream restarts as an EMPTY pipeline
+sleep 15
+# one clean registration round -> the only events in the stream are the fresh ones
+docker exec isaac-sim bash -lc 'cd /isaac-sim && \
+  ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --delete-all && sleep 3 && \
+  ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --add-from-config /isaac-sim/sil/configs/cameras.yaml'
+# DeepStream reaches N/N in ~30-60 s
+```
+
+If a camera STILL never comes up after this, check its Isaac mount directly
+(`ffprobe -rtsp_transport tcp rtsp://localhost:<port>/<mount>` from inside `isaac-sim`) —
+a dead mount is the upstream "no caps" wedge (section above); restart the scenario with
+`restart_isaac.sh`.
+
+**Full reset (last resort)** — when the state itself is suspect, return the stack to the
+proven-clean first-bring-up state without paying the TensorRT rebuild: procedure in
+`halos_deploy.md` → "Reset to a fresh deployment (keep the caches)".
 
 ---
 

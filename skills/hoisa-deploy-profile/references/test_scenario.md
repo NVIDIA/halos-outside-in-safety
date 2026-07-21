@@ -63,11 +63,46 @@ echo "DeepStream producing FPS on 3 Isaac cameras — handoff complete"
 > it via `troubleshooting.md` → "DeepStream Stuck at ≤2/3 Active Sources (Zombie Source
 > Bins)". A bare `added - removed` count would have hidden this (it stays 3).
 
-> **`--start` auto-stops** after `simulation_length` frames (set in the IRA config
-> `default_config_ros.yaml`), and on exit it removes the VST sensors it added. For a
-> long, watchable run, raise `simulation_length`. Stopping the run with SIGINT can
-> leave the Isaac VST sensors registered (orphaned) — re-running with `--enable-vst`
-> cleans them (it deletes, then re-adds).
+> **`--start` runs until externally stopped.** (The 5.1 `simulation_length` frame-count
+> auto-stop no longer applies on Isaac Sim 6.0 — the renamed `simulation_duration` only
+> extends the timeline end time.) Stopping the run with SIGINT/kill leaves the Isaac VST
+> sensors registered — the next `--enable-vst` run cleans them (it deletes, then re-adds).
+> To restart the scenario on a live stack, use the wrapper in the next section.
+
+### Restart the scenario on a live stack
+
+Killing and relaunching `run_actor_sdg.py` while VST is running wedges the fresh Isaac
+RTSP mounts: VST's proxy client and liveness prober reconnect within milliseconds of the
+port opening and DESCRIBE the stream before the encoder has produced a frame — the
+cold-window race from `troubleshooting.md` ("no caps"), which does not self-recover.
+Use the wrapper, which pauses VST streamprocessing for exactly the boot window:
+
+```bash
+bash closed-loop-testing/scripts/restart_isaac.sh    # reuses the running driver's own args
+```
+
+What to expect (measured on 2D and 3D single-GPU boxes and a 2-GPU 3D box, 6/6 runs):
+
+- Mounts warm in ~1-2 min (cached shaders), VST resumes, DeepStream back at 3/3 about
+  30 s later — total ≈ 2 min, with **zero** `has no caps` lines in the
+  `vss-vios-streamprocessing` and DeepStream logs (grep those, not the driver run log —
+  it can be empty while streaming works).
+- The driver re-registers the cameras at render-warm as usual → **fresh sensor uuids on
+  every restart**; SDR re-pushes them to DeepStream automatically.
+- Cosmetic leftovers, safe to ignore: one empty-name `offline` "ghost" entry per restart
+  in `sensor/list` (the next restart's delete-all clears the previous one; the VST UI may
+  render it as a stale tile under the old camera name), a slowly growing list of
+  `removed` tombstones, and the DeepStream `source_id`↔camera mapping may shuffle.
+- DeepStream has a known intermittent abort (`std::logic_error` / "basic_string:
+  construction from null", exit 134) when its sources drain while it runs; Docker's
+  `on-failure` policy usually revives it, and the script additionally detects a dead
+  `vss-rtvi-cv`, restarts it and re-registers the sensors (a restarted DeepStream
+  comes back as an empty pipeline that nothing re-populates on its own).
+- If DeepStream sticks below 3/3 past the script's 5-minute wait (seen once, on a stack
+  whose DeepStream provisioning was days old): recover via `troubleshooting.md` →
+  "DeepStream Stuck at ≤2/3 Active Sources (Zombie Source Bins)"; if sources come up
+  DUPLICATED or provisioning behaves erratically after many restart cycles, see
+  "Provisioning Chain Polluted" there.
 
 ### Confirm the full chain (VST ↔ DeepStream identity)
 
@@ -133,9 +168,9 @@ detect when it finishes. All signals below were verified on a live VSS 3.2.1 + H
 
 ### Launch a background scene-done monitor
 
-`--start` auto-stops after `simulation_length` frames and tears the streams down. Launch
-a **detached** monitor (non-blocking — does not hold the main flow) that announces when
-the scene finishes, so you don't have to watch it:
+The driver runs until externally stopped. Launch a **detached** monitor (non-blocking —
+does not hold the main flow) that announces when the run exits or its streams are torn
+down, so you don't have to watch it:
 
 ```bash
 nohup bash -c '

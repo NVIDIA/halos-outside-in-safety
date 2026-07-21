@@ -556,12 +556,16 @@ sleep 30
 docker logs --tail 200 "$PERCEPTION" 2>&1 | grep PERF -A1 | tail -5
 # If all 3 FPS values now ≥ $FPS_MIN → re-run the Step 3f.7 gate and continue.
 
-# Tier 2 — perception restart + isaac-sim scene restart
+# Tier 2 — Isaac scenario restart (~2 min)
 # (use if Tier 1 still shows FPS=0 — the RTSP streams may have flap-disconnected)
-docker restart isaac-sim "$PERCEPTION"
-sleep 60
-# Then re-execute Step 3e (wait for shaders + 3 RTSP streams ready)
-# and re-poll the 3f.7 gate.
+# Do NOT `docker restart isaac-sim` (never reloads the scene — the driver runs via
+# `docker exec -d`) and do NOT relaunch run_actor_sdg.py bare under a live VST
+# ("no caps" wedge). The wrapper reuses the running driver's args (keeps --srr-gt)
+# and waits for warm mounts + DeepStream 3/3:
+bash "$HOISA_ROOT_PATH"/closed-loop-testing/scripts/restart_isaac.sh
+# Then re-poll the 3f.7 gate (skip Step 3e — mounts are already warm). Expected
+# uuid churn / source_id shuffle: hoisa-deploy-profile references/test_scenario.md
+# § "Restart the scenario on a live stack".
 
 # Tier 3 — full VSS reset recipe (SKILL.md § "When VSS is corrupted")
 #   or vss-deploy-profile skill teardown/redeploy (references/teardown.md)
