@@ -11,6 +11,49 @@ Services and config differ per profile:
 
 ---
 
+## 0. Prerequisite — calibration must be safety-ready (2D / 3D · `base` / `sil` / `hil`)
+
+Safety events are driven by the ROIs and tripwires in the VSS perception **`calibration.json`**.
+**The shipped sample calibrations already include the required fields** — the 2D sample
+(`warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json`)
+ships with `restrictedObjectTypes` set, and the 3D calibration built per `calibration_3d.md` includes
+it too — so with the **default sample scene there is nothing to change** here.
+
+This check matters only when you bring your **own calibration** (a custom scene / your own
+AMC-generated `calibration.json`, e.g. a partner site). That calibration lives on the VSS side,
+**not in this repo**; if it's wrong, perception still detects people / forklifts fine but the Safety
+Core sees **no events** — no MUTE/UNMUTE, and **no error is logged** (a silent failure). The current use
+case runs the **ATL** app (`--app atl`), whose event map is `event_mapping_atl.pb.txt` (referenced by
+`safety-core/configs/nvpss.conf`); the proximity app has its own mapping file. Check these values:
+
+| Check | In `calibration.json` | Expected value | Silent failure if missing / wrong |
+|-------|-----------------------|----------------|-----------------------------------|
+| Restricted class per ROI | `rois[].restrictedObjectTypes` | non-empty, e.g. `["Person"]` | person entering the ROI is **never reported to the SDM** (most common) |
+| ROI id ↔ rule | `rois[].id` ↔ `rule_id` in `event_mapping_atl.pb.txt` | must match (e.g. `roi-id-1`) | ROI violation fires but maps to no `EVENT_4` / `EVENT_5` |
+| Tripwire id ↔ rule | `tripwires[].id` ↔ `rule_id` in `event_mapping_atl.pb.txt` | must match (e.g. `tripwire-id-1`) | forklift / person tripwire maps to no `EVENT_0`–`EVENT_3` |
+
+(`confinedObjectTypes`, e.g. `["Forklift"]`, is set the same way per ROI — see the ROI schema in `calibration_3d.md`.)
+
+Using a custom calibration? validate it before deploying (the shipped sample passes as-is):
+
+```bash
+CALIB=<wh_ops>/warehouse-2d-app/calibration/sample-data/<your-scene>/calibration.json
+python3 - "$CALIB" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+rois, tws = c.get("rois", []), c.get("tripwires", [])
+print("ROI ids:", [r.get("id") for r in rois], "| tripwire ids:", [t.get("id") for t in tws])
+missing = [r.get("id") for r in rois if not r.get("restrictedObjectTypes")]
+if missing:
+    sys.exit(f"ERROR: ROIs with no restrictedObjectTypes — person-in-ROI will NOT reach the SDM: {missing}")
+print("OK: every ROI restricts at least one object type")
+PY
+```
+
+Then confirm the printed `id`s match the `rule_id`s in `event_mapping_atl.pb.txt`.
+
+---
+
 ## 1. Configure the profile env
 
 Edit the profile env **in your clone** at `deployments/profiles/<profile>.env` and
