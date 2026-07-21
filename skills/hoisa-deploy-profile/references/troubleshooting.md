@@ -392,6 +392,34 @@ window too tight for perception latency.
 
 ---
 
+## No ROI / Tripwire Events Reaching the Safety Core (detections look fine)
+
+**Symptom**: Perception detects people / forklifts correctly (boxes look good in
+VST), but the Safety Core never reacts — no MUTE/UNMUTE as a person enters a
+restricted ROI or the forklift crosses the tripwire. **No error is logged** — the
+events simply never arrive at the SDM.
+
+**Cause**: a `calibration.json` misconfiguration. The shipped sample calibrations
+(2D and 3D) already set these correctly — this shows up on a **custom scene / your own
+AMC-generated calibration** (VSS side, not shipped in this repo), most commonly one of:
+1. **A restricted ROI is missing `restrictedObjectTypes`** (e.g. `["Person"]`). The ROI
+   geometry is defined, but no object class is marked restricted, so a person inside it is
+   never reported as a violation. This is the most common cause.
+2. **The ROI / tripwire `id` does not match the `rule_id`** in the ATL event-mapping file
+   (`event_mapping_atl.pb.txt`, referenced by `safety-core/configs/nvpss.conf`) — the event
+   fires but the Safety Core can't map it to `EVENT_0`…`EVENT_5`.
+
+**Fix**: run the calibration prerequisite check in `halos_deploy.md` (§0) — it flags ROIs
+with no `restrictedObjectTypes` and prints the ids to cross-check against the event map. Add
+the missing field per the ROI schema in `calibration_3d.md`. The AMC / Calibration Toolkit
+does not expose restricted / confined object types as a dedicated field, so set them via its
+**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/3.2.1/autocalib-workflow-steps.html#export-calibration-data)
+(advanced) or by editing the exported `calibration.json` directly. Then regenerate / re-mount
+the calibration and **recreate** (not restart) the VSS perception + safety-core containers so
+the new `calibration.json` and event mapping are picked up.
+
+---
+
 ## PSF Indicator Not Transitioning Correctly — Check Perception Stability First
 
 **Symptom**: PSF indicator doesn't switch between states (green / yellow /
@@ -499,3 +527,4 @@ using the same domain ID.
 | Bbox flickering | `bbox_tolerance_ms=100` in VST config |
 | CUDA errors on restart | Full container recreate, not restart |
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
+| No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
