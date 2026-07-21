@@ -39,10 +39,18 @@ The VSS configurator reads this file and POSTs each entry to the VST `/sensor/ad
 
 **Isaac-side registration** (the single-host `sil` flow, run cross-host): launch with `--enable-vst` and point the x86 profile env at the Thor (`VST_BASE_URL` and `PERCEPTION_BASE_URL` in `profiles/hil.env`). This path has the built-in warm-up gate (it registers only once the render is warm, avoiding the cold-DESCRIBE race) but requires VSS to already be up when the scenario starts. Leave `SENSOR_INFO_SOURCE` at its default (not `file`).
 
-## 3. Fresh state on a previously-used Thor
+## 3. Recording on the Thor VST
+
+Set `always_recording: false` (continuous clips fill the Thor's disk) but keep
+`event_recording` **on**. The blueprint-configurator hard-writes `always_recording: true`
+on every `up` — set the same `true → false` in the configurator's `blueprint_config.yml`
+before `up`, or edit `vst_config.json` after the configurator finishes and
+`docker restart vss-vios-streamprocessing`.
+
+## 4. Fresh state on a previously-used Thor
 
 On a Thor that ran VSS before, tear the stack down and wipe the Kafka volumes before redeploying - otherwise the sensor distribution service replays the old sensor history and perception sticks at 0 fps after every restart. Symptom, cause and the exact commands: `troubleshooting.md`, "Perception 0 FPS With Sensors Online (Stale Sensor History Replay)".
 
-## 4. Verify
+## 5. Verify
 
 Use the profile doc's "Verification After Deploy" (`vss_2d_overrides.md` / `vss_3d_overrides.md`) plus the FPS-based poll in `test_scenario.md`. Expect the delivered fps to track the Isaac render rate (well below the nominal stream rate) - that is the simulation, not a network fault.

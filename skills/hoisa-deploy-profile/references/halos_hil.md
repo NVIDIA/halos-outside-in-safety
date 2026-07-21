@@ -58,7 +58,7 @@ done
 
 Only once the streams above deliver frames, deploy VSS Warehouse on the Thor per `vss_hil_overrides.md`, applying all overrides BEFORE the first `up`. That file chains the rest: the 2D or 3D profile overrides (`vss_2d_overrides.md` / `vss_3d_overrides.md`), the `halos_thor.md` §2 IGX-Thor workarounds, sensor registration ownership, and the fresh-state teardown for a previously-used Thor. The order matters: the file-mode sensor registration has no stream-readiness gate, so deploying VSS against a cold Isaac triggers the "no caps" race (`vss_hil_overrides.md` §2; recovery in `troubleshooting.md`, RTSP Streams "no caps").
 
-Ready when the three sensors are `online` in VST pointing at the x86 host's IP, and perception shows `Active sources : 3` with non-zero fps (low fps that tracks the Isaac render rate is normal, not a network fault - `vss_hil_overrides.md` §4).
+Ready when the three sensors are `online` in VST pointing at the x86 host's IP, and perception shows `Active sources : 3` with non-zero fps (low fps that tracks the Isaac render rate is normal, not a network fault - `vss_hil_overrides.md` §5).
 
 ## 4. Gate: start the Safety Core only on a clear scene
 

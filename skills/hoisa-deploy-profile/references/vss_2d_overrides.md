@@ -87,7 +87,6 @@ File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
 ```jsonc
 "rtsp_streaming_over_tcp": true,    // ingest Isaac's RTSP over TCP (not UDP)
 "use_sensor_ntp_time": false,       // use arrival time, consistent with attach-sys-ts-as-ntp
-"always_recording": false,          // recording off — SIL does not need clips
 "bbox_tolerance_ms": 100            // default 0; widen metadata-to-frame match to reduce bbox flicker
 ```
 
@@ -95,19 +94,6 @@ File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
   ingest avoids UDP packet loss / jitter.
 - `use_sensor_ntp_time: false`: pair with `attach-sys-ts-as-ntp=1` so VST and DeepStream
   agree on wall-clock arrival time rather than the (drifting) sim-time.
-- Recording off: SIL is a live closed loop, not a capture run — leaving recording on wastes
-  disk and I/O.
-- **⚠ `always_recording` is configurator-managed — a pre-`up` edit here is silently reverted.**
-  The blueprint-configurator runs a `json_update` op that hard-writes `data.always_recording: true`
-  into this exact file on every `up` (VSS `.../blueprint-configurator/blueprint_config.yml`,
-  the `warehouse-2d-app/.../vst/configs/vst_config.json` op ~line 407 — identical in 3.2.0 and 3.2.1),
-  so a `false` set before `up` is overwritten before the VST container (`vss-vios-streamprocessing`,
-  which mounts this file) reads it. To make `false` stick, do ONE of:
-    - **(preferred)** edit `blueprint_config.yml` too: change `data.always_recording: true` → `false`
-      in that op before `up`; or
-    - after the configurator has finished, edit this file and `docker restart vss-vios-streamprocessing`.
-  The other keys above (`rtsp_streaming_over_tcp`, `use_sensor_ntp_time`, `bbox_tolerance_ms`) are
-  NOT touched by the configurator, so those pre-`up` edits survive as written.
 - `bbox_tolerance_ms: 100`: widens the metadata-to-frame matching tolerance window, reducing
   bounding-box flickering.
 
