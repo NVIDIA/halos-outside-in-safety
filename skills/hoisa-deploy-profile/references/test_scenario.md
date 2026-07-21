@@ -84,7 +84,9 @@ bash closed-loop-testing/scripts/restart_isaac.sh    # reuses the running driver
 What to expect (measured on 2D and 3D single-GPU boxes and a 2-GPU 3D box, 6/6 runs):
 
 - Mounts warm in ~1-2 min (cached shaders), VST resumes, DeepStream back at 3/3 about
-  30 s later — total ≈ 2 min, with **zero** `has no caps` lines in the new run log.
+  30 s later — total ≈ 2 min, with **zero** `has no caps` lines in the
+  `vss-vios-streamprocessing` and DeepStream logs (grep those, not the driver run log —
+  it can be empty while streaming works).
 - The driver re-registers the cameras at render-warm as usual → **fresh sensor uuids on
   every restart**; SDR re-pushes them to DeepStream automatically.
 - Cosmetic leftovers, safe to ignore: one empty-name `offline` "ghost" entry per restart
@@ -166,9 +168,9 @@ detect when it finishes. All signals below were verified on a live VSS 3.2.1 + H
 
 ### Launch a background scene-done monitor
 
-`--start` auto-stops after `simulation_length` frames and tears the streams down. Launch
-a **detached** monitor (non-blocking — does not hold the main flow) that announces when
-the scene finishes, so you don't have to watch it:
+The driver runs until externally stopped. Launch a **detached** monitor (non-blocking —
+does not hold the main flow) that announces when the run exits or its streams are torn
+down, so you don't have to watch it:
 
 ```bash
 nohup bash -c '

@@ -175,6 +175,10 @@ the instant its ports open. Restart via the wrapper, which pauses
 bash closed-loop-testing/scripts/restart_isaac.sh   # see test_scenario.md for expected behavior
 ```
 
+Single-host stacks only (`base`/`sil`): the wrapper pauses a **local** VST container.
+On the two-host `hil` profile it cannot reach the Thor-side VST — follow "Restart the
+scenario (hil)" in `halos_hil.md` instead.
+
 **Recovery** — if you do wedge (e.g. stale sensors churning), stop the churn and
 re-provision cleanly:
 

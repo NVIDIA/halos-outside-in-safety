@@ -139,7 +139,7 @@ What to clear vs. what to keep:
 | | Contains | Action |
 |---|---|---|
 | VST postgres volume | sensor registry (uuids, tombstones, ghosts) | **remove** |
-| Redis volume | sensor lifecycle event backlog + SDR workload cache | **remove** |
+| Redis state | sensor lifecycle event backlog + SDR workload cache | **clear** (`FLUSHALL`, step 3) |
 | TensorRT engine / model store | built perception engine | **KEEP** (rebuild costs 10-20 min) |
 | `isaac-cache/` host dirs | compiled RT shaders | **KEEP** (recompile costs ~10 min) |
 | Images, `sil-data/` | pulled images, scene assets | KEEP (unaffected) |
@@ -154,14 +154,23 @@ bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
 
 # 2. Tear down VSS *with* its state volumes — but selectively.
 #    Follow the vss-deploy-profile skill's teardown reference for the compose
-#    project specifics; the state volumes to remove are the VST postgres data
-#    volume and the redis data volume (docker volume ls | grep -iE 'pg|postgres|redis').
+#    project specifics; the state volume to remove is the VST postgres data
+#    volume (docker volume ls | grep -iE 'pg|postgres').
 #    Do NOT blanket `down -v`: that also removes the TensorRT engine volume.
 
 # 3. Redeploy in the standard order: VSS Warehouse first (engine and caches are
-#    reused, so this pass is fast), then the Halos stack, then launch the scenario.
-#    VST starts empty -> the driver registers the cameras at render-warm exactly
-#    as on a first bring-up.
+#    reused, so this pass is fast), then clear redis (below), then the Halos
+#    stack, then launch the scenario. VST starts empty -> the driver registers
+#    the cameras at render-warm exactly as on a first bring-up.
+```
+
+Clear redis after the VSS redeploy, before relaunching the scenario (works whether
+redis persists to a named volume or a host bind mount):
+
+```bash
+docker exec redis redis-cli FLUSHALL
+docker restart sdr-controller
+docker restart vss-rtvi-cv
 ```
 
 Scope guidance: this is the third tier of recovery. Routine restarts use
