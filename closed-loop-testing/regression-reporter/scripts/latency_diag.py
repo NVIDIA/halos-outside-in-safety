@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore")
 from srr import aggregator as A
 
 RUN = Path(sys.argv[1] if len(sys.argv) > 1 else "/app/runs/multi-test-20260615-043909")
-roi, tw_x, tw_y_min, tw_y_max = A.load_roi(Path("/app/calibration.json"))
+roi, tw = A.load_roi(Path("/app/calibration.json"))
 parquets = sorted(RUN.glob("*/scenes/scn_*.parquet"))
 
 
@@ -78,7 +78,7 @@ for pq in parquets:
         sdf = pd.read_parquet(pq, columns=["arrival_wall_time"])
         ba_override = A.filter_ba_pool(pool, float(sdf["arrival_wall_time"].iloc[0]),
                                        float(sdf["arrival_wall_time"].iloc[-1]))
-    v, df = A.analyze_clip(pq, roi, tw_x, tw_y_min, tw_y_max, ba_events_override=ba_override)
+    v, df = A.analyze_clip(pq, roi, tw, ba_events_override=ba_override)
     times = df["arrival_wall_time"].tolist()
     t0 = times[0] if times else 0.0
     clip_end = times[-1] if times else 0.0
