@@ -324,10 +324,24 @@ import sys; sys.exit(0 if n>=1 else 1)
 "
   else
     signal="2D BA events (mdx-events)"
-    # 2D has no mdx-bev topic; the perception signal is BA events on mdx-events.
+    # 2D / Phase-1 has no mdx-bev topic; the perception signal is BA events on
+    # mdx-events — the same topic the recorder consumes (KAFKA_TOPIC), so the gate
+    # confirms the exact data path (perception → BA → events), not just raw
+    # perception. mdx-events are REAL, sparse events (ROI entry / TW crossing,
+    # ~every 20-40 s per forklift cycle), not per-frame snapshots — so there is no
+    # EMPTY-frame false-positive and a single caught message is a genuine ready
+    # signal. We therefore use a wider consume window (20 s vs the 8 s dense-3D
+    # feed) so one probe reliably spans the gap between sparse events and the
+    # cumulative-hit counter doesn't decay unfairly while waiting between events.
+    #
+    # NOTE (2D gate semantics): because BA only fires once a real event has
+    # occurred, a 2D "scene-ready" pass means the scenario has already produced
+    # >=1 event — i.e. recording starts a few tens of seconds into the scenario
+    # cycle. Harmless for verdicts (clips are split on forklift TW crossings and
+    # the scenario loops), but the first 2D clip begins mid-cycle by design.
     probe_py="
 from kafka import KafkaConsumer
-c=KafkaConsumer('mdx-events', bootstrap_servers='localhost:9092', auto_offset_reset='latest', consumer_timeout_ms=8000)
+c=KafkaConsumer('mdx-events', bootstrap_servers='localhost:9092', auto_offset_reset='latest', consumer_timeout_ms=20000)
 n=0
 for _ in c:
     n+=1
