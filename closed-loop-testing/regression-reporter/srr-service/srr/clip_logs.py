@@ -47,9 +47,6 @@ from srr.aggregator import (
     BA_POOL_PAD_S,
     CHAR_COLS,
     DEFAULT_ROI_VERTICES,
-    DEFAULT_TW_X,
-    DEFAULT_TW_Y_MIN,
-    DEFAULT_TW_Y_MAX,
     _GT_ACTOR_CLASS,
     compute_phase2_metrics,
     in_roi as _in_roi,
@@ -107,8 +104,7 @@ def _clip_bounds(parquet_path: Path) -> Optional[ClipBounds]:
     )
 
 
-def _write_gt_csv(df: pd.DataFrame, roi: Polygon, tw_x: float,
-                  tw_y_min: float, tw_y_max: float, out_path: Path) -> None:
+def _write_gt_csv(df: pd.DataFrame, roi: Polygon, tw, out_path: Path) -> None:
     rows = []
     for _, r in df.iterrows():
         char_in = []
@@ -117,9 +113,7 @@ def _write_gt_csv(df: pd.DataFrame, roi: Polygon, tw_x: float,
             y = r.get(f"{c}_y")
             char_in.append(_in_roi(roi, x, y))
         fx, fy = r.get("forklift_x"), r.get("forklift_y")
-        in_trailer = bool(
-            pd.notna(fx) and pd.notna(fy) and fx > tw_x and tw_y_min <= fy <= tw_y_max
-        )
+        in_trailer = bool(pd.notna(fx) and pd.notna(fy) and tw.is_inside(fx, fy))
         rows.append({
             "wall_time": r["arrival_wall_time"],
             "sim_time": r["sim_time"],
@@ -461,8 +455,7 @@ def _gt_summary(gt_csv: Path) -> dict:
     }
 
 
-def _emit_clip(parquet_path: Path, out_dir: Path, roi: Polygon, tw_x: float,
-               tw_y_min: float, tw_y_max: float, pool: list[dict],
+def _emit_clip(parquet_path: Path, out_dir: Path, roi: Polygon, tw, pool: list[dict],
                pss_path: Optional[Path], copy_mp4: bool, pad: float) -> Optional[dict]:
     bounds = _clip_bounds(parquet_path)
     if bounds is None:
@@ -476,7 +469,7 @@ def _emit_clip(parquet_path: Path, out_dir: Path, roi: Polygon, tw_x: float,
     psf_csv = out_dir / "psf_timeline.csv"
     ba_csv = out_dir / "ba_events.csv"
 
-    _write_gt_csv(df, roi, tw_x, tw_y_min, tw_y_max, gt_csv)
+    _write_gt_csv(df, roi, tw, gt_csv)
     _write_psf_timeline(df, psf_csv)
     n_ba = _write_ba_events(pool, bounds, pad, ba_csv)
 
@@ -523,7 +516,7 @@ def _emit_clip(parquet_path: Path, out_dir: Path, roi: Polygon, tw_x: float,
     phase2_brief = None
     if has_phase2:
         try:
-            p2 = compute_phase2_metrics(df, tw_x=tw_x)
+            p2 = compute_phase2_metrics(df, tw=tw)
         except Exception:
             p2 = None
         if p2 and p2.get("enabled") and p2.get("gt_available"):
@@ -626,7 +619,7 @@ def main() -> None:
     if not runs_dir.is_dir():
         raise SystemExit(f"runs-dir not found: {runs_dir}")
 
-    roi, tw_x, tw_y_min, tw_y_max = load_roi(Path(args.calib) if args.calib else None)
+    roi, tw = load_roi(Path(args.calib) if args.calib else None)
 
     scen_filter = {s.strip() for s in args.scenarios.split(",") if s.strip()}
     fail_set: set[tuple[str, str]] = set()
@@ -672,7 +665,7 @@ def main() -> None:
             pool_cache[scen] = load_run_ba_pool(run_dir)
             print(f"[clip_logs] BA pool {scen}: {len(pool_cache[scen])} events")
         clip_dir = run_dir / args.out_name / pq.stem
-        rec = _emit_clip(pq, clip_dir, roi, tw_x, tw_y_min, tw_y_max,
+        rec = _emit_clip(pq, clip_dir, roi, tw,
                          pool_cache[scen], pss_path, copy_mp4=not args.no_mp4, pad=args.pad)
         if rec is not None:
             indexes_by_scen.setdefault(scen, []).append(rec)

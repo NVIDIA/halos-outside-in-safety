@@ -22,6 +22,8 @@ from typing import Optional
 import pandas as pd
 from shapely.geometry import MultiPoint, Point, Polygon
 
+from srr.tripwire import Tripwire
+
 
 # ---------- ROI / tripwire defaults (from VSS calibration sample-data) ----------
 
@@ -36,25 +38,21 @@ DEFAULT_TW_Y_MIN = -18.9756077
 DEFAULT_TW_Y_MAX = -11.2385153
 
 
-def load_roi(calib_path: Optional[Path]) -> tuple[Polygon, float, float, float]:
-    """Returns (roi_polygon, tw_x, tw_y_min, tw_y_max)."""
+def load_roi(calib_path: Optional[Path]) -> tuple[Polygon, Tripwire]:
+    """Returns (roi_polygon, tripwire).
+
+    The tripwire's inside side comes from the calibration's ``direction``
+    field (arrow head = inside/trailer side) — see srr.tripwire.
+    """
     if calib_path and calib_path.exists():
         d = json.loads(calib_path.read_text())
         # all sensors share the same ROI/TW in this scene; take first
         s0 = d["sensors"][0]
         coords = [(c["x"], c["y"]) for c in s0["rois"][0]["roiCoordinates"]]
-        wire = s0["tripwires"][0]["wire"]
-        return (
-            Polygon(coords),
-            wire["p1"]["x"],
-            min(wire["p1"]["y"], wire["p2"]["y"]),
-            max(wire["p1"]["y"], wire["p2"]["y"]),
-        )
+        return (Polygon(coords), Tripwire.from_calib_dict(s0["tripwires"][0]))
     return (
         Polygon(DEFAULT_ROI_VERTICES),
-        DEFAULT_TW_X,
-        DEFAULT_TW_Y_MIN,
-        DEFAULT_TW_Y_MAX,
+        Tripwire.legacy(DEFAULT_TW_X, DEFAULT_TW_Y_MIN, DEFAULT_TW_Y_MAX),
     )
 
 
@@ -468,7 +466,7 @@ def _estimate_forklift_origin_offset(rows: list, gate_m: float,
 
 def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
                            coverage_pad_m: float = 0.0,
-                           tw_x: float = DEFAULT_TW_X,
+                           tw: Optional[Tripwire] = None,
                            boundary_m: float = 2.0,
                            split_dist_m: float = 1.0) -> Optional[dict]:
     """Per-clip 3D perception metrics from the recorded mdx-bev detections.
@@ -632,8 +630,11 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
     cls_incov_present = {c: 0 for c in classes}
     # Per-actor in-coverage matched distances → per-actor multi-gate recall.
     actor_incov_dist: dict = {a: [] for a in _GT_ACTOR_CLASS}
+    if tw is None:
+        tw = Tripwire.legacy(DEFAULT_TW_X, DEFAULT_TW_Y_MIN, DEFAULT_TW_Y_MAX)
     # Trailer-boundary slice for the forklift: frames where the forklift GT
-    # sits within ±boundary_m of the tripwire (x = tw_x). This isolates the
+    # sits within ±boundary_m of the tripwire (perpendicular distance to the
+    # wire line — was abs(x - tw_x) for the vertical wire). This isolates the
     # previously-observed ~33% forklift detection loss around the trailer boundary.
     fk_boundary_present = 0
     fk_boundary_missed = 0
@@ -691,7 +692,7 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
                     fn_in += 1
                     cls_fn_in[cls] += 1
                     actor_stats[a]["missed_in_cov"] += 1
-                if a == "forklift" and abs(gx - tw_x) <= boundary_m:
+                if a == "forklift" and tw.line_distance(gx, gy) <= boundary_m:
                     fk_boundary_present += 1
                     if not matched:
                         fk_boundary_missed += 1
@@ -805,7 +806,7 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
                   if fk_boundary_present else None,
         "track_loss_pct": round(100 * fk_boundary_missed / fk_boundary_present, 2)
                           if fk_boundary_present else None,
-        "window_m": boundary_m, "tw_x": round(tw_x, 3),
+        "window_m": boundary_m, "tw_x": round(tw.x_ref, 3),
     }
 
     # Split / fragmentation: per detector frame, ≥2 tracks of the same class
@@ -923,12 +924,11 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
     return out
 
 
-def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
-                 tw_y_min: float, tw_y_max: float,
+def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
                  ba_events_override: Optional[list[dict]] = None) -> tuple[ClipVerdict, pd.DataFrame]:
     df = pd.read_parquet(parquet_path)
     # Phase 2 metrics computed on the full df (before the cold-start GT drop).
-    phase2 = compute_phase2_metrics(df, tw_x=tw_x)
+    phase2 = compute_phase2_metrics(df, tw=tw)
 
     # Drop the cold-start window: skip leading frames where any required GT TF is still NaN.
     # In Isaac Sim, /gt/<char>/tf can publish ~seconds after the sim starts, so a clip captured
@@ -955,11 +955,7 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
     import numpy as _np
     any_char = _np.array(char_in_roi.any(axis=1).fillna(False).tolist(), dtype=bool)
     fk_in_trailer = _np.array([
-        bool(
-            pd.notna(fx) and pd.notna(fy)
-            and fx > tw_x
-            and tw_y_min <= fy <= tw_y_max
-        )
+        bool(pd.notna(fx) and pd.notna(fy) and tw.is_inside(fx, fy))
         for fx, fy in zip(df["forklift_x"], df["forklift_y"])
     ], dtype=bool)
     df["any_char_in_roi"] = any_char
@@ -1189,7 +1185,7 @@ def render_clip_report(v: ClipVerdict) -> str:
         "## Ground truth (from /gt/*/tf)",
         "",
         f"- any character in ROI: **{v.pct_any_char_in_roi}%** of frames",
-        f"- forklift in trailer (x>{DEFAULT_TW_X:.3f}): **{v.pct_forklift_in_trailer}%**",
+        f"- forklift in trailer (inside-side of the trailer tripwire): **{v.pct_forklift_in_trailer}%**",
         f"- expected MUTE: **{v.pct_expected_mute}%**",
         "",
         "## Observed PSF state (from /safety/is_muted + /safety/command)",
@@ -1899,9 +1895,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     calib_path = Path(args.calib) if args.calib else None
-    roi, tw_x, tw_y_min, tw_y_max = load_roi(calib_path)
+    roi, tw = load_roi(calib_path)
     print(f"[agg] ROI bounds: {list(roi.exterior.coords)}")
-    print(f"[agg] TW x={tw_x:.3f}, y∈[{tw_y_min:.3f}, {tw_y_max:.3f}]")
+    print(f"[agg] TW {tw}")
 
     if args.top_level:
         parquets = sorted(runs_dir.glob("*/scenes/scn_*.parquet"))
@@ -1936,7 +1932,7 @@ def main() -> None:
                     scene_start = float(scene_df["arrival_wall_time"].iloc[0])
                     scene_end = float(scene_df["arrival_wall_time"].iloc[-1])
                     ba_override = filter_ba_pool(pool, scene_start, scene_end)
-            v, _df = analyze_clip(pq, roi, tw_x, tw_y_min, tw_y_max,
+            v, _df = analyze_clip(pq, roi, tw,
                                    ba_events_override=ba_override)
             verdicts.append(v)
             if args.top_level:
