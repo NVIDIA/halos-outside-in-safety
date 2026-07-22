@@ -326,9 +326,13 @@ from kafka import KafkaConsumer
 from srr.kafka_consumer import parse_mdx_bev_bytes
 c=KafkaConsumer('${bev_topic}', bootstrap_servers='localhost:9092', auto_offset_reset='latest', value_deserializer=None, consumer_timeout_ms=8000)
 n=0
-for m in c:
+# Bound the scan: consumer_timeout_ms only fires when the topic goes IDLE, so
+# a busy topic streaming all-EMPTY frames would otherwise keep this loop (and
+# the whole gate poll) blocked indefinitely. ~500 messages ≈ one 15-20 s look
+# at a 30 Hz feed — plenty to catch a real detection.
+for i, m in enumerate(c):
     if (parse_mdx_bev_bytes(m.value).get('detections') or []): n+=1
-    if n>=1: break
+    if n>=1 or i>=500: break
 import sys; sys.exit(0 if n>=1 else 1)
 "
   else
