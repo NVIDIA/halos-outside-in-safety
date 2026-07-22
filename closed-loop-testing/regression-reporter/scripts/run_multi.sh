@@ -540,6 +540,7 @@ phase_analyze() {
   log "aggregator done."
 
   log "vst_video pulling per-clip MP4..."
+  sleep 15  # let the VST recorder flush the segment after record-stop, or the last clip's MP4 can come up short/missing
   # Videos go INSIDE the run dir so per-clip reports' [../videos/scn_X.mp4] resolve.
   docker exec srr bash -c "
     cd /app && python3 -m srr.utils.vst_video split-run \
