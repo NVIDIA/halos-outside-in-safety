@@ -1098,8 +1098,11 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
     # The freeze leaves valid-looking CONSTANT coordinates (not NaN), so the
     # cold-start trim never catches it. Fire only on a conservative dual
     # condition: the forklift GT never moved for the WHOLE clip (>=3 s of
-    # data) while BA simultaneously reported tripwire crossings — a truly
-    # parked forklift produces no TW events, so this cannot false-positive.
+    # data) while BA simultaneously reported tripwire crossings. A truly
+    # parked forklift produces no TW events, so this misfires only when a
+    # TW-Forklift event lands in the clip's BA window anyway — either a
+    # spurious BA event over a stationary clip, or (top-level mode) a real
+    # neighboring-boundary event pulled in by the ±BA_POOL_PAD_S pool pad.
     gt_frozen_actors: list[str] = []
     if len(df) >= 90 and n_ba_tw_forklift > 0:
         _fkx = df["forklift_x"].dropna()

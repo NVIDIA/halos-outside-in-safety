@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore")
 from srr import aggregator as A
 
 RUN = Path(sys.argv[1] if len(sys.argv) > 1 else "/app/runs/multi-test-20260615-043909")
-roi, tw_x, tw_y_min, tw_y_max = A.load_roi(Path("/app/calibration.json"))
+roi, tw = A.load_roi(Path("/app/calibration.json"))
 pqs = sorted(RUN.glob("*/scenes/scn_*.parquet"))
 
 idsw = {"Person": 0, "Forklift": 0}
@@ -19,7 +19,7 @@ tot_frames = 0
 clip_split = {"Person": [], "Forklift": []}
 
 for pq in pqs:
-    v, _ = A.analyze_clip(pq, roi, tw_x, tw_y_min, tw_y_max)
+    v, _ = A.analyze_clip(pq, roi, tw)
     p2 = v.phase2
     if not p2 or not p2.get("gt_available"):
         continue
