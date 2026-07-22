@@ -198,7 +198,16 @@ phase_set_behavior_tree() {
 
   # simulation_duration (seconds) must outlast scene-load + PSF warmup + the
   # recording window, with buffer. Old schema used frames (simulation_length).
-  local sim_dur=$(( rec_s + PSF_WARMUP_S + 600 ))
+  # 1800 s buffer = scene-load (+ RTSP-wait up to 240 s) + up to TWO scene-ready windows (the gate's
+  # reprovision-retry path can burn ~700 s of wall clock per window, the
+  # nominal 360 s timeout plus per-poll docker-exec/consume latency the
+  # 'waited' counter does not account for) + reprovision sleeps + PSF warm-up.
+  # Budget: ~180-240 s load + 2×~700 s windows + ~28 s reprovision ≈ 1670 s.
+  # With the old +600 the sim could hit simulation_duration MID-RECORDING
+  # precisely when the reprovision retry succeeded late — silently truncating
+  # GT with no guard to catch it. A longer timeline is harmless: the
+  # per-scenario compose restart tears the scene down long before it ends.
+  local sim_dur=$(( rec_s + PSF_WARMUP_S + 1800 ))
   sed -i "s|^\(\s*\)simulation_duration:.*|\1simulation_duration: ${sim_dur}.0|" "$ISAAC_CONFIG"
 
   # Sanity check — the duration line must now carry the new value.
@@ -317,9 +326,13 @@ from kafka import KafkaConsumer
 from srr.kafka_consumer import parse_mdx_bev_bytes
 c=KafkaConsumer('${bev_topic}', bootstrap_servers='localhost:9092', auto_offset_reset='latest', value_deserializer=None, consumer_timeout_ms=8000)
 n=0
-for m in c:
+# Bound the scan: consumer_timeout_ms only fires when the topic goes IDLE, so
+# a busy topic streaming all-EMPTY frames would otherwise keep this loop (and
+# the whole gate poll) blocked indefinitely. ~500 messages ≈ one 15-20 s look
+# at a 30 Hz feed — plenty to catch a real detection.
+for i, m in enumerate(c):
     if (parse_mdx_bev_bytes(m.value).get('detections') or []): n+=1
-    if n>=1: break
+    if n>=1 or i>=500: break
 import sys; sys.exit(0 if n>=1 else 1)
 "
   else
@@ -349,6 +362,28 @@ for _ in c:
 import sys; sys.exit(0 if n>=1 else 1)
 "
   fi
+  if _scene_ready_wait_once; then return 0; fi
+  # A first-pass timeout is more often the empty-DeepStream-pipeline race than
+  # a slow scene (healthy scenarios reach ready in well under a minute): the
+  # per-scenario perception restart leaves a (re)started DeepStream with an
+  # EMPTY REST pipeline, and the SDR is event-driven with no reconcile-on-start,
+  # so if its stream push raced the restart nothing ever retries and the gate
+  # times out on a stack that will never produce a signal. Re-provision once,
+  # give the gate one more full window, then fall through with the historical
+  # WARN (verdict-side guards treat that exactly as before).
+  # NOTE: this intermediate line must NOT contain the substring
+  # "WARN scene-ready timeout" — downstream log distillers pair one terminal
+  # scene-ready line per scenario (the success line or that WARN marker).
+  log "WARN scene-ready first-pass timed out — reprovisioning perception (empty-pipeline race), then retrying once..."
+  phase_reprovision_perception || true
+  if _scene_ready_wait_once; then return 0; fi
+  log "WARN scene-ready timeout — proceeding anyway (data may be empty)."
+}
+
+# One full scene-ready wait window. Reads $signal/$probe_py resolved by
+# phase_wait_scene_ready (bash dynamic scoping — only called from there).
+# Returns 0 when the perception signal is flowing, 1 on timeout.
+_scene_ready_wait_once() {
   log "Waiting for scene-ready (${signal}, need ${SCENE_READY_HITS} non-empty polls, timeout ${SCENE_READY_TIMEOUT_S}s)..."
   local waited=0 step=10 hits=0 misses=0
   while [ "$waited" -lt "$SCENE_READY_TIMEOUT_S" ]; do
@@ -368,7 +403,33 @@ import sys; sys.exit(0 if n>=1 else 1)
     fi
     sleep "$step"; waited=$((waited + step))
   done
-  log "WARN scene-ready timeout — proceeding anyway (data may be empty)."
+  return 1
+}
+
+phase_reprovision_perception() {
+  # Deterministic recovery for the empty-DeepStream-pipeline race (see the
+  # first-pass timeout comment in phase_wait_scene_ready). Same recipe as
+  # restart_isaac.sh reprovision_sensors(): restart DeepStream first — a
+  # (re)started vss-rtvi-cv always comes back as an EMPTY REST pipeline; never
+  # re-register into a possibly polluted one — then ONE clean VST registration
+  # round inside the isaac-sim container so VST emits fresh camera_add events
+  # for the SDR to push. The Isaac driver and its RTSP streams are untouched
+  # (encoders stay warm, so no cold-window race), and this runs strictly
+  # BEFORE recording starts.
+  local rtvi
+  rtvi=$(docker ps -a --format '{{.Names}}' | grep -xE 'vss-rtvi-cv' || true)
+  if [ -z "$rtvi" ]; then
+    log "  reprovision skipped (vss-rtvi-cv not found)"; return 1
+  fi
+  log "  reprovision: restarting ${rtvi} (guarantees an empty pipeline)..."
+  docker restart "$rtvi" >/dev/null 2>&1 || docker start "$rtvi" >/dev/null 2>&1 || true
+  sleep 15
+  log "  reprovision: one clean VST sensor registration round..."
+  docker exec isaac-sim bash -lc \
+    "cd /isaac-sim && ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --delete-all && sleep 3 && \
+     ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --add-from-config /isaac-sim/sil/configs/cameras.yaml" \
+    >/dev/null 2>&1 || { log "  reprovision WARN: sensor registration round failed"; return 1; }
+  sleep 10   # let the SDR push the fresh adds into the empty pipeline
 }
 
 phase_psf_warmup() {
@@ -479,6 +540,7 @@ phase_analyze() {
   log "aggregator done."
 
   log "vst_video pulling per-clip MP4..."
+  sleep 15  # let the VST recorder flush the segment after record-stop, or the last clip's MP4 can come up short/missing
   # Videos go INSIDE the run dir so per-clip reports' [../videos/scn_X.mp4] resolve.
   docker exec srr bash -c "
     cd /app && python3 -m srr.utils.vst_video split-run \
