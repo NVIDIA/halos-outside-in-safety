@@ -291,15 +291,12 @@ phase_vst_workaround() {
 # false-positive. We therefore require a REAL perception signal before recording.
 # Falls back to proceeding after SCENE_READY_TIMEOUT_S so we never hang forever.
 #
-# Profile-aware (2D vs 3D). The signal we poll depends on the deploy profile,
-# mirroring srr-service's BEV_TOPIC default (os.environ.get("BEV_TOPIC","mdx-bev")):
-#   * 3D (Sparse4D)  — BEV_TOPIC set (default `mdx-bev`): the perception signal is
-#     real decoded 3D detections on $BEV_TOPIC. Gate on decoded objects > 0.
-#   * 2D / Phase-1   — BEV_TOPIC="" (no mdx-bev topic exists): gating on mdx-bev
-#     would never pass and would burn the whole timeout + emit a misleading WARN.
-#     The 2D perception signal is BA events, so gate on `mdx-events` instead.
-# The topic is resolved from the running srr container so the gate never hardcodes
-# a 3D-only topic.
+# Profile-aware (2D vs 3D). The topic we poll is chosen by the deploy MODE
+# (resolve_scene_ready_topic, below): 2d -> mdx-raw (DeepStream), 3d/mv3dt ->
+# mdx-bev (Sparse4D/BEV). Both carry the same nv.Frame protobuf, so one decoder
+# covers both and we always require decoded detections > 0 (a real perception
+# signal, not "has any message"). MODE comes from the VSS warehouse env, so the
+# gate never hardcodes a mode-specific topic.
 #
 # The counter is CUMULATIVE, not "consecutive". Perception legitimately
 # interleaves EMPTY frames (e.g. a sparse scene where only one actor is in FOV,
@@ -312,56 +309,46 @@ phase_vst_workaround() {
 SCENE_READY_TIMEOUT_S="${SCENE_READY_TIMEOUT_S:-360}"
 SCENE_READY_HITS="${SCENE_READY_HITS:-2}"
 SCENE_READY_MISS_DECAY="${SCENE_READY_MISS_DECAY:-3}"
+# Which Kafka topic carries the perception signal depends on the deploy MODE.
+# Resolve it once, in priority order:
+#   1. explicit SCENE_READY_TOPIC override (set in .env to force a topic)
+#   2. auto-derive from the VSS warehouse env's MODE (ENV_VSS_PATH): the same
+#      nv.Frame protobuf flows on mdx-raw for 2d (DeepStream) and mdx-bev for
+#      3d/mv3dt (Sparse4D/BEV), so one decoder covers both — only the topic
+#      differs by mode. Reading MODE from the VSS deployment's own env keeps a
+#      single source of truth (no 2D/3D flag duplicated on the SRR side).
+#   3. fall back to mdx-bev (prior default) when neither is available.
+resolve_scene_ready_topic() {
+  if [ -n "${SCENE_READY_TOPIC:-}" ]; then printf '%s' "$SCENE_READY_TOPIC"; return; fi
+  local mode=""
+  [ -n "${ENV_VSS_PATH:-}" ] && [ -f "$ENV_VSS_PATH" ] && \
+    mode=$(grep -sE '^MODE=' "$ENV_VSS_PATH" | head -1 | cut -d= -f2 | tr -d ' "'"'"'' || true)
+  case "$mode" in
+    2d)        printf 'mdx-raw' ;;
+    3d|mv3dt)  printf 'mdx-bev' ;;
+    *)         printf 'mdx-bev' ;;
+  esac
+}
 phase_wait_scene_ready() {
-  # Resolve the deploy profile exactly like srr-service does: unset BEV_TOPIC
-  # defaults to mdx-bev (3D); an explicit empty string means 2D / Phase-1-only.
-  # Fall back to mdx-bev (3D, prior behaviour) if the container can't be queried.
-  local bev_topic probe_py signal
-  bev_topic="$(docker exec srr python3 -c 'import os; print(os.environ.get("BEV_TOPIC","mdx-bev"))' 2>/dev/null || echo mdx-bev)"
-  if [ -n "$bev_topic" ]; then
-    signal="3D detections (${bev_topic})"
-    # Decode $bev_topic in the srr container; exit 0 only if decoded objects > 0.
-    probe_py="
+  # Pick the perception topic by deploy MODE (resolve_scene_ready_topic);
+  # decode it and require real detections > 0. One code path covers 2d (mdx-raw)
+  # and 3d/mv3dt (mdx-bev) since both carry the same nv.Frame protobuf.
+  local topic probe_py signal
+  topic="$(resolve_scene_ready_topic)"
+  signal="perception detections (${topic})"
+  probe_py="
 from kafka import KafkaConsumer
 from srr.kafka_consumer import parse_mdx_bev_bytes
-c=KafkaConsumer('${bev_topic}', bootstrap_servers='localhost:9092', auto_offset_reset='latest', value_deserializer=None, consumer_timeout_ms=8000)
+c=KafkaConsumer('${topic}', bootstrap_servers='localhost:9092', auto_offset_reset='latest', value_deserializer=None, consumer_timeout_ms=8000)
 n=0
-# Bound the scan: consumer_timeout_ms only fires when the topic goes IDLE, so
-# a busy topic streaming all-EMPTY frames would otherwise keep this loop (and
-# the whole gate poll) blocked indefinitely. ~500 messages ≈ one 15-20 s look
-# at a 30 Hz feed — plenty to catch a real detection.
+# Bound the scan: consumer_timeout_ms only fires when the topic goes IDLE, so a
+# busy topic streaming all-EMPTY frames would otherwise block this loop (and the
+# whole gate poll) indefinitely. ~500 messages is one 15-20 s look at a 30 Hz feed.
 for i, m in enumerate(c):
     if (parse_mdx_bev_bytes(m.value).get('detections') or []): n+=1
     if n>=1 or i>=500: break
 import sys; sys.exit(0 if n>=1 else 1)
 "
-  else
-    signal="2D BA events (mdx-events)"
-    # 2D / Phase-1 has no mdx-bev topic; the perception signal is BA events on
-    # mdx-events — the same topic the recorder consumes (KAFKA_TOPIC), so the gate
-    # confirms the exact data path (perception → BA → events), not just raw
-    # perception. mdx-events are REAL, sparse events (ROI entry / TW crossing,
-    # ~every 20-40 s per forklift cycle), not per-frame snapshots — so there is no
-    # EMPTY-frame false-positive and a single caught message is a genuine ready
-    # signal. We therefore use a wider consume window (20 s vs the 8 s dense-3D
-    # feed) so one probe reliably spans the gap between sparse events and the
-    # cumulative-hit counter doesn't decay unfairly while waiting between events.
-    #
-    # NOTE (2D gate semantics): because BA only fires once a real event has
-    # occurred, a 2D "scene-ready" pass means the scenario has already produced
-    # >=1 event — i.e. recording starts a few tens of seconds into the scenario
-    # cycle. Harmless for verdicts (clips are split on forklift TW crossings and
-    # the scenario loops), but the first 2D clip begins mid-cycle by design.
-    probe_py="
-from kafka import KafkaConsumer
-c=KafkaConsumer('mdx-events', bootstrap_servers='localhost:9092', auto_offset_reset='latest', consumer_timeout_ms=20000)
-n=0
-for _ in c:
-    n+=1
-    if n>=1: break
-import sys; sys.exit(0 if n>=1 else 1)
-"
-  fi
   if _scene_ready_wait_once; then return 0; fi
   # A first-pass timeout is more often the empty-DeepStream-pipeline race than
   # a slow scene (healthy scenarios reach ready in well under a minute): the
