@@ -131,9 +131,12 @@ report per-class detect-fail% and tracking-loss%, and render the spatial heatmap
 `render_perception_heatmap.py --density --fov-mask` + `render_coverage_polygons.py`.
 Skill surfaces the Phase 2 headline (🧍/🚜 detect-fail% / tracking-loss% / pos-offset) and
 the heatmap PNG paths. **Requires Sparse4D 3D detections** (`vss-rtvi-cv` → mdx-bev /
-`vss-behavior-analytics` → mdx-behavior) to have been flowing — the skill verifies
-this at the scene-ready gate. On a 2D-only feed (no mdx-bev) there is no Phase 2; the
-skill says so rather than rendering empty heatmaps.
+`vss-behavior-analytics` → mdx-behavior) to have been flowing for Phase 2. The scene-ready
+gate is now MODE-aware — it derives its topic from the VSS deploy MODE (2d → mdx-raw,
+3d/mv3dt → mdx-bev) and requires decoded detections > 0, so it no longer specifically
+verifies mdx-bev 3D detections; on a 2D deploy the gate passes on mdx-raw. On a 2D-only
+feed (no mdx-bev) there is no Phase 2 — the skill detects that at Phase 2 and says so
+rather than rendering empty heatmaps.
 
 ---
 

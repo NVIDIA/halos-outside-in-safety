@@ -106,12 +106,15 @@ HEAD=$(head -1 "$SUMMARY")
 > `# SRR Aggregator — no clips found\n` stub (≈ 30 bytes). Without the
 > guard, downstream metric extraction silently parses an empty file.
 
-**Check for ghost-result banner before reporting headline:**
+**Check for validity-guard banners before reporting headline:**
 ```bash
-# If aggregator detected dead perception, surface that BEFORE match%.
-if grep -q "PERCEPTION_LIKELY_DEAD" "$SUMMARY"; then
-  echo "  [$(date +%M:%S)] ⚠ aggregator flagged perception likely dead — match% UNTRUSTWORTHY"
-  grep "PERCEPTION_LIKELY_DEAD" "$SUMMARY"
+# If aggregator flagged dead perception, dead/partial PSF feed, frozen GT, or
+# excluded (ungradable) clips, surface that BEFORE match% — the headline is
+# untrustworthy. PERCEPTION_LIKELY_DEAD matches both the pooled and the new
+# per-scenario ("… in <run>") variants.
+if grep -qE "PERCEPTION_LIKELY_DEAD|PSF_FEED_DEAD|PSF feed gaps|GT_FROZEN|failed analysis" "$SUMMARY"; then
+  echo "  [$(date +%M:%S)] ⚠ aggregator flagged a validity guard — headline metrics UNTRUSTWORTHY"
+  grep -E "PERCEPTION_LIKELY_DEAD|PSF_FEED_DEAD|PSF feed gaps|GT_FROZEN|failed analysis" "$SUMMARY"
 fi
 ```
 
