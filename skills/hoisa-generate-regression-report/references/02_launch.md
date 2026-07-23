@@ -35,7 +35,7 @@ common symptoms:
 
 ```bash
 SRR_SRC_DIR="${SRR_PIPELINE_DIR}/srr-service/srr"
-for f in clip_logs.py aggregator.py kafka_consumer.py schema.py recorder.py utils/vst_video.py tw_split.py; do
+for f in clip_logs.py aggregator.py kafka_consumer.py schema.py recorder.py utils/vst_video.py tw_split.py tripwire.py; do
   HOST_MTIME=$(stat -c '%Y' "$SRR_SRC_DIR/$f" 2>/dev/null || echo 0)
   CTR_MTIME=$(docker exec srr stat -c '%Y' "/app/srr/$f" 2>/dev/null || echo 0)
   if (( HOST_MTIME > CTR_MTIME )); then
@@ -71,6 +71,7 @@ docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/schema.py"           srr:/app/srr
 docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/recorder.py"         srr:/app/srr/   # Phase 2 parquet cols
 docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/utils/vst_video.py"  srr:/app/srr/utils/
 docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/tw_split.py"         srr:/app/srr/
+docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/tripwire.py"         srr:/app/srr/   # Tripwire model (imported by aggregator/tw_split/clip_logs)
 docker cp "${SRR_PIPELINE_DIR}/scripts/render_perception_heatmap.py" srr:/app/scripts/   # Phase 6d
 docker cp "${SRR_PIPELINE_DIR}/scripts/render_coverage_polygons.py"  srr:/app/scripts/   # Phase 6d
 ```
@@ -346,7 +347,7 @@ Set it to outlast scene-load + Safety Core warm-up + the recording window (buffe
 ```bash
 CONFIG=${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/default_config_ros.yaml
 RECORD_S=$2                       # this scenario's recording seconds
-SIM_DUR=$(( RECORD_S + 30 + 600 ))   # + Safety Core warm-up + scene-load/margin buffer
+SIM_DUR=$(( RECORD_S + 30 + 1800 ))  # + Safety Core warm-up + scene-load/margin buffer (matches run_multi's +1800: outlasts RTSP wait + a scene-ready reprovision retry)
 sed -i "s|^\(\s*\)simulation_duration:.*|\1simulation_duration: ${SIM_DUR}.0|" "$CONFIG"
 ```
 
@@ -501,7 +502,12 @@ Borrows the ready signals defined in
    break early (the `consumer_timeout_ms` is only an idle fallback for a dead
    topic). A bare `sum(1 for _ in c)` NEVER returns on a live topic — it only
    stops after a full idle gap — and it leaks an in-container consumer you then
-   have to kill. This mirrors `run_multi.sh` `phase_wait_scene_ready`.
+   have to kill. (The scene-ready GATE itself no longer polls `mdx-events`:
+   `run_multi.sh`'s `phase_wait_scene_ready` calls `resolve_scene_ready_topic()`,
+   which derives the topic from the VSS MODE — 2d → `mdx-raw`, 3d/mv3dt → `mdx-bev`
+   — and requires DECODED `detections > 0` via `parse_mdx_bev_bytes`, not an
+   any-message probe. That decode pattern is what Check 4 below mirrors; this
+   Check 3 remains a valid mdx-events liveness probe for the BA→SRR path.)
 
 4. (Phase 2 only — skip if mdx-bev not in use) mdx-bev decodes REAL detections:
    docker exec srr python3 -c "
