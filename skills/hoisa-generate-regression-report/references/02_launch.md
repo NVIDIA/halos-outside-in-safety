@@ -528,6 +528,13 @@ Borrows the ready signals defined in
    perception emits EMPTY mdx-bev frames until then, so a bare "has any message"
    check false-positives. Phase 2 metrics will be absent if this never goes > 0.)
 
+   > **2D deploy:** the scene-ready GATE runs this SAME decode-detections>0 probe
+   > but on **`mdx-raw`** (2D DeepStream publishes decoded detections there), not
+   > mdx-bev — that is what SKILL.md's 3f.7 gate means by "mdx-raw for 2D". To
+   > mirror the gate manually on a 2D host, change `'mdx-bev'` above to `'mdx-raw'`.
+   > (mdx-bev carries no data on 2D, so the 3D form would never pass; there is no
+   > separate Phase 2 on 2D.)
+
 Report [ok] only if the applicable conditions pass, or [fail: which check failed]
 with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
 ```
