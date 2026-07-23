@@ -9,6 +9,7 @@ These are a **developer-side tool**: a coding agent (Claude Code, Codex, or any 
 | Skill | Description |
 |---|---|
 | [hoisa-deploy-profile](hoisa-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down a Halos profile (`base` / `sil` / `hil`) on top of the VSS Blueprint perception backend. Chains the VSS `vss-deploy-profile` skill to bring up perception first (it does not bundle it). |
+| [hoisa-generate-regression-report](hoisa-generate-regression-report/SKILL.md) | Run regression testing on a deployed `sil` stack: launch pre-built test cases in Isaac Sim (clean compose restart per scenario), record 30 Hz GT + Safety Core state + BA / 3D-perception Kafka events, split into clips at forklift tripwire crossings, and score per-clip match% + Phase 2 perception → per-clip reports, RTSP-recorded clip videos, and optional heatmaps — all browsable in the bundled `srr-debug-viewer` (`tools/srr-debug-viewer`). |
 
 ## Install (recommended: ask your coding agent)
 
@@ -22,7 +23,7 @@ Open this repository in your coding agent (Claude Code, Codex, Cursor, or any ot
 >
 > Symlink each folder rather than copying it so a `git pull` here keeps installs current. Also install the `vss-deploy-profile` skill from the VSS Blueprint repository; the perception backend is deployed first. When done, list the skills you registered and the directory you used.
 
-Verify with `/skills` in your agent: `hoisa-deploy-profile` (and `vss-deploy-profile`) should be listed.
+Verify with `/skills` in your agent: `hoisa-deploy-profile` and `hoisa-generate-regression-report` (and `vss-deploy-profile`) should be listed.
 
 ## Usage
 
