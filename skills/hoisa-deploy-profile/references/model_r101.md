@@ -9,7 +9,7 @@ place the R101 model so the 3D perception `config.yaml` (see `vss_3d_overrides.m
 > This is a **perception (VSS)** artifact, not a Halos artifact. It ships in the **public NGC
 > TAO catalog** (`nvidia/tao/sparse4d_rn101`) and is pinned in the profile env as
 > `R101_DEPLOYABLE_RESOURCE` / `R101_TRAINABLE_RESOURCE` (`deployments/profiles/sil.env` |
-> `base.env`, 3D-profile-only). Both packages must be the **same version**.
+> `base.env` | `hil-thor.env`, 3D-profile-only). Both packages must be the **same version**.
 
 ---
 
