@@ -61,9 +61,11 @@ if [[ -z "${PSF_LOG_DIR:-}" && -z "${MDX_DATA_DIR:-}" ]]; then
     # shellcheck disable=SC1090
     source "$SIL_ENV"
     set +a
-    case "${MDX_DATA_DIR:-}" in
-      /path/to/*) MDX_DATA_DIR="" ;;   # unedited template — ignore
-    esac
+    # An unedited template profile yields placeholder paths — and PSF_LOG_DIR is
+    # derived from MDX_DATA_DIR, so it inherits the placeholder too. Ignore both
+    # so resolution falls through to the documented default instead of /path/to/.
+    case "${MDX_DATA_DIR:-}" in /path/to/*) MDX_DATA_DIR="" ;; esac
+    case "${PSF_LOG_DIR:-}"  in /path/to/*) PSF_LOG_DIR=""  ;; esac
   fi
 fi
 
