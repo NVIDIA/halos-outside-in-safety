@@ -116,10 +116,16 @@ if [[ "$MODE" == "per-scn" ]]; then
   # scenarios' lines were truncated by the prior compose restart). A plain
   # copy preserves the entire scenario including PSF init lines that no
   # mtime-window heuristic would catch.
-  if [[ ! -f "$SRC" ]]; then
-    echo "snapshot_pss: source pss.log not found: $SRC" >&2; exit 1
+  # Missing OR empty (0-byte) source both mean no Safety Core evidence for this
+  # scenario — fail rather than copy an empty log that would silently "pass".
+  if [[ ! -s "$SRC" ]]; then
+    echo "snapshot_pss: source pss.log missing or empty: $SRC" >&2; exit 1
   fi
-  write_out "$SRC" "$OUT"
+  # A failed write (host EPERM AND container fallback both denied) must propagate,
+  # otherwise run_multi's strict sweep-abort never sees the lost snapshot.
+  if ! write_out "$SRC" "$OUT"; then
+    exit 1
+  fi
   LINES=$(wc -l < "$SRC")
   SIZE=$(du -h "$SRC" | awk '{print $1}')
   echo "snapshot_pss: copied $SRC → $OUT ($LINES lines, $SIZE) [per-scn]"
