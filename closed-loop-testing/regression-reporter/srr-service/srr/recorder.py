@@ -22,12 +22,14 @@ class Recorder:
         self.path: Optional[Path] = None
         self._writer: Optional[pq.ParquetWriter] = None
         self._buf: list[Frame] = []
+        self._total_rows = 0
 
     def open(self) -> None:
         ts = time.strftime("%Y%m%d-%H%M%S")
         self.path = self.out / f"run-{ts}.parquet"
         self._writer = None
         self._buf.clear()
+        self._total_rows = 0
 
     def append(self, f: Frame) -> None:
         self._buf.append(f)
@@ -62,15 +64,17 @@ class Recorder:
             for f in self._buf
         ]
         self._buf.clear()
+        self._total_rows += len(rows)
         table = pa.Table.from_pylist(rows)
         if self._writer is None:
             self._writer = pq.ParquetWriter(self.path, table.schema, compression="snappy")
         self._writer.write_table(table)
 
     def flush(self) -> int:
-        n = len(self._buf)
+        """Flush the buffer, close the writer, and return the CUMULATIVE number of
+        rows written to this parquet (not just the final in-memory buffer)."""
         self._flush_to_writer()
         if self._writer is not None:
             self._writer.close()
             self._writer = None
-        return n
+        return self._total_rows
