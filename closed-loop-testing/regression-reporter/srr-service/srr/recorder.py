@@ -14,6 +14,35 @@ import pyarrow.parquet as pq
 
 from .schema import Frame
 
+# Explicit parquet schema — never let pyarrow infer it from a batch. The
+# Phase-2 / BA columns stay None until the 3D pipeline (or a BA detection)
+# produces output, so an inferred first batch types them `null`; the first
+# batch that carries a value then raises "Table schema does not match schema
+# used to create file" inside the sample timer, which kills rclpy.spin() and
+# takes the whole recording down mid-run.
+SCHEMA = pa.schema(
+    [
+        ("arrival_wall_time", pa.float64()),
+        ("sim_time", pa.float64()),
+        ("char_0_x", pa.float64()),
+        ("char_0_y", pa.float64()),
+        ("char_1_x", pa.float64()),
+        ("char_1_y", pa.float64()),
+        ("char_2_x", pa.float64()),
+        ("char_2_y", pa.float64()),
+        ("forklift_x", pa.float64()),
+        ("forklift_y", pa.float64()),
+        ("psf_command", pa.string()),
+        ("is_muted", pa.bool_()),
+        ("ba_events_json", pa.string()),
+        ("detections_json", pa.string()),
+        ("tracker_state_json", pa.string()),
+        ("bev_frame_id", pa.string()),
+        ("bev_create_time", pa.float64()),
+        ("ba_positions_json", pa.string()),
+    ]
+)
+
 
 class Recorder:
     def __init__(self, out_dir: str = "runs") -> None:
@@ -65,9 +94,9 @@ class Recorder:
         ]
         self._buf.clear()
         self._total_rows += len(rows)
-        table = pa.Table.from_pylist(rows)
+        table = pa.Table.from_pylist(rows, schema=SCHEMA)
         if self._writer is None:
-            self._writer = pq.ParquetWriter(self.path, table.schema, compression="snappy")
+            self._writer = pq.ParquetWriter(self.path, SCHEMA, compression="snappy")
         self._writer.write_table(table)
 
     def flush(self) -> int:
