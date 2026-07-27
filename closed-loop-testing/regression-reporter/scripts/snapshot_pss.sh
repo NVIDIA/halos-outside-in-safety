@@ -55,7 +55,10 @@ done
 # SIL_ENV; a real (non-template) MDX_DATA_DIR is required for this to take effect.
 if [[ -z "${PSF_LOG_DIR:-}" && -z "${MDX_DATA_DIR:-}" ]]; then
   _SP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  SIL_ENV="${SIL_ENV:-$_SP_DIR/../../../deployments/profiles/sil.env}"
+  # Prefer HOISA_ROOT_PATH (same root run_multi.sh derives the profile from) when
+  # it is exported; fall back to a script-relative repo root so a bare standalone
+  # invocation (no repo .env sourced) still resolves. Default profile: sil.env.
+  SIL_ENV="${SIL_ENV:-${HOISA_ROOT_PATH:-$_SP_DIR/../../..}/deployments/profiles/sil.env}"
   if [[ -f "$SIL_ENV" ]]; then
     set -a
     # shellcheck disable=SC1090
