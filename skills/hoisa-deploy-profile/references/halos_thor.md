@@ -45,9 +45,11 @@ On a `base` deploy the skill detects the platform: x86 runs the standard contain
 ## 1. Prerequisites (Thor)
 
 - IGX Thor flashed with a current IGX SW **GA release** (RT kernel `6.8.0-1019-nvidia-tegra-rt`).
-  The GA release resolves the earlier IGX-Thor perception (VIC) issue, so **no extra DeepStream
-  config edits are needed on VSS 3.2.1** (pre-GA non-RT stacks needed `compute-hw=1` plus a
-  camera-count reduction; the GA release removes that need).
+  **No manual DeepStream edits are needed on VSS 3.2.x**: selecting `HARDWARE_PROFILE=IGX-THOR`
+  (the `vss-deploy-profile` skill sets it) makes the blueprint-configurator apply the
+  Thor-specific tuning automatically — including using the VIC for tracker scaling
+  (`compute-hw=2`, the path the GA RT release fixed). (Pre-GA non-RT stacks needed a hand-set
+  `compute-hw` plus a camera-count reduction.)
 - NVIDIA driver, Container Toolkit, and Docker per `prerequisites.md`.
 - The **nv-psf container image** — multi-arch (arm64 + amd64) under one tag; Docker on Thor
   (arm64) auto-selects the arm64 variant, so it is the **same tag** as the x86 `base` profile.
@@ -63,10 +65,10 @@ On a `base` deploy the skill detects the platform: x86 runs the standard contain
 
 ## 2. Deploy VSS Warehouse 3.2.1 on Thor (perception)
 
-Deploy VSS Warehouse 3.2.1 (2D) on the Thor via the `vss-deploy-profile` skill. The GA RT
-release resolves the perception VIC issue, so the old `compute-hw=1` / nvmap edits are **not**
-needed on 3.2.1. Wait until perception serves all cameras (`Active sources : 3`) and the
-`mdx-events` Kafka topic has data. See `vss_2d_overrides.md` for the base-vs-SIL override notes.
+Deploy VSS Warehouse 3.2.1 (2D) on the Thor via the `vss-deploy-profile` skill (set
+`HARDWARE_PROFILE=IGX-THOR`; the profile applies the Thor DeepStream tuning for you — §1). Wait
+until perception serves all cameras (`Active sources : 3`) and the `mdx-events` Kafka topic has
+data. See `vss_2d_overrides.md` for the base-vs-SIL override notes.
 
 > **⚠ Two IGX-Thor VSS workarounds.** These apply to the VSS Warehouse deployment itself, but
 > are noted here because they otherwise block the Safety Core from receiving any perception data:

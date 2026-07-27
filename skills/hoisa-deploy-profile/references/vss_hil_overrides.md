@@ -54,3 +54,5 @@ On a Thor that ran VSS before, tear the stack down and wipe the Kafka volumes be
 ## 5. Verify
 
 Use the profile doc's "Verification After Deploy" (`vss_2d_overrides.md` / `vss_3d_overrides.md`) plus the FPS-based poll in `test_scenario.md`. Expect the delivered fps to track the Isaac render rate (well below the nominal stream rate) - that is the simulation, not a network fault.
+
+On an IGX Thor the 3D (Sparse4D) app also runs at half rate: the `IGX-THOR` profile sets `config.yaml interval: 1` (one of the DeepStream keys the blueprint-configurator applies for the Thor — `halos_thor.md` §1). That is deliberate for real 30fps cameras a Thor can't sustain, but a hil source is Isaac, which renders lower and leaves the iGPU with headroom, so the halving is often pure loss. To run hil at the full render rate set `interval: 0` - same configurator-rewrite caveat as §3 (change it in `blueprint_config.yml` before `up`, or edit the generated `config.yaml` after the configurator finishes and restart the perception container). Don't lower the Thor default for `base` / real-camera deploys.
