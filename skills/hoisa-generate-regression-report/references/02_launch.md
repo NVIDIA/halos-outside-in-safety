@@ -404,10 +404,26 @@ Log:
 ```
 Tail /tmp/isaac-scenario-<TIMESTAMP>-<LABEL>.log inside the host
 (it's a docker exec stdout redirect — should appear on host).
-Look for all 3 lines:
-  RTSPWriter_World_Cameras_Camera_rgb
-  RTSPWriter_World_Cameras_Camera_01_rgb
-  RTSPWriter_World_Cameras_Camera_02_rgb
+Confirm the current Isaac-6.0 scene-ready markers in the log:
+  [rtsp-cameras] Loaded 3 cameras from ...
+  [rtsp-cameras] Action Graph built at /World/RTSPMultiGraph
+  3x "  - <name>: rtsp://<host>:<port><mount>"   (one per camera; ports 8554/8555/8556)
+  Pressing Play (timeline.play())
+  [srr-gt] Action Graph built at /World/SRRGraph (4 publishers)   # only with --srr-gt
+
+Then confirm the 3 RTSP mounts serve H.264 and the 4 GT topics have a publisher:
+  ffprobe -v error -show_streams rtsp://<host>:8554/camera   # repeat per port
+  ros2 topic info /gt/forklift/tf -v | grep 'Publisher count'   # =1; same for /gt/character_{0,1,2}/tf
+
+Finally confirm perception actually pulled all three streams — the Isaac-side
+markers above go green even when DeepStream ingested nothing, so a run started
+on that state records no detections at all:
+  docker logs vss-rtvi-cv --tail 50 | grep -o 'Active sources : [0-9]*' | tail -1   # want 3
+A count below 3 means the empty-pipeline provisioning race: restart vss-rtvi-cv,
+re-register the sensors (vst_sensor_manager.py --delete-all then
+--add-from-config), and re-check before recording.
+
+Do NOT rely on RTSPWriter_World_Cameras_*_rgb — Isaac 6.0 never emits those.
 
 If first run on this scene: shaders compile takes ~5-7 min — that's normal.
 If subsequent run: streams should appear within ~90 s.
@@ -415,7 +431,9 @@ If subsequent run: streams should appear within ~90 s.
 Poll every 30 s. Report progress with last 2 lines of the log.
 Max 8 min on first run, 3 min on subsequent.
 
-Report [ok] when all 3 RTSP lines present, or [fail: <reason>] otherwise.
+Report [ok] when /World/RTSPMultiGraph is built + 3 rtsp:// stream lines present
++ DeepStream reports 3/3 active sources (and, with --srr-gt, /World/SRRGraph
+built), or [fail: <reason>] otherwise.
 ```
 
 When [ok], log:

@@ -218,7 +218,7 @@ This applies to every long wait in the workflow:
 | Long wait | What to verify each tick | Tick interval | Max patience |
 |---|---|---:|---:|
 | Halos compose up after `down` | `docker ps` shows new container IDs for the services | 30 s | 5 min |
-| Scene load + shader compile | Tail `/tmp/isaac-scenario-<TS>-<LBL>.log`; expect 3 RTSPWriter lines | 30 s | 8 min (first), 3 min (subsequent) |
+| Scene load + shader compile | Tail `/tmp/isaac-scenario-<TS>-<LBL>.log`; expect `/World/RTSPMultiGraph` built + 3 `rtsp://` stream lines, then `vss-rtvi-cv` reporting `Active sources : 3` | 30 s | 8 min (first), 3 min (subsequent) |
 | Safety Core warm-up (30 s) | Confirm `/safety/is_muted` still publishing | 15 s | 90 s |
 | **Recording window** (5–20 min) | Verify (a) parquet file size growing, (b) parquet `ba_events_json` rows > 0 (after 90 s), (c) `$PERCEPTION` FPS ≥ `$FPS_MIN` on all 3 cams (≥25 for 2D, ≥5 for 3D) | **60 s** | RECORD_S |
 | Analysis (tw_split + aggregator + vst pull) | `ls scenes/scn_*.parquet` count, `summary.md` size > 0, mp4 count | 15 s | 5 min |
@@ -274,7 +274,8 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
 |-------|--------------------------------|
 | Compose restart | `docker ps --format '{{.Names}}'` shows all 4: safety-core, comm-layer, isaac-sim, srr |
 | Safety Core chain alive | `ros2 topic echo /safety/is_muted --once` exits 0 |
-| Scene loaded | `/tmp/isaac-scenario.log` contains `RTSPWriter_World_Cameras_Camera*_rgb` for all 3 cams |
+| Scene loaded | `/tmp/isaac-scenario.log` contains `Action Graph built at /World/RTSPMultiGraph` + 3 `rtsp://` stream lines |
+| Perception ingesting | `docker logs vss-rtvi-cv --tail 50 \| grep -o 'Active sources : [0-9]*' \| tail -1` = 3 (Isaac markers go green even when DeepStream pulled nothing) |
 | Recording active | `ros2 service call /srr/record SetBool` returned `success: True` |
 | Recording done | The above plus parquet file size > 100 KB and incrementing stops |
 | Analysis done | `summary.md` exists with header `# SRR Aggregator — N clip(s)` matching expected clip count |

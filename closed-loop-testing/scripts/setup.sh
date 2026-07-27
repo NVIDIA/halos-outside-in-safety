@@ -86,6 +86,47 @@ if [ -n "$NEED_ISAAC" ]; then
     sudo chown -R 1234:1234 "$ISAAC_CACHE_DIR"
     echo "  NOTE: sil also needs NGC sil-data (Isaac scenes/collected-assets) — pull separately:"
     echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.2.1"
+
+    # collected-assets must be readable/traversable by the isaac-sim container
+    # user (UID/GID 1234; see Dockerfile `USER 1234:1234`). isaac-sim.yml mounts
+    # it :ro, so a foreign-UID 0700 extract makes the scene load hang with no RTSP
+    # writers. Fail here instead of after an 8-minute Isaac timeout.
+    CA_DIR="${MDX_DATA_DIR}/collected-assets"
+    if [ ! -d "$CA_DIR" ]; then
+        echo "ERROR: $CA_DIR missing — pull sil-data (ngc_artifacts.md §1)"; exit 1
+    fi
+    # Would the isaac-sim container user (UID/GID 1234) be able to read+traverse
+    # collected-assets once it is bind-mounted :ro at /isaac-sim/collected-assets?
+    # Judge by the path's OWN owner/mode — NOT host parent traversal: the bind
+    # mount re-roots the dir, so a private host home dir (e.g. 0750) above it is
+    # irrelevant; only the dir's + its contents' perms matter. (Running the check
+    # as `sudo -u '#1234'` on the host path would false-fail whenever the assets
+    # live under a 0700/0750 home dir.)
+    _ca_readable() {  # $1=path -> 0 if UID/GID 1234 gets r (files) / r-x (dirs)
+        local p="$1" o g m bits
+        o=$(stat -c '%u' "$p") || return 1
+        g=$(stat -c '%g' "$p"); m=$((8#$(stat -c '%a' "$p")))
+        if   [ "$o" = "1234" ]; then bits=$(( (m >> 6) & 7 ))
+        elif [ "$g" = "1234" ]; then bits=$(( (m >> 3) & 7 ))
+        else                         bits=$((  m       & 7 )); fi
+        if [ -d "$p" ]; then [ $(( bits & 5 )) -eq 5 ]; else [ $(( bits & 4 )) -eq 4 ]; fi
+    }
+    ca_bad=""
+    _ca_readable "$CA_DIR" || ca_bad="$CA_DIR"
+    if [ -z "$ca_bad" ]; then
+        # sample immediate children too (catches a partial / mixed-perm extract)
+        for _c in "$CA_DIR"/*; do
+            [ -e "$_c" ] || continue
+            _ca_readable "$_c" || { ca_bad="$_c"; break; }
+        done
+    fi
+    if [ -n "$ca_bad" ]; then
+        echo "ERROR: $ca_bad is not readable/traversable by the isaac-sim container user (UID/GID 1234)."
+        echo "  current: $(stat -c '%U:%G %a' "$ca_bad")"
+        echo "  fix:     sudo chown -R 1234:1234 '$CA_DIR'   # or: sudo chmod -R a+rX '$CA_DIR'"
+        exit 1
+    fi
+    echo "  collected-assets readable by isaac-sim user (1234:1234) ✓"
 fi
 
 echo ""
