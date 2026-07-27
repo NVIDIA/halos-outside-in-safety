@@ -378,44 +378,58 @@ class SafetyRosBridge:
         last_timestamp = ""
         error_count = 0
         max_errors = 5
+        warned_no_statejson = False
         
         while self._running:
             try:
-                # Read values from OPC UA nodes
-                command_val = opcua_nodes.get('Command')
-                command_name_val = opcua_nodes.get('CommandName')
-                sequence_val = opcua_nodes.get('Sequence')
-                status_val = opcua_nodes.get('Status')
-                status_name_val = opcua_nodes.get('StatusName')
-                timestamp_val = opcua_nodes.get('Timestamp')
-                last_update_val = opcua_nodes.get('LastUpdate')
-                
-                if all([command_val, sequence_val, status_val]):
-                    cmd_code = command_val.read_value()
-                    cmd_name = command_name_val.read_value() if command_name_val else "Unknown"
-                    seq = sequence_val.read_value()
-                    status_code = status_val.read_value()
-                    status_name = status_name_val.read_value() if status_name_val else "Unknown"
-                    timestamp = timestamp_val.read_value() if timestamp_val else ""
-                    last_update = last_update_val.read_value() if last_update_val else ""
-                    
-                    error_count = 0
-                    
-                    # Only publish if there's new data
-                    if seq != last_sequence or last_update != last_timestamp:
-                        command = SafetyCommand(
-                            sequence_number=seq,
-                            command_code=cmd_code,
-                            command_name=cmd_name,
-                            status_code=status_code,
-                            status_name=status_name,
-                            timestamp=timestamp,
-                            source="opcua"
+                # Read ONE atomic snapshot node instead of 7 separate reads that
+                # could tear (fresh seq + stale command). NVBug 6512051.
+                state_val = opcua_nodes.get('StateJson')
+
+                if state_val is None:
+                    # Fail loud (mixed-version deploy): the server is unpatched (no atomic
+                    # snapshot node), so is_muted would never be published. Log once instead
+                    # of silently doing nothing every poll. NVBug 6512051.
+                    if not warned_no_statejson:
+                        logger.error(
+                            "StateJson OPC node absent — comm-layer server appears unpatched; "
+                            "/safety/is_muted will NOT be published. Deploy the matching server."
                         )
-                        
-                        self.publish_command(command)
-                        last_sequence = seq
-                        last_timestamp = last_update
+                        warned_no_statejson = True
+                else:
+                    raw = state_val.read_value()
+                    error_count = 0
+                    if raw:  # skip the empty initial value
+                        try:
+                            st = json.loads(raw)
+                        except (ValueError, TypeError) as e:
+                            # Fail safe: skip this publish rather than emit a wrong is_muted
+                            logger.warning(f"Skipping malformed StateJson: {e}")
+                            st = None
+                        if st is not None:
+                            seq = st.get('sequence')
+                            # Fail safe: an incomplete snapshot (missing sequence/command) is
+                            # skipped rather than published with None fields.
+                            if seq is None or st.get('command') is None:
+                                logger.warning(
+                                    f"Skipping incomplete StateJson (missing sequence/command): {raw!r}"
+                                )
+                            else:
+                                last_update = st.get('last_update', "")
+                                # Only publish if there's new data
+                                if seq != last_sequence or last_update != last_timestamp:
+                                    command = SafetyCommand(
+                                        sequence_number=seq,
+                                        command_code=st.get('command'),
+                                        command_name=st.get('command_name', "Unknown"),
+                                        status_code=st.get('status'),
+                                        status_name=st.get('status_name', "Unknown"),
+                                        timestamp=st.get('timestamp', ""),
+                                        source="opcua"
+                                    )
+                                    self.publish_command(command)
+                                    last_sequence = seq
+                                    last_timestamp = last_update
                 
                 time.sleep(interval)
                 
