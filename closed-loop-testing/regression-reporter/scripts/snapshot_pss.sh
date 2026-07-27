@@ -48,7 +48,37 @@ while [[ $# -gt 0 ]]; do
     *)  SRC="$1"; shift ;;
   esac
 done
-SRC="${SRC:-${PSS_LOG_SRC:-/data/sil-data/psf-log/pss.log}}"
+# When invoked standalone (not via run_multi.sh, which already `set -a; source`s
+# the SIL profile), MDX_DATA_DIR / PSF_LOG_DIR are not in the environment. Load
+# them from the SIL deployment profile so the documented per-scenario command
+# resolves the SAME data root used to launch SIL. Override the profile path with
+# SIL_ENV; a real (non-template) MDX_DATA_DIR is required for this to take effect.
+if [[ -z "${PSF_LOG_DIR:-}" && -z "${MDX_DATA_DIR:-}" ]]; then
+  _SP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  SIL_ENV="${SIL_ENV:-$_SP_DIR/../../../deployments/profiles/sil.env}"
+  if [[ -f "$SIL_ENV" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SIL_ENV"
+    set +a
+    case "${MDX_DATA_DIR:-}" in
+      /path/to/*) MDX_DATA_DIR="" ;;   # unedited template — ignore
+    esac
+  fi
+fi
+
+# Resolve the source pss.log so a non-default data root still finds the Safety
+# Core log. Priority: explicit <source-pss-log> arg > PSS_LOG_SRC override >
+# PSF_LOG_DIR (from the profile env) > MDX_DATA_DIR > neutral fallback.
+if [[ -z "$SRC" ]]; then
+  if   [[ -n "${PSS_LOG_SRC:-}" ]]; then SRC="$PSS_LOG_SRC"
+  elif [[ -n "${PSF_LOG_DIR:-}"  ]]; then SRC="$PSF_LOG_DIR/pss.log"
+  elif [[ -n "${MDX_DATA_DIR:-}" ]]; then SRC="$MDX_DATA_DIR/psf-log/pss.log"
+  else SRC="/data/sil-data/psf-log/pss.log"
+  fi
+fi
+
+echo "snapshot_pss: resolved source = $SRC" >&2
 
 if [[ ! -d "$RUN_DIR" ]]; then
   echo "snapshot_pss: no such dir: $RUN_DIR" >&2; exit 1

@@ -482,7 +482,19 @@ phase_analyze() {
   local scn_host_dir="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}/${label}"
   if [[ -x "$snap_script" && -d "$scn_host_dir" ]]; then
     log "snapshotting pss.log (per-scn)..."
-    bash "$snap_script" "$scn_host_dir" --per-scn || log "snapshot_pss WARN (non-fatal)"
+    # The per-scenario PSF forensic log is destroyed by the next scenario's
+    # compose restart, so a failed snapshot loses it permanently. Fail the sweep
+    # by default instead of silently warning; set SRR_PSS_STRICT=0
+    # to downgrade to a non-fatal warning (tolerate one lost log, keep sweeping).
+    if ! bash "$snap_script" "$scn_host_dir" --per-scn; then
+      _pss_src="${PSF_LOG_DIR:-${MDX_DATA_DIR:-/data/sil-data}/psf-log}/pss.log"
+      if [[ "${SRR_PSS_STRICT:-1}" == "0" ]]; then
+        log "WARN snapshot_pss FAILED for ${label} (src=${_pss_src}) — PSF forensic log for this scenario is MISSING (SRR_PSS_STRICT=0, continuing)"
+      else
+        log "ERROR snapshot_pss FAILED for ${label} (src=${_pss_src}) — PSF forensic log for this scenario would be LOST; aborting the sweep (set SRR_PSS_STRICT=0 to downgrade to a warning)"
+        exit 1
+      fi
+    fi
     # Refresh the run-level concat right away, not only at end-of-multi-test:
     # if the run is aborted or resumed later, a stale run-level pss.log makes
     # clip_logs slice every clip recorded after its last timestamp to 0 lines.
