@@ -193,7 +193,7 @@ ps -eo comm | grep -qx atl_sdm && echo "unexpected: CCPLEX SDM should be ABSENT 
 > reach the overlay (HOISA User Guide §2.2.2):
 >
 > ```bash
-> sudo fsicom-agent --relay-fsi-resp --ip <cmd-rx-ip> --port <cmd-rx-port>
+> sudo fsicom-agent --relay-fsi-resp --ip <cmd-rx-ip> --port <cmd-rx-port> --heartbeat
 > ```
 >
 > Pass only these flags. If decisions are produced upstream (`5C`) but the overlay never
