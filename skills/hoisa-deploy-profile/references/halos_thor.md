@@ -1,13 +1,9 @@
-# Halos `base` on IGX Thor (aarch64) — CCPLEX & FSI
+# Halos `base` on IGX Thor (aarch64)
 
 Deploy the `base` profile (VSS Warehouse + Safety Core, no Isaac Sim / closed loop) on an
 **IGX Thor** device. The safety decision (MUTE / UNMUTE) renders as the VST `halo_safety`
 overlay, exactly like the x86 `base` profile — only the Safety Core runs on the Thor instead
 of as an x86 container.
-
-> **Scope.** The **CCPLEX** path mirrors the x86 `base` Safety Core flow — start here. The
-> **FSI** path is more involved (a one-time firmware reflash); steps to confirm on your board
-> are marked **⚠ validate on your hardware**.
 
 ---
 
@@ -15,30 +11,18 @@ of as an x86 container.
 
 On x86, `base` runs the Safety Core as a single container via `docker compose`
 (`profiles/base.env`). On Thor the Safety Core is **hybrid** — an `nv-psf` container (event
-integration + decision gateway) plus **host binaries** (the SDM, the AI monitor, and, for
-FSI, the FSI bridge) orchestrated by `launch_hoisa.sh`. It is therefore launched by a helper
-script that reads an env file, **not** by `docker compose`.
+integration + decision gateway) plus **host binaries** (the SDM and the AI monitor)
+orchestrated by `launch_hoisa.sh`. It is therefore launched by a helper script that reads an
+env file, **not** by `docker compose`.
 
-| Variant | Where the SDM runs | Mechanism |
+| Platform | Where the SDM runs | Mechanism |
 |---|---|---|
-| x86 / CCPLEX | x86 container | `docker compose --env-file profiles/base.env` (the standard `base`) |
-| **Thor / CCPLEX** | Thor application cores | `launch_thor_safety.sh` → `launch_hoisa.sh --sdm-target ccplex` |
-| **Thor / CCPLEX + FSI** | Functional Safety Island | `launch_thor_safety.sh` → `launch_hoisa.sh --sdm-target fsi` (+ FSI firmware + `nvFsiCom`) |
+| x86 | x86 container | `docker compose --env-file profiles/base.env` (the standard `base`) |
+| **IGX Thor** | Thor application cores | `launch_thor_safety.sh` → `launch_hoisa.sh --sdm-target ccplex` |
 
 > The same Thor Safety Core launch path is reused by the (forthcoming) HIL profile — HIL adds
 > the x86 stimulus side (Isaac Sim + comm-layer + ROS) and points the safety command at the
 > comm-layer instead of the VST overlay.
-
----
-
-## Choose the SDM target
-
-On a `base` deploy the skill detects the platform: x86 runs the standard container base; on IGX Thor (aarch64) it **asks you** which SDM target to use before deploying — it does not assume one. The two options:
-
-- **CCPLEX** — the SDM (`atl_sdm`) runs as a host process on the Thor application cores. No
-  firmware change. **Start here.**
-- **FSI** — the SDM runs on the Functional Safety Island; the host runs `fsicom-agent` as a
-  bridge. Requires a one-time FSI firmware reflash and the `nvFsiCom` daemon. **Advanced.**
 
 ---
 
@@ -57,11 +41,7 @@ On a `base` deploy the skill detects the platform: x86 runs the standard contain
   binaries from the `psf-tegra` package — see the next bullet.)
 - Safety Core host binaries from the **`psf-tegra`** package installed under `/opt/nvidia/psf/`
   (`ngc_artifacts.md` §4): provides `launch_hoisa.sh`, the SDM apps (`atl_sdm`), `safety_monitor`,
-  and the sensor config. This is all CCPLEX needs.
-- **FSI only:** the **`psf-tegra-fsi`** package (`ngc_artifacts.md` §4), which provides both the
-  HOISA FSI firmware (blob `fsi-ffw-t264.bin`, reflashed onto the FSI QSPI, §5B) **and** the
-  `fsicom-agent` FSI bridge binary (installed on the Thor). Plus the `nvFsiCom` daemon at
-  `/opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom` (ships with the GA OS).
+  and the sensor config.
 
 ## 2. Deploy VSS Warehouse 3.2.1 on Thor (perception)
 
@@ -92,7 +72,6 @@ data. See `vss_2d_overrides.md` for the base-vs-SIL override notes.
 Edit `deployments/profiles/base-thor.env` (fill the `# change me` fields):
 
 - `HOST_IP` — this Thor's IP.
-- `SDM_TARGET` — `ccplex` (start here) or `fsi`.
 - `PSF_IMAGE` — the nv-psf container (multi-arch; same tag as x86 `base`, Docker selects arm64 on Thor).
 - `PSF_CMD_RX_PORT` — `12345`, the VST `halo_safety` overlay port (see §6).
 - `PSF_LAUNCH_MODE` — `active` (full stack) or `skip` (omit the AI monitor; use only if the
@@ -121,10 +100,6 @@ with `launch_hoisa.sh --mode learn …` (it reads the same sensor config as §3)
 
 `launch_thor_safety.sh` reads `base-thor.env` and invokes `launch_hoisa.sh`.
 
-### 5A. SDM on CCPLEX  (start here)
-
-Set `SDM_TARGET=ccplex` in `base-thor.env`, then:
-
 ```bash
 bash closed-loop-testing/scripts/launch_thor_safety.sh base-thor
 ```
@@ -133,77 +108,13 @@ Verify:
 
 ```bash
 docker ps --filter name=nv-psf        # nv-psf container Up
-ps -eo comm | grep -x atl_sdm         # CCPLEX SDM running
+ps -eo comm | grep -x atl_sdm         # SDM running
 ```
 
-### 5B. SDM on FSI  (advanced — ⚠ validate on your hardware)
-
-FSI needs host setup the launcher cannot do for you:
-
-1. **Reflash the FSI** with the HOISA safety firmware. This is done on the **flashing host**
-   (the machine with the Thor in USB recovery/RCM mode + the BSP `Linux_for_Tegra` tree),
-   **not** on the running Thor — and it replaces the SEP default FSI firmware with HOISA's.
-   - **a. Get the firmware blob.** Download + extract `psf-tegra-fsi` (`ngc_artifacts.md` §4):
-     ```bash
-     dpkg -x outside-in-safety_v*-psf-tegra-fsi/psf-tegra-fsi.deb /tmp/psf-fsi/
-     ls /tmp/psf-fsi/opt/nvidia/psf/etc/fsi-fw/atl/fsi-ffw-t264.bin   # the atl HOISA FSI firmware
-     ```
-   - **b. Stage it into the BSP**, backing up the SEP default first so you can roll back:
-     ```bash
-     cd <Linux_for_Tegra>/bootloader        # or the FSI firmware dir for your board
-     cp fsi-ffw-t264.bin fsi-ffw-t264.bin.SEP-DEFAULT.bak
-     cp /tmp/psf-fsi/opt/nvidia/psf/etc/fsi-fw/atl/fsi-ffw-t264.bin ./fsi-ffw-t264.bin
-     ```
-   - **c. Put the board in recovery and flash QSPI slot A** (`internal`; drop `UNIFIED_FLASH`):
-     ```bash
-     sudo ./tools/kernel_flash/l4t_initrd_flash.sh --qspi-only -k A_fsi-fw <board-spec> internal
-     ```
-     `<board-spec>` is your board's flash configuration (for example,
-     `p3834-0008-p4071-0008-nv-safety` for the IGX Thor Developer Kit Mini (T5000); the
-     IGX Thor Developer Kit (T7000) uses its own config — use the one from your BSP). Slot A
-     alone is sufficient for evaluation (~30 s); flash slot B as well for production failover.
-     The flash tool `l4t_initrd_flash.sh` and the `Linux_for_Tegra` tree come from the IGX Driver
-     Package (BSP) on the [NVIDIA IGX Download Center](https://developer.nvidia.com/igx-downloads).
-   - **d. Boot + confirm the FSI handshake** came up: `sudo dmesg | grep -i fsi` shows
-     `epl_client … handshake done with FSI`. **Rollback:** restore the `.SEP-DEFAULT.bak`
-     blob + reflash slot A (~5 min). QSPI-only flashing does **not** touch rootfs / VSS.
-2. **On the Thor, install `psf-tegra-fsi`** for the `fsicom-agent` bridge binary:
-   ```bash
-   ngc registry resource download-version "$PSF_TEGRA_FSI_RESOURCE"   # path from base-thor.env
-   sudo dpkg -i */psf-tegra-fsi.deb
-   ls /opt/nvidia/psf/bin/fsicom-agent
-   ```
-3. **Start `nvFsiCom`** on the CCPLEX *before* the launcher:
-   ```bash
-   sudo /opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom &
-   ```
-4. Set `SDM_TARGET=fsi` in `base-thor.env`, then launch:
-   ```bash
-   bash closed-loop-testing/scripts/launch_thor_safety.sh base-thor
-   ```
-
-Verify (FSI markers):
-
-```bash
-ps -eo comm | grep -x fsicom-agent    # FSI bridge running
-ps -eo comm | grep -qx atl_sdm && echo "unexpected: CCPLEX SDM should be ABSENT in FSI mode"
-```
-
-> **⚠ FSI relay flags.** The bridge must run with the response-relay flags so FSI decisions
-> reach the overlay (HOISA User Guide §2.2.2):
->
-> ```bash
-> sudo fsicom-agent --relay-fsi-resp --ip <cmd-rx-ip> --port <cmd-rx-port> --heartbeat
-> ```
->
-> Pass only these flags. If decisions are produced upstream (`5C`) but the overlay never
-> transitions, check the `fsicom-agent` flags first.
-
-### 5C. Verify the Safety Core is producing decisions (both targets)
-
-The process checks above confirm the components are *up*; these confirm the decision chain is
-actually *flowing*. The Thor host install writes to `/var/log/psf/` (the launcher prints the
-exact paths on start). Run while VSS perception is serving and the forklift/people are moving:
+The checks above confirm the components are *up*. To confirm the decision chain is actually
+*flowing*, check the logs — the Thor host install writes to `/var/log/psf/` (the launcher
+prints the exact paths on start). Run while VSS perception is serving and the forklift/people
+are moving:
 
 ```bash
 # PSF ingested perception events and invoked the decision gateway:
@@ -245,7 +156,6 @@ bash closed-loop-testing/scripts/stop_thor_safety.sh
 | `nvstreamer-2d` stuck `Created` / `Runtime=runc`, `Active sources : 0` after a VSS `down -v` or datalog cleanup | The `runtime: nvidia` fix on `nvstreamer-2d` (§2) was reverted to stock when VSS state was wiped. Re-uncomment it in `warehouse-2d-app.yml`, then `docker compose --env-file … up -d --force-recreate --no-deps nvstreamer-2d`. Re-apply after every `down -v` / cleanup, before `up`. |
 | `nv-psf` / perception can't get the GPU after a reboot | The CDI spec lives on tmpfs — regenerate: `sudo nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml && sudo systemctl restart docker` |
 | AI monitor reads no frames | `sensor_config_thor.conf` URLs/UUIDs are stale — refresh from the VST sensor list |
-| FSI decisions don't reach the overlay | `nvFsiCom` not running, or `fsicom-agent` not started with exactly the §5B relay flags |
 | Overlay blank but decisions are logged | Port mismatch — `halo_safety_udp_port` ≠ `PSF_CMD_RX_PORT` (both must be `12345`) |
 
 For perception / STALE / SEI issues, see `troubleshooting.md`.

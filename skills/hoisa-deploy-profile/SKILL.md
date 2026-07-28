@@ -43,7 +43,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 > for 2D and 3D — including the Isaac Sim launch (`--enable-vst`, see `references/test_scenario.md`);
 > only the VSS perception side, the model, and the calibration change.
 
-> **`base` on IGX Thor (aarch64)** — the skill detects the platform and, on Thor, asks whether to run the SDM on **CCPLEX** or **FSI** (covered in `references/halos_thor.md`). The CCPLEX path follows the x86 flow; the FSI path is advanced (a one-time firmware reflash).
+> **`base` on IGX Thor (aarch64)** — the skill detects the platform; on Thor the SDM runs on the **CCPLEX** application cores and the stack is launched by `launch_thor_safety.sh` instead of `docker compose` (covered in `references/halos_thor.md`).
 
 ---
 
@@ -138,13 +138,13 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | Document | Use When |
 |----------|----------|
 | [references/prerequisites.md](references/prerequisites.md) | Hardware/software requirements, Docker, NGC CLI, driver, GPU selection |
-| [references/ngc_artifacts.md](references/ngc_artifacts.md) | Pulling sil-data + PSF image + VSS images from NGC; **Thor Safety Core `.deb`s (`psf-tegra` + `psf-tegra-fsi`)** |
+| [references/ngc_artifacts.md](references/ngc_artifacts.md) | Pulling sil-data + PSF image + VSS images from NGC; **Thor Safety Core `.deb` (`psf-tegra`)** |
 | [references/vss_2d_overrides.md](references/vss_2d_overrides.md) | VSS Warehouse 2D `.env`, DeepStream config, and VST config for Isaac Sim |
 | [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | **3D (Sparse4D) profile** — VSS `.env`, DeepStream + `config.yaml`, VST overrides |
 | [references/model_r101.md](references/model_r101.md) | **3D** — the R101 Sparse4D model recipe (deployable ONNX + trainable kmeans anchor, version-matched) |
 | [references/calibration_3d.md](references/calibration_3d.md) | **3D** — the 3-camera BEV calibration (`group` / `rois` / `tripwires`) |
 | [references/halos_deploy.md](references/halos_deploy.md) | Configuring and deploying the Halos stack by profile |
-| [references/halos_thor.md](references/halos_thor.md) | Deploying `base` on IGX Thor (aarch64) — SDM on CCPLEX or FSI |
+| [references/halos_thor.md](references/halos_thor.md) | Deploying `base` on IGX Thor (aarch64) — the hybrid container + host-binary Safety Core |
 | [references/vss_hil_overrides.md](references/vss_hil_overrides.md) | **HIL** — VSS deltas for a remote Isaac source: stream URLs, sensor-registration ownership, fresh state |
 | [references/halos_hil.md](references/halos_hil.md) | **HIL profile** — the two-host closed loop runbook (x86 stimulus + IGX Thor safety host) |
 | [references/test_scenario.md](references/test_scenario.md) | Running the simulation, monitoring safety commands, viewing camera streams |
@@ -164,7 +164,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 | `BP_PROFILE_KAFKA` | VSS must use `BP_PROFILE=bp_wh_kafka` (not `bp_wh`) for Halos integration | `vss_2d_overrides.md` |
 | `LLM_VLM_NONE` | Set `LLM_MODE=none` and `VLM_MODE=none` — not needed for safety SIL | `vss_2d_overrides.md` |
 | `HALO_SAFETY_BASE` | **`base` profile**: to render the safety overlay, set `halo_safety_udp_port` in the VSS 2D `vst_config.json` from `-1` → `12345` (must equal `COMM_UDP_PORT`), then restart VST | `halos_deploy.md`, `vss_2d_overrides.md` |
-| `THOR_BASE` | **`base`: detect the platform** (`uname -m`). `x86_64` → standard container base. **`aarch64` (IGX Thor)** → **ask the user** which SDM target before deploying — **CCPLEX** (decision-maker as host software on the Thor application cores; simpler, no firmware change) or **FSI** (decision-maker on the Functional Safety Island, the on-die safety microcontroller; needs a one-time firmware reflash) — then launch via `launch_thor_safety.sh` (hybrid container + host binaries, **not** `docker compose`) | `halos_thor.md` |
+| `THOR_BASE` | **`base`: detect the platform** (`uname -m`). `x86_64` → standard container base. **`aarch64` (IGX Thor)** → the decision-maker runs as host software on the Thor application cores (**CCPLEX**); launch via `launch_thor_safety.sh` (hybrid container + host binaries, **not** `docker compose`) | `halos_thor.md` |
 | `HOST_IP_BOTH` | `HOST_IP` must be set in **both** the VSS and Halos run-env files | `halos_deploy.md` |
 | `SIL_DATA_PATH` | Halos `MDX_DATA_DIR` points to **sil-data** (has `collected-assets/`), not VSS app-data | `halos_deploy.md`, `ngc_artifacts.md` |
 | `ROS_DOMAIN_UNIQUE` | Assign a unique `ROS_DOMAIN_ID` (0-232) per machine; verify `Publisher count: 1` on `/safety/is_muted` | `halos_deploy.md`, `troubleshooting.md` |

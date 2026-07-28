@@ -11,7 +11,7 @@ there is no Halos compose package to download. From NGC you pull only:
 
 VSS Warehouse images are pulled when you deploy VSS, not here — via the `vss-deploy-profile` skill, or per the public VSS Warehouse docs (github.com/NVIDIA-AI-Blueprints/video-search-and-summarization).
 
-> **Access**: the Halos packages are in the `nvidia/halos-outside-in` NGC team (the gated FSI package is under `nvidia/outside-in-safety`). If
+> **Access**: the Halos packages are in the `nvidia/halos-outside-in` NGC team. If
 > `ngc registry resource info` or `docker pull` returns `402` / `403`, your NGC key is not
 > authorized for that org — confirm `ngc config set` and `docker login nvcr.io` with a key
 > that has access.
@@ -72,18 +72,17 @@ docker pull "$ISAAC_SIM_IMAGE"
 
 ---
 
-## 4. Thor Safety Core packages — `psf-tegra` + `psf-tegra-fsi` (Thor `base` / `hil` only)
+## 4. Thor Safety Core package — `psf-tegra` (Thor `base` / `hil` only)
 
 On IGX Thor the Safety Core runs partly as **host binaries** (not in the PSF container),
-so it needs the aarch64 Safety Core `.deb`s from NGC. x86 profiles do **not** need these
-(the SDM runs in the container there). Both NGC resource paths are pinned in
+so it needs the aarch64 Safety Core `.deb` from NGC. x86 profiles do **not** need it
+(the SDM runs in the container there). The NGC resource path is pinned in
 `deployments/profiles/base-thor.env` — the single source of truth, the same way `PSF_IMAGE`
-is. Source that env, then reference the variables:
+is. Source that env, then reference the variable:
 
 | Env var | Needed by | Contains |
 |---|---|---|
-| `PSF_TEGRA_RESOURCE` | Thor `base` (CCPLEX **and** FSI host side) | host binaries → `/opt/nvidia/psf/`: `atl_sdm`, `launch_hoisa.sh`, `safety_monitor`, sensor config |
-| `PSF_TEGRA_FSI_RESOURCE` | **FSI only** (`SDM_TARGET=fsi`) | the HOISA FSI firmware blobs (`fsi-ffw-t264.bin` for `atl`, + proximity) flashed to the FSI QSPI, **plus** the `fsicom-agent` bridge binary installed on the Thor. See `halos_thor.md` §5B |
+| `PSF_TEGRA_RESOURCE` | Thor `base` / `hil` | host binaries → `/opt/nvidia/psf/`: `atl_sdm`, `launch_hoisa.sh`, `safety_monitor`, sensor config |
 
 ```bash
 set -a; source deployments/profiles/base-thor.env; set +a
@@ -96,23 +95,6 @@ ngc registry resource download-version "$PSF_TEGRA_RESOURCE"
 sudo dpkg -i */psf-tegra.deb
 ls /opt/nvidia/psf/bin/        # → atl_sdm, launch_hoisa.sh, safety_monitor, …
 ```
-
-### Fetch `psf-tegra-fsi` (FSI only, `SDM_TARGET=fsi`)
-
-`psf-tegra-fsi` provides the `fsicom-agent` binary (install on the Thor) and the FSI firmware
-blob (stage + QSPI-flash, see `halos_thor.md` §5B):
-
-```bash
-ngc registry resource download-version "$PSF_TEGRA_FSI_RESOURCE"
-# (a) on the Thor: install for fsicom-agent
-sudo dpkg -i */psf-tegra-fsi.deb && ls /opt/nvidia/psf/bin/fsicom-agent
-# (b) for the firmware blob (extract; flashing-host staging in halos_thor.md §5B)
-dpkg -x */psf-tegra-fsi.deb /tmp/psf-fsi/
-ls /tmp/psf-fsi/opt/nvidia/psf/etc/fsi-fw/atl/fsi-ffw-t264.bin   # the atl HOISA FSI firmware blob
-```
-
-Then follow `halos_thor.md` §5B to stage `fsi-ffw-t264.bin` into the BSP bootloader dir
-(backing up the SEP default) and flash QSPI slot A.
 
 ---
 

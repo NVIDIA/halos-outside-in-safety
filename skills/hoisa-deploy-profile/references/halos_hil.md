@@ -7,7 +7,7 @@ x86 stimulus host                          IGX Thor safety host
 ─────────────────                          ────────────────────
 isaac-sim (3 cams, RTSP :8554-8556) ──────▶ VST + DS perception (pull the Isaac streams)
 forklift-controller ─ROS─▶ isaac-sim              │ BA events → Kafka → Safety Core
-comm-layer ◀────────────── UDP :12346 ──── atl_sdm (ccplex) or FSI
+comm-layer ◀────────────── UDP :12346 ──── atl_sdm
      └─ROS─▶ /safety/is_muted ─▶ isaac-sim indicator / consumers
 ```
 
@@ -18,7 +18,7 @@ Run the deployment (and this skill) from the **x86 host**; ssh access to the Tho
 ## 0. Prerequisites
 
 - x86 host: per `prerequisites.md` (GPU for Isaac Sim), plus the NGC artifacts from `ngc_artifacts.md` §1 (sil-data).
-- Thor host: IGX Thor on a current GA release with VSS Warehouse 3.2.1 deployable, plus the Safety Core packages from `ngc_artifacts.md` §4 (`psf-tegra`, and `psf-tegra-fsi` for the FSI target).
+- Thor host: IGX Thor on a current GA release with VSS Warehouse 3.2.1 deployable, plus the Safety Core package from `ngc_artifacts.md` §4 (`psf-tegra`).
 - Network: the two hosts must reach each other (Isaac RTSP ports 8554-8556 toward the x86; UDP `COMM_UDP_PORT` toward the x86; VST :30888 and perception :9000 toward the Thor for orchestration).
 
 ## 1. x86: configure and start the stimulus stack
@@ -75,7 +75,7 @@ tmux new -s safety
 bash closed-loop-testing/scripts/launch_thor_safety.sh hil-thor
 ```
 
-Verify per `halos_thor.md` §5A (ccplex) or §5B (FSI): `nv-psf` up, and `atl_sdm` running (ccplex) or `fsicom-agent` with the relay flags (FSI); then confirm decisions are actually flowing per §5C. Both SDM targets work with this profile; start with ccplex.
+Verify per `halos_thor.md` §5: `nv-psf` up and `atl_sdm` running, then confirm decisions are actually flowing (same section).
 
 ## 6. Verify the closed loop
 
@@ -100,7 +100,7 @@ The Isaac scene's safety indicator follows `is_muted`, and the VST WebUI on the 
 | x86 stack | 3 services up; comm-layer healthy; UDP `COMM_UDP_PORT` bound |
 | Scenario | All 3 RTSP streams deliver frames (ffprobe, §2); forklift-controller `pose=` lines advancing |
 | Thor VSS | 3 sensors `online` in VST with the x86 IP; `Active sources : 3`, fps > 0 |
-| Safety Core | `nv-psf` up on the Thor; SDM process present (`atl_sdm` or `fsicom-agent`) |
+| Safety Core | `nv-psf` up on the Thor; SDM process present (`atl_sdm`) |
 | Closed loop | comm-layer receives heartbeats + decisions; `/safety/is_muted` updates; sim-driven MUTE/UNMUTE transitions observed |
 
 ## Restart the scenario (hil)
