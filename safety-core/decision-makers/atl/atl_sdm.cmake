@@ -7,6 +7,8 @@ set(_safety_core_atl_dir "${CMAKE_CURRENT_LIST_DIR}")
 set(_safety_core_atl_include_dirs
   "${_safety_core_atl_dir}/include"
   "${_safety_core_atl_dir}/sdm"
+  "${SAFETY_CORE_DECISION_MAKERS_DIR}/common"
+  "${SAFETY_CORE_DECISION_MAKERS_DIR}/common/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/event-integrator/daemon/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/protocols/decision-maker-gateway/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/safecomm/validation/include"
@@ -20,6 +22,7 @@ if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_SDM)
   add_executable(atl_sdm
     "${_safety_core_atl_dir}/sdm/ATL.cpp"
     "${_safety_core_atl_dir}/sdm/ATLControl.cpp"
+    "${_safety_core_atl_dir}/sdm/atl_fault_report_noop.cpp"
   )
 
   target_include_directories(atl_sdm PRIVATE

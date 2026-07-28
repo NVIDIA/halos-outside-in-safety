@@ -83,6 +83,7 @@ private:
     std::condition_variable cv;
     const uint8_t timeout = 5;
     bool response_ready;
+    std::atomic<uint32_t> decisionResponseTimeoutMs;
 
     std::atomic<bool> listenOnMsgChannelBackend;
     std::thread msgHandlerThread;
@@ -112,6 +113,7 @@ public:
     NvPSDErr NvPSDChannelListenerStart();
     /** Call after NvPSDChannelCreate, before NvPSDChannelListenerStart. If @p external is true, no internal PSS client/HB. */
     NvPSDErr setPssHeartbeatExternallyManaged(bool external);
+    NvPSDErr NvPSDSetDecisionResponseTimeoutMs(uint32_t timeoutMs);
     NvPSDErr NvPSDRequestStart();
     NvPSDErr NvPSDGenerateDecision(const DecisionRequest* request, DecisionResponse* response);
     NvPSDErr NvPSDStop();
@@ -121,5 +123,4 @@ public:
 };
 
 }
-
 

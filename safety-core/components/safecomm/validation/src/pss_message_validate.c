@@ -8,8 +8,8 @@
  * @brief CRC-32 integrity and field-range validation for PSS wire messages.
  *
  * Compiled as C99 so the same source can be used in Linux host builds
- * (linked into C++ translation units via extern "C") and bare-metal
- * FreeRTOS/FSI firmware (ARM Cortex-R52, armclang -std=c99).
+ * (linked into C++ translation units via extern "C") and in bare-metal
+ * firmware builds restricted to a freestanding C99 toolchain.
  */
 
 #include "pss_message_validate.h"
@@ -49,13 +49,22 @@ static bool isNulTerminated(const char *s, size_t maxLen)
     return false;
 }
 
+static bool eventTypeRequiresCriticalSeverity(EventType type)
+{
+    return type == SW_FAIL ||
+           type == SENSOR_INVALID ||
+           type == SENSOR_VALID ||
+           type == AI_PIPELINE_INVALID ||
+           type == AI_PIPELINE_VALID;
+}
+
 /**
  * Validate the fields common to both SafetyEvent and FusedSafetyEvent.
  * Centralised so the two structs cannot diverge on range/format checks.
  */
 static uint32_t validateCommonEventFields(
     EventType type,
-    SeverityLevel severity,
+    int maxEventType,
     float confidenceLevel,
     uint64_t timestamp,
     const char *sensorIdentifier,
@@ -65,11 +74,8 @@ static uint32_t validateCommonEventFields(
     uint32_t errors = PSS_VALID;
     int k;
 
-    if ((int)type < 0 || (int)type > PSS_EVENTTYPE_MAX)
+    if ((int)type < 0 || (int)type > maxEventType)
         errors |= PSS_ERR_EVENT_TYPE;
-
-    if ((int)severity < 0 || (int)severity > PSS_SEVERITY_LEVEL_MAX)
-        errors |= PSS_ERR_SEVERITY;
 
     /* NaN-safe: NaN fails both comparisons so the condition is true. */
     if (!(confidenceLevel >= 0.0f && confidenceLevel <= 1.0f))
@@ -108,9 +114,12 @@ static uint32_t validateFusedEventFields(const FusedSafetyEvent *ev)
         return PSS_ERR_NULL_POINTER;
 
     uint32_t errors = validateCommonEventFields(
-        ev->type, ev->severity, ev->confidenceLevel,
+        ev->type, PSS_EVENTTYPE_MAX, ev->confidenceLevel,
         ev->timestamp,
         ev->sensorIdentifier, ev->ruleIdentifier, &ev->fusionMetadata);
+
+    if (ev->severity > PSS_SEVERITY_LEVEL_MAX)
+        errors |= PSS_ERR_SEVERITY;
 
     if ((int)ev->status < 0 || (int)ev->status > PSS_SAFETY_EVENT_STATUS_MAX)
         errors |= PSS_ERR_EVENT_STATUS;
@@ -206,7 +215,7 @@ uint32_t validateSafetyEvent(const SafetyEvent *event)
         errors |= PSS_ERR_CRC;
 
     errors |= validateCommonEventFields(
-        event->type, event->severity, event->confidenceLevel,
+        event->type, PSS_CLIENT_EVENTTYPE_MAX, event->confidenceLevel,
         event->timestamp,
         event->sensorIdentifier, event->ruleIdentifier,
         &event->fusionMetadata);
@@ -257,8 +266,36 @@ uint32_t validateDecisionRequest(const DecisionRequest *req)
         if (count > MAX_SENSORS_DATA_SUMMARY_SIZE)
             count = MAX_SENSORS_DATA_SUMMARY_SIZE;
 
-        for (i = 0; i < count; i++)
-            errors |= validateFusedEventFields(&req->sensorDataSummary[i].event);
+        bool haveSeverity = false;
+        SeverityLevel expectedSeverity = OPERATIONAL;
+
+        for (i = 0; i < count; i++) {
+            const SensorData *sensorData = &req->sensorDataSummary[i];
+            const FusedSafetyEvent *event = &sensorData->event;
+
+            errors |= validateFusedEventFields(event);
+
+            if (event->severity <= PSS_SEVERITY_LEVEL_MAX) {
+                if (!haveSeverity) {
+                    expectedSeverity = event->severity;
+                    haveSeverity = true;
+                } else if (event->severity != expectedSeverity) {
+                    errors |= PSS_ERR_SEVERITY;
+                }
+
+                if ((int)req->pssStatus.mode == (int)ERROR &&
+                    event->severity != CRITICAL) {
+                    errors |= PSS_ERR_SEVERITY;
+                }
+
+                if ((eventTypeRequiresCriticalSeverity(event->type) ||
+                     !sensorData->isHealthy ||
+                     !sensorData->isTrustedSource) &&
+                    event->severity != CRITICAL) {
+                    errors |= PSS_ERR_SEVERITY;
+                }
+            }
+        }
     }
 
     return errors;

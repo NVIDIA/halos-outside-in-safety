@@ -8,6 +8,8 @@ set(_safety_core_proximity_sdm_dir "${_safety_core_proximity_dir}/sdm/ccplex")
 set(_safety_core_proximity_include_dirs
   "${_safety_core_proximity_dir}/include"
   "${_safety_core_proximity_sdm_dir}"
+  "${SAFETY_CORE_DECISION_MAKERS_DIR}/common"
+  "${SAFETY_CORE_DECISION_MAKERS_DIR}/common/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/event-integrator/daemon/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/protocols/decision-maker-gateway/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/safecomm/validation/include"

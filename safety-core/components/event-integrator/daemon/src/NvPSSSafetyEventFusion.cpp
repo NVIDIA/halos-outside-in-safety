@@ -872,9 +872,7 @@ FusedSafetyEvent SafetyEventFusion::CreateFusedSafetyEvent(
     fusedEvent.confidenceLevel = event1.confidenceLevel + event2.confidenceLevel -
                                   (event1.confidenceLevel * event2.confidenceLevel);
 
-    // Take the highest severity level
-    fusedEvent.severity = static_cast<uint8_t>(event1.severity) > static_cast<uint8_t>(event2.severity) ?
-                          event1.severity : event2.severity;
+    fusedEvent.severity = OPERATIONAL;
 
     // Mark as a fused event
     fusedEvent.status = FUSED;
@@ -914,9 +912,7 @@ FusedSafetyEvent SafetyEventFusion::CreateFusedSafetyEvent(
     fusedEvent.confidenceLevel = existingFused.confidenceLevel + newEvent.confidenceLevel -
                                   (existingFused.confidenceLevel * newEvent.confidenceLevel);
 
-    // Take the highest severity level
-    fusedEvent.severity = static_cast<uint8_t>(existingFused.severity) > static_cast<uint8_t>(newEvent.severity) ?
-                          existingFused.severity : newEvent.severity;
+    fusedEvent.severity = (existingFused.severity == CRITICAL) ? CRITICAL : OPERATIONAL;
 
     // Mark as a fused event
     fusedEvent.status = FUSED;
@@ -1000,7 +996,7 @@ FusedSafetyEvent SafetyEventFusion::CreatePassThroughEvent(
     fusedEvent.type = event.type;
     fusedEvent.timestamp = event.timestamp;
     fusedEvent.confidenceLevel = event.confidenceLevel;
-    fusedEvent.severity = event.severity;
+    fusedEvent.severity = OPERATIONAL;
     std::memcpy(&fusedEvent.fusionMetadata, &event.fusionMetadata, sizeof(EventFusionMetadata));
 
     // Mark as not fused (pass-through) / or stale

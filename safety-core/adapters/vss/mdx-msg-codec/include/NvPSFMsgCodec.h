@@ -101,7 +101,13 @@ NvPSFMsgCodecErr NvPSFMsgCodecDecodeFromFile(const char* path,
 NvPSFMsgCodecFieldResult NvPSFMsgCodecGetField(const NvPSFMsgCodecMsg* msg,
     const char* path);
 
-/* ---- Check if a field is present ---- */
+/* ---- Check protobuf field presence ----
+ *
+ * Returns true only when the requested field is present in the decoded message.
+ * For a proto3 optional scalar, an explicitly supplied default value (false or
+ * zero) is present; an omitted value is not. Use NvPSFMsgCodecGetField() after
+ * a true result to read the value. Invalid paths and absent fields return false.
+ */
 bool NvPSFMsgCodecGetFieldPresence(const NvPSFMsgCodecMsg* msg,
     const char* path);
 

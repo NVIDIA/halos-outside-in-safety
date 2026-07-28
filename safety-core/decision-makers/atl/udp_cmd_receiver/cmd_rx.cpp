@@ -17,7 +17,10 @@
  */
 
 #include <iostream>
+#include <fstream>
+#include <string>
 #include <cerrno>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
@@ -33,6 +36,8 @@
 #include <unistd.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <sys/select.h>
+#include <cstdio>
 
 #include "atl_cmd_pkt.h"
 
@@ -43,6 +48,12 @@ static constexpr int64_t kUpstreamHbExpectedMs = 5000;
 
 class UDPReceiver;
 void upstreamHeartbeatWatchdog(UDPReceiver& receiver);
+void safeReleaseInputLoop(UDPReceiver& receiver);
+void startupSafeReleaseLoop(UDPReceiver& receiver);
+
+/* Grace period after first peer contact before the startup latch-clear release
+ * is sent, giving the SDM/agent a moment to be ready to process it. */
+static constexpr int kStartupReleaseSettleMs = 500;
 
 /*
  * Global pointer so the signal handler can reach the receiver instance.
@@ -66,13 +77,43 @@ static uint32_t missCountFromElapsedMs(int64_t elapsedMs)
     return static_cast<uint32_t>(m);
 }
 
+static uint16_t nextCmdPacketSeq(std::atomic<uint32_t>& counter)
+{
+    const uint32_t n = counter.fetch_add(1U, std::memory_order_relaxed);
+    /* CmdPacket.seq is 16-bit; mask documents the intended modulo wrap. */
+    return static_cast<uint16_t>(n & 0xFFFFU);
+}
+
+static bool isVstDecisionCommand(unsigned char command)
+{
+    return command == CMD_MUTE || command == CMD_UNMUTE ||
+           command == CMD_HW_ERROR || command == CMD_SW_ERROR;
+}
+
+/* Short wall-clock HH:MM:SS stamp for the human-facing console notifications. */
+static std::string nowTimeStr()
+{
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tmv{};
+    localtime_r(&t, &tmv);
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d",
+                  tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
+    return std::string(buf);
+}
+
 class UDPReceiver
 {
 private:
     int            sock_;
+    int            vst_sock_;
     unsigned int   listen_port_;
     std::atomic<bool> running_;
     std::mutex     sock_mtx_;
+    bool           vst_relay_enabled_ = false;
+    bool           vst_send_failure_logged_ = false;
+    struct sockaddr_in vst_addr_ = {};
 
     static constexpr std::size_t max_length = 1024;
     char data_[max_length];
@@ -80,15 +121,43 @@ private:
     std::mutex                    hb_mtx_;
     std::chrono::steady_clock::time_point last_hb_time_;
     std::atomic<bool>             hb_fault_latched_{false};
+    std::mutex                    sender_mtx_;
+    struct sockaddr_in            last_sender_addr_ = {};
+    socklen_t                     last_sender_len_ = 0;
+    bool                          have_last_sender_ = false;
+    std::atomic<bool>             safe_release_prompt_ready_{false};
+    std::atomic<uint32_t>         safe_release_seq_{0U};
+    struct in_addr                expected_sender_ip_ = {};
+    uint16_t                      expected_sender_port_ = 0U;
+
+    /* Verbose per-packet log sink. When open, the high-volume received-command /
+     * object / ack lines go here instead of the console, so the interactive
+     * terminal stays free for the 'release' command. Written only from the
+     * single receiver thread (handlePacket), so no extra locking is needed. */
+    std::ofstream                 log_ofs_;
+    /* Tracks whether the console currently reflects a latched safe-state, so we
+     * emit exactly one "LATCHED" / "CLEARED" edge notification (not per packet). */
+    bool                          console_latched_ = false;
 
 public:
-    UDPReceiver(unsigned int listen_port)
+    UDPReceiver(unsigned int listen_port,
+                const struct in_addr& expected_sender_ip,
+                uint16_t expected_sender_port,
+                bool vst_relay_enabled,
+                const struct sockaddr_in& vst_addr)
         : sock_(-1),
+          vst_sock_(-1),
           listen_port_(listen_port),
-          running_(true)
+          running_(true),
+          vst_relay_enabled_(vst_relay_enabled),
+          vst_addr_(vst_addr),
+          expected_sender_ip_(expected_sender_ip),
+          expected_sender_port_(expected_sender_port)
     {
         last_hb_time_ = std::chrono::steady_clock::now();
         initSocket();
+        if (vst_relay_enabled_)
+            initVstSocket();
     }
 
     ~UDPReceiver()
@@ -115,6 +184,10 @@ public:
             close(sock_);
             sock_ = -1;
         }
+        if (vst_sock_ >= 0) {
+            close(vst_sock_);
+            vst_sock_ = -1;
+        }
     }
 
     bool isRunning() const
@@ -126,6 +199,98 @@ public:
     {
         std::lock_guard<std::mutex> lk(hb_mtx_);
         last_hb_time_ = std::chrono::steady_clock::now();
+    }
+
+    bool shouldPromptSafeRelease()
+    {
+        std::lock_guard<std::mutex> lk(sender_mtx_);
+        return have_last_sender_ &&
+               safe_release_prompt_ready_.load(std::memory_order_acquire);
+    }
+
+    /* True once a valid packet from the expected peer has been seen, i.e. the
+     * SDM/agent "connection" is established and its reply address is known. */
+    bool haveSender()
+    {
+        std::lock_guard<std::mutex> lk(sender_mtx_);
+        return have_last_sender_;
+    }
+
+    /* Open (append) the verbose log file. Returns false if it cannot be opened,
+     * in which case vlog() falls back to std::cout. */
+    bool openLogFile(const std::string& path)
+    {
+        log_ofs_.open(path, std::ios::out | std::ios::app);
+        return log_ofs_.is_open();
+    }
+
+    /* Verbose sink: the log file when configured, otherwise the console. */
+    std::ostream& vlog()
+    {
+        return log_ofs_.is_open() ? static_cast<std::ostream&>(log_ofs_)
+                                  : std::cout;
+    }
+
+    /*
+     * Send a CMD_SAFE_RELEASE_REQUEST to the learned peer.
+     *   force == false : interactive/normal path — only sent once the SDM has
+     *                     reported a release-ready safe state (SW_ERROR/DENIED).
+     *   force == true  : startup path — sent unconditionally on first contact to
+     *                     clear a stale latch; the SDM still validates and denies
+     *                     it if the underlying cause is still active.
+     */
+    bool sendSafeReleaseRequest(bool force = false)
+    {
+        struct sockaddr_in target_addr = {};
+        socklen_t target_len = 0;
+        {
+            std::lock_guard<std::mutex> lk(sender_mtx_);
+            if (!have_last_sender_)
+            {
+                std::cerr << "No SDM sender known yet; wait for a command before sending safe release\n";
+                return false;
+            }
+            if (!force && !safe_release_prompt_ready_.load(std::memory_order_acquire))
+            {
+                std::cerr << "Safe-release request ignored; SDM has not reported a release-ready safe state\n";
+                return false;
+            }
+            target_addr = last_sender_addr_;
+            target_len = last_sender_len_;
+        }
+
+        CmdPacket pkt;
+        std::memset(&pkt, 0, sizeof(pkt));
+        auto now = std::chrono::system_clock::now();
+        auto epoch = now.time_since_epoch();
+        const uint64_t sec = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
+        const uint64_t usec = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count()
+                              - (sec * 1000000ULL);
+
+        pkt.identifier = ATL_PACKET_IDENTIFIER;
+        pkt.seq = nextCmdPacketSeq(safe_release_seq_);
+        pkt.command = CMD_SAFE_RELEASE_REQUEST;
+        pkt.ts_seconds = sec;
+        pkt.ts_microseconds = usec;
+        pkt.crc32 = cmdPacketCRC32(&pkt);
+
+        ssize_t sent = -1;
+        {
+            std::lock_guard<std::mutex> lk(sock_mtx_);
+            if (sock_ >= 0) {
+                sent = sendto(sock_, &pkt, sizeof(pkt), 0,
+                              reinterpret_cast<const struct sockaddr*>(&target_addr),
+                              target_len);
+            }
+        }
+        if (sent == static_cast<ssize_t>(sizeof(pkt)))
+        {
+            std::cout << "Sent SAFE RELEASE REQUEST SeqNo: " << pkt.seq
+                      << (force ? " (startup latch-clear)" : "") << std::endl;
+            return true;
+        }
+        std::cerr << "Failed to send SAFE RELEASE REQUEST: " << strerror(errno) << std::endl;
+        return false;
     }
 
     /* Main event loop — runs on the calling thread */
@@ -166,6 +331,27 @@ public:
     }
 
 private:
+    bool isExpectedSender(const struct sockaddr_in& sender_addr,
+                          socklen_t sender_len) const
+    {
+        if (sender_len < sizeof(struct sockaddr_in) ||
+            sender_addr.sin_family != AF_INET ||
+            sender_addr.sin_addr.s_addr != expected_sender_ip_.s_addr) {
+            return false;
+        }
+        return expected_sender_port_ == 0U ||
+               sender_addr.sin_port == htons(expected_sender_port_);
+    }
+
+    void rememberSender(const struct sockaddr_in& sender_addr,
+                        socklen_t sender_len)
+    {
+        std::lock_guard<std::mutex> lk(sender_mtx_);
+        last_sender_addr_ = sender_addr;
+        last_sender_len_ = sender_len;
+        have_last_sender_ = true;
+    }
+
     void initSocket()
     {
         sock_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -204,12 +390,56 @@ private:
         fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
     }
 
+    void initVstSocket()
+    {
+        vst_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
+        if (vst_sock_ < 0) {
+            vst_relay_enabled_ = false;
+            std::cerr << "VST relay disabled: failed to create UDP socket\n";
+            return;
+        }
+
+        const int flags = fcntl(vst_sock_, F_GETFL, 0);
+        if (flags < 0 || fcntl(vst_sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
+            std::cerr << "VST relay disabled: failed to configure UDP socket\n";
+            close(vst_sock_);
+            vst_sock_ = -1;
+            vst_relay_enabled_ = false;
+        }
+    }
+
+    void relayToVst()
+    {
+        std::lock_guard<std::mutex> lk(sock_mtx_);
+        if (!vst_relay_enabled_ || vst_sock_ < 0)
+            return;
+
+        const ssize_t sent = sendto(vst_sock_, data_, COMMAND_PACKET_SIZE,
+                                    MSG_DONTWAIT,
+                                    reinterpret_cast<const struct sockaddr*>(&vst_addr_),
+                                    sizeof(vst_addr_));
+        if (sent == static_cast<ssize_t>(COMMAND_PACKET_SIZE)) {
+            vst_send_failure_logged_ = false;
+            return;
+        }
+
+        if (!vst_send_failure_logged_) {
+            std::cerr << "VST relay send failed; continuing without display delivery\n";
+            vst_send_failure_logged_ = true;
+        }
+    }
+
     void handleReceive(std::size_t bytes_recvd,
                        const struct sockaddr_in& sender_addr,
                        socklen_t sender_len)
     {
         if (bytes_recvd != COMMAND_PACKET_SIZE)
             return;
+
+        if (!isExpectedSender(sender_addr, sender_len)) {
+            std::cerr << "Dropped packet from unexpected SDM sender" << std::endl;
+            return;
+        }
 
         const CmdPacket* pkt = reinterpret_cast<const CmdPacket*>(data_);
 
@@ -230,34 +460,85 @@ private:
 
         if (receivedCmd == CMD_HEARTBEAT)
         {
+            rememberSender(sender_addr, sender_len);
             if (!hb_fault_latched_.load())
                 markHeartbeatReceived();
             return;
         }
 
         if (!(receivedCmd == CMD_MUTE || receivedCmd == CMD_UNMUTE ||
-              receivedCmd == CMD_HW_ERROR || receivedCmd == CMD_SW_ERROR))
+              receivedCmd == CMD_HW_ERROR || receivedCmd == CMD_SW_ERROR ||
+              receivedCmd == CMD_SAFE_RELEASE_REQUEST ||
+              receivedCmd == CMD_SAFE_RELEASE_ACK ||
+              receivedCmd == CMD_SAFE_RELEASE_DENIED))
             return;
 
-        /* Print received packet info */
-        std::cout << "Received ATL command: 0x"
-                  << std::hex << std::setfill('0') << std::setw(2)
-                  << (int)receivedCmd << std::dec
-                  << " - " << commandName(receivedCmd)
-                  << ", SeqNo: " << seqNo
-                  << ", UTC epoch: " << pkt->ts_seconds
-                  << "." << std::setfill('0') << std::setw(6)
-                  << pkt->ts_microseconds << std::endl;
+        rememberSender(sender_addr, sender_len);
+        if (receivedCmd == CMD_SW_ERROR ||
+            receivedCmd == CMD_SAFE_RELEASE_DENIED)
+        {
+            safe_release_prompt_ready_.store(true, std::memory_order_release);
+            /* Console: announce the latch edge exactly once, so the operator
+             * knows a latch has taken place without watching the packet flood
+             * (which now goes to the log file). */
+            if (!console_latched_)
+            {
+                console_latched_ = true;
+                std::cout << "\n[" << nowTimeStr() << "]  *** SAFE-STATE LATCHED ***  ("
+                          << commandName(receivedCmd) << ", SeqNo " << seqNo << ")\n"
+                          << "        Enter 'release' to clear once the area is confirmed safe."
+                          << "  (per-packet detail -> log file)\n" << std::flush;
+            }
+            else if (receivedCmd == CMD_SAFE_RELEASE_DENIED)
+            {
+                std::cout << "[" << nowTimeStr() << "]  safe-release DENIED (SeqNo " << seqNo
+                          << ") — latch cause still active.\n" << std::flush;
+            }
+        }
+        else if (receivedCmd == CMD_SAFE_RELEASE_ACK ||
+                 receivedCmd == CMD_MUTE)
+        {
+            safe_release_prompt_ready_.store(false, std::memory_order_release);
+            /* Console: announce the clear edge exactly once. */
+            if (console_latched_)
+            {
+                console_latched_ = false;
+                std::cout << "[" << nowTimeStr() << "]  >>> safe-state CLEARED <<<  ("
+                          << commandName(receivedCmd) << ", SeqNo " << seqNo
+                          << ") — normal operation resumed.\n" << std::flush;
+            }
+        }
 
-        /* Print object records */
+        /* Verbose per-packet detail -> log file (keeps the console readable). */
+        vlog() << "Received ATL command: 0x"
+               << std::hex << std::setfill('0') << std::setw(2)
+               << (int)receivedCmd << std::dec
+               << " - " << commandName(receivedCmd)
+               << ", SeqNo: " << seqNo
+               << ", UTC epoch: " << pkt->ts_seconds
+               << "." << std::setfill('0') << std::setw(6)
+               << pkt->ts_microseconds << std::endl;
+
+        if (receivedCmd == CMD_SW_ERROR || receivedCmd == CMD_HW_ERROR)
+        {
+            vlog() << "cmd_rx: observed " << commandName(receivedCmd)
+                   << " on UDP (seq=" << static_cast<unsigned>(seqNo) << ")"
+                   << std::endl;
+        }
+
+        /* Object records -> log file */
+        const char* objectLabels[COMMAND_NUM_OBJECTS] = {
+            "Object 1 (forklift / last-known forklift)",
+            "Object 2 (reserved for ATL, expected zero)"
+        };
         for (int i = 0; i < COMMAND_NUM_OBJECTS; i++) {
             const ObjectRecord& obj = pkt->objects[i];
-            std::cout << "  Object " << i
-                      << ": ID=" << obj.object_id
-                      << ", X=" << obj.x
-                      << ", Y=" << obj.y
-                      << ", Z=" << obj.z
-                      << ", Type=" << obj.metadata << std::endl;
+            vlog() << "  " << objectLabels[i]
+                   << ": ID=" << obj.object_id
+                   << ", X=" << obj.x
+                   << ", Y=" << obj.y
+                   << ", Z=" << obj.z
+                   << ", Type=" << obj.metadata << std::endl;
         }
 
         /* Build 64-byte ACK packet */
@@ -290,13 +571,18 @@ private:
             }
         }
         if (sent == static_cast<ssize_t>(sizeof(ackPkt)))
-            std::cout << "Sent acknowledgment for SeqNo: " << seqNo << std::endl;
+            vlog() << "Sent acknowledgment for SeqNo: " << seqNo << std::endl;
         else
             std::cerr << "Failed to send acknowledgment: "
                       << strerror(errno) << std::endl;
+
+        if (isVstDecisionCommand(receivedCmd))
+            relayToVst();
     }
 
     friend void upstreamHeartbeatWatchdog(UDPReceiver&);
+    friend void safeReleaseInputLoop(UDPReceiver&);
+    friend void startupSafeReleaseLoop(UDPReceiver&);
 };
 
 void upstreamHeartbeatWatchdog(UDPReceiver& receiver)
@@ -342,6 +628,94 @@ void upstreamHeartbeatWatchdog(UDPReceiver& receiver)
     }
 }
 
+void safeReleaseInputLoop(UDPReceiver& receiver)
+{
+    bool promptShown = false;
+    while (receiver.isRunning())
+    {
+        const bool releaseReady = receiver.shouldPromptSafeRelease();
+        if (!releaseReady)
+        {
+            promptShown = false;
+        }
+        else if (!promptShown)
+        {
+            std::cout << "Is it safe to return to normal mode? "
+                      << "Enter 'release' to exit safe-state, or 'no' to stay safe: "
+                      << std::flush;
+            promptShown = true;
+        }
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 200000;
+
+        const int ready = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &timeout);
+        if (ready == 0)
+            continue;
+        if (ready < 0) {
+            if (errno == EINTR)
+                continue;
+            std::cerr << "Safe-release stdin disabled: select failed: "
+                      << strerror(errno) << std::endl;
+            break;
+        }
+        if (!FD_ISSET(STDIN_FILENO, &readfds))
+            continue;
+
+        std::string line;
+        if (!std::getline(std::cin, line))
+            return;
+        if (!releaseReady) {
+            if (!line.empty())
+                std::cout << "Ignoring safe-release input until SDM reports a release-ready safe state.\n";
+            continue;
+        }
+        if (line == "r" || line == "release" || line == "safe-release" ||
+            line == "y" || line == "yes") {
+            (void)receiver.sendSafeReleaseRequest();
+            promptShown = false;
+        } else if (line == "n" || line == "no") {
+            std::cout << "Staying in safe-state; enter 'release' when conditions are safe.\n";
+            promptShown = true;
+        } else {
+            std::cout << "Enter 'release' to exit safe-state, or 'no' to stay safe.\n";
+            promptShown = false;
+        }
+    }
+}
+
+/*
+ * startupSafeReleaseLoop
+ * ----------------------
+ * Fires exactly one unconditional (forced) safe-release the moment cmd_rx makes
+ * first contact with its peer, atl_sdm. This clears any safety latch left set by
+ * a previous run without needing an operator prompt. The SDM validates the
+ * request and denies it if the underlying cause is still active, so an active
+ * latch is never force-cleared. Runs once, then exits.
+ */
+void startupSafeReleaseLoop(UDPReceiver& receiver)
+{
+    /* Wait until the peer reply address is known ("connected"), or shutdown. */
+    while (receiver.isRunning() && !receiver.haveSender())
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (!receiver.isRunning())
+        return;
+
+    /* Brief settle so the peer/SDM is ready to accept the request. */
+    for (int slept = 0; slept < kStartupReleaseSettleMs && receiver.isRunning();
+         slept += 50)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (!receiver.isRunning())
+        return;
+
+    std::cout << "Startup: peer connected — sending safe-release to clear any "
+                 "pre-existing latch\n";
+    (void)receiver.sendSafeReleaseRequest(true /*force*/);
+}
+
 /*
  * Signal handler
  * ---------------
@@ -358,12 +732,20 @@ static void signalHandler(int /*sig*/)
 
 static void printUsage(const char* prog)
 {
-    std::cerr << "Usage: " << prog << " [-p <PORT>] [--max_hb_failures <N>] [-h|--help]\n\n"
+    std::cerr << "Usage: " << prog << " [-p <PORT>] [--sdm_ip <IPv4>] [--sdm_port <PORT>] [--vst_ip <IPv4> --vst_port <PORT>] [--max_hb_failures <N>] [--log-file <PATH>] [--no-log-file] [-h|--help]\n\n"
               << "ATL UDP Command Receiver — listens for MUTE/UNMUTE commands.\n\n"
               << "Options:\n"
               << "  -p <PORT>              Listen port, 1-65535 (default: 12345).\n"
+              << "  --sdm_ip <IPv4>        Expected SDM sender IP for packet validation (default: 127.0.0.1).\n"
+              << "  --sdm_port <PORT>      Expected SDM source port, 1-65535. Omit to allow any port.\n"
+              << "  --vst_ip <IPv4>        Optional VST display destination IP; requires --vst_port.\n"
+              << "  --vst_port <PORT>      Optional VST display destination port, 1-65535; requires --vst_ip.\n"
               << "  --max_hb_failures <N>  Upstream heartbeat miss limit, 1-255 (default: 10).\n"
-              << "  -h, --help             Show this help message.\n";
+              << "  --log-file <PATH>      Write verbose per-packet logs to PATH; console shows only\n"
+              << "                         latch/clear/release events (default: /tmp/cmdrx.log).\n"
+              << "  --no-log-file          Keep verbose per-packet logs on the console (legacy behavior).\n"
+              << "  -h, --help             Show this help message.\n\n"
+              << "Safe-release: always enabled. Type 'release' on stdin, or 'echo release > <fifo>'.\n";
 }
 
 int main(int argc, char *argv[])
@@ -371,6 +753,13 @@ int main(int argc, char *argv[])
     const char* prog = (argc > 0 && argv[0] != nullptr) ? argv[0] : "atl_cmd_rx";
     unsigned int port = 12345;
     uint32_t maxHb = 10U;
+    const char* logFilePath = "/tmp/cmdrx.log";
+    const char* expectedSdmIp = "127.0.0.1";
+    uint16_t expectedSdmPort = 0U;
+    const char* vstIp = nullptr;
+    uint16_t vstPort = 0U;
+    bool vstIpProvided = false;
+    bool vstPortProvided = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -398,6 +787,67 @@ int main(int argc, char *argv[])
             }
             port = static_cast<unsigned int>(p);
         }
+        else if (strcmp(argv[i], "--sdm_ip") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --sdm_ip requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            expectedSdmIp = argv[++i];
+        }
+        else if (strcmp(argv[i], "--sdm_port") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --sdm_port requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            char* end = nullptr;
+            errno = 0;
+            unsigned long p = std::strtoul(argv[++i], &end, 10);
+            if (errno == ERANGE || end == argv[i] || *end != '\0' || p < 1UL || p > 65535UL)
+            {
+                std::cerr << "error: --sdm_port: invalid port (use 1..65535)\n";
+                printUsage(prog);
+                return 1;
+            }
+            expectedSdmPort = static_cast<uint16_t>(p);
+        }
+        else if (strcmp(argv[i], "--vst_ip") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --vst_ip requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            vstIp = argv[++i];
+            vstIpProvided = true;
+        }
+        else if (strcmp(argv[i], "--vst_port") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --vst_port requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            char* end = nullptr;
+            errno = 0;
+            unsigned long p = std::strtoul(argv[++i], &end, 10);
+            if (errno == ERANGE || end == argv[i] || *end != '\0' ||
+                p < 1UL || p > 65535UL)
+            {
+                std::cerr << "error: --vst_port: invalid port (use 1..65535)\n";
+                printUsage(prog);
+                return 1;
+            }
+            vstPort = static_cast<uint16_t>(p);
+            vstPortProvided = true;
+        }
         else if (strcmp(argv[i], "--max_hb_failures") == 0)
         {
             if (i + 1 >= argc)
@@ -417,6 +867,20 @@ int main(int argc, char *argv[])
             }
             maxHb = static_cast<uint32_t>(v);
         }
+        else if (strcmp(argv[i], "--log-file") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --log-file requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            logFilePath = argv[++i];
+        }
+        else if (strcmp(argv[i], "--no-log-file") == 0)
+        {
+            logFilePath = "";
+        }
         else if (argv[i][0] == '-')
         {
             std::cerr << "error: unknown option (see --help)\n";
@@ -434,7 +898,37 @@ int main(int argc, char *argv[])
     g_maxHbFailures.store(maxHb);
     g_warnThreshold.store(g_maxHbFailures.load() / 2U);
 
-    UDPReceiver receiver(port);
+    struct in_addr expectedSdmAddr = {};
+    if (inet_pton(AF_INET, expectedSdmIp, &expectedSdmAddr) != 1)
+    {
+        std::cerr << "error: --sdm_ip: invalid IPv4 address\n";
+        printUsage(prog);
+        return 1;
+    }
+
+    if (vstIpProvided != vstPortProvided)
+    {
+        std::cerr << "error: --vst_ip and --vst_port must be used together\n";
+        printUsage(prog);
+        return 1;
+    }
+
+    struct sockaddr_in vstAddr = {};
+    const bool vstRelayEnabled = vstIpProvided;
+    if (vstRelayEnabled)
+    {
+        vstAddr.sin_family = AF_INET;
+        vstAddr.sin_port = htons(vstPort);
+        if (inet_pton(AF_INET, vstIp, &vstAddr.sin_addr) != 1)
+        {
+            std::cerr << "error: --vst_ip: invalid IPv4 address\n";
+            printUsage(prog);
+            return 1;
+        }
+    }
+
+    UDPReceiver receiver(port, expectedSdmAddr, expectedSdmPort,
+                         vstRelayEnabled, vstAddr);
     g_receiver = &receiver;
 
     std::signal(SIGINT,  signalHandler);
@@ -442,7 +936,25 @@ int main(int argc, char *argv[])
 
     std::cout << "ATL UDP Command Receiver listening on port " << port << std::endl;
 
+    if (logFilePath != nullptr && logFilePath[0] != '\0')
+    {
+        if (receiver.openLogFile(logFilePath))
+            std::cout << "Verbose per-packet logs -> " << logFilePath
+                      << " (console shows latch / clear / release events only)"
+                      << std::endl;
+        else
+            std::cerr << "warning: could not open log file '" << logFilePath
+                      << "'; verbose logs will remain on the console\n";
+    }
+
     std::thread hbWatch(upstreamHeartbeatWatchdog, std::ref(receiver));
+    /* Safe-release via stdin is always enabled: an operator can type 'release'
+     * in the (now uncluttered) console, or a script can do 'echo release > …'
+     * into the process's stdin/FIFO. */
+    std::cout << "Safe-release stdin enabled ('release' on stdin, or echo into the FIFO)" << std::endl;
+    std::thread releaseInput(safeReleaseInputLoop, std::ref(receiver));
+    std::cout << "Startup safe-release enabled (clears stale latch on first peer contact)" << std::endl;
+    std::thread startupRelease_thr(startupSafeReleaseLoop, std::ref(receiver));
 
     /* Run the event loop (blocks until running_ becomes false) */
     receiver.run();
@@ -452,6 +964,10 @@ int main(int argc, char *argv[])
     receiver.stop();
 
     hbWatch.join();
+    if (releaseInput.joinable())
+        releaseInput.join();
+    if (startupRelease_thr.joinable())
+        startupRelease_thr.join();
 
     g_receiver = nullptr;
     return 0;
