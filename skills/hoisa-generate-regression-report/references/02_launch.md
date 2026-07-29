@@ -28,7 +28,7 @@ common symptoms:
 
 - `clip_logs.py` missing entirely → Phase 6a `docker exec` fails
 - `vst_video.py` writes per-clip MP4s to `videos/scenes/scn_*.mp4` (old layout) while host source writes flat `videos/scn_*.mp4` (new layout) — breaks aggregator's `../videos/<scn>.mp4` link in per-clip MD reports
-- Phase 2 perception metrics absent / wrong if `aggregator.py`, `kafka_consumer.py`, `schema.py`, or `recorder.py` predate the 3D pipeline (fd101f2)
+- Phase 2 perception metrics absent / wrong if `aggregator.py`, `kafka_consumer.py`, `schema.py`, or `recorder.py` predate the 3D pipeline
 - `render_perception_heatmap.py` / `render_coverage_polygons.py` missing or pre-`--density` → Phase 6d heatmap step fails at import or rejects the flag
 
 **Detect**:
@@ -188,7 +188,7 @@ docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env up -d
 Check `docker ps --format '{{.Names}}'` until all names are listed:
   safety-core, comm-layer, isaac-sim
 Poll every 30 s, max 5 min total. Print one heartbeat line per poll
-("[MM:SS] waiting on <missing-name>"). Report [ok] when all 4 are up,
+("[MM:SS] waiting on <missing-name>"). Report [ok] when all 3 are up,
 or [fail: <reason>] if 5 min elapses with services missing.
 ```
 

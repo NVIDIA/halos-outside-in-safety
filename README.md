@@ -46,7 +46,7 @@ The three pillars connect through a perception event stream: cameras feed AI per
 |---------|-------------|
 | `base` | Safety Core on an existing perception feed; the MUTE / UNMUTE decision is rendered as the VST `halo_safety` overlay. No simulation. Runs on x86 by default, or on IGX Thor (see [`halos_thor.md`](skills/hoisa-deploy-profile/references/halos_thor.md)). |
 | `sil` | Full single-host closed loop: NVIDIA Isaac Sim drives a forklift, and the safety decision is fed back to the simulated forklift over ROS. |
-| `hil` 🚧 | Hardware-in-the-loop: the Safety Core runs on an NVIDIA Thor device. Under development. |
+| `hil` | Hardware-in-the-loop: the Safety Core runs on an NVIDIA Thor device. |
 
 Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill or by hand (see the [Quickstart Guide](#quickstart-guide)).
 

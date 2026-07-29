@@ -43,7 +43,7 @@ blueprint. This repository provides the application-level interfaces, deployment
 profiles, and examples; it does not define the certified IGX safety integration.
 The source reflects that split: Safety Core can be built for x86_64 and
 aarch64/Tegra targets and packaged as desktop or Tegra artifacts. The deployment
-profiles cover local base/SIL workflows and include an under-development HIL
+profiles cover local base/SIL workflows and include a HIL
 hook where Safety Core runs on a Thor device.
 
 For platform architecture, platform safety assumptions, and integration
