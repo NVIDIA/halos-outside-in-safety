@@ -25,6 +25,8 @@ If user did not specify, **ask which scenarios** before proceeding (do NOT defau
 | `balanced`  |  600 | `srr_balanced_char{0,1,2}.bt.json` |
 | `fast`      | 1200 | `srr_fast_char{0,1,2}.bt.json` |
 
+> Plus an opt-in **`fixed`** — a deterministic baseline (hand-authored, always-in-ROI; **excluded from `all` / `full`**, select it explicitly). See `SKILL.md`.
+
 Each scenario is 3 IRA 1.6 behavior trees `srr_<name>_char{0,1,2}.bt.json` at
 `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/` (GitHub layout:
 `<halos-repo>/closed-loop-testing/isaac-sim/sil/configs/`), emitted directly by
