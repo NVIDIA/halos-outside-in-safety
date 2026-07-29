@@ -161,7 +161,7 @@ The skill parses these from the natural-language prompt — no rigid syntax requ
 - **Skill always restarts both Halos and SRR compose** between scenarios (do NOT ask it to skip — Safety Core counter drift carries across runs and corrupts the next).
 - **Safety Core cold-start outlier** is expected on scn_0000 (mute_lag spikes). Skill inserts a 30 s warm-up between scene-ready and `/srr/record true` to mitigate, but the first clip may still be slightly worse than the rest.
 - **Live clip monitor** prints one line per forklift TW crossing during recording — these are the demo's "heartbeat" between phase headers.
-- **Cross-run REPORT.md** is produced in Phase 5 — stored at `runs/multi-test-${TIMESTAMP}-REPORT.md`.
+- **Cross-run `summary.md`** is the canonical Phase-5 output — top-level `runs/multi-test-${TIMESTAMP}/summary.md`. (`REPORT.md` is a separate *optional* stakeholder write-up, produced only when asked.)
 
 ---
 

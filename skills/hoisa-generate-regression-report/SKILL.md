@@ -175,7 +175,7 @@ When running the skill, print exactly this format. The phases / sections are anc
 > All test runs complete.
 
 > Analyzing results...
-  Aggregating per-scenario summary.md → cross-run REPORT.md
+  Aggregating per-scenario summary.md → cross-run summary.md
   Computing safety-critical unmute% per scenario...
 
 > Done. Top-level summary: /app/runs/multi-test-YYYYMMDD-HHMMSS/summary.md

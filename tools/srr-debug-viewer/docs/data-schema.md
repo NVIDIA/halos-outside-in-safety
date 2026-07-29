@@ -15,7 +15,7 @@ multi-test-YYYYMMDD-HHMMSS/
 │   ├── reports/scn_*.md          per-clip aggregator reports
 │   ├── reports/summary.md        scenario-level rollup
 │   ├── scenes/scn_*.parquet      raw 30 Hz capture (not consumed by viewer)
-│   ├── videos/scenes/scn_*.mp4   per-clip MP4 (not consumed by viewer; per-clip
+│   ├── videos/scn_*.mp4          per-clip MP4 (not consumed by viewer; per-clip
 │   │                             clip_logs/ has a copy)
 │   ├── run-*.parquet             scenario-level run pool (not consumed)
 │   └── clip_logs/                THIS is the viewer's data source
@@ -25,6 +25,9 @@ multi-test-YYYYMMDD-HHMMSS/
 │           ├── gt_positions.csv  ← GT positions panel
 │           ├── psf_timeline.csv  ← PSF state panel
 │           ├── ba_events.csv     ← BA events panel
+│           ├── detections.csv    ← Detections panel      (3D runs only)
+│           ├── tracker_state.csv ← Tracker-state panel   (3D runs only)
+│           ├── ba_positions.csv  ← BA-positions panel    (3D + mdx-behavior only)
 │           ├── pss_log.txt       ← (raw — not used by viewer; kept for QA)
 │           ├── pss_log.jsonl     ← pss.log panel
 │           └── video.mp4         ← <video> source
@@ -36,6 +39,11 @@ multi-test-YYYYMMDD-HHMMSS/
 
 The viewer only reads files marked with `←` plus `summary.md` and the per-
 scenario `clip_logs/index.json`.
+
+The three Phase-2 CSVs (`detections`, `tracker_state`, `ba_positions`) are
+written **only for 3D runs** — when the clip captured `mdx-bev` / `mdx-behavior`.
+On 2D runs their `streams` keys are `null` and the viewer renders 4 panels; on a
+full 3D run it renders 7.
 
 ## File schemas
 
@@ -108,12 +116,16 @@ Per-clip metadata. Written by `srr.clip_logs` per clip.
     "gt_positions":      "gt_positions.csv",
     "psf_timeline":      "psf_timeline.csv",
     "ba_events":         "ba_events.csv",
+    "detections":        "detections.csv",     // 3D runs only; null on 2D
+    "tracker_state":     "tracker_state.csv",  // 3D runs only; null on 2D
+    "ba_positions":      "ba_positions.csv",   // 3D + mdx-behavior only; null otherwise
     "pss_log_text":      "pss_log.txt",
     "pss_log_structured":"pss_log.jsonl"
   },
   "counts": {
     "samples":         831,
     "ba_events":       40,
+    "detector_frames": 47,                     // 3D runs only (unique BEV frames); 0 on 2D
     "pss_lines_raw":   165,
     "pss_lines_safety":165
   },
@@ -207,6 +219,55 @@ multi-type events flatten across rows.
 | `ids` | str | VSS event IDs, comma-separated |
 | `create_time` | float / null | proto-extracted creation time (microsec→sec) when present |
 | `raw_hex` | str | first 60 bytes of unparseable proto, hex-encoded — debugging fallback |
+
+### `detections.csv`
+
+**3D runs only** (`mdx-bev`). One row per detection per detector (BEV) frame,
+each greedily matched to the nearest GT actor within a 1.5 m gate. Written by
+`clip_logs._write_detections_csv`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `wall_time` | float (epoch sec) | sync key — the detector frame's arrival wall time |
+| `bev_frame_id` | int | detector (BEV) frame id; groups detections in one frame |
+| `track_id` | int / str | detector track id |
+| `class` | str | detected class (e.g. `Person`, `Forklift`) |
+| `x`, `y`, `z` | float | detection world position (`z` = 0.0 when the detector omits it) |
+| `conf` | float / null | detector confidence when present |
+| `matched_gt` | str | nearest GT actor within gate (`char_0`…`char_2`, `forklift`); `""` if none |
+| `dist_m` | float / "" | distance to the matched GT, metres |
+| `in_coverage` | bool | inside the detector coverage bbox (GT convex-hull + 2 m pad) |
+
+### `tracker_state.csv`
+
+**3D runs only.** One row per detector (BEV) frame: which detector `track_id`
+is assigned to each GT actor over time (track-continuity view). Written by
+`clip_logs._write_tracker_state_csv`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `wall_time` | float | sync key |
+| `bev_frame_id` | int | detector frame id |
+| `n_dets` | int | number of detections in this frame |
+| `char_0_tid`, `char_1_tid`, `char_2_tid` | int / str / "" | track id matched to each character (`""` = unmatched this frame) |
+| `forklift_tid` | int / str / "" | track id matched to the forklift |
+
+### `ba_positions.csv`
+
+**3D + `mdx-behavior` runs only.** One row per Behavior-Analytics-reported
+position, de-duplicated across the 30 Hz oversampling, each matched to the
+nearest GT actor within a 1.5 m gate — so the viewer can show BA localisation
+accuracy alongside the raw detector. Written by `clip_logs._write_ba_positions_csv`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `wall_time` | float | sync key |
+| `track_id` | int / str | BA track id |
+| `x`, `y` | float / "" | BA-reported world position |
+| `speed` | float / null | BA-reported speed when present |
+| `direction` | str | BA-reported heading; `""` if absent |
+| `matched_gt` | str | nearest GT actor within gate; `""` if none |
+| `dist_m` | float / "" | distance to the matched GT (metres) — BA localisation error |
 
 ### `pss_log.jsonl`
 

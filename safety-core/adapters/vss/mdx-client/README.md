@@ -40,7 +40,7 @@ The config file can be:
 
 ## Event mapping config (proto)
 
-Rules are defined in `proto/event_mapping.proto`:
+Rules are defined in the sibling codec's `../mdx-msg-codec/proto/event_mapping.proto`:
 
 - **EventMappingConfig**: repeated **EventMappingRule**
 - **EventMappingRule**:
@@ -54,7 +54,7 @@ Rules are defined in `proto/event_mapping.proto`:
 
 **First matching rule wins.** Rule order in the config matters.
 
-### mdx-frames: how the three violations are derived (proto/gen/mdx-messages)
+### mdx-frames: how the three violations are derived (../mdx-msg-codec/proto/gen/mdx-messages)
 
 | Violation                   | Source in FrameMessage                          |
 |----------------------------|-------------------------------------------------|
@@ -105,7 +105,7 @@ See `safety-core/adapters/vss/event-mappings` for a full text-format example.
 ## Build
 
 - **With CMake**: Build the `mdx_client` target from the top-level `safety-core` build.
-- **Regenerate protos** (if you change `event_mapping.proto`):
+- **Regenerate protos** (protos live in the sibling `mdx-msg-codec/` — `cd` there first, then if you change `event_mapping.proto`):
   ```bash
   protoc -I proto --cpp_out=proto/gen/event-mapping proto/event_mapping.proto
   ```
