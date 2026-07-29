@@ -94,7 +94,7 @@ Skip this step on the 2nd–Nth scenarios of a multi-test — image state is sta
 
 ## Step 3.−1 — Verify SRR fixtures synced into the Isaac SIL dir (one-time / first scenario)
 
-SRR's canonical test fixtures (the 6 scenarios' IRA 1.6 behavior trees,
+SRR's canonical test fixtures (the scenario behavior trees — 5 sweep + `fixed`,
 NavMesh JSON, and the Script-Editor utilities) live under
 `regression-reporter/scenarios/{behavior-trees,scenes,isaac-scripts}/`. Isaac Sim reads
 those at the in-container path `/isaac-sim/sil/...`, which is bind-mounted
@@ -113,7 +113,7 @@ Check each path exists under ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/si
   configs/srr_char0.bt.json                (active tree — Character)
   configs/srr_char1.bt.json                (active tree — Character_01)
   configs/srr_char2.bt.json                (active tree — Character_02)
-  configs/srr_in-roi_char0.bt.json         (per-scenario trees; 6 scenarios x 3 chars)
+  configs/srr_in-roi_char0.bt.json         (per-scenario trees; 6 sets = 5 sweep + fixed, x3 chars)
   configs/srr_fast_char0.bt.json           (spot-check a couple more names)
   configs/navmesh.json
   scripts/isaac/check_srr_prereqs.py       (GT pre-flight diagnostic)

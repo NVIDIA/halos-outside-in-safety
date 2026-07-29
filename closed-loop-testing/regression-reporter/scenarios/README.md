@@ -23,7 +23,7 @@ GitHub layout `closed-loop-testing/isaac-sim/sil/` — before Isaac Sim launches
 scenarios/
 ├── README.md                     # you are here
 ├── behavior-trees/               # IRA 1.6 *.bt.json — the data Isaac 6.0 consumes
-│   └── srr_<6>_char{0,1,2}.bt.json  # in-roi, psf-edge, psf-clear, balanced, fast, fixed
+│   └── srr_<name>_char{0,1,2}.bt.json  # 5 sweep: in-roi, psf-edge, psf-clear, balanced, fast · +fixed (opt-in)
 ├── scenes/                       # exported NavMesh (data)
 │   ├── README.md
 │   └── navmesh.json              # exported NavMesh — derived from the stock scene
@@ -43,7 +43,7 @@ scenarios/
 
 | If you want… | Look in |
 |---|---|
-| The 6 scenarios' behavior trees | [`behavior-trees/`](behavior-trees/) |
+| The scenario behavior trees (5 sweep + `fixed`) | [`behavior-trees/`](behavior-trees/) |
 | The exported NavMesh JSON used by `randomize_paths.py` | [`scenes/navmesh.json`](scenes/navmesh.json) |
 | To regenerate a scenario's `srr_<name>_char{0,1,2}.bt.json` | [`tools/randomize_paths.py`](tools/randomize_paths.py) |
 | To sanity-check a hand-edited `.bt.json` | [`tools/validate_waypoints.py`](tools/validate_waypoints.py) |
@@ -64,6 +64,8 @@ fast        ............................  0.6    0                200       1,3 
 ```
 
 All 5 use `--agent-radius 0.8` and target the stock scene `indicator_warehouse_20x20_layout_overflow_test.usd`.
+
+A sixth set, `srr_fixed_char{0,1,2}`, is **hand-authored** — a deterministic, always-in-ROI baseline, **not** produced by `randomize_paths.py` — and **opt-in**: it is excluded from the default `all` / `full` sweep. See the report skill's scenario table.
 
 ## Generator flags (`randomize_paths.py`)
 

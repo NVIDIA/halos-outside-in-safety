@@ -33,7 +33,7 @@ without dragging tooling along).
 
 ## Usage — regenerating a scenario
 
-The canonical scenarios were generated with these flag combinations:
+The **5 randomized** canonical scenarios were generated with these flag combinations (the opt-in `fixed` scenario is hand-authored, not generated):
 
 ```
                                      --roi-bias  --roi-clearance  --cycles  --idle-short  --spawn-return-every
