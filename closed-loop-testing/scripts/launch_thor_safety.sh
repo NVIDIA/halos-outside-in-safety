@@ -7,8 +7,9 @@
 # On Thor the Safety Core is hybrid (nv-psf container + host binaries) and is orchestrated by
 # /opt/nvidia/psf/bin/launch_hoisa.sh, not by docker compose. This helper reads a profile env
 # (deployments/profiles/<profile>.env) and invokes launch_hoisa.sh with the matching flags.
-# The SDM runs on the CCPLEX. The same launcher path serves the base (overlay) profile
-# and the HIL safety host. See skills/hoisa-deploy-profile/references/halos_thor.md.
+# SDM_TARGET selects where the SDM runs (`ccplex` — the Thor application cores). The same
+# launcher path serves the base (overlay) profile and the HIL safety host.
+# See skills/hoisa-deploy-profile/references/halos_thor.md.
 #
 # Usage:
 #   bash closed-loop-testing/scripts/launch_thor_safety.sh <profile>   # e.g. base-thor
@@ -42,13 +43,14 @@ LAUNCHER=/opt/nvidia/psf/bin/launch_hoisa.sh
 [ -x "$LAUNCHER" ] || { echo "ERROR: $LAUNCHER not found — install the Safety Core Tegra package first (PSF docs HOISA User Guide §1)."; exit 1; }
 [ -f "$PSF_SENSOR_CONFIG" ] || { echo "ERROR: sensor config not found: $PSF_SENSOR_CONFIG (copy the template + fill the VST URLs)."; exit 1; }
 
+SDM_TARGET="${SDM_TARGET:-ccplex}"
 PSF_LAUNCH_MODE="${PSF_LAUNCH_MODE:-active}"
 KAFKA_BROKER="${KAFKA_BROKER:-localhost:9092}"
 
 echo "=== Halos Thor Safety Core launch ==="
 echo "  Profile:    $PROFILE"
 echo "  Mode:       $PSF_LAUNCH_MODE"
-echo "  SDM:        atl_sdm on the CCPLEX"
+echo "  SDM target: $SDM_TARGET"
 echo "  Cmd sink:   ${PSF_CMD_RX_IP}:${PSF_CMD_RX_PORT}"
 echo "  Kafka:      $KAFKA_BROKER"
 echo ""
@@ -57,7 +59,7 @@ echo ""
 # and installs its own signal-trap cleanup. Stop with stop_thor_safety.sh.
 exec sudo "$LAUNCHER" \
     --mode "$PSF_LAUNCH_MODE" --app atl \
-    --sdm-target ccplex \
+    --sdm-target "$SDM_TARGET" \
     --sensor-config "$PSF_SENSOR_CONFIG" \
     --docker-image "$PSF_IMAGE" \
     --cmd-rx-ip "$PSF_CMD_RX_IP" --cmd-rx-port "$PSF_CMD_RX_PORT" \

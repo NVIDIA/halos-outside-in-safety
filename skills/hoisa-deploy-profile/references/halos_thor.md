@@ -72,6 +72,7 @@ data. See `vss_2d_overrides.md` for the base-vs-SIL override notes.
 Edit `deployments/profiles/base-thor.env` (fill the `# change me` fields):
 
 - `HOST_IP` — this Thor's IP.
+- `SDM_TARGET` — where the SDM runs: `ccplex`, the Thor application cores.
 - `PSF_IMAGE` — the nv-psf container (multi-arch; same tag as x86 `base`, Docker selects arm64 on Thor).
 - `PSF_CMD_RX_PORT` — `12345`, the VST `halo_safety` overlay port (see §6).
 - `PSF_LAUNCH_MODE` — `active` (full stack) or `skip` (omit the AI monitor; use only if the
