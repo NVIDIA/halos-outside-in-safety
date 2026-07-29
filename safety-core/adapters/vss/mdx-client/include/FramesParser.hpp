@@ -48,6 +48,11 @@ private:
         const std::vector<std::pair<std::string, std::string>>& restrictedViolations,
         const std::vector<std::pair<std::string, std::string>>& restrictedRoiEmitted,
         std::vector<AlertMessage>& alerts);
+    // A successfully decoded frame with no ROI entries is an approved
+    // application-event clear condition. Emit only configured false ROI rules;
+    // this does not change downstream fault-latch or manual-release behavior.
+    void emitEmptyRoiClears(const NvPSFMsgCodecMsg* frameMsg,
+        const NvPSFMsgCodecMsg* config, std::vector<AlertMessage>& alerts);
     AlertMessage buildAlertFromFrameSocialDistancing(const NvPSFMsgCodecMsg* frameMsg);
     AlertMessage buildAlertFromFrameObject(const NvPSFMsgCodecMsg* frameMsg,
         const NvPSFMsgCodecMsg* obj, const char* type, const std::string& ruleId, uint32_t assignId);

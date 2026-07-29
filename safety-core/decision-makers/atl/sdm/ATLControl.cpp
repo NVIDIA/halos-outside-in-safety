@@ -685,6 +685,17 @@ static bool sendDecisionCommandInternal(unsigned char command, bool trackAck,
     }
 
     bool sentOk = false;
+    const bool trackPendingAck = trackAck && shouldPrintAndTrack;
+    /*
+     * Register before sendto(): cmd_rx can return an ACK immediately, and
+     * registering after send leaves a window where ackHandlerLoop drops that
+     * otherwise valid ACK because no pending entry exists yet.
+     */
+    if (trackPendingAck) {
+        std::lock_guard<std::mutex> cmdLock(commandStatusMtx);
+        pendingCommands[seqNo] = CommandStatus(command, tsSec, tsMicro);
+    }
+
     {
         std::lock_guard<std::mutex> sockLock(plcSocketMtx);
         if (plcSock >= 0) {
@@ -698,9 +709,15 @@ static bool sendDecisionCommandInternal(unsigned char command, bool trackAck,
         }
     }
 
-    if (sentOk && trackAck && shouldPrintAndTrack) {
+    if (!sentOk && trackPendingAck) {
         std::lock_guard<std::mutex> cmdLock(commandStatusMtx);
-        pendingCommands[seqNo] = CommandStatus(command, tsSec, tsMicro);
+        const auto it = pendingCommands.find(seqNo);
+        if (it != pendingCommands.end() &&
+            it->second.command == command &&
+            it->second.sentTimeSec == tsSec &&
+            it->second.sentTimeMicro == tsMicro) {
+            pendingCommands.erase(it);
+        }
     }
     return sentOk;
 }
@@ -970,25 +987,53 @@ void ackHandlerLoop()
                 }
 
                 uint16_t seqNo = ackPkt->seq;
+                bool dropAck = false;
+                bool matchedAck = false;
+                unsigned char acknowledgedCommand = 0U;
 
-                std::lock_guard<std::mutex> lock(commandStatusMtx);
-                auto it = pendingCommands.find(seqNo);
-                if (it != pendingCommands.end()) {
-                    if (ackPkt->command != it->second.command)
-                    {
-                        atl_log_warning("SDM: dropping ACK with command/sequence mismatch");
-                        continue;
+                {
+                    std::lock_guard<std::mutex> lock(commandStatusMtx);
+                    auto it = pendingCommands.find(seqNo);
+                    if (it != pendingCommands.end()) {
+                        if (ackPkt->command != it->second.command)
+                        {
+                            dropAck = true;
+                        }
+                        else
+                        {
+                            it->second.acknowledged = true;
+                            matchedAck = true;
+                            acknowledgedCommand = it->second.command;
+                        }
                     }
-                    it->second.acknowledged = true;
+                }
+
+                std::string ackLog;
+                if (dropAck)
+                {
+                    ackLog = "SDM: dropping ACK with command/sequence mismatch";
+                    atl_log_warning(ackLog);
+                }
+                else if (matchedAck)
+                {
                     std::ostringstream ackMsg;
                     ackMsg << "Received acknowledgment for command: "
-                           << commandName(it->second.command)
+                           << commandName(acknowledgedCommand)
                            << " (SeqNo: " << seqNo << ")"
                            << ", ACK UTC epoch: " << ackPkt->ts_seconds
                            << "." << std::setfill('0') << std::setw(6)
                            << ackPkt->ts_microseconds;
                     atl_log_info(ackMsg.str());
                 }
+                else
+                {
+                    ackLog = "SDM: received valid ACK with no pending command (SeqNo: " +
+                             std::to_string(seqNo) + ", command: " +
+                             std::string(commandName(ackPkt->command)) + ")";
+                    atl_log_warning(ackLog);
+                }
+                if (dropAck)
+                    continue;
             }
         }
 

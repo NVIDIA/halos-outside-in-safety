@@ -409,19 +409,7 @@ std::vector<AlertMessage> FramesParser::parseFramesMessage(const std::string& da
     int objectsCount = NvPSFMsgCodecGetRepeatedCount(frameMsg, "objects");
 
     if (roisCount == 0) {
-        for (int objIdx = 0; objIdx < objectsCount; objIdx++) {
-            NvPSFMsgCodecMsg* obj = nullptr;
-            char objPath[64];
-            snprintf(objPath, sizeof(objPath), "objects[%d]", objIdx);
-            if (NvPSFMsgCodecGetSubMsg(frameMsg, objPath, &obj) != NvPSFMSGCODEC_SUCCESS) continue;
-            AlertMessage alertMsg = buildAlertFromFrameObject(frameMsg, obj, "empty_roi", "", 0);
-            alertMsg.restrictedAreaViolation = false;
-            alertMsg.confinedAreaViolation = false;
-            alertMsg.socialDistancingViolation = false;
-            alertMsg.candidateKind = AlertCandidateKind::kNone;
-            alerts.push_back(alertMsg);
-            NvPSFMsgCodecFreeMsg(obj);
-        }
+        emitEmptyRoiClears(frameMsg, config, alerts);
     } else {
         // Track, across all ROI entries of this frame, which restricted areas are
         // present and which (roiId, objectType) combinations actually reported a
@@ -710,6 +698,58 @@ void FramesParser::emitRestrictedAreaClears(const NvPSFMsgCodecMsg* frameMsg,
         alertMsg.confinedAreaViolation = false;
         alertMsg.socialDistancingViolation = false;
         alertMsg.candidateKind = AlertCandidateKind::kRestrictedRoi;
+        alerts.push_back(alertMsg);
+    }
+}
+
+void FramesParser::emitEmptyRoiClears(const NvPSFMsgCodecMsg* frameMsg,
+        const NvPSFMsgCodecMsg* config, std::vector<AlertMessage>& alerts) {
+    if (config == nullptr) {
+        return;
+    }
+    const int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
+    std::set<std::pair<std::string, AlertCandidateKind>> emittedClears;
+    for (int ruleIndex = 0; ruleIndex < rulesCount; ++ruleIndex) {
+        NvPSFMsgCodecMsg* rule = nullptr;
+        char rulePath[64];
+        snprintf(rulePath, sizeof(rulePath), "rules[%d]", ruleIndex);
+        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS ||
+            rule == nullptr) {
+            continue;
+        }
+        const std::string messageSource = getStringField(rule, "message_source");
+        const std::string alertType = getStringField(rule, "alert_type");
+        const std::string objectType = getStringField(rule, "object_type");
+        const std::string ruleId = getStringField(rule, "rule_id");
+        const std::string restrictedFilter = getStringField(rule, "restricted_area_violation");
+        const std::string confinedFilter = getStringField(rule, "confined_area_violation");
+        NvPSFMsgCodecFreeMsg(rule);
+
+        if (!stringEqualsCaseInsensitive(messageSource, "mdx-frames") ||
+            !stringEqualsCaseInsensitive(alertType, "roi") ||
+            objectType.empty() || ruleId.empty()) {
+            continue;
+        }
+        AlertCandidateKind candidateKind = AlertCandidateKind::kNone;
+        if (stringEqualsCaseInsensitive(restrictedFilter, "false") &&
+            confinedFilter.empty()) {
+            candidateKind = AlertCandidateKind::kRestrictedRoi;
+        } else if (stringEqualsCaseInsensitive(confinedFilter, "false") &&
+                   restrictedFilter.empty()) {
+            candidateKind = AlertCandidateKind::kConfinedRoi;
+        } else {
+            continue;
+        }
+        const std::pair<std::string, AlertCandidateKind> dedupeKey(
+            ruleId + "\x1f" + objectType, candidateKind);
+        if (!emittedClears.insert(dedupeKey).second) {
+            continue;
+        }
+        AlertMessage alertMsg = buildRoiStateAlert(frameMsg, ruleId, objectType);
+        alertMsg.restrictedAreaViolation = false;
+        alertMsg.confinedAreaViolation = false;
+        alertMsg.socialDistancingViolation = false;
+        alertMsg.candidateKind = candidateKind;
         alerts.push_back(alertMsg);
     }
 }

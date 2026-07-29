@@ -53,7 +53,7 @@ Rules are defined in `safety-core/adapters/vss/mdx-msg-codec/proto/event_mapping
     - **social_distancing_violation** – from `FrameMessage.socialDistancing` (SD.proximityDetections)
   - **Output**: `output_event`
 
-Invalid violation filters are rejected when configuration loads. Any non-empty restricted/confined filter must explicitly use `message_source: "mdx-frames"` and `alert_type: "roi"`; any non-empty generic social-distance filter must use `message_source: "mdx-frames"` and `alert_type: "social_distancing"`. Violation filters cannot be combined in one rule. Both asserted and false ROI rules may constrain `object_type`; it is evaluated only against a current-frame object proven by the ROI.
+Invalid violation filters are rejected when configuration loads. Any non-empty restricted/confined filter must explicitly use `message_source: "mdx-frames"` and `alert_type: "roi"`; any non-empty generic social-distance filter must use `message_source: "mdx-frames"` and `alert_type: "social_distancing"`. Violation filters cannot be combined in one rule. Both asserted and false ROI rules may constrain `object_type`; it is evaluated only against a current-frame object proven by the ROI, except for the decoded-empty-ROI clear behavior below, which uses the configured rule identity and type.
 
 **First matching rule wins.** Rule order in the config matters.
 
@@ -61,15 +61,15 @@ Invalid violation filters are rejected when configuration loads. Any non-empty r
 
 | Violation                   | Source in FrameMessage                          |
 |----------------------------|-------------------------------------------------|
-| restricted_area_violation  | Each readable ROI with `id`, `type`, exact `info["restrictedAreaViolation"]`, and a unique `objectIds` member that resolves to one current object of the same type. The value is exactly `"true"` or `"false"`. |
-| confined_area_violation   | The same current-ROI/current-object proof, using exact `info["confinedAreaViolation"]`. |
+| restricted_area_violation  | Each readable ROI with `id`, `type`, exact `info["restrictedAreaViolation"]`, and a unique `objectIds` member that resolves to one current object of the same type. The value is exactly `"true"` or `"false"`. A successfully decoded frame with `roisCount == 0` also creates a false candidate for each valid configured restricted false rule. |
+| confined_area_violation   | The same current-ROI/current-object proof, using exact `info["confinedAreaViolation"]`. A successfully decoded frame with `roisCount == 0` also creates a false candidate for each valid configured confined false rule. |
 | social_distancing_violation | Generic frame-social candidate: `proximityDetections > 0` is `true`; zero or an absent optional `socialDistancing` submessage is `false`; negative creates no generic candidate. |
 
 Alerts from social distancing use `alert_type: "social_distancing"`.
 
 ### Per-frame assertion and clear rules
 
-Every valid current-frame candidate is evaluated independently; there are no transition-only alert types. A missing/unreadable ROI, missing ID/type/object ID, invalid ROI value, ambiguous ID, unresolved current object, or ROI/current-object type mismatch produces no restricted/confined candidate and never infers a false value. Both asserted and false rules may constrain `object_type`; the candidate carries the proven current object type.
+Every valid current-frame candidate is evaluated independently; there are no transition-only alert types. A missing/unreadable ROI, missing ID/type/object ID, invalid ROI value, ambiguous ID, unresolved current object, or ROI/current-object type mismatch produces no restricted/confined candidate and never infers a false value. The sole exception is a successfully decoded frame with an explicitly empty `rois` list: the client creates one false restricted or confined candidate per valid configured false rule, using that rule's `rule_id` and `object_type`. Decode failures and non-empty ROI frames do not take this clear path. Both asserted and false rules may constrain `object_type`; normal ROI candidates carry the proven current object type, while the decoded-empty-ROI clear candidate carries the configured type.
 
 For ATL restricted-area rules, the approved application-event mapping is:
 
