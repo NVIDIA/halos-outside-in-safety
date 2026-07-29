@@ -24,15 +24,15 @@ keeps decisions flowing.
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env` (in 3.2.1 these are often already the `bp_wh_kafka` defaults —
-confirm they are set):
+Set in `<wh_ops>/.env`. Verified against the v3.2.1 tag: only `VLM_MODE` already carries
+the value below — the rest ship differently and must be changed:
 
 ```bash
-BP_PROFILE=bp_wh_kafka                                          # MUST include Kafka for PSF
-LLM_MODE=none                                                   # Not needed for SIL
-VLM_MODE=none                                                   # Not needed for SIL
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # SIL synthetic dataset (3 cams)
-NUM_STREAMS=3                                                   # Matches 3 Isaac Sim cameras
+BP_PROFILE=bp_wh_kafka                                          # default: bp_wh — MUST include Kafka for PSF
+LLM_MODE=none                                                   # default: local — not needed for SIL
+VLM_MODE=none                                                   # already the default
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: nv-warehouse-4cams — SIL synthetic dataset (3 cams)
+NUM_STREAMS=3                                                   # default: 4 — matches 3 Isaac Sim cameras
 ```
 
 **Why**:
