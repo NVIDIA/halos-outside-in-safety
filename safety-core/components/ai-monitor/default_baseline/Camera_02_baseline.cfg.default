@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+hist_mean=147.009
+hist_var=2134.21
+rms_contrast=0.317774
+edge_density=0.0610611
+entropy=7.34101
+lap_var=1825.49
+hist_mean_std=9.3927
+hist_var_std=136.349
+rms_contrast_std=0.0573839
+edge_density_std=0.00746378
+entropy_std=0.391435
+lap_var_std=151.452
+total_frames=9001
+canny_low_thresh=50
+canny_high_thresh=150
+cb_mean=126.961
+cb_mean_std=15.8688
+cb_var=56.5483
+cb_var_std=7.36735
+cr_mean=124.909
+cr_mean_std=15.6241
+cr_var=24.1261
+cr_var_std=5.18765
+sat_mean=5.75903
+sat_mean_std=21.0538
+sat_var=73.7411
+sat_var_std=10.89

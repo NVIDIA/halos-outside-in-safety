@@ -60,11 +60,12 @@ typedef struct NvPSSDToPSDResp_t
  *  @brief Register a PSS client.
  *  @description This function allows a client to register with the PSS daemon,
  *  identifying itself by type. Multiple CLIENT_MDX clients may coexist;
- *  CLIENT_SAFETY_MONITOR and CLIENT_PSD_GATEWAY are singletons (only one active
- *  client of each is allowed at a time).
+ *  CLIENT_SAFETY_MONITOR, CLIENT_PSD_GATEWAY, and CLIENT_PERCEPTION_MONITOR
+ *  are singletons (only one active client of each is allowed at a time).
  *
  *  @param clientId  Output: unique identifier assigned by the daemon.
- *  @param clientType One of CLIENT_MDX, CLIENT_SAFETY_MONITOR, or CLIENT_PSD_GATEWAY.
+ *  @param clientType One of CLIENT_MDX, CLIENT_SAFETY_MONITOR,
+ *                    CLIENT_PSD_GATEWAY, or CLIENT_PERCEPTION_MONITOR.
  *
  *  @return NVPSSD_SUCCESS if the daemon accepted the registration, NVPSSD_FAIL otherwise.
  */
@@ -125,10 +126,19 @@ NvPSSDErr NvPSSReportSafetyEvent(const uint32_t clientId, const SafetyEvent* eve
 #define HB_STALE_GRACE_MS 1500   /* Slack above HB_INTERVAL_MS so jitter/scheduling does not false-stale before next HB */
 #define HB_TIMEOUT_MS    (HB_INTERVAL_MS + HB_STALE_GRACE_MS) /* Stale if no SEND_HEARTBEAT within this window */
 
-/* Client type identifiers (used at registration and heartbeat) */
-#define CLIENT_MDX              1
-#define CLIENT_SAFETY_MONITOR   2
-#define CLIENT_PSD_GATEWAY      3
+/* Client type identifiers (used at registration and heartbeat).
+ *
+ * Trust-report authorization is per-event-type:
+ *   SENSOR_INVALID / SENSOR_VALID                 -> only CLIENT_SAFETY_MONITOR
+ *   AI_PIPELINE_INVALID / AI_PIPELINE_VALID       -> only CLIENT_PERCEPTION_MONITOR
+ *
+ * CLIENT_MDX is multi-client; CLIENT_SAFETY_MONITOR, CLIENT_PSD_GATEWAY, and
+ * CLIENT_PERCEPTION_MONITOR are singletons.
+ */
+#define CLIENT_MDX                 1
+#define CLIENT_SAFETY_MONITOR      2
+#define CLIENT_PSD_GATEWAY         3
+#define CLIENT_PERCEPTION_MONITOR  4
 
 /*
  *  @brief Send heartbeat to PSS daemon and wait for HEARTBEAT_ACK.
@@ -136,7 +146,8 @@ NvPSSDErr NvPSSReportSafetyEvent(const uint32_t clientId, const SafetyEvent* eve
  *  Returns NVPSSD_SUCCESS only if the daemon acknowledges with HEARTBEAT_ACK.
  *
  *  @param clientId The ID of the client sending heartbeat.
- *  @param clientType The type of client (CLIENT_MDX, CLIENT_SAFETY_MONITOR, or CLIENT_PSD_GATEWAY).
+ *  @param clientType One of CLIENT_MDX, CLIENT_SAFETY_MONITOR,
+ *                    CLIENT_PSD_GATEWAY, or CLIENT_PERCEPTION_MONITOR.
  *  @return NVPSSD_SUCCESS on success, NVPSSD_FAIL on failure.
  */
 NvPSSDErr NvPSSSendHeartbeat(const uint32_t clientId, const uint8_t clientType);

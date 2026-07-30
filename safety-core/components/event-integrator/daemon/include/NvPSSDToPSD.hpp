@@ -4,7 +4,7 @@
  */
 
 #ifndef NVPSSD_TO_PSD_HPP
-#define NVPSSD_TO_PSD__HPP
+#define NVPSSD_TO_PSD_HPP
 
 #include <unordered_map>
 #include <vector>
@@ -46,7 +46,9 @@ public:
     NvPSSDErr startPSSDServer();
     NvPSSDErr stopPSSDServer();
 
-    NvPSSDErr sendDecisionRequestToPSD(const DecisionRequest& request, DecisionResponse* response);
+    NvPSSDErr sendDecisionRequestToPSD(const DecisionRequest& request,
+                                       DecisionResponse* response,
+                                       uint32_t timeoutMs);
 };
 
 }

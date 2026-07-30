@@ -4,12 +4,14 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <cstring>
 #include <unistd.h>
 #include <sys/select.h>
 
 #include "NvPSSDToPSD.hpp"
+#include "NvPSSDeliveryFailSafe.hpp"
 #include "pss_message_validate.h"
 
 namespace nvpss
@@ -370,7 +372,9 @@ NvPSSDErr NvPSSDToPSDClient::handlePSDClientDisconnection(uint32_t clientId)
 }
 
 // Sending DecisionRequest and DecisionResponse to the appropriate PSD Client based on the Safety Event's type
-NvPSSDErr NvPSSDToPSDClient::sendDecisionRequestToPSD(const DecisionRequest& request, DecisionResponse* response)
+NvPSSDErr NvPSSDToPSDClient::sendDecisionRequestToPSD(const DecisionRequest& request,
+                                                      DecisionResponse* response,
+                                                      uint32_t timeoutMs)
 {
     if (!response) {
         std::cerr << "ERROR: NULL response pointer" << std::endl;
@@ -398,10 +402,10 @@ NvPSSDErr NvPSSDToPSDClient::sendDecisionRequestToPSD(const DecisionRequest& req
     }
 
     int targetPSSDSocket = PSSDSocket->second;
-    // Set 2-second timeout
+    // Bound send/receive blocking time using the PSS-to-PSD response timeout.
     struct timeval tv;
-    tv.tv_sec = 2;
-    tv.tv_usec = 0;
+    tv.tv_sec = static_cast<time_t>(timeoutMs / 1000U);
+    tv.tv_usec = static_cast<suseconds_t>((timeoutMs % 1000U) * 1000U);
     if (setsockopt(targetPSSDSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
         std::cerr << "Warning: Failed to set socket receive timeout: " << strerror(errno) << std::endl;
     }
@@ -442,27 +446,74 @@ NvPSSDErr NvPSSDToPSDClient::sendDecisionRequestToPSD(const DecisionRequest& req
         return NVPSSD_FAIL;
     }
 
-    // Receive DecisionResponse from PSD client
-    ssize_t bytesReceived = recv(targetPSSDSocket, response, sizeof(DecisionResponse), 0);
-    if (bytesReceived < 0) {
-        if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            std::cerr << "Timeout receiving DecisionResponse from PSD client " << targetPSDClientId
-                      << " (waited 2 seconds)" << std::endl;
-        } else {
-            std::cerr << "Failed to receive DecisionResponse from PSD client " << targetPSDClientId
-                      << ": " << strerror(errno) << std::endl;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    uint32_t discardedResponses = 0U;
+    /* A late response from an earlier timed-out request can be read first on
+     * this socket. Only a matching decisionId proves delivery for the current
+     * request; mismatches are drained until the bounded deadline. */
+    for (;;)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline)
+        {
+            std::cerr << "Timeout receiving matching DecisionResponse from PSD client "
+                      << targetPSDClientId << " (waited " << timeoutMs << " ms)"
+                      << std::endl;
+            return NVPSSD_FAIL;
         }
-        return NVPSSD_FAIL;
-    }
 
-    if (bytesReceived == 0) {
-        std::cerr << "PSD client " << targetPSDClientId << " closed connection" << std::endl;
-        return NVPSSD_FAIL;
-    }
+        const auto remainingMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+        struct timeval recvTv;
+        recvTv.tv_sec = static_cast<time_t>(remainingMs / 1000);
+        recvTv.tv_usec = static_cast<suseconds_t>((remainingMs % 1000) * 1000);
+        if (recvTv.tv_sec == 0 && recvTv.tv_usec == 0)
+            recvTv.tv_usec = 1000;
+        if (setsockopt(targetPSSDSocket, SOL_SOCKET, SO_RCVTIMEO, &recvTv, sizeof(recvTv)) < 0) {
+            std::cerr << "Warning: Failed to update socket receive timeout: "
+                      << strerror(errno) << std::endl;
+        }
 
-    if (bytesReceived != sizeof(DecisionResponse)) {
-        std::cerr << "Partial receive from PSD client " << targetPSDClientId << std::endl;
-        return NVPSSD_FAIL;
+        DecisionResponse candidate = {};
+        const ssize_t bytesReceived = recvAll(targetPSSDSocket, &candidate,
+                                              sizeof(DecisionResponse));
+        if (bytesReceived < 0) {
+            if (errno == EWOULDBLOCK || errno == EAGAIN) {
+                std::cerr << "Timeout receiving DecisionResponse from PSD client " << targetPSDClientId
+                          << " (waited " << timeoutMs << " ms)" << std::endl;
+            } else {
+                std::cerr << "Failed to receive DecisionResponse from PSD client " << targetPSDClientId
+                          << ": " << strerror(errno) << std::endl;
+            }
+            return NVPSSD_FAIL;
+        }
+
+        if (bytesReceived == 0) {
+            std::cerr << "PSD client " << targetPSDClientId << " closed connection" << std::endl;
+            return NVPSSD_FAIL;
+        }
+
+        const NvPSSDecisionResponseReceiveAction receiveAction =
+            NvPSSDecisionResponseReceiveActionFor(
+                request, candidate, static_cast<int>(bytesReceived));
+        if (receiveAction == NvPSSDecisionResponseReceiveAction::ACCEPT)
+        {
+            *response = candidate;
+            break;
+        }
+        if (receiveAction == NvPSSDecisionResponseReceiveAction::FAIL)
+        {
+            std::cerr << "Partial receive from PSD client " << targetPSDClientId << std::endl;
+            return NVPSSD_FAIL;
+        }
+
+        ++discardedResponses;
+        std::cerr << "Mismatched DecisionResponse from PSD client " << targetPSDClientId
+                  << ": decisionId=" << candidate.decisionId
+                  << ", requestId=" << request.requestId
+                  << ", discardedResponses=" << discardedResponses
+                  << ", continuing until timeout" << std::endl;
     }
 
     std::cout << "Successfully routed DecisionRequest for event type " << eventType

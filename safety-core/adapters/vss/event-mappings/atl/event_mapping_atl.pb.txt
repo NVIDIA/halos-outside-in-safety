@@ -9,7 +9,6 @@ rules {
   object_type: "forklift"
   rule_id: "tripwire-id-1"
   output_event: "EVENT_0"
-  severity: "HIGH"
 }
 rules {
   name: "Forklift tripwire IN"
@@ -19,7 +18,6 @@ rules {
   object_type: "forklift"
   rule_id: "tripwire-id-1"
   output_event: "EVENT_1"
-  severity: "HIGH"
 }
 rules {
   name: "Person tripwire OUT"
@@ -29,7 +27,6 @@ rules {
   object_type: "person"
   rule_id: "tripwire-id-1"
   output_event: "EVENT_2"
-  severity: "HIGH"
 }
 rules {
   name: "Person tripwire IN"
@@ -39,7 +36,6 @@ rules {
   object_type: "person"
   rule_id: "tripwire-id-1"
   output_event: "EVENT_3"
-  severity: "HIGH"
 }
 rules {
   name: "Person restricted area ROI violation"
@@ -49,14 +45,13 @@ rules {
   rule_id: "roi-id-1"
   restricted_area_violation: "true"
   output_event: "EVENT_4"
-  severity: "HIGH"
 }
 rules {
   name: "Person restricted area ROI violation cleared"
   message_source: "mdx-frames"
-  alert_type: "restrictedAreaViolationCleared"
+  alert_type: "roi"
   object_type: "person"
   rule_id: "roi-id-1"
+  restricted_area_violation: "false"
   output_event: "EVENT_5"
-  severity: "HIGH"
 }

@@ -252,7 +252,8 @@ NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
     }
     if (clientType != CLIENT_MDX &&
         clientType != CLIENT_SAFETY_MONITOR &&
-        clientType != CLIENT_PSD_GATEWAY)
+        clientType != CLIENT_PSD_GATEWAY &&
+        clientType != CLIENT_PERCEPTION_MONITOR)
     {
         NvPSBWriteData(NVPSB_LOG_ERR,
                        "NvPSSRegisterPSSClient_Socket: invalid clientType",

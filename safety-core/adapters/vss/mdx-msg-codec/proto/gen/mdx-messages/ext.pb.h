@@ -605,6 +605,7 @@ class Behavior final :
     kAnalyticsModuleFieldNumber = 17,
     kObjectFieldNumber = 18,
     kEventFieldNumber = 19,
+    kLlmFieldNumber = 26,
     kDistanceFieldNumber = 8,
     kSpeedFieldNumber = 9,
     kTimeIntervalFieldNumber = 11,
@@ -950,6 +951,24 @@ class Behavior final :
       ::nv::Event* event);
   ::nv::Event* unsafe_arena_release_event();
 
+  // .nv.LLM llm = 26;
+  bool has_llm() const;
+  private:
+  bool _internal_has_llm() const;
+  public:
+  void clear_llm();
+  const ::nv::LLM& llm() const;
+  PROTOBUF_NODISCARD ::nv::LLM* release_llm();
+  ::nv::LLM* mutable_llm();
+  void set_allocated_llm(::nv::LLM* llm);
+  private:
+  const ::nv::LLM& _internal_llm() const;
+  ::nv::LLM* _internal_mutable_llm();
+  public:
+  void unsafe_arena_set_allocated_llm(
+      ::nv::LLM* llm);
+  ::nv::LLM* unsafe_arena_release_llm();
+
   // double distance = 8;
   void clear_distance();
   double distance() const;
@@ -1026,6 +1045,7 @@ class Behavior final :
     ::nv::AnalyticsModule* analyticsmodule_;
     ::nv::Object* object_;
     ::nv::Event* event_;
+    ::nv::LLM* llm_;
     double distance_;
     double speed_;
     double timeinterval_;
@@ -1200,6 +1220,7 @@ class Incident final :
     kEndFieldNumber = 3,
     kPlaceFieldNumber = 6,
     kAnalyticsModuleFieldNumber = 7,
+    kLlmFieldNumber = 12,
     kIsAnomalyFieldNumber = 10,
   };
   // repeated string objectIds = 4;
@@ -1385,6 +1406,24 @@ class Incident final :
       ::nv::AnalyticsModule* analyticsmodule);
   ::nv::AnalyticsModule* unsafe_arena_release_analyticsmodule();
 
+  // .nv.LLM llm = 12;
+  bool has_llm() const;
+  private:
+  bool _internal_has_llm() const;
+  public:
+  void clear_llm();
+  const ::nv::LLM& llm() const;
+  PROTOBUF_NODISCARD ::nv::LLM* release_llm();
+  ::nv::LLM* mutable_llm();
+  void set_allocated_llm(::nv::LLM* llm);
+  private:
+  const ::nv::LLM& _internal_llm() const;
+  ::nv::LLM* _internal_mutable_llm();
+  public:
+  void unsafe_arena_set_allocated_llm(
+      ::nv::LLM* llm);
+  ::nv::LLM* unsafe_arena_release_llm();
+
   // bool isAnomaly = 10;
   void clear_isanomaly();
   bool isanomaly() const;
@@ -1416,6 +1455,7 @@ class Incident final :
     ::PROTOBUF_NAMESPACE_ID::Timestamp* end_;
     ::nv::Place* place_;
     ::nv::AnalyticsModule* analyticsmodule_;
+    ::nv::LLM* llm_;
     bool isanomaly_;
     mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
   };
@@ -3516,6 +3556,91 @@ Behavior::embeddings() const {
   return _impl_.embeddings_;
 }
 
+// .nv.LLM llm = 26;
+inline bool Behavior::_internal_has_llm() const {
+  return this != internal_default_instance() && _impl_.llm_ != nullptr;
+}
+inline bool Behavior::has_llm() const {
+  return _internal_has_llm();
+}
+inline const ::nv::LLM& Behavior::_internal_llm() const {
+  const ::nv::LLM* p = _impl_.llm_;
+  return p != nullptr ? *p : reinterpret_cast<const ::nv::LLM&>(
+      ::nv::_LLM_default_instance_);
+}
+inline const ::nv::LLM& Behavior::llm() const {
+  // @@protoc_insertion_point(field_get:nv.Behavior.llm)
+  return _internal_llm();
+}
+inline void Behavior::unsafe_arena_set_allocated_llm(
+    ::nv::LLM* llm) {
+  if (GetArenaForAllocation() == nullptr) {
+    delete reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(_impl_.llm_);
+  }
+  _impl_.llm_ = llm;
+  if (llm) {
+
+  } else {
+
+  }
+  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:nv.Behavior.llm)
+}
+inline ::nv::LLM* Behavior::release_llm() {
+
+  ::nv::LLM* temp = _impl_.llm_;
+  _impl_.llm_ = nullptr;
+#ifdef PROTOBUF_FORCE_COPY_IN_RELEASE
+  auto* old =  reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(temp);
+  temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+  if (GetArenaForAllocation() == nullptr) { delete old; }
+#else  // PROTOBUF_FORCE_COPY_IN_RELEASE
+  if (GetArenaForAllocation() != nullptr) {
+    temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+  }
+#endif  // !PROTOBUF_FORCE_COPY_IN_RELEASE
+  return temp;
+}
+inline ::nv::LLM* Behavior::unsafe_arena_release_llm() {
+  // @@protoc_insertion_point(field_release:nv.Behavior.llm)
+
+  ::nv::LLM* temp = _impl_.llm_;
+  _impl_.llm_ = nullptr;
+  return temp;
+}
+inline ::nv::LLM* Behavior::_internal_mutable_llm() {
+
+  if (_impl_.llm_ == nullptr) {
+    auto* p = CreateMaybeMessage<::nv::LLM>(GetArenaForAllocation());
+    _impl_.llm_ = p;
+  }
+  return _impl_.llm_;
+}
+inline ::nv::LLM* Behavior::mutable_llm() {
+  ::nv::LLM* _msg = _internal_mutable_llm();
+  // @@protoc_insertion_point(field_mutable:nv.Behavior.llm)
+  return _msg;
+}
+inline void Behavior::set_allocated_llm(::nv::LLM* llm) {
+  ::PROTOBUF_NAMESPACE_ID::Arena* message_arena = GetArenaForAllocation();
+  if (message_arena == nullptr) {
+    delete reinterpret_cast< ::PROTOBUF_NAMESPACE_ID::MessageLite*>(_impl_.llm_);
+  }
+  if (llm) {
+    ::PROTOBUF_NAMESPACE_ID::Arena* submessage_arena =
+        ::PROTOBUF_NAMESPACE_ID::Arena::InternalGetOwningArena(
+                reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(llm));
+    if (message_arena != submessage_arena) {
+      llm = ::PROTOBUF_NAMESPACE_ID::internal::GetOwnedMessage(
+          message_arena, llm, submessage_arena);
+    }
+
+  } else {
+
+  }
+  _impl_.llm_ = llm;
+  // @@protoc_insertion_point(field_set_allocated:nv.Behavior.llm)
+}
+
 // map<string, string> info = 25;
 inline int Behavior::_internal_info_size() const {
   return _impl_.info_.size();
@@ -4196,6 +4321,91 @@ inline void Incident::_internal_set_isanomaly(bool value) {
 inline void Incident::set_isanomaly(bool value) {
   _internal_set_isanomaly(value);
   // @@protoc_insertion_point(field_set:nv.Incident.isAnomaly)
+}
+
+// .nv.LLM llm = 12;
+inline bool Incident::_internal_has_llm() const {
+  return this != internal_default_instance() && _impl_.llm_ != nullptr;
+}
+inline bool Incident::has_llm() const {
+  return _internal_has_llm();
+}
+inline const ::nv::LLM& Incident::_internal_llm() const {
+  const ::nv::LLM* p = _impl_.llm_;
+  return p != nullptr ? *p : reinterpret_cast<const ::nv::LLM&>(
+      ::nv::_LLM_default_instance_);
+}
+inline const ::nv::LLM& Incident::llm() const {
+  // @@protoc_insertion_point(field_get:nv.Incident.llm)
+  return _internal_llm();
+}
+inline void Incident::unsafe_arena_set_allocated_llm(
+    ::nv::LLM* llm) {
+  if (GetArenaForAllocation() == nullptr) {
+    delete reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(_impl_.llm_);
+  }
+  _impl_.llm_ = llm;
+  if (llm) {
+
+  } else {
+
+  }
+  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:nv.Incident.llm)
+}
+inline ::nv::LLM* Incident::release_llm() {
+
+  ::nv::LLM* temp = _impl_.llm_;
+  _impl_.llm_ = nullptr;
+#ifdef PROTOBUF_FORCE_COPY_IN_RELEASE
+  auto* old =  reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(temp);
+  temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+  if (GetArenaForAllocation() == nullptr) { delete old; }
+#else  // PROTOBUF_FORCE_COPY_IN_RELEASE
+  if (GetArenaForAllocation() != nullptr) {
+    temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+  }
+#endif  // !PROTOBUF_FORCE_COPY_IN_RELEASE
+  return temp;
+}
+inline ::nv::LLM* Incident::unsafe_arena_release_llm() {
+  // @@protoc_insertion_point(field_release:nv.Incident.llm)
+
+  ::nv::LLM* temp = _impl_.llm_;
+  _impl_.llm_ = nullptr;
+  return temp;
+}
+inline ::nv::LLM* Incident::_internal_mutable_llm() {
+
+  if (_impl_.llm_ == nullptr) {
+    auto* p = CreateMaybeMessage<::nv::LLM>(GetArenaForAllocation());
+    _impl_.llm_ = p;
+  }
+  return _impl_.llm_;
+}
+inline ::nv::LLM* Incident::mutable_llm() {
+  ::nv::LLM* _msg = _internal_mutable_llm();
+  // @@protoc_insertion_point(field_mutable:nv.Incident.llm)
+  return _msg;
+}
+inline void Incident::set_allocated_llm(::nv::LLM* llm) {
+  ::PROTOBUF_NAMESPACE_ID::Arena* message_arena = GetArenaForAllocation();
+  if (message_arena == nullptr) {
+    delete reinterpret_cast< ::PROTOBUF_NAMESPACE_ID::MessageLite*>(_impl_.llm_);
+  }
+  if (llm) {
+    ::PROTOBUF_NAMESPACE_ID::Arena* submessage_arena =
+        ::PROTOBUF_NAMESPACE_ID::Arena::InternalGetOwningArena(
+                reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite*>(llm));
+    if (message_arena != submessage_arena) {
+      llm = ::PROTOBUF_NAMESPACE_ID::internal::GetOwnedMessage(
+          message_arena, llm, submessage_arena);
+    }
+
+  } else {
+
+  }
+  _impl_.llm_ = llm;
+  // @@protoc_insertion_point(field_set_allocated:nv.Incident.llm)
 }
 
 // map<string, string> info = 11;

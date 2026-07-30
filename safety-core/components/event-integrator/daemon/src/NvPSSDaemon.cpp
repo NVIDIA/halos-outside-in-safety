@@ -19,7 +19,9 @@
 #include "pss_daemon.h"
 
 #include "NvPSSDRPC.hpp"
+#include "NvPSSDeliveryFailSafe.hpp"
 #include "NvPSSSafetyEventManager.hpp"
+#include "NvPSSStatusNoop.hpp"
 #include "NvPSB.h"
 #include "NvPSSConfigParser.hpp"
 #include "sensor_config_parser.h"
@@ -27,10 +29,6 @@
 #define MAX_CLIENTS 8
 #define MAX_PENDING_CLIENTS 2
 
-#define CRITICAL_PRIO_Q_PERIOD_US 1000
-#define HIGH_PRIO_Q_PERIOD_US 2500
-#define MEDIUM_PRIO_Q_PERIOD_US 5000
-#define LOW_PRIO_Q_PERIOD_US 10000
 #define INPUT_SAFETYEVENT_Q_PERIOD_US 100
 #define SAFETYEVENT_FUSION_PERIOD_US 2000
 #define THRESHOLD_CONFIDENCE_FOR_PSD_REPORT 0.6f
@@ -50,7 +48,7 @@ const std::string socketPath = "/run/nvpsf/nvpssd";
 
 #define MAX_TEMPORAL_TOLERANCE_MS 60000 // 60 seconds max tolerance
 
-typedef struct {
+struct NvPSSConfiguration {
     std::chrono::milliseconds timeWindowSize{200};        // Default: 200ms
     float fusionThreshold{0.5f};                          // Default: 0.5
     float alpha{0.35f};                                   // Default: 0.35
@@ -61,7 +59,10 @@ typedef struct {
     uint8_t maxPipelines{2};                              // Default: 2
     NvPSDChannelBackend PSSDToPSDComBackend{NvPSDChannelBackend::POSIX_MSG_QUE}; // Default: POSIX_MSG_QUE
     uint32_t maxHbFailures{10U};                          /* consecutive HB misses before SW_FAIL; range 1..255 (default 10) */
-} NvPSSConfiguration;
+    uint32_t pssToPsdRetryBudget{NVPSS_PSS_TO_PSD_RETRY_BUDGET_DEFAULT};
+    uint32_t pssToPsdResponseTimeoutMs{NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_DEFAULT};
+    uint32_t statusNoopIntervalMs{NVPSS_STATUS_NOOP_INTERVAL_MS_DEFAULT};
+};
 
 std::atomic<bool> shutdownRequested;
 std::condition_variable eventMonitorTerminationCV;
@@ -71,7 +72,10 @@ std::atomic<bool> heartbeatMonitorRunning{false};
 std::condition_variable heartbeatTerminationCV;
 std::shared_ptr<nvpss::NvPSSDRPC> g_NvPSSDRPC;
 std::mutex g_rpcMutex;
+volatile std::sig_atomic_t g_signalReceived = 0;
 void signalHandler(int signal);
+void requestShutdown();
+void signalMonitor();
 void heartbeatMonitor();
 bool validateConfiguration(NvPSSConfiguration& config);
 void msgListener(std::unique_ptr<nvpss::SafetyEventManager>&);
@@ -91,12 +95,31 @@ static bool onTrustReportFromRPC(void* ctx, uint32_t clientId, uint8_t reporterC
 
 void signalHandler(int signal)
 {
-    shutdownRequested.store(true);
-    heartbeatMonitorRunning.store(false);
+    (void)signal;
+    g_signalReceived = 1;
+}
+
+void requestShutdown()
+{
+    shutdownRequested.store(true, std::memory_order_relaxed);
+    heartbeatMonitorRunning.store(false, std::memory_order_relaxed);
     msgListenerTerminationCV.notify_all();
     eventMonitorTerminationCV.notify_all();
     fusionTerminationCV.notify_all();
     heartbeatTerminationCV.notify_all();
+}
+
+void signalMonitor()
+{
+    while (!shutdownRequested.load(std::memory_order_relaxed))
+    {
+        if (g_signalReceived != 0)
+        {
+            requestShutdown();
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 }
 
 void msgListener(std::unique_ptr<nvpss::SafetyEventManager>& h_safetyEventManager)
@@ -113,12 +136,7 @@ void msgListener(std::unique_ptr<nvpss::SafetyEventManager>& h_safetyEventManage
     if (g_NvPSSDRPC->NvPSSDInitRPCServer() != NVPSSD_SUCCESS)
     {
         NvPSBWriteData(NVPSB_LOG_ERR, "Error in initializing PSS RPC server", "");
-        shutdownRequested.store(true);
-        heartbeatMonitorRunning.store(false);
-        msgListenerTerminationCV.notify_all();
-        eventMonitorTerminationCV.notify_all();
-        fusionTerminationCV.notify_all();
-        heartbeatTerminationCV.notify_all();
+        requestShutdown();
         goto cleanup;
     }
 
@@ -132,12 +150,7 @@ void msgListener(std::unique_ptr<nvpss::SafetyEventManager>& h_safetyEventManage
                 h_safetyEventManager.get()) != NVPSSD_SUCCESS)
         {
             NvPSBWriteData(NVPSB_LOG_ERR, "Error in starting RPC server", "");
-            shutdownRequested.store(true);
-            heartbeatMonitorRunning.store(false);
-            msgListenerTerminationCV.notify_all();
-            eventMonitorTerminationCV.notify_all();
-            fusionTerminationCV.notify_all();
-            heartbeatTerminationCV.notify_all();
+            requestShutdown();
             goto cleanup;
         }
         h_safetyEventManager->SetRpcForOperationalMode(g_NvPSSDRPC.get());
@@ -382,6 +395,48 @@ bool validateConfiguration(NvPSSConfiguration& config)
         valid = false;
     }
 
+    if (!NvPSSDeliveryRetryBudgetIsValid(config.pssToPsdRetryBudget)) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "pss_to_psd_retry_budget out of range; falling back to default " +
+                std::to_string(NVPSS_PSS_TO_PSD_RETRY_BUDGET_DEFAULT),
+            "");
+        config.pssToPsdRetryBudget = NVPSS_PSS_TO_PSD_RETRY_BUDGET_DEFAULT;
+        valid = false;
+    }
+
+    if (!NvPSSDeliveryResponseTimeoutMsIsValid(config.pssToPsdResponseTimeoutMs)) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "pss_to_psd_response_timeout_ms out of range; falling back to default " +
+                std::to_string(NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_DEFAULT),
+            "");
+        config.pssToPsdResponseTimeoutMs = NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_DEFAULT;
+        valid = false;
+    }
+
+    if (!NvPSSDeliveryRetryWindowMsIsValid(config.pssToPsdRetryBudget,
+                                           config.pssToPsdResponseTimeoutMs)) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "PSS-to-PSD retry window out of range; falling back to default retry budget and timeout",
+            "retryBudget=" + std::to_string(config.pssToPsdRetryBudget) +
+                ", responseTimeoutMs=" + std::to_string(config.pssToPsdResponseTimeoutMs) +
+                ", retryWindowMs=" + std::to_string(NvPSSDeliveryRetryWindowMs(
+                    config.pssToPsdRetryBudget, config.pssToPsdResponseTimeoutMs)) +
+                ", maxRetryWindowMs=" +
+                std::to_string(NVPSS_PSS_TO_PSD_RETRY_WINDOW_MS_MAX));
+        config.pssToPsdRetryBudget = NVPSS_PSS_TO_PSD_RETRY_BUDGET_DEFAULT;
+        config.pssToPsdResponseTimeoutMs = NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_DEFAULT;
+        valid = false;
+    }
+
+    if (!NvPSSStatusNoopIntervalMsIsValid(config.statusNoopIntervalMs)) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "status_noop_interval_ms out of range; falling back to default " +
+                std::to_string(NVPSS_STATUS_NOOP_INTERVAL_MS_DEFAULT),
+            "");
+        config.statusNoopIntervalMs = NVPSS_STATUS_NOOP_INTERVAL_MS_DEFAULT;
+        valid = false;
+    }
+
     return valid;
 }
 
@@ -448,6 +503,45 @@ static std::string normalizeConfigScalar(const std::string& raw)
     return t;
 }
 
+static uint32_t getBoundedUint32Config(const nvpss::PSSConfigParser& parser,
+                                       const std::string& key,
+                                       uint32_t defaultValue,
+                                       uint32_t minValue,
+                                       uint32_t maxValue)
+{
+    const std::string raw = normalizeConfigScalar(parser.getString(key, ""));
+    if (raw.empty())
+        return defaultValue;
+
+    char* end = nullptr;
+    errno = 0;
+    unsigned long value = std::strtoul(raw.c_str(), &end, 10);
+    if (end == raw.c_str() || *end != '\0' || errno == ERANGE) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "Invalid " + key + " value (expected integer " +
+                std::to_string(minValue) + ".." + std::to_string(maxValue) +
+                "); using default " + std::to_string(defaultValue),
+            "");
+        return defaultValue;
+    }
+
+    if (value < minValue) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            key + " value " + std::to_string(value) +
+                " clamped to " + std::to_string(minValue),
+            "");
+        value = minValue;
+    } else if (value > maxValue) {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            key + " value " + std::to_string(value) +
+                " clamped to " + std::to_string(maxValue),
+            "");
+        value = maxValue;
+    }
+
+    return static_cast<uint32_t>(value);
+}
+
 static void printUsage(const char* prog)
 {
     std::fprintf(stderr,
@@ -499,6 +593,7 @@ int main(int argc, char* argv[])
     NvPSBWriteData(NVPSB_LOG_INFO, "PSS Daemon Starting...", "");
 
     /*Register Signal handler*/
+    g_signalReceived = 0;
     if (std::signal(SIGINT, signalHandler) == SIG_ERR) {
         NvPSBWriteData(NVPSB_LOG_ERR, "Failed to register SIGINT handler", "");
         return nvPsbExitEarlyFailure();
@@ -529,15 +624,15 @@ int main(int argc, char* argv[])
 
     if (!parser.loadFromFile(filename)) {
         NvPSBWriteData(NVPSB_LOG_ERR,
-            "Failed to load required config file: " + filename, "");
-        return nvPsbExitEarlyFailure();
+            "Failed to load config file: " + filename + "; using default configuration values.", "");
+        goto init;
     }
 
     if (!parser.validateRequiredKeys(requiredKeys))
     {
-        NvPSBWriteData(NVPSB_LOG_ERR,
-            "One or more required keys are missing from " + filename, "");
-        return nvPsbExitEarlyFailure();
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "Some required keys are missing; using defaults for missing values.", "");
+        goto init;
     }
 
     // Load values with fallback to defaults
@@ -555,7 +650,7 @@ int main(int argc, char* argv[])
         EventType type = parseEventTypeFromString(eventStr); // Implement string to enum mapping
         bypassFusionEvents.insert(type);
     }
-    /* Trust-report events always bypass fusion and are sent to PSD with their reported severity. */
+    /* Trust-report events always bypass fusion and are sent to PSD as daemon-owned critical evidence. */
     bypassFusionEvents.insert(SENSOR_INVALID);
     bypassFusionEvents.insert(SENSOR_VALID);
     bypassFusionEvents.insert(AI_PIPELINE_INVALID);
@@ -591,6 +686,25 @@ int main(int argc, char* argv[])
         config.maxHbFailures = mf;
     }
 
+    config.pssToPsdRetryBudget = getBoundedUint32Config(
+        parser,
+        "pss_to_psd_retry_budget",
+        config.pssToPsdRetryBudget,
+        NVPSS_PSS_TO_PSD_RETRY_BUDGET_MIN,
+        NVPSS_PSS_TO_PSD_RETRY_BUDGET_MAX);
+    config.pssToPsdResponseTimeoutMs = getBoundedUint32Config(
+        parser,
+        "pss_to_psd_response_timeout_ms",
+        config.pssToPsdResponseTimeoutMs,
+        NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_MIN,
+        NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_MAX);
+    config.statusNoopIntervalMs = getBoundedUint32Config(
+        parser,
+        "status_noop_interval_ms",
+        config.statusNoopIntervalMs,
+        NVPSS_STATUS_NOOP_INTERVAL_MS_MIN,
+        NVPSS_STATUS_NOOP_INTERVAL_MS_MAX);
+
     pssdtopsdcombackend = parser.getString("PSSDToPSDComBackend", "POSIX_MSG_QUE");
     if(pssdtopsdcombackend == "POSIX_MSG_QUE")
     {
@@ -624,11 +738,12 @@ int main(int argc, char* argv[])
     }
 #endif
 
+init:
     g_pssMaxHbFailures.store(config.maxHbFailures, std::memory_order_relaxed);
     g_pssWarnThreshold.store(g_pssMaxHbFailures.load(std::memory_order_relaxed) / 2U,
                              std::memory_order_relaxed);
 
-    /* Trust-report events always bypass fusion; ensure they are in the set regardless of configured bypass list. */
+    /* Trust-report events always bypass fusion; ensure they are in the set on all paths (including config fallback). */
     bypassFusionEvents.insert(SENSOR_INVALID);
     bypassFusionEvents.insert(SENSOR_VALID);
     bypassFusionEvents.insert(AI_PIPELINE_INVALID);
@@ -636,9 +751,19 @@ int main(int argc, char* argv[])
 
     /*Init the SafetyEventManager so that its reference can be passed to NvPSSDRPC */
     std::unique_ptr<nvpss::SafetyEventManager> mSafetyEventManager =
-        std::make_unique<nvpss::SafetyEventManager>(CRITICAL_PRIO_Q_PERIOD_US,HIGH_PRIO_Q_PERIOD_US,
-                                            MEDIUM_PRIO_Q_PERIOD_US, LOW_PRIO_Q_PERIOD_US,
-                                            INPUT_SAFETYEVENT_Q_PERIOD_US, SAFETYEVENT_FUSION_PERIOD_US, config.PSSDToPSDComBackend);
+        std::make_unique<nvpss::SafetyEventManager>(INPUT_SAFETYEVENT_Q_PERIOD_US,
+                                            SAFETYEVENT_FUSION_PERIOD_US,
+                                            config.PSSDToPSDComBackend,
+                                            config.pssToPsdRetryBudget,
+                                            config.pssToPsdResponseTimeoutMs,
+                                            config.statusNoopIntervalMs);
+    NvPSBWriteData(NVPSB_LOG_INFO,
+        "PSS-to-PSD delivery fail-safe config",
+        "retryBudget=" + std::to_string(config.pssToPsdRetryBudget) +
+            ", responseTimeoutMs=" + std::to_string(config.pssToPsdResponseTimeoutMs) +
+            ", retryWindowMs=" + std::to_string(NvPSSDeliveryRetryWindowMs(
+                config.pssToPsdRetryBudget, config.pssToPsdResponseTimeoutMs)) +
+            ", statusNoopIntervalMs=" + std::to_string(config.statusNoopIntervalMs));
 
     mSafetyEventManager->SetBypassFusionEvents(bypassFusionEvents);
 
@@ -694,10 +819,14 @@ int main(int argc, char* argv[])
     heartbeatMonitorRunning.store(true);
     std::thread heartbeatMonitorThread(heartbeatMonitor);
 
+    /* Monitor POSIX signal flags from normal thread context. */
+    std::thread signalMonitorThread(signalMonitor);
+
     msgListenerThread.join();
     eventMonitorThread.join();
     fusionMonitorThread.join();
     heartbeatMonitorThread.join();
+    signalMonitorThread.join();
 
     /*Exit NvPSB*/
     if(NvPSBExit() != NVPSB_SUCCESS)

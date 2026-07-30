@@ -42,6 +42,9 @@
 #define CMD_SW_ERROR      0x03
 #define CMD_REDUCE        0x05   /* Safe Speed Operation */
 #define CMD_NORMAL        0x07   /* Standard Operation   */
+#define CMD_SAFE_RELEASE_REQUEST 0x08
+#define CMD_SAFE_RELEASE_ACK     0x09
+#define CMD_SAFE_RELEASE_DENIED  0x0A
 
 /* ======================== Structures ======================== */
 
@@ -159,9 +162,12 @@ static inline const char* commandName(uint8_t cmd)
         case CMD_HEARTBEAT: return "HEARTBEAT";
         case CMD_HW_ERROR:  return "HARDWARE ERROR";
         case CMD_STOP:      return "STOP (PREVENT OPERATION)";
-        case CMD_SW_ERROR:  return "SOFTWARE ERROR";
+        case CMD_SW_ERROR:  return "FAULT SAFE STATE / ALARM";
         case CMD_REDUCE:    return "REDUCE (SAFE SPEED OPERATION)";
         case CMD_NORMAL:    return "NORMAL (STANDARD OPERATION)";
+        case CMD_SAFE_RELEASE_REQUEST: return "SAFE RELEASE REQUEST";
+        case CMD_SAFE_RELEASE_ACK:     return "SAFE RELEASE ACK";
+        case CMD_SAFE_RELEASE_DENIED:  return "SAFE RELEASE DENIED";
         default:            return "UNKNOWN";
     }
 }

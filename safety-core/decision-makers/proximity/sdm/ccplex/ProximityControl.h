@@ -21,20 +21,25 @@
  *   Valid: 0, or 100..36000 inclusive (ms). When fusion state changes (new event), an
  *   immediate command is still sent event-driven — this timer only re-asserts the
  *   most recent decision so a single lost UDP datagram does not leave the PLC
- *   holding a stale command. */
+ *   holding a stale command.
+ * hbStaleMs/hbPeriodMs - gateway HB miss timing model; bounded positive milliseconds.
+ * decisionFreshnessTimeoutMs - max age of a valid DecisionRequest before local safe-state fallback. */
 int  launchProximityControlAlgo(const std::string& gatewayIP,
                                 unsigned int gatewayPort,
                                 const std::string& plcIP,
                                 unsigned int plcPort,
                                 std::uint8_t maxHbFailures = 10U,
-                                std::uint32_t decisionRepeatIntervalMs = 5000U);
+                                std::uint32_t decisionRepeatIntervalMs = 5000U,
+                                std::uint32_t hbStaleMs = 5000U,
+                                std::uint32_t hbPeriodMs = 5500U,
+                                std::uint32_t decisionFreshnessTimeoutMs = 7000U);
 void shutdownProximityControlAlgo();
 
 void onEventNotificationReceive(const DecisionRequest* request);
 
 /* Helper declarations */
 std::pair<uint64_t, uint64_t> getCurrentUTCTimeForPacket();
-void sendDecisionCommand(unsigned char command, bool trackAck,
+bool sendDecisionCommand(unsigned char command, bool trackAck,
                          const DecisionRequest* request = nullptr,
                          int winningSlot = -1);
 void ackHandlerLoop();

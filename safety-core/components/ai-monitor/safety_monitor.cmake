@@ -87,14 +87,55 @@ else()
   set(_safety_core_cuda_target_name "")
 endif()
 
+# Frame-quality analysis lives in a backend plugin shared library that exports
+# the saim_backend_abi.h ABI. The GPU (CUDA) backend is the one shipped here, and
+# safety_monitor links exactly one such plugin.
+add_library(saim_gpu SHARED
+  "${_safety_core_ai_monitor_dir}/gpu_backend/gpu_backend_api.cpp"
+  "${_safety_core_ai_monitor_dir}/gpu_backend/src/frame_quality_analyzer_gpu.cpp"
+  "${_safety_core_ai_monitor_dir}/gpu_backend/src/saim_kernels.cu"
+)
+
+target_include_directories(saim_gpu PRIVATE
+  "${_safety_core_ai_monitor_dir}/gpu_backend/include"
+  "${_safety_core_ai_monitor_dir}/include"
+  $<$<BOOL:${SAFETY_CORE_CUDA_TARGET_DIR}>:${SAFETY_CORE_CUDA_TARGET_DIR}/include>
+)
+
+target_compile_definitions(saim_gpu PRIVATE
+  $<$<CONFIG:Debug>:DEBUG>
+  $<$<BOOL:${SAFETY_CORE_ENABLE_PROFILE}>:PROFILE>
+)
+
+target_compile_options(saim_gpu PRIVATE
+  $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:-G>
+)
+
+if(_safety_core_cuda_target_name AND NOT _safety_core_cuda_target_name STREQUAL "x86_64-linux")
+  target_compile_options(saim_gpu PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--target-directory=${_safety_core_cuda_target_name}>
+  )
+endif()
+
+if(SAFETY_CORE_CUDA_TARGET_DIR)
+  target_link_directories(saim_gpu PRIVATE
+    "${SAFETY_CORE_CUDA_TARGET_DIR}/lib"
+    "${SAFETY_CORE_CUDA_TARGET_DIR}/lib/stubs"
+  )
+endif()
+
+if(TARGET CUDA::cudart)
+  target_link_libraries(saim_gpu PRIVATE CUDA::cudart)
+endif()
+
 add_executable(safety_monitor
   "${_safety_core_ai_monitor_dir}/src/safety_monitor.cpp"
   "${_safety_core_ai_monitor_dir}/src/sai_common.cpp"
   "${_safety_core_ai_monitor_dir}/src/sai_config_parser.cpp"
   "${_safety_core_ai_monitor_dir}/src/rtsp_client.cpp"
   "${_safety_core_ai_monitor_dir}/src/nvdec_decoder.cpp"
-  "${_safety_core_ai_monitor_dir}/src/frame_quality_analyzer.cpp"
-  "${_safety_core_ai_monitor_dir}/src/saim_kernels.cu"
+  "${_safety_core_ai_monitor_dir}/src/safety_event_reporter.cpp"
+  "${_safety_core_ai_monitor_dir}/src/frame_quality_analyzer_factory.cpp"
   $<TARGET_OBJECTS:safety_core_sensor_config>
 )
 
@@ -111,16 +152,6 @@ target_compile_definitions(safety_monitor PRIVATE
   $<$<BOOL:${SAFETY_CORE_ENABLE_PROFILE}>:PROFILE>
 )
 
-target_compile_options(safety_monitor PRIVATE
-  $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:-G>
-)
-
-if(_safety_core_cuda_target_name AND NOT _safety_core_cuda_target_name STREQUAL "x86_64-linux")
-  target_compile_options(safety_monitor PRIVATE
-    $<$<COMPILE_LANGUAGE:CUDA>:--target-directory=${_safety_core_cuda_target_name}>
-  )
-endif()
-
 if(SAFETY_CORE_CUDA_TARGET_DIR)
   target_link_directories(safety_monitor PRIVATE
     "${SAFETY_CORE_CUDA_TARGET_DIR}/lib"
@@ -129,6 +160,7 @@ if(SAFETY_CORE_CUDA_TARGET_DIR)
 endif()
 
 target_link_libraries(safety_monitor PRIVATE
+  saim_gpu
   nvpssd_interface
   SafetyCore::Stub::nvcuvid
   Threads::Threads
