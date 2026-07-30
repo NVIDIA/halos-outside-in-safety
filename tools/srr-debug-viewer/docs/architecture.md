@@ -1,6 +1,6 @@
 # Architecture
 
-A single-page debug viewer for SRR (Regression Testing) `clip_logs`
+A single-page debug viewer for the Regression Testing Reporter's `clip_logs`
 evidence bundles. Vanilla JS, no build step, no dependencies. The whole app
 ships as ~30 KB of source files, served over `python3 -m http.server`.
 

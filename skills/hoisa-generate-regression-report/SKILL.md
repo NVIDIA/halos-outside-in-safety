@@ -1,7 +1,7 @@
 ---
 name: hoisa-generate-regression-report
 description: >-
-  Run the SRR (Safety Regression Reporter) multi-scenario test pipeline on the
+  Run the Regression Testing Reporter (`srr`) multi-scenario test pipeline on the
   SIL stack. Picks one or more of 6 pre-built test cases (in-roi, psf-edge,
   psf-clear, balanced, fast, fixed), launches each in Isaac Sim with a clean
   compose restart, records 30 Hz parquet of GT + Safety Core state + BA / 3D
