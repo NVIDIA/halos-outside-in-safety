@@ -147,16 +147,21 @@ already wedges the media, so the contrast only shows cleanly before anything els
 
 ```bash
 declare -A MP=( [8554]=camera [8555]=camera_01 [8556]=camera_02 )
-# sequential — each should print video/x-h264 caps
+# sequential — a healthy port prints codec_name=h264; a wedged one times out
 for p in 8554 8555 8556; do
-  gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:$p/${MP[$p]} protocols=tcp \
-    num-buffers=1 ! fakesink 2>&1 | grep -aE "video/x-h264|no caps|could not"
+  echo "== :$p =="
+  ffprobe -rtsp_transport tcp -rw_timeout 5000000 -v error \
+    -select_streams v -show_entries stream=codec_name \
+    rtsp://127.0.0.1:$p/${MP[$p]} 2>&1 | grep -aE "codec_name|Could not|timed out|method DESCRIBE"
 done
-# concurrent — if these fail but the sequential pass worked, it's the concurrency race
+# concurrent — if the sequential pass worked but this fails, it is the concurrency race
 for p in 8554 8555 8556; do
-  gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:$p/${MP[$p]} protocols=tcp \
-    num-buffers=1 ! fakesink >/tmp/gst_$p.log 2>&1 & done; wait
-grep -lE "no caps|could not|ERROR" /tmp/gst_855*.log   # <- wedged ports
+  ffprobe -rtsp_transport tcp -rw_timeout 5000000 -v error \
+    -select_streams v -show_entries stream=codec_name \
+    rtsp://127.0.0.1:$p/${MP[$p]} >/tmp/ff_$p.log 2>&1 & done; wait
+for p in 8554 8555 8556; do
+  grep -qi h264 /tmp/ff_$p.log && echo ":$p OK" || echo ":$p WEDGED"
+done
 ```
 
 **Prevention (built-in)**: the SIL launch (`run_actor_sdg.py --enable-vst`) **defers VST

@@ -47,14 +47,15 @@ survives an Isaac relaunch — exactly the same reason as the 2D profile.
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env`:
+Set in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the rest ship
+differently and must be changed:
 
 ```bash
-BP_PROFILE=bp_wh_kafka                                             # MUST include Kafka for PSF
-LLM_MODE=none                                                      # Not needed for SIL
-VLM_MODE=none                                                      # Not needed for SIL
-NUM_STREAMS=3                                                      # Matches 3 Isaac Sim cameras
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic-3d"   # 3D synthetic calibration dataset
+BP_PROFILE=bp_wh_kafka                                             # default: bp_wh — MUST include Kafka for PSF
+LLM_MODE=none                                                      # default: local — not needed for SIL
+VLM_MODE=none                                                      # already the default
+NUM_STREAMS=3                                                      # default: 4 — matches 3 Isaac Sim cameras
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic-3d"   # default: nv-warehouse-4cams — 3D calibration dataset
 ```
 
 **Why**:
