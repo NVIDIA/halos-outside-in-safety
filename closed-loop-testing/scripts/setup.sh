@@ -85,7 +85,7 @@ if [ -n "$NEED_ISAAC" ]; then
     done
     sudo chown -R 1234:1234 "$ISAAC_CACHE_DIR"
     echo "  NOTE: sil also needs NGC sil-data (Isaac scenes/collected-assets) — pull separately:"
-    echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.2.1"
+    echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.3.0"
 
     # collected-assets must be readable/traversable by the isaac-sim container
     # user (UID/GID 1234; see Dockerfile `USER 1234:1234`). isaac-sim.yml mounts
