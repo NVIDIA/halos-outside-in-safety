@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Safety Core Build Guide
 
-This directory builds the safety-core components, decision-makers, VSS adapters, Debian packages, and a local Docker image archive with CMake.
+This directory builds the safety-core components, decision-makers, VSS adapters, Debian packages, and a local Docker image archive with CMake. Installing and running the resulting packages, plus configuration and troubleshooting, is covered in the [Deployment Guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).
 
 ## Prerequisites
 

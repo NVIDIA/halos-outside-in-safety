@@ -2,7 +2,7 @@
 
 Halos Outside-In Safety OSS is an open-source on-ramp for building physical AI safety systems, provided in **early access** for prototyping, evaluation, and integration development.
 
-No claims are made on compliance with any Functional Safety and Cybersecurity standards, or on suitability for production use in Safety-Related systems.
+No claims are made on compliance with any Functional Safety and Cybersecurity standards, or on suitability for production use in Safety-Related systems. The specific behavioral constraints of this release are listed in [Known Limitations](https://docs.nvidia.com/halos-outside-in/1.3/known-limitations.html).
 
 The reference perception integration, decision logic, and communication layer are provided as **examples** for software-in-the-loop (SIL) and hardware-in-the-loop (HIL) testing — not as production safety functions. 
 

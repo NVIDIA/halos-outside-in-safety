@@ -27,8 +27,8 @@ cd "$(git rev-parse --show-toplevel)/tools/srr-debug-viewer"
 
 Put an SRR run's output under `data/` — either symlink the run dir or unzip a
 bundle produced by `srr.clip_logs`. You can drop multiple runs into `data/`; the
-landing page lists them all. See the `regression-reporter` docs for how to
-produce a bundle.
+landing page lists them all. See [Debug Viewer](https://docs.nvidia.com/halos-outside-in/1.3/testing/srr/debug-viewer.html)
+for how to produce a bundle.
 
 ### 3. Launch
 
