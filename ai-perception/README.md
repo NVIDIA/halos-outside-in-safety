@@ -6,8 +6,8 @@ The reference perception is **NVIDIA VSS Blueprint** (specifically the **Warehou
 drive the safety core.
 
 ## Reference backend: VSS Blueprint
-- Repo: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-- Deployed via the `vss-deploy-profile` skill (see [`skills/`](../skills/)) or the public VSS Blueprint docs.
+- Repo: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1
+- Deployed via the `vss-deploy-profile` skill (see [`skills/`](../skills/)) or the public [VSS Warehouse Blueprint 3.2.1 quickstart](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html).
 
 ## Integration contract (the seam)
 The Safety Core depends only on the **event stream**, not on perception internals:

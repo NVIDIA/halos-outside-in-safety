@@ -40,7 +40,7 @@ esac
 
 # --- Safety Core host install present? ---
 LAUNCHER=/opt/nvidia/psf/bin/launch_hoisa.sh
-[ -x "$LAUNCHER" ] || { echo "ERROR: $LAUNCHER not found — install the Safety Core Tegra package first (PSF docs HOISA User Guide §1)."; exit 1; }
+[ -x "$LAUNCHER" ] || { echo "ERROR: $LAUNCHER not found — install the Safety Core Tegra package first (Deployment Guide 1.1 Debian Installation: https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html#debian-installation)."; exit 1; }
 [ -f "$PSF_SENSOR_CONFIG" ] || { echo "ERROR: sensor config not found: $PSF_SENSOR_CONFIG (copy the template + fill the VST URLs)."; exit 1; }
 
 SDM_TARGET="${SDM_TARGET:-ccplex}"

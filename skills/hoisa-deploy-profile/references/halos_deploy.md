@@ -19,7 +19,7 @@ Safety events are driven by the ROIs and tripwires in the VSS perception **`cali
 ships with `restrictedObjectTypes` set, and the 3D calibration built per `calibration_3d.md` includes
 it too — so with the **default sample scene there is nothing to change** here.
 
-> This requirement is stated in the [Safety Core User Guide — Prerequisites](https://docs.nvidia.com/halos-outside-in/latest/HOISA-User-Guide.html#prerequisites)
+> This requirement is stated in the [Deployment Guide — Safety Core Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html#safety-core-prerequisites)
 > (the calibration *"includes `restrictedObjectTypes:["Person"]` for the ROIs, where relevant"*); the
 > field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/3.2.1/calibration-schema.html).
 
