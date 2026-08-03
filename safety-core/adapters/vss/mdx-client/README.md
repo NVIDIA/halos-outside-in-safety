@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Config-driven client for capturing messages from perception
 
-This client consumes Kafka topics **mdx-events** and **mdx-frames**, parses Behavior and FrameMessage protobufs, and maps incoming alerts to PSS safety events using **user-defined rules** from a protobuf config file. No code changes are needed for different use-cases—only the config file. The published reference for the rule file — the ATL mapping, the violation filters, and the validation errors — is [Event Mapping Configuration](https://docs.nvidia.com/halos-outside-in/1.3/reference/event-mapping-configuration.html).
+This client consumes Kafka topics **mdx-events** and **mdx-frames**, parses Behavior and FrameMessage protobufs, and maps incoming alerts to PSS safety events using **user-defined rules** from a protobuf config file. No code changes are needed for different use-cases—only the config file.
 
 ## Usage
 
