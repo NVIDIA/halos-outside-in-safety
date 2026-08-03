@@ -1,0 +1,22 @@
+# Build context = regression-reporter dir (see srr-service/docker-compose.yml).
+# Keep the context tiny: only srr-service/{pyproject.toml,srr} and scripts/ are
+# COPY'd into the image. Everything heavy/irrelevant below is excluded.
+
+# Test outputs (multi-GB) — mounted at runtime, never baked in.
+srr-service/runs/
+runs/
+
+# VCS / caches / junk
+.git/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.mypy_cache/
+*.zip
+
+# Not needed inside the image
+scenarios/
+assets/
+docs/
+results/
+halos-integration/

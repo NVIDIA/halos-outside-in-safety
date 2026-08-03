@@ -21,6 +21,7 @@ Based on architecture diagram:
 import logging
 import threading
 import time
+import json
 from datetime import datetime
 from queue import Queue, Empty
 from typing import Optional
@@ -189,7 +190,20 @@ class SafetyOpcUaServer:
             self._nodes['last_update'].write_value(
                 ua.Variant(datetime.now().isoformat(), ua.VariantType.String)
             )
-            
+            # Atomic commit point: one coherent snapshot the bridge reads as a unit.
+            # Written AFTER the per-field nodes so its content is always consistent.
+            self._nodes['state_json'].write_value(
+                ua.Variant(json.dumps({
+                    'sequence': int(command.sequence_number),
+                    'command': int(command.command.value),
+                    'command_name': str(command.command.description),
+                    'status': int(command.status.value),
+                    'status_name': str(command.status.description),
+                    'timestamp': f"{command.timestamp}.{command.microseconds}",
+                    'last_update': datetime.now().isoformat(),
+                }), ua.VariantType.String)
+            )
+
             self._last_command = command
             logger.debug(f"Updated OPC UA nodes: {command}")
             
@@ -249,7 +263,12 @@ class SafetyOpcUaServer:
         self._nodes['last_update'] = safety_folder.add_variable(
             idx, "LastUpdate", "", ua.VariantType.String
         )
-        
+        # Atomic snapshot: the ROS bridge reads this ONE node so it can never
+        # pair a fresh sequence with a stale command (NVBug 6512051 tear).
+        self._nodes['state_json'] = safety_folder.add_variable(
+            idx, "StateJson", "", ua.VariantType.String
+        )
+
         # Make nodes readable
         for node in self._nodes.values():
             node.set_writable()

@@ -51,10 +51,11 @@ static const char* clientTypeName(uint8_t clientType) noexcept
 {
     switch (clientType)
     {
-        case CLIENT_MDX:            return "MDXClient";
-        case CLIENT_SAFETY_MONITOR: return "SafetyAIMonitor";
-        case CLIENT_PSD_GATEWAY:    return "PSDGateway";
-        default:                    return "UnregisteredClient";
+        case CLIENT_MDX:                return "MDXClient";
+        case CLIENT_SAFETY_MONITOR:     return "SafetyAIMonitor";
+        case CLIENT_PSD_GATEWAY:        return "PSDGateway";
+        case CLIENT_PERCEPTION_MONITOR: return "PerceptionMonitor";
+        default:                        return "UnregisteredClient";
     }
 }
 
@@ -256,7 +257,6 @@ void NvPSSDRPC::processPendingDisconnects(std::deque<std::pair<int, SafetyEvent>
         {
             SafetyEvent ev = {};
             ev.type = SW_FAIL;
-            ev.severity = CRITICAL;
             ev.timestamp = monotonicNowNs();
             ev.confidenceLevel = 1.0f;
             ev.processed = false;
@@ -708,10 +708,10 @@ NvPSSDErr NvPSSDRPC::NvPSSDRunRPCServer(std::deque<std::pair<int, SafetyEvent>>&
                                 }
                                 if (reportStatus == REPORT_ACCEPTED)
                                 {
-                                    if (static_cast<size_t>(req.size) < sizeof(SafetyEvent))
+                                    if (static_cast<size_t>(req.size) != sizeof(SafetyEvent))
                                     {
-                                        NvPSBWriteData(NVPSB_LOG_WARNING, "Dropping REPORT_SAFETY_EVENT: payload size too small",
-                                                      "size: " + std::to_string(req.size) + ", need: " + std::to_string(sizeof(SafetyEvent)));
+                                        NvPSBWriteData(NVPSB_LOG_WARNING, "Dropping REPORT_SAFETY_EVENT: payload size mismatch",
+                                                      "size: " + std::to_string(req.size) + ", expected: " + std::to_string(sizeof(SafetyEvent)));
                                         reportStatus = REPORT_REJECTED_UNAUTHORIZED;
                                     }
                                     else
@@ -747,20 +747,32 @@ NvPSSDErr NvPSSDRPC::NvPSSDRunRPCServer(std::deque<std::pair<int, SafetyEvent>>&
                                                       clientTypeName(reporterClientType),
                                                   "client: " + std::to_string(client) +
                                                   ", Event Type: " + std::to_string(reportedEvent.type) +
-                                                  ", Severity: " + std::to_string(reportedEvent.severity) +
                                                   ", Confidence: " + std::to_string(reportedEvent.confidenceLevel));
                                     }
 
                                     if (reportStatus == REPORT_ACCEPTED)
                                     {
 
-                                    /* Only Safety Monitor may send the trust-report event types (SENSOR_/AI_PIPELINE_ VALID/INVALID) */
-                                    const bool isTrustReportType = (reportedEvent.type == SENSOR_INVALID || reportedEvent.type == SENSOR_VALID ||
-                                                                   reportedEvent.type == AI_PIPELINE_INVALID || reportedEvent.type == AI_PIPELINE_VALID);
-                                    if (isTrustReportType && (reporterClientType != CLIENT_SAFETY_MONITOR || !hasRecentHeartbeat(clientId)))
+                                    /* Per-event-type authorization:
+                                     *   SENSOR_*      -> only CLIENT_SAFETY_MONITOR
+                                     *   AI_PIPELINE_* -> only CLIENT_PERCEPTION_MONITOR
+                                     * Both require a recent heartbeat. The mirror
+                                     * check in SafetyEventManager::OnTrustReport must
+                                     * stay consistent. */
+                                    const bool isSensorTrustReport     = (reportedEvent.type == SENSOR_INVALID      || reportedEvent.type == SENSOR_VALID);
+                                    const bool isAIPipelineTrustReport = (reportedEvent.type == AI_PIPELINE_INVALID || reportedEvent.type == AI_PIPELINE_VALID);
+                                    const bool isTrustReportType       = isSensorTrustReport || isAIPipelineTrustReport;
+                                    const bool sensorReporterOk        = (reporterClientType == CLIENT_SAFETY_MONITOR);
+                                    const bool aiPipelineReporterOk    = (reporterClientType == CLIENT_PERCEPTION_MONITOR);
+                                    const bool reporterAuthorized      = (isSensorTrustReport && sensorReporterOk) ||
+                                                                         (isAIPipelineTrustReport && aiPipelineReporterOk);
+                                    if (isTrustReportType && (!reporterAuthorized || !hasRecentHeartbeat(clientId)))
                                     {
-                                        NvPSBWriteData(NVPSB_LOG_WARNING, "Dropping trust report: only Safety Monitor may send SENSOR_/AI_PIPELINE_ VALID/INVALID",
-                                                      "client: " + std::to_string(client) + ", reporterType: " + std::to_string(reporterClientType));
+                                        NvPSBWriteData(NVPSB_LOG_WARNING,
+                                                       "Dropping trust report: client type not authorized for this event type or heartbeat stale",
+                                                       "client: " + std::to_string(client) +
+                                                           ", reporterType: " + std::to_string(reporterClientType) +
+                                                           ", eventType: " + std::to_string(reportedEvent.type));
                                         reportStatus = REPORT_REJECTED_UNAUTHORIZED;
                                     }
                                     else if (isTrustReportType)
@@ -888,7 +900,8 @@ uint8_t NvPSSDRPC::validateAndAcceptRegistration(uint32_t clientSlot, const NvPS
     const uint8_t reqClientType = req.reqPayload[0];
     if (reqClientType != CLIENT_MDX &&
         reqClientType != CLIENT_SAFETY_MONITOR &&
-        reqClientType != CLIENT_PSD_GATEWAY)
+        reqClientType != CLIENT_PSD_GATEWAY &&
+        reqClientType != CLIENT_PERCEPTION_MONITOR)
     {
         NvPSBWriteData(NVPSB_LOG_WARNING,
                        "REGISTER_CLIENT: invalid clientType",
@@ -897,7 +910,8 @@ uint8_t NvPSSDRPC::validateAndAcceptRegistration(uint32_t clientSlot, const NvPS
     }
 
     const bool isSingletonType = (reqClientType == CLIENT_SAFETY_MONITOR ||
-                                  reqClientType == CLIENT_PSD_GATEWAY);
+                                  reqClientType == CLIENT_PSD_GATEWAY ||
+                                  reqClientType == CLIENT_PERCEPTION_MONITOR);
     std::lock_guard<std::mutex> hbLock(heartbeatMutex);
     if (isSingletonType)
     {
@@ -1129,7 +1143,9 @@ void NvPSSDRPC::updateClientHeartbeat(uint32_t clientId, uint8_t clientType)
         if (clientHeartbeatCount[clientId] % 10 == 0)
         {
             std::string clientName = (clientType == CLIENT_MDX) ? "MDXClient" :
-                (clientType == CLIENT_SAFETY_MONITOR) ? "SafetyMonitor" : "PSDGateway";
+                (clientType == CLIENT_SAFETY_MONITOR) ? "SafetyMonitor" :
+                (clientType == CLIENT_PERCEPTION_MONITOR) ? "PerceptionMonitor" :
+                "PSDGateway";
             NvPSBWriteData(NVPSB_LOG_INFO,
                 "Connection alive: " + clientName + " - " +
                 std::to_string(clientHeartbeatCount[clientId]) + " heartbeats received", "");
@@ -1150,6 +1166,10 @@ uint8_t NvPSSDRPC::getClientType(uint32_t clientId) const
     auto it = clientTypeMap.find(clientId);
     return (it != clientTypeMap.end()) ? it->second : 0;
 }
+
+/* getActiveClientIdsOfType was removed: AI-pipeline trust is now a single
+ * pipeline-wide latch in SafetyEventManager, so the per-MDX-id fan-out (its only
+ * caller) no longer exists. */
 
 OperationalMode NvPSSDRPC::getSafetyMonitorOperationalMode(uint32_t maxFailures, uint32_t warnThreshold) const
 {

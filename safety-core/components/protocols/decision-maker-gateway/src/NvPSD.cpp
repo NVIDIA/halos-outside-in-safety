@@ -15,6 +15,7 @@
  #include <sys/un.h>
 
  #include "NvPSD.hpp"
+ #include "NvPSDInternal.hpp"
  #include "NvPSB.h"
  #include "pss_message_validate.h"
 
@@ -71,6 +72,7 @@
      listenOnMsgChannelBackend.store(false);
      response_ready = false;
      decisionResponseTransmission = false;
+     decisionResponseTimeoutMs.store(NVPSD_DECISION_RESPONSE_TIMEOUT_MS_DEFAULT);
  }
 
 /*
@@ -231,7 +233,7 @@ static ssize_t sendAll(int fd, const void *buf, size_t len)
 /**
  * Initialize the communication channels.
   *
-  * NvPSD supports three IPC backends, POSIX message que, FSICom and NvSciIPC.
+  * NvPSD supports two IPC backends, POSIX message que and NvSciIPC.
   * Currently only POSIX message que is supported.
   *
   * POSIX Message Que:
@@ -241,8 +243,6 @@ static ssize_t sendAll(int fd, const void *buf, size_t len)
   * separate threads for send and receive over created queues.
   *
   * NvSciIPC:
-  * <TBD>
-  * FSICom:
   * <TBD>
   *
   */
@@ -481,6 +481,14 @@ static ssize_t sendAll(int fd, const void *buf, size_t len)
      return NVPSD_SUCCESS;
  }
 
+ NvPSDErr NvPSD::NvPSDSetDecisionResponseTimeoutMs(uint32_t timeoutMs)
+ {
+     if (!NvPSDIsDecisionResponseTimeoutMsValid(timeoutMs))
+         return NVPSD_FAIL;
+     decisionResponseTimeoutMs.store(timeoutMs, std::memory_order_relaxed);
+     return NVPSD_SUCCESS;
+ }
+
  NvPSDErr NvPSD::NvPSDChannelListenerStart()
  {
  NvPSDErr err = NVPSD_SUCCESS;
@@ -574,7 +582,7 @@ NvPSDErr NvPSD::NvPSDRequestStart()
           goto exit;
       }
 
-     /* Select Channel based on Msg severity */
+     /* Select channel based on daemon-owned fused event severity. */
       if (request->sensorDataSummary[0].event.severity == CRITICAL)
       {
           channelMqdWrite = criticalWriteChannelMqd;
@@ -612,8 +620,10 @@ NvPSDErr NvPSD::NvPSDRequestStart()
        * as an early exit so shutdown is still prompt. */
       if(backend == POSIX_MSG_QUE)
       {
-          const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+          const uint32_t timeoutMs = decisionResponseTimeoutMs.load(std::memory_order_relaxed);
+          const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
           bool received = false;
+          uint32_t discardedResponses = 0U;
           while (std::chrono::steady_clock::now() < deadline)
           {
               if (!listenOnMsgChannelBackend.load())
@@ -625,7 +635,17 @@ NvPSDErr NvPSD::NvPSDRequestStart()
               mqStatus = NvPSFMsgQueReceive(channelMqdRead, (char*)(response), sizeof(DecisionResponse), NULL);
               if (mqStatus.err == NvPSFMSGQ_SUCCESS)
               {
-                  if (mqStatus.retCode.recvd_bytes != static_cast<int>(sizeof(DecisionResponse)))
+                  const NvPSDDecisionResponseReceiveAction receiveAction =
+                      NvPSDDecisionResponseReceiveActionFor(
+                          *request, *response, mqStatus.retCode.recvd_bytes);
+                  if (receiveAction == NvPSDDecisionResponseReceiveAction::ACCEPT)
+                  {
+                      received = true;
+                      break;
+                  }
+
+                  discardedResponses++;
+                  if (!NvPSDIsCompleteDecisionResponseSize(mqStatus.retCode.recvd_bytes))
                   {
 #ifdef NVPSF_DBG
                       NvPSBWriteData(NVPSB_LOG_ERR,
@@ -639,8 +659,19 @@ NvPSDErr NvPSD::NvPSDRequestStart()
                                 << "/" << sizeof(DecisionResponse) << " bytes), dropping\n";
                       continue;
                   }
-                  received = true;
-                  break;
+#ifdef NVPSF_DBG
+                  NvPSBWriteData(NVPSB_LOG_ERR,
+                                     "Mismatched DecisionResponse decisionId=" +
+                                     std::to_string(response->decisionId) +
+                                     ", requestId=" +
+                                     std::to_string(request->requestId),
+                                     "");
+#endif
+                  std::cerr << "Mismatched DecisionResponse decisionId="
+                            << response->decisionId
+                            << ", requestId=" << request->requestId
+                            << ", dropping\n";
+                  continue;
               }
               if (mqStatus.retCode.errCode == EAGAIN || mqStatus.retCode.errCode == EWOULDBLOCK)
               {
@@ -656,13 +687,16 @@ NvPSDErr NvPSD::NvPSDRequestStart()
           }
           if (!received)
           {
-              err = NVPSD_FAIL;
+              err = NVPSD_NO_RSP;
   #ifdef NVPSF_DBG
               NvPSBWriteData(NVPSB_LOG_ERR,
-                             "Timeout waiting for DecisionResponse from PSD (non-blocking mq)",
+                             "Timeout waiting for DecisionResponse from PSD (non-blocking mq), timeoutMs=" +
+                             std::to_string(timeoutMs) +
+                             ", discardedResponses=" + std::to_string(discardedResponses),
                              "");
   #endif
-              std::cerr << "Timeout waiting for DecisionResponse from client\n";
+              std::cerr << "Timeout waiting for DecisionResponse from client"
+                        << " (discardedResponses=" << discardedResponses << ")\n";
               goto exit;
           }
       }

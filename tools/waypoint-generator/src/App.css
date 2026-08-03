@@ -1,0 +1,717 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* Waypoint Generator Styles - NVIDIA Theme */
+:root {
+  --bg-dark: #1a1a1a;
+  --bg-panel: #242424;
+  --bg-card: #2d2d2d;
+  --accent: #76b900;           /* NVIDIA Green */
+  --accent-light: #8ed100;     /* Lighter green */
+  --accent-blue: #00a0dc;      /* NVIDIA Blue accent */
+  --accent-red: #ff5252;       /* Warning/reverse */
+  --accent-orange: #ff9800;    /* Secondary accent */
+  --text: #f0f0f0;
+  --text-dim: #999;
+  --border: #404040;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-dark);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Header */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: linear-gradient(180deg, #2a2a2a 0%, var(--bg-panel) 100%);
+  border-bottom: 2px solid var(--accent);
+}
+
+.app-header h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  margin-left: 24px;
+}
+
+.current-path-name {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unsaved-indicator {
+  color: var(--accent-orange);
+  font-size: 1.2rem;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.origin-info {
+  font-family: monospace;
+  color: var(--accent-blue);
+  font-size: 0.9rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.header-btn svg {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.header-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #000;
+  transform: translateY(-1px);
+}
+
+.header-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.header-btn.save-btn {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.header-btn.save-btn:hover:not(:disabled) {
+  background: var(--accent-blue);
+  color: #000;
+}
+
+/* Body layout */
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebars */
+.sidebar, .sidebar-right {
+  width: 240px;
+  min-width: 180px;
+  flex-shrink: 1;
+  flex-grow: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+  gap: 12px;
+}
+
+.sidebar-right {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
+/* Canvas container */
+.canvas-container {
+  flex: 1;
+  background: var(--bg-dark);
+  position: relative;
+}
+
+/* Mode selector */
+.mode-selector h3 {
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.mode-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mode-btn {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.mode-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.mode-btn.active {
+  border-color: var(--accent);
+  background: rgba(118, 185, 0, 0.15);
+  color: var(--accent);
+}
+
+.mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Origin hint */
+.origin-hint {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(0, 170, 255, 0.1);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 170, 255, 0.3);
+}
+
+.origin-hint p {
+  font-size: 0.85rem;
+  color: var(--accent-blue);
+  margin-bottom: 8px;
+}
+
+.btn-default-origin {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--accent-blue);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent-blue);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-default-origin:hover {
+  background: var(--accent-blue);
+  color: #000;
+}
+
+/* Heading control */
+.heading-control {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: 6px;
+}
+
+.heading-control label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+.heading-control input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.heading-control .hint {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* Waypoint list */
+.waypoint-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.waypoint-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.waypoint-list-header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.toggle-world {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--accent-blue);
+  cursor: pointer;
+}
+
+.toggle-world input {
+  accent-color: var(--accent-blue);
+}
+
+.waypoint-list h3 {
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.empty-message {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  padding: 12px;
+  text-align: center;
+}
+
+.waypoint-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.waypoint-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.waypoint-item:hover {
+  border-color: var(--accent);
+}
+
+.waypoint-item.selected {
+  border-color: var(--accent-red);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.waypoint-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.waypoint-number {
+  font-weight: bold;
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+
+.waypoint-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon svg {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--accent);
+  color: #000;
+}
+
+.btn-icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn-icon.delete:hover {
+  background: var(--accent-red);
+}
+
+.waypoint-info .coord {
+  display: flex;
+  gap: 8px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+
+.waypoint-info .coord .coord-label {
+  font-weight: bold;
+  color: var(--text);
+  min-width: 40px;
+}
+
+.waypoint-info .odom-coord {
+  color: var(--accent);
+}
+
+.waypoint-info .world-coord {
+  color: var(--accent-blue);
+  margin-top: 2px;
+}
+
+.waypoint-info .note {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Waypoint edit form */
+.waypoint-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-row label {
+  width: 30px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.edit-row input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: monospace;
+}
+
+.edit-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.edit-row span {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  width: 20px;
+}
+
+.edit-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-save, .btn-cancel {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.btn-save {
+  background: var(--accent);
+  color: #000;
+}
+
+.btn-cancel {
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+/* Clear button */
+.btn-clear {
+  padding: 10px;
+  border: 1px solid var(--accent-red);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-red);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-clear:hover {
+  background: var(--accent-red);
+  color: #000;
+}
+
+/* Export panel */
+.export-panel h3 {
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.format-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.format-selector label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.format-selector input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+.filename-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.filename-input label {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.filename-input input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.filename-input span {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.export-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-export, .btn-copy, .btn-import {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.btn-export:hover:not(:disabled),
+.btn-copy:hover:not(:disabled),
+.btn-import:hover {
+  background: var(--accent);
+  color: #000;
+}
+
+.btn-export:disabled, .btn-copy:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.import-section {
+  margin-top: 8px;
+}
+
+.import-section input[type="file"] {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+/* Preview section */
+.preview-section {
+  margin-top: 16px;
+}
+
+.preview-section h4 {
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.preview-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Help section */
+.help-section {
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: 6px;
+}
+
+.help-section h4 {
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.help-section ul {
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.help-section li {
+  padding: 3px 0;
+  color: var(--text-dim);
+}
+
+.help-section b {
+  color: var(--text);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Reverse waypoint styling */
+.waypoint-item.reverse {
+  border-left: 3px solid var(--accent-red);
+}
+
+.waypoint-item.reverse .waypoint-number {
+  color: var(--accent-red);
+}
+
+.reverse-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 4px;
+  font-size: 0.65rem;
+  background: var(--accent-red);
+  color: #000;
+  border-radius: 3px;
+  font-weight: bold;
+}
+
+.reverse-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.reverse-toggle input {
+  accent-color: var(--accent-red);
+}
+
+.include-poses-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.include-poses-toggle input {
+  accent-color: var(--accent-blue);
+}

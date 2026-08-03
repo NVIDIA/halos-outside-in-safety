@@ -29,6 +29,10 @@
 #include "ATLControl.h"
 #include <NvPSDGatewayProtocol.h>
 #include "pss_message_validate.h"
+#include "sdm_decision_request_state.h"
+#include "sdm_decision_freshness.hpp"
+#include "sdm_gateway_decision_sequence.hpp"
+#include "atl_fault_report.h"
 
 /* Simple SDM logging: console + optional log file (no NvPSB dependency) */
 static std::mutex atlLogMtx;
@@ -98,7 +102,6 @@ static void atl_log_err(const std::string& msg)     { atl_log("ERR", msg.c_str()
 // EVENT_5=person restricted ROI violation cleared
 
 /* Heartbeat / registration (NvPSDGatewayProtocol.h) */
-static constexpr int HB_WATCHDOG_TIMEOUT_MS = 8000;  // no HB for 8 s -> alarm
 /* Re-register with gateway periodically so we recover after gateway restart (in-memory state lost). */
 static constexpr int REG_RETRY_INTERVAL_MS = 30000;
 /* Non-blocking UDP: retry REGR with poll(POLLOUT) when send returns EAGAIN/EWOULDBLOCK. */
@@ -107,11 +110,14 @@ static constexpr int REGR_SEND_EINTR_MAX_RETRIES = 32;
 static constexpr int REGR_SEND_POLL_TIMEOUT_MS = 5;
 /* Max poll timeouts (or spurious wakeups) per outer send attempt; avoids infinite inner loop on launch. */
 static constexpr int REGR_POLL_MAX_POLLS_PER_ATTEMPT = 64;
+static constexpr int SAFE_RELEASE_MIN_INTERVAL_MS = 1000;
 
 /* launchATLControlAlgo decisionRepeatIntervalMs: 0 = periodic repeat off; when non-zero, inclusive
  * [kDecisionRepeatIntervalMsMinNonZero, kDecisionRepeatIntervalMsMax] to avoid PLC overload. */
 static constexpr std::uint32_t kDecisionRepeatIntervalMsMinNonZero = 100U;
 static constexpr std::uint32_t kDecisionRepeatIntervalMsMax       = 36000U;
+static constexpr std::uint32_t kHbTimingMsMin                     = 100U;
+static constexpr std::uint32_t kHbTimingMsMax                     = 600000U;
 
 /* Event types this SDM subscribes to (must match onEventNotificationReceive); gateway filters by REGR. */
 static constexpr EventType ATL_SUBSCRIBED_EVENTS[] = {
@@ -119,6 +125,35 @@ static constexpr EventType ATL_SUBSCRIBED_EVENTS[] = {
 };
 static constexpr uint8_t ATL_SUBSCRIBED_COUNT =
     sizeof(ATL_SUBSCRIBED_EVENTS) / sizeof(ATL_SUBSCRIBED_EVENTS[0]);
+
+struct SafetyRelevantSensor {
+    uint8_t pipelineId;
+    const char* sensorName;
+};
+
+/* Reviewed sensor set from pkg/sensor_config.conf. Gateway auto-subscribes
+ * SENSOR_INVALID/SENSOR_VALID; ATL uses pipelineID as the safety key. */
+static constexpr SafetyRelevantSensor kSafetyRelevantSensors[] = {
+    {1U, "Camera"},
+    {2U, "Camera_01"},
+    {3U, "Camera_02"},
+};
+static constexpr uint32_t kSafetyRelevantSensorMask =
+    (1U << (kSafetyRelevantSensors[0].pipelineId - 1U)) |
+    (1U << (kSafetyRelevantSensors[1].pipelineId - 1U)) |
+    (1U << (kSafetyRelevantSensors[2].pipelineId - 1U));
+static_assert(kSafetyRelevantSensors[0].pipelineId >= 1U &&
+              kSafetyRelevantSensors[1].pipelineId >= 1U &&
+              kSafetyRelevantSensors[2].pipelineId >= 1U,
+              "Pipeline IDs are one-based");
+static_assert(kSafetyRelevantSensors[0].pipelineId <= 8U &&
+              kSafetyRelevantSensors[1].pipelineId <= 8U &&
+              kSafetyRelevantSensors[2].pipelineId <= 8U,
+              "Pipeline IDs must stay within sensor_config bounds");
+static_assert(kSafetyRelevantSensors[0].pipelineId != kSafetyRelevantSensors[1].pipelineId &&
+              kSafetyRelevantSensors[0].pipelineId != kSafetyRelevantSensors[2].pipelineId &&
+              kSafetyRelevantSensors[1].pipelineId != kSafetyRelevantSensors[2].pipelineId,
+              "Pipeline IDs must be unique");
 
 /* PLC command socket */
 static int                   plcSock    = -1;
@@ -153,6 +188,8 @@ static constexpr int PERSONS_IN_TRAILER_MAX = 10000;  // cap to avoid overflow f
 static bool restrictedAreaViolationByPerson = false;   // EVENT_4 set; EVENT_5 clear
 // Master mutex for atomic state reading
 static std::mutex masterStateMtx;
+static ObjectRecord lastForkliftRecord = {};
+static bool lastForkliftRecordValid = false;
 /* Serializes PLC decision sequences: evaluateATLDecision (periodic + event), gateway-HB watchdog
  * safe-hold (UNMUTE+SW_ERROR), so ordering vs plcSocketMtx-level sends is consistent. Order: this
  * mutex first, then masterStateMtx inside evaluateATLDecision; sendDecisionCommand uses
@@ -173,6 +210,7 @@ static std::atomic<bool> signalShutdownRequested{false};
 static std::thread       heartbeatThread;
 static std::thread       ackHandlerThread;    // receiver + timeout monitor
 static std::thread       hbWatchdogThread;
+static std::thread       decisionFreshnessWatchdogThread;
 static std::thread       periodicDecisionThread;
 static std::mutex        atlPeriodicDecisionWaitMtx;
 static std::condition_variable atlPeriodicDecisionCv;
@@ -201,29 +239,327 @@ static std::atomic<bool>                     hbGatewayAlive{false};
 /* Heartbeat fail-safe: WARN = max/2 (integer division); miss count derived from time since last gateway HB. */
 static std::atomic<uint32_t>                 g_maxHbFailuresCfg{10U};
 static std::atomic<uint32_t>                 g_warnThresholdCfg{5U};
+static std::atomic<std::uint32_t>            g_hbStaleMs{5000U};
+static std::atomic<std::uint32_t>            g_hbPeriodMs{5500U};
 static std::atomic<bool>                     hbFaultLatched{false};
-/* PSS ERROR latched: repeat fail-safe UNMUTE+SW_ERROR on periodic evaluate until a non-ERROR request clears it. */
+/* PSS ERROR/SW_FAIL active flag. The safe-state latch clears only on PLC safe-release. */
 static std::atomic<bool>                     pssErrorFusionSuppressLatched{false};
+static std::atomic<bool>                     pssFaultActive{false};
+static constexpr uint32_t                    kSafeLatchGatewayHb = 1U << 0;
+static constexpr uint32_t                    kSafeLatchPss       = 1U << 1;
+static constexpr uint32_t                    kSafeLatchCountDrift = 1U << 2;
+static constexpr uint32_t                    kSafeLatchDecisionFreshness = 1U << 3;
+static constexpr uint32_t                    kSafeLatchGatewayDecisionSequence = 1U << 4;
+static constexpr uint32_t                    kSafeLatchAllSafetyRelevantSensorsFailed = 1U << 5;
+static std::atomic<uint32_t>                 safeStateLatchCauses{0U};
+static std::mutex                            safeStateLatchMtx;
+static std::atomic<uint32_t>                 failedSafetyRelevantSensorMask{0U};
+static std::atomic<bool>                     allSafetyRelevantSensorsFailedActive{false};
+
+/* AVOID_SAFETY_LATCH_FOR_SAIM_INIT (compile-time; ON by default on this build).
+ * When enabled, a SENSOR_INVALID whose cause is SAIM's pre-first-frame SAIM_INIT
+ * seed does NOT count toward the all-safety-relevant-sensors-failed safe-hold
+ * latch: at startup every SAIM sensor is briefly SENSOR_INVALID/SAIM_INIT before
+ * its first decoded frame, which would otherwise deterministically latch safe
+ * hold that -- absent a PLC safe-release -- never clears and permanently
+ * suppresses MUTE/UNMUTE. Build with -DAVOID_SAFETY_LATCH_FOR_SAIM_INIT=0 to
+ * enforce strict latching. Genuine failures carry a distinct cause
+ * (SAIM_STREAM_DISCONNECT, SAIM_INTERNAL_ERROR, SAIM_INPUT_DEGRADED,
+ * SAIM_FRAME_DROP, SAIM_UNKNOWN, ...) and still latch. */
+#ifndef AVOID_SAFETY_LATCH_FOR_SAIM_INIT
+#define AVOID_SAFETY_LATCH_FOR_SAIM_INIT 1
+#endif
+#if AVOID_SAFETY_LATCH_FOR_SAIM_INIT
+/* SAIM pre-first-frame seed cause (sai/include/sai_common.h SAIM_INIT). */
+static constexpr char kSaimInitCause[] = "SAIM_INIT";
+#endif
 static std::atomic<int>                      regrTier2AttemptsRemaining{0};
 static std::atomic<uint32_t>                 g_lastGatewayHbMissCount{0U};
+static std::mutex                            safeReleaseRateMtx;
+static std::chrono::steady_clock::time_point lastSafeReleaseRequestTime;
+static std::mutex                            decisionFreshnessMtx;
+static std::chrono::steady_clock::time_point lastValidDecisionRequestTime;
+static std::atomic<bool>                     decisionFreshnessFaultActive{false};
+static std::atomic<bool>                     gatewayDecisionSequenceFaultActive{false};
+static std::atomic<std::uint32_t>            g_decisionFreshnessTimeoutMs{
+    SDM_DECISION_FRESHNESS_TIMEOUT_MS_DEFAULT};
+static SdmGatewayDecisionSequenceState       gatewayDecisionSequenceState = {};
 
 static uint32_t gatewayMissFromElapsedMs(int64_t elapsedMs)
 {
-    const int64_t kStaleStartMs = 5000;
-    const int64_t kPeriodMs     = 5500; /* ~ gateway HB_SEND + ACK window */
-    if (elapsedMs <= kStaleStartMs)
+    const int64_t staleStartMs = static_cast<int64_t>(
+        g_hbStaleMs.load(std::memory_order_relaxed));
+    const int64_t periodMs = static_cast<int64_t>(
+        g_hbPeriodMs.load(std::memory_order_relaxed));
+    if (elapsedMs <= staleStartMs)
         return 0U;
-    const uint64_t m = 1U + static_cast<uint64_t>((elapsedMs - kStaleStartMs) / kPeriodMs);
+    const uint64_t m = 1U + static_cast<uint64_t>((elapsedMs - staleStartMs) / periodMs);
     const uint32_t maxF = g_maxHbFailuresCfg.load();
     if (m > static_cast<uint64_t>(maxF))
         return maxF;
     return static_cast<uint32_t>(m);
 }
 
-/* Fusion-driven MUTE/UNMUTE must not override watchdog safe-hold (tier-2 UNMUTE+SW_ERROR, tier-3 same + shutdown).
+static bool safeStateLatched()
+{
+    return safeStateLatchCauses.load(std::memory_order_acquire) != 0U;
+}
+
+static void sendLatchedSafeHold();
+
+static void markPssFaultActive()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    pssFaultActive.store(true, std::memory_order_release);
+    pssErrorFusionSuppressLatched.store(true, std::memory_order_release);
+    safeStateLatchCauses.fetch_or(kSafeLatchPss, std::memory_order_acq_rel);
+}
+
+static void clearPssFaultActive()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    pssFaultActive.store(false, std::memory_order_release);
+    pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
+}
+
+static uint32_t safetyRelevantSensorBit(uint32_t pipelineId)
+{
+    if (pipelineId == 0U || pipelineId > 31U)
+        return 0U;
+
+    for (const SafetyRelevantSensor& sensor : kSafetyRelevantSensors)
+    {
+        if (pipelineId == static_cast<uint32_t>(sensor.pipelineId))
+            return 1U << (pipelineId - 1U);
+    }
+    return 0U;
+}
+
+static bool markAllSafetyRelevantSensorsFailedLatched()
+{
+    if (allSafetyRelevantSensorsFailedActive.exchange(true, std::memory_order_acq_rel))
+        return false;
+
+    {
+        std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+        safeStateLatchCauses.fetch_or(kSafeLatchAllSafetyRelevantSensorsFailed,
+                                      std::memory_order_acq_rel);
+    }
+    atl_log_err("ATL: All safety-relevant sensors failed; entering safe hold");
+    return true;
+}
+
+static void clearAllSafetyRelevantSensorsFailedActiveIfRecovered(uint32_t failedMask)
+{
+    if ((failedMask & kSafetyRelevantSensorMask) == kSafetyRelevantSensorMask)
+        return;
+
+    if (allSafetyRelevantSensorsFailedActive.exchange(false, std::memory_order_acq_rel))
+    {
+        atl_log_info("ATL: All safety-relevant sensors failed condition cleared; latch awaits PLC release");
+    }
+}
+
+static uint32_t updateSafetyRelevantSensorFailedBit(uint32_t bit, bool failed)
+{
+    if (failed)
+        return failedSafetyRelevantSensorMask.fetch_or(bit, std::memory_order_acq_rel) | bit;
+    return failedSafetyRelevantSensorMask.fetch_and(~bit, std::memory_order_acq_rel) & ~bit;
+}
+
+static bool updateSensorHealthFromDecisionRequest(const DecisionRequest* request)
+{
+    if (request == nullptr)
+        return false;
+
+    bool latchEntered = false;
+    const uint8_t maxSrc =
+        std::min(request->sensorDataSummarySize,
+                 static_cast<uint8_t>(MAX_SENSORS_DATA_SUMMARY_SIZE));
+
+    for (uint8_t i = 0U; i < maxSrc; ++i)
+    {
+        const SensorData& sd = request->sensorDataSummary[i];
+        if (sd.event.status == STALE)
+            continue;
+
+        const EventType et = static_cast<EventType>(sd.event.type);
+        if (et == PSS_STATUS_NOOP)
+            continue;
+
+        const uint32_t pipelineId =
+            static_cast<uint32_t>(sd.event.fusionMetadata.pipelineID);
+        const uint32_t bit = safetyRelevantSensorBit(pipelineId);
+        if (bit == 0U)
+            continue;
+
+        bool updateMask = false;
+        bool failed = false;
+        if (et == SENSOR_INVALID || !sd.isHealthy)
+        {
+#if AVOID_SAFETY_LATCH_FOR_SAIM_INIT
+            /* Initialization-in-progress (SAIM_INIT), not a genuine failure: leave
+             * the sensor's failed bit unchanged (pending) so it does not contribute
+             * to the all-safety-relevant-sensors-failed latch. Real post-init
+             * failures carry a different cause and still latch. */
+            if (std::strncmp(sd.event.ruleIdentifier, kSaimInitCause,
+                             sizeof(sd.event.ruleIdentifier)) == 0)
+                continue;
+#endif
+            updateMask = true;
+            failed = true;
+        }
+        else if (et == SENSOR_VALID || (sd.isHealthy && sd.isTrustedSource))
+        {
+            updateMask = true;
+            failed = false;
+        }
+
+        if (!updateMask)
+            continue;
+
+        const uint32_t previousMask =
+            failedSafetyRelevantSensorMask.load(std::memory_order_acquire);
+        const uint32_t newMask = updateSafetyRelevantSensorFailedBit(bit, failed);
+        if (newMask != previousMask)
+        {
+            const std::string cause(sd.event.ruleIdentifier,
+                strnlen(sd.event.ruleIdentifier, sizeof(sd.event.ruleIdentifier)));
+            atl_log_info("ATL: safety-sensor health change pipelineID=" +
+                std::to_string(pipelineId) +
+                (failed ? " state=FAILED" : " state=RECOVERED") +
+                " cause=" + (cause.empty() ? std::string("UNKNOWN") : cause));
+        }
+
+        if ((newMask & kSafetyRelevantSensorMask) == kSafetyRelevantSensorMask)
+            latchEntered = markAllSafetyRelevantSensorsFailedLatched() || latchEntered;
+        else
+            clearAllSafetyRelevantSensorsFailedActiveIfRecovered(newMask);
+    }
+
+    return latchEntered;
+}
+
+static bool markCountDriftFaultLatched()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    const uint32_t previousLatch =
+        safeStateLatchCauses.load(std::memory_order_acquire);
+    safeStateLatchCauses.fetch_or(kSafeLatchCountDrift, std::memory_order_acq_rel);
+    return previousLatch == 0U;
+}
+
+static bool markGatewayHbFaultLatched()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    if (hbFaultLatched.load(std::memory_order_acquire))
+        return false;
+    hbFaultLatched.store(true, std::memory_order_release);
+    safeStateLatchCauses.fetch_or(kSafeLatchGatewayHb, std::memory_order_acq_rel);
+    return true;
+}
+
+static bool clearGatewayHbFaultActive()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    return hbFaultLatched.exchange(false, std::memory_order_acq_rel);
+}
+
+static void resetSafeStateFaultsForLaunch()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    hbFaultLatched.store(false, std::memory_order_release);
+    pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
+    pssFaultActive.store(false, std::memory_order_release);
+    decisionFreshnessFaultActive.store(false, std::memory_order_release);
+    gatewayDecisionSequenceFaultActive.store(false, std::memory_order_release);
+    failedSafetyRelevantSensorMask.store(0U, std::memory_order_release);
+    allSafetyRelevantSensorsFailedActive.store(false, std::memory_order_release);
+    sdmGatewayDecisionSequenceReset(&gatewayDecisionSequenceState);
+    safeStateLatchCauses.store(0U, std::memory_order_release);
+}
+
+static void markDecisionRequestFresh(uint32_t requestId)
+{
+    {
+        std::lock_guard<std::mutex> lock(decisionFreshnessMtx);
+        lastValidDecisionRequestTime = std::chrono::steady_clock::now();
+    }
+
+    if (decisionFreshnessFaultActive.exchange(false, std::memory_order_acq_rel))
+    {
+        atl_log_info("ATL: DecisionRequest freshness recovered; requestId=" +
+            std::to_string(requestId) + "; latch awaits PLC release");
+    }
+}
+
+static bool markDecisionFreshnessFaultLatched(std::uint64_t elapsedMs)
+{
+    (void)elapsedMs;
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    if (decisionFreshnessFaultActive.load(std::memory_order_acquire))
+        return false;
+    decisionFreshnessFaultActive.store(true, std::memory_order_release);
+    safeStateLatchCauses.fetch_or(kSafeLatchDecisionFreshness, std::memory_order_acq_rel);
+    return true;
+}
+
+static bool markGatewayDecisionSequenceFaultLatched(uint64_t gatewayEpoch, uint32_t gatewayTxSeq)
+{
+    (void)gatewayEpoch;
+    (void)gatewayTxSeq;
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    if (gatewayDecisionSequenceFaultActive.load(std::memory_order_acquire))
+        return false;
+    gatewayDecisionSequenceFaultActive.store(true, std::memory_order_release);
+    safeStateLatchCauses.fetch_or(kSafeLatchGatewayDecisionSequence, std::memory_order_acq_rel);
+    return true;
+}
+
+static void markGatewayDecisionSequenceRecovered(uint64_t gatewayEpoch, uint32_t gatewayTxSeq)
+{
+    if (gatewayDecisionSequenceFaultActive.exchange(false, std::memory_order_acq_rel))
+    {
+        atl_log_info("ATL: Gateway DecisionRequest sequence recovered; epoch=" +
+            std::to_string(gatewayEpoch) + " txSeq=" +
+            std::to_string(gatewayTxSeq) + "; latch awaits PLC release");
+    }
+}
+
+static void decisionFreshnessWatchdog()
+{
+    while (!stopSDMThreads.load(std::memory_order_relaxed))
+    {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(SDM_DECISION_FRESHNESS_CHECK_PERIOD_MS));
+
+        std::chrono::steady_clock::time_point lastValid;
+        {
+            std::lock_guard<std::mutex> lock(decisionFreshnessMtx);
+            lastValid = lastValidDecisionRequestTime;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const std::uint64_t elapsedMs = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - lastValid).count());
+        const std::uint32_t timeoutMs =
+            g_decisionFreshnessTimeoutMs.load(std::memory_order_relaxed);
+
+        if (sdmDecisionFreshnessExpired(elapsedMs, timeoutMs) &&
+            markDecisionFreshnessFaultLatched(elapsedMs))
+        {
+            atl_log_err("ATL: DecisionRequest freshness timeout; entering safe hold, elapsed_ms=" +
+                std::to_string(elapsedMs));
+            sendLatchedSafeHold();
+        }
+    }
+}
+
+/* Fusion-driven MUTE/UNMUTE must not override watchdog safe-hold.
  * Suppress while HB miss count is past warn tier or fault is latched; resume when m <= warnW again (e.g. m == 0). */
 static bool gatewayHbSuppressFusionDecisions()
 {
+    if (safeStateLatched())
+        return true;
     if (hbFaultLatched.load(std::memory_order_relaxed))
         return true;
     const uint32_t m     = g_lastGatewayHbMissCount.load(std::memory_order_relaxed);
@@ -255,30 +591,60 @@ std::pair<uint64_t, uint64_t> getCurrentUTCTimeForPacket()
 }
 
 
-/* Populate ObjectRecord from the first sensor's fusionMetadata */
-static void fillObjectRecords(ObjectRecord objects[COMMAND_NUM_OBJECTS],
-                               const SensorData* data)
+static ObjectRecord makeObjectRecordFromSensorData(const SensorData& data)
 {
-    std::memset(objects, 0, sizeof(ObjectRecord) * COMMAND_NUM_OBJECTS);
-    if (!data)
-        return;
-
-    const EventFusionMetadata& meta =
-        data->event.fusionMetadata;
-
-    for (int i = 0; i < COMMAND_NUM_OBJECTS; i++) {
-        objects[i].object_id = meta.objectID[i];
-        if (i < MAX_TRAJECTORY_COORDINATES) {
-            objects[i].x = meta.coordinates[i].x;
-            objects[i].y = meta.coordinates[i].y;
-        }
-        objects[i].z = 0.0f;
-        objects[i].metadata = static_cast<uint32_t>(meta.objectType[i]);
-    }
+    const EventFusionMetadata& meta = data.event.fusionMetadata;
+    ObjectRecord record = {};
+    record.object_id = meta.objectID[0];
+    record.x = meta.coordinates[0].x;
+    record.y = meta.coordinates[0].y;
+    record.z = 0.0f;
+    record.metadata = static_cast<uint32_t>(meta.objectType[0]);
+    return record;
 }
 
-void sendDecisionCommand(unsigned char command, bool trackAck,
-                         const SensorData* data)
+static void updateLastForkliftRecordLocked(const SensorData& data)
+{
+    lastForkliftRecord = makeObjectRecordFromSensorData(data);
+    lastForkliftRecordValid = true;
+}
+
+static void resetLastForkliftRecordLocked()
+{
+    lastForkliftRecord = {};
+    lastForkliftRecordValid = false;
+}
+
+static bool snapshotLastForkliftRecord(ObjectRecord* record)
+{
+    if (record == nullptr)
+        return false;
+
+    std::lock_guard<std::mutex> stateLock(masterStateMtx);
+    if (!lastForkliftRecordValid)
+        return false;
+    *record = lastForkliftRecord;
+    return true;
+}
+
+/* ATL uses only Object 1 for the last-known forklift; Object 2 remains zero. */
+static void fillObjectRecords(ObjectRecord objects[COMMAND_NUM_OBJECTS],
+                               const SensorData* data,
+                               const ObjectRecord* object1Record)
+{
+    std::memset(objects, 0, sizeof(ObjectRecord) * COMMAND_NUM_OBJECTS);
+    if (object1Record != nullptr) {
+        objects[0] = *object1Record;
+        return;
+    }
+
+    if (data != nullptr)
+        objects[0] = makeObjectRecordFromSensorData(*data);
+}
+
+static bool sendDecisionCommandInternal(unsigned char command, bool trackAck,
+                                        const SensorData* data,
+                                        const ObjectRecord* object1Record)
 {
     const uint32_t n = cmdSeqNo.fetch_add(1);
     const uint16_t seqNo = static_cast<uint16_t>(n);
@@ -296,13 +662,14 @@ void sendDecisionCommand(unsigned char command, bool trackAck,
     pkt.ts_seconds      = tsSec;
     pkt.ts_microseconds = tsMicro;
 
-    fillObjectRecords(pkt.objects, data);
+    fillObjectRecords(pkt.objects, data, object1Record);
 
     pkt.crc32 = cmdPacketCRC32(&pkt);
 
     bool shouldPrintAndTrack = false;
     const char* cmdType = commandName(command);
-    if (command == CMD_MUTE || command == CMD_UNMUTE || command == CMD_SW_ERROR)
+    if (command == CMD_MUTE || command == CMD_UNMUTE || command == CMD_SW_ERROR ||
+        command == CMD_SAFE_RELEASE_ACK || command == CMD_SAFE_RELEASE_DENIED)
         shouldPrintAndTrack = true;
 
     if (shouldPrintAndTrack) {
@@ -317,16 +684,225 @@ void sendDecisionCommand(unsigned char command, bool trackAck,
         atl_log_info(logMsg.str());
     }
 
-    if (trackAck && shouldPrintAndTrack) {
+    bool sentOk = false;
+    const bool trackPendingAck = trackAck && shouldPrintAndTrack;
+    /*
+     * Register before sendto(): cmd_rx can return an ACK immediately, and
+     * registering after send leaves a window where ackHandlerLoop drops that
+     * otherwise valid ACK because no pending entry exists yet.
+     */
+    if (trackPendingAck) {
         std::lock_guard<std::mutex> cmdLock(commandStatusMtx);
         pendingCommands[seqNo] = CommandStatus(command, tsSec, tsMicro);
     }
 
-    std::lock_guard<std::mutex> sockLock(plcSocketMtx);
-    if (plcSock >= 0) {
-        if (sendto(plcSock, &pkt, sizeof(pkt), 0,
-                   (struct sockaddr*)&plcAddr, sizeof(plcAddr)) < 0)
-            atl_log_err("Failed to send decision command");
+    {
+        std::lock_guard<std::mutex> sockLock(plcSocketMtx);
+        if (plcSock >= 0) {
+            const ssize_t sent = sendto(plcSock, &pkt, sizeof(pkt), 0,
+                                        (struct sockaddr*)&plcAddr, sizeof(plcAddr));
+            if (sent == static_cast<ssize_t>(sizeof(pkt))) {
+                sentOk = true;
+            } else {
+                atl_log_err("Failed to send decision command");
+            }
+        }
+    }
+
+    if (!sentOk && trackPendingAck) {
+        std::lock_guard<std::mutex> cmdLock(commandStatusMtx);
+        const auto it = pendingCommands.find(seqNo);
+        if (it != pendingCommands.end() &&
+            it->second.command == command &&
+            it->second.sentTimeSec == tsSec &&
+            it->second.sentTimeMicro == tsMicro) {
+            pendingCommands.erase(it);
+        }
+    }
+    return sentOk;
+}
+
+bool sendDecisionCommand(unsigned char command, bool trackAck,
+                         const SensorData* data)
+{
+    return sendDecisionCommandInternal(command, trackAck, data, nullptr);
+}
+
+static bool sendDecisionCommandWithObject1(unsigned char command, bool trackAck,
+                                           const ObjectRecord* object1Record)
+{
+    return sendDecisionCommandInternal(command, trackAck, nullptr, object1Record);
+}
+
+static bool isConfiguredPlcEndpoint(const struct sockaddr_in& sender,
+                                    socklen_t sender_len)
+{
+    return sender_len >= static_cast<socklen_t>(sizeof(sender)) &&
+           sender.sin_family == AF_INET &&
+           sender.sin_port == plcAddr.sin_port &&
+           sender.sin_addr.s_addr == plcAddr.sin_addr.s_addr;
+}
+
+static bool isValidPlcInboundCommand(uint8_t command)
+{
+    return command == CMD_HEARTBEAT ||
+           command == CMD_MUTE ||
+           command == CMD_UNMUTE ||
+           command == CMD_HW_ERROR ||
+           command == CMD_SW_ERROR ||
+           command == CMD_SAFE_RELEASE_REQUEST;
+}
+
+static void resetAtlStateFromPlcSafeRelease()
+{
+    std::lock_guard<std::mutex> stateLock(masterStateMtx);
+    forkliftInTrailer = false;
+    personsInTrailerCount = 0;
+    restrictedAreaViolationByPerson = false;
+    resetLastForkliftRecordLocked();
+}
+
+static uint32_t activeSafeLatchCauses()
+{
+    uint32_t active = 0U;
+    if (hbFaultLatched.load(std::memory_order_acquire) ||
+        gatewayHbTier2SafeHoldBand())
+    {
+        active |= kSafeLatchGatewayHb;
+    }
+    if (pssFaultActive.load(std::memory_order_acquire))
+    {
+        active |= kSafeLatchPss;
+    }
+    if (decisionFreshnessFaultActive.load(std::memory_order_acquire))
+    {
+        active |= kSafeLatchDecisionFreshness;
+    }
+    if (gatewayDecisionSequenceFaultActive.load(std::memory_order_acquire))
+    {
+        active |= kSafeLatchGatewayDecisionSequence;
+    }
+    if (allSafetyRelevantSensorsFailedActive.load(std::memory_order_acquire))
+    {
+        active |= kSafeLatchAllSafetyRelevantSensorsFailed;
+    }
+    /* Count drift is an SDM state-consistency fault. It latches safe output,
+     * but has no continuing external source once PLC/operator confirms clear. */
+    return active;
+}
+
+static void sendLatchedSafeHold()
+{
+    /* Fault callers publish the latch before waiting on this sequence mutex so
+     * the periodic decision path cannot emit MUTE from stale state. */
+    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+    const bool unmuteSent = sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+    const bool swErrorSent = sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+    if (!unmuteSent || !swErrorSent)
+        atl_log_err("ATL: latched safe-hold TX failed; latch retained for retry");
+}
+
+static void sendPhysicalEventSafeHold(const ObjectRecord* object1Record)
+{
+    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+    const bool unmuteSent =
+        sendDecisionCommandWithObject1(CMD_UNMUTE, true, object1Record);
+    const bool swErrorSent =
+        sendDecisionCommandWithObject1(CMD_SW_ERROR, true, object1Record);
+    if (!unmuteSent || !swErrorSent)
+        atl_log_err("ATL: physical-event safe-hold TX failed; latch retained for retry");
+}
+
+static bool safeReleaseNoopResponseInRateWindow(
+    const std::chrono::steady_clock::time_point& now)
+{
+    std::lock_guard<std::mutex> lock(safeReleaseRateMtx);
+    if (lastSafeReleaseRequestTime != std::chrono::steady_clock::time_point{} &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - lastSafeReleaseRequestTime).count() < SAFE_RELEASE_MIN_INTERVAL_MS)
+    {
+        return true;
+    }
+    return false;
+}
+
+static void markSafeReleaseNoopResponseSuccess(
+    const std::chrono::steady_clock::time_point& now)
+{
+    std::lock_guard<std::mutex> lock(safeReleaseRateMtx);
+    lastSafeReleaseRequestTime = now;
+}
+
+static void handleSafeReleaseRequest()
+{
+    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+
+    const uint32_t active = activeSafeLatchCauses();
+    if (active != 0U)
+    {
+        atl_log_warning("ATL: PLC safe-release denied; active safe-state fault source remains, active_causes=" +
+            std::to_string(active));
+        sendDecisionCommand(CMD_SAFE_RELEASE_DENIED, false, nullptr);
+        sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+        sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+        return;
+    }
+
+    uint32_t releaseLatchSnapshot = 0U;
+    {
+        std::lock_guard<std::mutex> latchLock(safeStateLatchMtx);
+        releaseLatchSnapshot = safeStateLatchCauses.load(std::memory_order_acquire);
+    }
+
+    if (releaseLatchSnapshot != 0U)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const bool ackSent = sendDecisionCommand(CMD_SAFE_RELEASE_ACK, false, nullptr);
+        const bool unmuteSent = sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+        if (ackSent && unmuteSent) {
+            /* Only apply PLC-authoritative clear state after the peer can
+             * observe the accepted release sequence.  Do not clear a new latch
+             * cause that arrives while TX is in flight. */
+            bool latchCleared = false;
+            {
+                std::lock_guard<std::mutex> latchLock(safeStateLatchMtx);
+                const uint32_t currentLatch =
+                    safeStateLatchCauses.load(std::memory_order_acquire);
+                if (currentLatch == releaseLatchSnapshot &&
+                    activeSafeLatchCauses() == 0U) {
+                    safeStateLatchCauses.store(0U, std::memory_order_release);
+                    latchCleared = true;
+                }
+            }
+            if (latchCleared) {
+                resetAtlStateFromPlcSafeRelease();
+                atl_log_info("ATL: PLC safe-release accepted; local state reset to clear condition");
+                markSafeReleaseNoopResponseSuccess(now);
+            } else {
+                atl_log_warning("ATL: safe-release response sent but latch retained due to concurrent fault");
+                sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+                sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+            }
+        } else {
+            atl_log_err("ATL: safe-release response TX failed; latch retained and state not reset");
+        }
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const bool rateLimited = safeReleaseNoopResponseInRateWindow(now);
+    if (rateLimited)
+        atl_log_warning("ATL: rate-limited PLC safe-release retry; re-sending current safe-release response");
+    else
+        atl_log_info("ATL: PLC safe-release received while no safe-state latch is active");
+
+    const bool ackSent = sendDecisionCommand(CMD_SAFE_RELEASE_ACK, false, nullptr);
+    const bool unmuteSent = sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+    if (ackSent && unmuteSent) {
+        resetAtlStateFromPlcSafeRelease();
+        markSafeReleaseNoopResponseSuccess(now);
+    } else {
+        atl_log_err("ATL: safe-release no-latch response TX failed; state not reset");
     }
 }
 
@@ -372,6 +948,7 @@ void ackHandlerLoop()
                 std::lock_guard<std::mutex> lock(plcSocketMtx);
                 if (plcSock < 0)
                     break;
+                std::memset(&sender_addr, 0, sizeof(sender_addr));
                 sender_len = sizeof(sender_addr);
                 bytes_received = recvfrom(plcSock, ackBuf, COMMAND_PACKET_SIZE,
                                           MSG_DONTWAIT,
@@ -382,21 +959,81 @@ void ackHandlerLoop()
             if (bytes_received == COMMAND_PACKET_SIZE) {
                 const CmdPacket* ackPkt =
                     reinterpret_cast<const CmdPacket*>(ackBuf);
-                uint16_t seqNo = ackPkt->seq;
+                if (!isConfiguredPlcEndpoint(sender_addr, sender_len))
+                {
+                    atl_log_warning("SDM: dropping PLC packet from unexpected endpoint");
+                    continue;
+                }
+                if (ackPkt->identifier != ATL_PACKET_IDENTIFIER)
+                {
+                    atl_log_warning("SDM: dropping PLC packet with invalid identifier");
+                    continue;
+                }
+                if (!cmdPacketValidateCRC(ackPkt))
+                {
+                    atl_log_warning("SDM: dropping PLC packet with invalid CRC");
+                    continue;
+                }
+                if (!isValidPlcInboundCommand(ackPkt->command))
+                {
+                    atl_log_warning("SDM: dropping PLC packet with unsupported command");
+                    continue;
+                }
 
-                std::lock_guard<std::mutex> lock(commandStatusMtx);
-                auto it = pendingCommands.find(seqNo);
-                if (it != pendingCommands.end()) {
-                    it->second.acknowledged = true;
+                if (ackPkt->command == CMD_SAFE_RELEASE_REQUEST)
+                {
+                    handleSafeReleaseRequest();
+                    continue;
+                }
+
+                uint16_t seqNo = ackPkt->seq;
+                bool dropAck = false;
+                bool matchedAck = false;
+                unsigned char acknowledgedCommand = 0U;
+
+                {
+                    std::lock_guard<std::mutex> lock(commandStatusMtx);
+                    auto it = pendingCommands.find(seqNo);
+                    if (it != pendingCommands.end()) {
+                        if (ackPkt->command != it->second.command)
+                        {
+                            dropAck = true;
+                        }
+                        else
+                        {
+                            it->second.acknowledged = true;
+                            matchedAck = true;
+                            acknowledgedCommand = it->second.command;
+                        }
+                    }
+                }
+
+                std::string ackLog;
+                if (dropAck)
+                {
+                    ackLog = "SDM: dropping ACK with command/sequence mismatch";
+                    atl_log_warning(ackLog);
+                }
+                else if (matchedAck)
+                {
                     std::ostringstream ackMsg;
                     ackMsg << "Received acknowledgment for command: "
-                           << commandName(it->second.command)
+                           << commandName(acknowledgedCommand)
                            << " (SeqNo: " << seqNo << ")"
                            << ", ACK UTC epoch: " << ackPkt->ts_seconds
                            << "." << std::setfill('0') << std::setw(6)
                            << ackPkt->ts_microseconds;
                     atl_log_info(ackMsg.str());
                 }
+                else
+                {
+                    ackLog = "SDM: received valid ACK with no pending command (SeqNo: " +
+                             std::to_string(seqNo) + ", command: " +
+                             std::string(commandName(ackPkt->command)) + ")";
+                    atl_log_warning(ackLog);
+                }
+                if (dropAck)
+                    continue;
             }
         }
 
@@ -459,7 +1096,7 @@ static void heartbeatTransmitter()
  * ---------------------------------------------------------------
  * Miss count from time since last gateway HB datagram (see gatewayMissFromElapsedMs).
  * max_hb_failures N => tier-3 latch on miss count m >= N; tier 2 is warnW < m < N.
- * Tier 1: warn; Tier 2/3: safe PLC hold (UNMUTE + SW_ERROR) under decisionEvalSendMtx + bounded REGR / stop.
+ * Tier 1: warn; Tier 2/3: safe PLC hold (UNMUTE + SW_ERROR) under decisionEvalSendMtx.
  * ================================================================ */
 static void gatewayHeartbeatWatchdog()
 {
@@ -468,25 +1105,23 @@ static void gatewayHeartbeatWatchdog()
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-        if (hbFaultLatched.load())
-            continue;
-
         const uint32_t maxF = g_maxHbFailuresCfg.load();
         const uint32_t warnW = g_warnThresholdCfg.load();
 
         int64_t elapsed = 0;
         {
             std::lock_guard<std::mutex> lk(hbMtx);
-            if (!hbGatewayAlive.load())
-                continue;
-
             elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - hbLastRecvTime).count();
         }
 
         const uint32_t m = gatewayMissFromElapsedMs(elapsed);
+        g_lastGatewayHbMissCount.store(m);
         if (m == 0U)
-            prevMiss = 0U;
+        {
+            if (clearGatewayHbFaultActive())
+                atl_log_info("HB-PSD: gateway HB recovered; safe-state latch awaits PLC release");
+        }
 
         if (m > prevMiss && m >= 1U && m <= warnW)
         {
@@ -503,31 +1138,28 @@ static void gatewayHeartbeatWatchdog()
                 sendDecisionCommand(CMD_UNMUTE, true, nullptr);
                 sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
             }
+            AtlFaultReport(ATL_FAULT_REPORT_GATEWAY_HB_TIER2, m, elapsed);
         }
 
         prevMiss = m;
-        g_lastGatewayHbMissCount.store(m);
 
         if (m >= maxF)
         {
-            if (!hbFaultLatched.exchange(true))
+            if (markGatewayHbFaultLatched())
             {
                 atl_log_err("HB-PSD: gateway HB fault latched (tier 3) — local fail-safe, no PSS connection");
-                {
-                    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
-                    sendDecisionCommand(CMD_UNMUTE, true, nullptr);
-                    sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
-                }
-                stopSDMThreads.store(true);
-                atlPeriodicDecisionCv.notify_all();
-                signalShutdownRequested.store(true);
+                AtlFaultReport(ATL_FAULT_REPORT_GATEWAY_HB_TIER3, m, elapsed);
+                /* Keep ATL alive on gateway HB tier-3: repeat safe-hold, keep REGR active,
+                 * and allow PLC safe-release after the heartbeat source recovers. */
+                sendLatchedSafeHold();
             }
         }
     }
 }
 
-/* Periodic PLC decision repeat (independent of new events). Skips while gateway HB fault latched;
- * evaluateATLDecision() repeats UNMUTE+SW_ERROR while PSS ERROR latched or HB tier-2 band, else fusion.
+/* Periodic PLC decision repeat (independent of new events).
+ * evaluateATLDecision() repeats UNMUTE+SW_ERROR while safe-state latched
+ * or while PSS ERROR / HB tier-2 suppression is active; otherwise it runs fusion.
  * Uses condition_variable so shutdown can wake the wait immediately (no long join delay). */
 static void atlPeriodicDecisionLoop()
 {
@@ -544,8 +1176,6 @@ static void atlPeriodicDecisionLoop()
         }
         if (stopSDMThreads.load(std::memory_order_relaxed))
             break;
-        if (hbFaultLatched.load())
-            continue;
         evaluateATLDecision();
     }
 }
@@ -559,16 +1189,19 @@ void onEventNotificationReceive(const DecisionRequest* request)
     /* --- PSS ERROR mode ------------------------------------------------ */
     if (request->pssStatus.mode == ERROR)
     {
-        pssErrorFusionSuppressLatched.store(true, std::memory_order_release);
         atl_log_warning("PSS is in error mode, sending stop + software error command");
+        if (!pssErrorFusionSuppressLatched.exchange(true, std::memory_order_acq_rel))
+        {
+            AtlFaultReport(ATL_FAULT_REPORT_PSS_ERROR, 0U, 0);
+        }
         {
             std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+            markPssFaultActive();
             sendDecisionCommand(CMD_UNMUTE, true, nullptr);
             sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
         }
         return;
     }
-    pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
 
     /* --- Normal / Degraded mode ---------------------------------------- */
 
@@ -576,7 +1209,48 @@ void onEventNotificationReceive(const DecisionRequest* request)
         std::min(request->sensorDataSummarySize,
                  static_cast<uint8_t>(MAX_SENSORS_DATA_SUMMARY_SIZE));
 
+    if (maxSrc == 1U &&
+        static_cast<EventType>(request->sensorDataSummary[0].event.type) == PSS_STATUS_NOOP)
+    {
+        atl_log_info("ATL: PSS_STATUS_NOOP received; freshness refreshed without physical-state update");
+        return;
+    }
+
+    if (SdmDecisionRequestClearsPssFaultActive(request))
+    {
+        clearPssFaultActive();
+    }
+
+    for (uint8_t i = 0; i < maxSrc; ++i)
+    {
+        const SensorData& sd = request->sensorDataSummary[i];
+        if (static_cast<EventType>(sd.event.type) != SW_FAIL)
+            continue;
+        if (sd.event.status == STALE)
+            continue;
+        if (sd.event.id == lastEventId[i])
+            continue;
+        lastEventId[i] = sd.event.id;
+
+        atl_log_err("ATL: SW_FAIL received — triggering safe hold");
+        AtlFaultReport(ATL_FAULT_REPORT_SW_FAIL, 0U, 0);
+        {
+            std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+            markPssFaultActive();
+            sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+            sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+        }
+        return;
+    }
+
+    if (updateSensorHealthFromDecisionRequest(request))
+    {
+        sendLatchedSafeHold();
+        return;
+    }
+
     bool stateChanged = false;
+    bool latchEnteredThisRequest = false;
 
     for (uint8_t i = 0; i < maxSrc; ++i)
     {
@@ -596,35 +1270,31 @@ void onEventNotificationReceive(const DecisionRequest* request)
             continue;
         lastEventId[i] = sd.event.id;
 
+        const EventType et = static_cast<EventType>(sd.event.type);
+        if (et == SENSOR_INVALID || et == SENSOR_VALID)
+        {
+            atl_log_info("ATL: Sensor health event consumed by health monitor only");
+            continue;
+        }
+
         if (!sd.isHealthy)
         {
-            char buf[128];
-            snprintf(buf, sizeof(buf),
-                     "Sensor unhealthy -- logging only, not processing for decision: "
-                     "eventId=%u pipelineID=%u",
-                     (unsigned)sd.event.id, (unsigned)sd.event.fusionMetadata.pipelineID);
-            atl_log_info(buf);
+            atl_log_info("Sensor unhealthy -- logging only, not processing for decision");
             continue;
         }
 
         if (!sd.isTrustedSource)
         {
-            char buf[128];
-            snprintf(buf, sizeof(buf),
-                     "AI pipeline untrusted -- logging only, not processing for decision: "
-                     "eventId=%u clientID=%u",
-                     (unsigned)sd.event.id, (unsigned)sd.clientID);
-            atl_log_info(buf);
+            atl_log_info("AI pipeline untrusted -- logging only, not processing for decision");
             continue;
         }
-
-        const EventType et = static_cast<EventType>(sd.event.type);
 
         switch (et)
         {
         case EVENT_0:  /* Forklift TW OUT = forklift entered trailer */
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
+                updateLastForkliftRecordLocked(sd);
                 forkliftInTrailer = true;
                 atl_log_info("ATL: Forklift entered trailer (TW OUT)");
             }
@@ -633,6 +1303,7 @@ void onEventNotificationReceive(const DecisionRequest* request)
         case EVENT_1:  /* Forklift TW IN = forklift exited trailer */
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
+                updateLastForkliftRecordLocked(sd);
                 forkliftInTrailer = false;
                 atl_log_info("ATL: Forklift exited trailer (TW IN)");
             }
@@ -641,10 +1312,16 @@ void onEventNotificationReceive(const DecisionRequest* request)
         case EVENT_2:  /* Person TW OUT = person entered trailer */
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
-                if (personsInTrailerCount < PERSONS_IN_TRAILER_MAX)
+                if (personsInTrailerCount < PERSONS_IN_TRAILER_MAX) {
                     personsInTrailerCount++;
-                atl_log_info("ATL: Person entered trailer (TW OUT), personsInTrailerCount=" +
-                    std::to_string(personsInTrailerCount));
+                    atl_log_info("ATL: Person entered trailer (TW OUT), personsInTrailerCount=" +
+                        std::to_string(personsInTrailerCount));
+                } else {
+                    latchEnteredThisRequest =
+                        markCountDriftFaultLatched() || latchEnteredThisRequest;
+                    atl_log_warning("ATL: Person entered trailer but personsInTrailerCount saturated at " +
+                        std::to_string(PERSONS_IN_TRAILER_MAX) + "; entering fault-safe lockout");
+                }
             }
             stateChanged = true;
             break;
@@ -656,7 +1333,9 @@ void onEventNotificationReceive(const DecisionRequest* request)
                     atl_log_info("ATL: Person exited trailer (TW IN), personsInTrailerCount=" +
                         std::to_string(personsInTrailerCount));
                 } else {
-                    atl_log_warning("ATL: Person exited trailer but personsInTrailerCount already 0");
+                    latchEnteredThisRequest =
+                        markCountDriftFaultLatched() || latchEnteredThisRequest;
+                    atl_log_warning("ATL: Person exited trailer but personsInTrailerCount already 0; entering fault-safe lockout");
                 }
             }
             stateChanged = true;
@@ -677,18 +1356,21 @@ void onEventNotificationReceive(const DecisionRequest* request)
             }
             stateChanged = true;
             break;
-        case SW_FAIL:
-            atl_log_err("ATL: SW_FAIL received — triggering safe hold");
-            {
-                std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
-                sendDecisionCommand(CMD_UNMUTE, true, nullptr);
-                sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
-            }
-            return;
         default:
             break;
         }
     }
+
+    if (latchEnteredThisRequest)
+    {
+        ObjectRecord forkliftRecord = {};
+        const bool hasForkliftRecord = snapshotLastForkliftRecord(&forkliftRecord);
+        sendPhysicalEventSafeHold(hasForkliftRecord ? &forkliftRecord : nullptr);
+        return;
+    }
+
+    if (safeStateLatched())
+        return;
 
     /* Immediate decision when fusion/state changes; periodic thread repeats same logic on a timer. */
     if (stateChanged)
@@ -823,7 +1505,7 @@ static void emitHbAckTryOnce(const char ack[NVPSD_GATEWAY_HB_MSG_SIZE])
 /* EVENT loop receive DecisionRequest from PSD Gateway */
 static void psdGatewayEventListener()
 {
-    char               rawBuf[sizeof(DecisionRequest)];
+    char               rawBuf[sizeof(NvPSDGatewayDecisionRequestPacket)];
     struct pollfd      pfd;
 
     while (!stopSDMThreads.load() && !signalShutdownRequested.load())
@@ -831,8 +1513,7 @@ static void psdGatewayEventListener()
         if (g_signal_received != 0)
             signalShutdownRequested.store(true);
         flushPendingHbAck();
-        /* Periodic REGR: tier 2 uses bounded attempts (regrTier2AttemptsRemaining); tier 3 latched skips. */
-        if (!hbFaultLatched.load())
+        /* Periodic REGR: keep trying while latched so a restarted gateway can rediscover this SDM. */
         {
             auto now = std::chrono::steady_clock::now();
             const uint32_t m = g_lastGatewayHbMissCount.load();
@@ -844,7 +1525,11 @@ static void psdGatewayEventListener()
             {
                 bool allow = false;
                 bool tier2Attempt = false;
-                if (m <= warnW)
+                if (hbFaultLatched.load(std::memory_order_relaxed) || safeStateLatched())
+                {
+                    allow = true;
+                }
+                else if (m <= warnW)
                 {
                     allow = true;
                 }
@@ -930,11 +1615,19 @@ static void psdGatewayEventListener()
             continue;
         }
 
-        /* --- Full DecisionRequest --- */
-        if (n == static_cast<ssize_t>(sizeof(DecisionRequest)))
+        /* --- Gateway-wrapped DecisionRequest --- */
+        if (n == static_cast<ssize_t>(sizeof(NvPSDGatewayDecisionRequestPacket)))
         {
+            NvPSDGatewayDecisionRequestPacket packet;
+            std::memcpy(&packet, rawBuf, sizeof(packet));
+            if (!NvPSDGatewayDecisionPacketHeaderIsValid(&packet))
+            {
+                atl_log_err("SDM: Gateway DecisionRequest packet header validation failed — dropping");
+                continue;
+            }
+
             DecisionRequest request;
-            std::memcpy(&request, rawBuf, sizeof(DecisionRequest));
+            std::memcpy(&request, &packet.request, sizeof(DecisionRequest));
 
             uint32_t vErr = validateDecisionRequest(&request);
             if (vErr != PSS_VALID)
@@ -948,16 +1641,50 @@ static void psdGatewayEventListener()
 
             atl_log_info("SDM: received DecisionRequest from psdGateway, reqId=" +
                 std::to_string(request.requestId) +
+                " gatewayTxSeq=" +
+                std::to_string(packet.gatewayTxSeq) +
                 " events=" +
                 std::to_string(request.sensorDataSummarySize));
 
+            const SdmGatewayDecisionSequenceResult seqResult =
+                sdmGatewayDecisionSequenceObserve(&gatewayDecisionSequenceState,
+                                                  packet.gatewayEpoch,
+                                                  packet.gatewayTxSeq);
+            if (seqResult == SDM_GATEWAY_DECISION_SEQUENCE_DUPLICATE_OR_STALE)
+            {
+                atl_log_warning("ATL: dropping duplicate/stale Gateway DecisionRequest packet; epoch=" +
+                    std::to_string(packet.gatewayEpoch) + " txSeq=" +
+                    std::to_string(packet.gatewayTxSeq));
+                continue;
+            }
+            if (seqResult == SDM_GATEWAY_DECISION_SEQUENCE_INVALID)
+            {
+                atl_log_err("ATL: invalid Gateway DecisionRequest packet sequence — dropping");
+                continue;
+            }
+            if (seqResult == SDM_GATEWAY_DECISION_SEQUENCE_GAP)
+            {
+                if (markGatewayDecisionSequenceFaultLatched(packet.gatewayEpoch, packet.gatewayTxSeq))
+                {
+                    atl_log_err("ATL: Gateway DecisionRequest sequence gap; entering safe hold, epoch=" +
+                        std::to_string(packet.gatewayEpoch) + " txSeq=" +
+                        std::to_string(packet.gatewayTxSeq));
+                    sendLatchedSafeHold();
+                }
+            }
+            else
+            {
+                markGatewayDecisionSequenceRecovered(packet.gatewayEpoch, packet.gatewayTxSeq);
+            }
+
+            markDecisionRequestFresh(request.requestId);
             onEventNotificationReceive(&request);
         }
         else if (n > 0)
         {
             atl_log_warning("SDM: received partial packet (" + std::to_string(n) +
                 " bytes, expected " +
-                std::to_string(sizeof(DecisionRequest)) + ")");
+                std::to_string(sizeof(NvPSDGatewayDecisionRequestPacket)) + ")");
         }
         /* n < 0 after poll said POLLIN: spurious -- just loop back */
     }
@@ -1106,7 +1833,10 @@ int launchATLControlAlgo(const std::string& gatewayIP,
                          const std::string& plcIP,
                          std::uint16_t plcPort,
                          std::uint8_t maxHbFailures,
-                         std::uint32_t decisionRepeatIntervalMs)
+                         std::uint32_t decisionRepeatIntervalMs,
+                         std::uint32_t hbStaleMs,
+                         std::uint32_t hbPeriodMs,
+                         std::uint32_t decisionFreshnessTimeoutMs)
 {
     atl_log_open();
 
@@ -1131,6 +1861,25 @@ int launchATLControlAlgo(const std::string& gatewayIP,
         atl_log_err("decisionRepeatIntervalMs must be 0 or in " +
                     std::to_string(kDecisionRepeatIntervalMsMinNonZero) + ".." +
                     std::to_string(kDecisionRepeatIntervalMsMax) + " (0 = periodic repeat off)");
+        atl_log_close();
+        return -1;
+    }
+
+    if (hbStaleMs < kHbTimingMsMin || hbStaleMs > kHbTimingMsMax ||
+        hbPeriodMs < kHbTimingMsMin || hbPeriodMs > kHbTimingMsMax)
+    {
+        atl_log_err("hbStaleMs and hbPeriodMs must be in " +
+                    std::to_string(kHbTimingMsMin) + ".." +
+                    std::to_string(kHbTimingMsMax));
+        atl_log_close();
+        return -1;
+    }
+
+    if (!sdmDecisionFreshnessTimeoutMsIsValid(decisionFreshnessTimeoutMs))
+    {
+        atl_log_err("decisionFreshnessTimeoutMs must be in " +
+            std::to_string(SDM_DECISION_FRESHNESS_TIMEOUT_MS_MIN) + ".." +
+            std::to_string(SDM_DECISION_FRESHNESS_TIMEOUT_MS_MAX));
         atl_log_close();
         return -1;
     }
@@ -1255,13 +2004,32 @@ int launchATLControlAlgo(const std::string& gatewayIP,
     /* Reset state */
     stopSDMThreads.store(false);
     signalShutdownRequested.store(false);
-    hbGatewayAlive.store(false);
-    hbFaultLatched.store(false);
-    pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lk(hbMtx);
+        /* Arm from launch time so a gateway that never starts still trips the cold-start watchdog. */
+        hbLastRecvTime = std::chrono::steady_clock::now();
+        hbGatewayAlive.store(true);
+    }
+    {
+        std::lock_guard<std::mutex> lock(decisionFreshnessMtx);
+        lastValidDecisionRequestTime = std::chrono::steady_clock::now();
+    }
+    resetSafeStateFaultsForLaunch();
+    {
+        std::lock_guard<std::mutex> stateLock(masterStateMtx);
+        resetLastForkliftRecordLocked();
+    }
     g_lastGatewayHbMissCount.store(0U);
+    {
+        std::lock_guard<std::mutex> lock(safeReleaseRateMtx);
+        lastSafeReleaseRequestTime = std::chrono::steady_clock::time_point{};
+    }
     regrTier2AttemptsRemaining.store(0);
     g_maxHbFailuresCfg.store(static_cast<uint32_t>(maxHbFailures));
     g_warnThresholdCfg.store(g_maxHbFailuresCfg.load() / 2U);
+    g_hbStaleMs.store(hbStaleMs, std::memory_order_relaxed);
+    g_hbPeriodMs.store(hbPeriodMs, std::memory_order_relaxed);
+    g_decisionFreshnessTimeoutMs.store(decisionFreshnessTimeoutMs, std::memory_order_relaxed);
 
     g_decisionRepeatIntervalMs.store(decisionRepeatIntervalMs, std::memory_order_relaxed);
 
@@ -1269,6 +2037,7 @@ int launchATLControlAlgo(const std::string& gatewayIP,
     ackHandlerThread = std::thread(ackHandlerLoop);
     heartbeatThread  = std::thread(heartbeatTransmitter);
     hbWatchdogThread = std::thread(gatewayHeartbeatWatchdog);
+    decisionFreshnessWatchdogThread = std::thread(decisionFreshnessWatchdog);
 
     std::ostringstream cfg;
     cfg << "ATL Control Algorithm initialized (PSD gateway registration and PLC command path active";
@@ -1281,6 +2050,9 @@ int launchATLControlAlgo(const std::string& gatewayIP,
     {
         cfg << "; periodic decision repeat disabled (event-driven immediate only)";
     }
+    cfg << "; gateway HB stale_ms=" << hbStaleMs
+        << " period_ms=" << hbPeriodMs
+        << "; decision_freshness_timeout_ms=" << decisionFreshnessTimeoutMs;
     cfg << ")";
     atl_log_info(cfg.str());
 
@@ -1316,6 +2088,7 @@ void shutdownATLControlAlgo()
     joinThread(heartbeatThread);
     joinThread(ackHandlerThread);
     joinThread(hbWatchdogThread);
+    joinThread(decisionFreshnessWatchdogThread);
     joinThread(periodicDecisionThread);
 
     /* Close sockets */
@@ -1346,6 +2119,13 @@ void evaluateATLDecision()
 {
     std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
 
+    if (safeStateLatched())
+    {
+        sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+        sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+        return;
+    }
+
     if (pssErrorFusionSuppressLatched.load(std::memory_order_acquire))
     {
         sendDecisionCommand(CMD_UNMUTE, true, nullptr);
@@ -1366,26 +2146,48 @@ void evaluateATLDecision()
     bool forkliftOut = false;
     int personOut = 0;
     bool restrictedViol = false;
+    ObjectRecord forkliftRecord = {};
+    bool hasForkliftRecord = false;
 
     {
         std::lock_guard<std::mutex> stateLock(masterStateMtx);
         forkliftOut = forkliftInTrailer;
         personOut = personsInTrailerCount;
         restrictedViol = restrictedAreaViolationByPerson;
+        if (lastForkliftRecordValid) {
+            forkliftRecord = lastForkliftRecord;
+            hasForkliftRecord = true;
+        }
     }
+
+    /* Re-check immediately before emitting a normal decision; another thread
+     * may have latched fault-safe state while this path waited on state. */
+    if (safeStateLatched() ||
+        pssErrorFusionSuppressLatched.load(std::memory_order_acquire) ||
+        gatewayHbTier2SafeHoldBand())
+    {
+        sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+        sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+        return;
+    }
+
+    if (gatewayHbSuppressFusionDecisions())
+        return;
 
     // Forklift safety MUTED + loading allowed when: forklift in trailer, zero persons in trailer,
     // and no person restricted area violation. Otherwise UNMUTE.
     if (forkliftOut && personOut == 0 && !restrictedViol)
     {
         atl_log_info("ATL: Forklift in trailer, no persons in trailer, no restricted violation - MUTE (Allow Loading)");
-        sendDecisionCommand(CMD_MUTE, true, nullptr);
+        sendDecisionCommandWithObject1(CMD_MUTE, true,
+            hasForkliftRecord ? &forkliftRecord : nullptr);
     }
     else
     {
         atl_log_info("ATL: Unmute - forkliftInTrailer=" + std::string(forkliftOut ? "1" : "0") +
             " personsInTrailer=" + std::to_string(personOut) +
             " restrictedAreaViolationByPerson=" + std::string(restrictedViol ? "1" : "0"));
-        sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+        sendDecisionCommandWithObject1(CMD_UNMUTE, true,
+            hasForkliftRecord ? &forkliftRecord : nullptr);
     }
 }

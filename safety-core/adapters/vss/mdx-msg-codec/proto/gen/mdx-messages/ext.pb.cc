@@ -85,6 +85,7 @@ PROTOBUF_CONSTEXPR Behavior::Behavior(
   , /*decltype(_impl_.analyticsmodule_)*/nullptr
   , /*decltype(_impl_.object_)*/nullptr
   , /*decltype(_impl_.event_)*/nullptr
+  , /*decltype(_impl_.llm_)*/nullptr
   , /*decltype(_impl_.distance_)*/0
   , /*decltype(_impl_.speed_)*/0
   , /*decltype(_impl_.timeinterval_)*/0
@@ -123,6 +124,7 @@ PROTOBUF_CONSTEXPR Incident::Incident(
   , /*decltype(_impl_.end_)*/nullptr
   , /*decltype(_impl_.place_)*/nullptr
   , /*decltype(_impl_.analyticsmodule_)*/nullptr
+  , /*decltype(_impl_.llm_)*/nullptr
   , /*decltype(_impl_.isanomaly_)*/false
   , /*decltype(_impl_._cached_size_)*/{}} {}
 struct IncidentDefaultTypeInternal {
@@ -245,6 +247,7 @@ const uint32_t TableStruct_ext_2eproto::offsets[] PROTOBUF_SECTION_VARIABLE(prot
   PROTOBUF_FIELD_OFFSET(::nv::Behavior, _impl_.lipactivities_),
   PROTOBUF_FIELD_OFFSET(::nv::Behavior, _impl_.gazes_),
   PROTOBUF_FIELD_OFFSET(::nv::Behavior, _impl_.embeddings_),
+  PROTOBUF_FIELD_OFFSET(::nv::Behavior, _impl_.llm_),
   PROTOBUF_FIELD_OFFSET(::nv::Behavior, _impl_.info_),
   PROTOBUF_FIELD_OFFSET(::nv::Incident_InfoEntry_DoNotUse, _has_bits_),
   PROTOBUF_FIELD_OFFSET(::nv::Incident_InfoEntry_DoNotUse, _internal_metadata_),
@@ -272,6 +275,7 @@ const uint32_t TableStruct_ext_2eproto::offsets[] PROTOBUF_SECTION_VARIABLE(prot
   PROTOBUF_FIELD_OFFSET(::nv::Incident, _impl_.category_),
   PROTOBUF_FIELD_OFFSET(::nv::Incident, _impl_.embeddings_),
   PROTOBUF_FIELD_OFFSET(::nv::Incident, _impl_.isanomaly_),
+  PROTOBUF_FIELD_OFFSET(::nv::Incident, _impl_.llm_),
   PROTOBUF_FIELD_OFFSET(::nv::Incident, _impl_.info_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::nv::SpaceUtilizationMetrics, _internal_metadata_),
@@ -312,11 +316,11 @@ static const ::_pbi::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protode
   { 7, -1, -1, sizeof(::nv::GeoLocation)},
   { 15, 23, -1, sizeof(::nv::Behavior_InfoEntry_DoNotUse)},
   { 25, -1, -1, sizeof(::nv::Behavior)},
-  { 55, 63, -1, sizeof(::nv::Incident_InfoEntry_DoNotUse)},
-  { 65, -1, -1, sizeof(::nv::Incident)},
-  { 82, -1, -1, sizeof(::nv::SpaceUtilizationMetrics)},
-  { 96, -1, -1, sizeof(::nv::SpaceUtilizationLayouts)},
-  { 104, -1, -1, sizeof(::nv::SpaceUtilization)},
+  { 56, 64, -1, sizeof(::nv::Incident_InfoEntry_DoNotUse)},
+  { 66, -1, -1, sizeof(::nv::Incident)},
+  { 84, -1, -1, sizeof(::nv::SpaceUtilizationMetrics)},
+  { 98, -1, -1, sizeof(::nv::SpaceUtilizationLayouts)},
+  { 106, -1, -1, sizeof(::nv::SpaceUtilization)},
 };
 
 static const ::_pb::Message* const file_default_instances[] = {
@@ -336,7 +340,7 @@ const char descriptor_table_protodef_ext_2eproto[] PROTOBUF_SECTION_VARIABLE(pro
   "mp.proto\032\014schema.proto\"_\n\013GeoLocation\022\014\n"
   "\004type\030\001 \001(\t\022*\n\013coordinates\030\002 \003(\0132\025.nv.Ge"
   "oLocation.Point\032\026\n\005Point\022\r\n\005point\030\001 \003(\001\""
-  "\312\005\n\010Behavior\022\n\n\002id\030\001 \001(\t\022-\n\ttimestamp\030\002 "
+  "\340\005\n\010Behavior\022\n\n\002id\030\001 \001(\t\022-\n\ttimestamp\030\002 "
   "\001(\0132\032.google.protobuf.Timestamp\022\'\n\003end\030\003"
   " \001(\0132\032.google.protobuf.Timestamp\022\"\n\tloca"
   "tions\030\005 \001(\0132\017.nv.GeoLocation\022(\n\017smoothLo"
@@ -351,32 +355,33 @@ const char descriptor_table_protodef_ext_2eproto[] PROTOBUF_SECTION_VARIABLE(pro
   ".nv.Event\022\021\n\tvideoPath\030\024 \001(\t\022\027\n\005poses\030\025 "
   "\003(\0132\010.nv.Pose\022&\n\rlipActivities\030\026 \003(\0132\017.n"
   "v.LipActivity\022\027\n\005gazes\030\027 \003(\0132\010.nv.Gaze\022!"
-  "\n\nembeddings\030\030 \003(\0132\r.nv.Embedding\022$\n\004inf"
-  "o\030\031 \003(\0132\026.nv.Behavior.InfoEntry\032+\n\tInfoE"
-  "ntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001\"\374\002\n"
-  "\010Incident\022\020\n\010sensorId\030\001 \001(\t\022-\n\ttimestamp"
-  "\030\002 \001(\0132\032.google.protobuf.Timestamp\022\'\n\003en"
-  "d\030\003 \001(\0132\032.google.protobuf.Timestamp\022\021\n\to"
-  "bjectIds\030\004 \003(\t\022\020\n\010frameIds\030\005 \003(\t\022\030\n\005plac"
-  "e\030\006 \001(\0132\t.nv.Place\022,\n\017analyticsModule\030\007 "
-  "\001(\0132\023.nv.AnalyticsModule\022\020\n\010category\030\010 \001"
-  "(\t\022!\n\nembeddings\030\t \003(\0132\r.nv.Embedding\022\021\n"
-  "\tisAnomaly\030\n \001(\010\022$\n\004info\030\013 \003(\0132\026.nv.Inci"
-  "dent.InfoEntry\032+\n\tInfoEntry\022\013\n\003key\030\001 \001(\t"
-  "\022\r\n\005value\030\002 \001(\t:\0028\001\"\323\001\n\027SpaceUtilization"
-  "Metrics\022\025\n\rspaceOccupied\030\001 \001(\001\022\021\n\tfreeSp"
-  "ace\030\002 \001(\001\022\022\n\ntotalSpace\030\003 \001(\001\022\030\n\020spaceUt"
-  "ilization\030\004 \001(\001\022\027\n\017numExtraPallets\030\005 \001(\005"
-  "\022\033\n\023utilizableFreeSpace\030\006 \001(\001\022\030\n\020freeSpa"
-  "ceQuality\030\007 \001(\001\022\020\n\010isUnsafe\030\010 \001(\010\"c\n\027Spa"
-  "ceUtilizationLayouts\022\036\n\tfreeSpace\030\001 \003(\0132"
-  "\013.nv.Polygon\022(\n\023utilizableFreeSpace\030\002 \003("
-  "\0132\013.nv.Polygon\"\272\001\n\020SpaceUtilization\022\n\n\002i"
-  "d\030\001 \001(\t\022-\n\ttimestamp\030\002 \001(\0132\032.google.prot"
-  "obuf.Timestamp\022,\n\007metrics\030\003 \001(\0132\033.nv.Spa"
-  "ceUtilizationMetrics\022\017\n\007sensors\030\004 \003(\t\022,\n"
-  "\007layouts\030\005 \001(\0132\033.nv.SpaceUtilizationLayo"
-  "utsB\013\n\tnv.schemab\006proto3"
+  "\n\nembeddings\030\030 \003(\0132\r.nv.Embedding\022\024\n\003llm"
+  "\030\032 \001(\0132\007.nv.LLM\022$\n\004info\030\031 \003(\0132\026.nv.Behav"
+  "ior.InfoEntry\032+\n\tInfoEntry\022\013\n\003key\030\001 \001(\t\022"
+  "\r\n\005value\030\002 \001(\t:\0028\001\"\222\003\n\010Incident\022\020\n\010senso"
+  "rId\030\001 \001(\t\022-\n\ttimestamp\030\002 \001(\0132\032.google.pr"
+  "otobuf.Timestamp\022\'\n\003end\030\003 \001(\0132\032.google.p"
+  "rotobuf.Timestamp\022\021\n\tobjectIds\030\004 \003(\t\022\020\n\010"
+  "frameIds\030\005 \003(\t\022\030\n\005place\030\006 \001(\0132\t.nv.Place"
+  "\022,\n\017analyticsModule\030\007 \001(\0132\023.nv.Analytics"
+  "Module\022\020\n\010category\030\010 \001(\t\022!\n\nembeddings\030\t"
+  " \003(\0132\r.nv.Embedding\022\021\n\tisAnomaly\030\n \001(\010\022\024"
+  "\n\003llm\030\014 \001(\0132\007.nv.LLM\022$\n\004info\030\013 \003(\0132\026.nv."
+  "Incident.InfoEntry\032+\n\tInfoEntry\022\013\n\003key\030\001"
+  " \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001\"\323\001\n\027SpaceUtiliza"
+  "tionMetrics\022\025\n\rspaceOccupied\030\001 \001(\001\022\021\n\tfr"
+  "eeSpace\030\002 \001(\001\022\022\n\ntotalSpace\030\003 \001(\001\022\030\n\020spa"
+  "ceUtilization\030\004 \001(\001\022\027\n\017numExtraPallets\030\005"
+  " \001(\005\022\033\n\023utilizableFreeSpace\030\006 \001(\001\022\030\n\020fre"
+  "eSpaceQuality\030\007 \001(\001\022\020\n\010isUnsafe\030\010 \001(\010\"c\n"
+  "\027SpaceUtilizationLayouts\022\036\n\tfreeSpace\030\001 "
+  "\003(\0132\013.nv.Polygon\022(\n\023utilizableFreeSpace\030"
+  "\002 \003(\0132\013.nv.Polygon\"\272\001\n\020SpaceUtilization\022"
+  "\n\n\002id\030\001 \001(\t\022-\n\ttimestamp\030\002 \001(\0132\032.google."
+  "protobuf.Timestamp\022,\n\007metrics\030\003 \001(\0132\033.nv"
+  ".SpaceUtilizationMetrics\022\017\n\007sensors\030\004 \003("
+  "\t\022,\n\007layouts\030\005 \001(\0132\033.nv.SpaceUtilization"
+  "LayoutsB\013\n\tnv.schemab\006proto3"
   ;
 static const ::_pbi::DescriptorTable* const descriptor_table_ext_2eproto_deps[2] = {
   &::descriptor_table_google_2fprotobuf_2ftimestamp_2eproto,
@@ -384,7 +389,7 @@ static const ::_pbi::DescriptorTable* const descriptor_table_ext_2eproto_deps[2]
 };
 static ::_pbi::once_flag descriptor_table_ext_2eproto_once;
 const ::_pbi::DescriptorTable descriptor_table_ext_2eproto = {
-    false, false, 1784, descriptor_table_protodef_ext_2eproto,
+    false, false, 1828, descriptor_table_protodef_ext_2eproto,
     "ext.proto",
     &descriptor_table_ext_2eproto_once, descriptor_table_ext_2eproto_deps, 2, 9,
     schemas, file_default_instances, TableStruct_ext_2eproto::offsets,
@@ -847,6 +852,7 @@ class Behavior::_Internal {
   static const ::nv::AnalyticsModule& analyticsmodule(const Behavior* msg);
   static const ::nv::Object& object(const Behavior* msg);
   static const ::nv::Event& event(const Behavior* msg);
+  static const ::nv::LLM& llm(const Behavior* msg);
 };
 
 const ::PROTOBUF_NAMESPACE_ID::Timestamp&
@@ -884,6 +890,10 @@ Behavior::_Internal::object(const Behavior* msg) {
 const ::nv::Event&
 Behavior::_Internal::event(const Behavior* msg) {
   return *msg->_impl_.event_;
+}
+const ::nv::LLM&
+Behavior::_Internal::llm(const Behavior* msg) {
+  return *msg->_impl_.llm_;
 }
 void Behavior::clear_timestamp() {
   if (GetArenaForAllocation() == nullptr && _impl_.timestamp_ != nullptr) {
@@ -939,6 +949,12 @@ void Behavior::clear_gazes() {
 void Behavior::clear_embeddings() {
   _impl_.embeddings_.Clear();
 }
+void Behavior::clear_llm() {
+  if (GetArenaForAllocation() == nullptr && _impl_.llm_ != nullptr) {
+    delete _impl_.llm_;
+  }
+  _impl_.llm_ = nullptr;
+}
 Behavior::Behavior(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
@@ -971,6 +987,7 @@ Behavior::Behavior(const Behavior& from)
     , decltype(_impl_.analyticsmodule_){nullptr}
     , decltype(_impl_.object_){nullptr}
     , decltype(_impl_.event_){nullptr}
+    , decltype(_impl_.llm_){nullptr}
     , decltype(_impl_.distance_){}
     , decltype(_impl_.speed_){}
     , decltype(_impl_.timeinterval_){}
@@ -1031,6 +1048,9 @@ Behavior::Behavior(const Behavior& from)
   if (from._internal_has_event()) {
     _this->_impl_.event_ = new ::nv::Event(*from._impl_.event_);
   }
+  if (from._internal_has_llm()) {
+    _this->_impl_.llm_ = new ::nv::LLM(*from._impl_.llm_);
+  }
   ::memcpy(&_impl_.distance_, &from._impl_.distance_,
     static_cast<size_t>(reinterpret_cast<char*>(&_impl_.length_) -
     reinterpret_cast<char*>(&_impl_.distance_)) + sizeof(_impl_.length_));
@@ -1061,6 +1081,7 @@ inline void Behavior::SharedCtor(
     , decltype(_impl_.analyticsmodule_){nullptr}
     , decltype(_impl_.object_){nullptr}
     , decltype(_impl_.event_){nullptr}
+    , decltype(_impl_.llm_){nullptr}
     , decltype(_impl_.distance_){0}
     , decltype(_impl_.speed_){0}
     , decltype(_impl_.timeinterval_){0}
@@ -1114,6 +1135,7 @@ inline void Behavior::SharedDtor() {
   if (this != internal_default_instance()) delete _impl_.analyticsmodule_;
   if (this != internal_default_instance()) delete _impl_.object_;
   if (this != internal_default_instance()) delete _impl_.event_;
+  if (this != internal_default_instance()) delete _impl_.llm_;
 }
 
 void Behavior::ArenaDtor(void* object) {
@@ -1176,6 +1198,10 @@ void Behavior::Clear() {
     delete _impl_.event_;
   }
   _impl_.event_ = nullptr;
+  if (GetArenaForAllocation() == nullptr && _impl_.llm_ != nullptr) {
+    delete _impl_.llm_;
+  }
+  _impl_.llm_ = nullptr;
   ::memset(&_impl_.distance_, 0, static_cast<size_t>(
       reinterpret_cast<char*>(&_impl_.length_) -
       reinterpret_cast<char*>(&_impl_.distance_)) + sizeof(_impl_.length_));
@@ -1418,6 +1444,14 @@ const char* Behavior::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx)
             CHK_(ptr);
             if (!ctx->DataAvailable(ptr)) break;
           } while (::PROTOBUF_NAMESPACE_ID::internal::ExpectTag<202>(ptr));
+        } else
+          goto handle_unusual;
+        continue;
+      // .nv.LLM llm = 26;
+      case 26:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 210)) {
+          ptr = ctx->ParseMessage(_internal_mutable_llm(), ptr);
+          CHK_(ptr);
         } else
           goto handle_unusual;
         continue;
@@ -1666,6 +1700,13 @@ uint8_t* Behavior::_InternalSerialize(
     }
   }
 
+  // .nv.LLM llm = 26;
+  if (this->_internal_has_llm()) {
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
+      InternalWriteMessage(26, _Internal::llm(this),
+        _Internal::llm(this).GetCachedSize(), target, stream);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -1822,6 +1863,13 @@ size_t Behavior::ByteSizeLong() const {
         *_impl_.event_);
   }
 
+  // .nv.LLM llm = 26;
+  if (this->_internal_has_llm()) {
+    total_size += 2 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(
+        *_impl_.llm_);
+  }
+
   // double distance = 8;
   static_assert(sizeof(uint64_t) == sizeof(double), "Code assumes uint64_t and double are the same size.");
   double tmp_distance = this->_internal_distance();
@@ -1933,6 +1981,10 @@ void Behavior::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTO
     _this->_internal_mutable_event()->::nv::Event::MergeFrom(
         from._internal_event());
   }
+  if (from._internal_has_llm()) {
+    _this->_internal_mutable_llm()->::nv::LLM::MergeFrom(
+        from._internal_llm());
+  }
   static_assert(sizeof(uint64_t) == sizeof(double), "Code assumes uint64_t and double are the same size.");
   double tmp_distance = from._internal_distance();
   uint64_t raw_distance;
@@ -2038,6 +2090,7 @@ class Incident::_Internal {
   static const ::PROTOBUF_NAMESPACE_ID::Timestamp& end(const Incident* msg);
   static const ::nv::Place& place(const Incident* msg);
   static const ::nv::AnalyticsModule& analyticsmodule(const Incident* msg);
+  static const ::nv::LLM& llm(const Incident* msg);
 };
 
 const ::PROTOBUF_NAMESPACE_ID::Timestamp&
@@ -2055,6 +2108,10 @@ Incident::_Internal::place(const Incident* msg) {
 const ::nv::AnalyticsModule&
 Incident::_Internal::analyticsmodule(const Incident* msg) {
   return *msg->_impl_.analyticsmodule_;
+}
+const ::nv::LLM&
+Incident::_Internal::llm(const Incident* msg) {
+  return *msg->_impl_.llm_;
 }
 void Incident::clear_timestamp() {
   if (GetArenaForAllocation() == nullptr && _impl_.timestamp_ != nullptr) {
@@ -2083,6 +2140,12 @@ void Incident::clear_analyticsmodule() {
 void Incident::clear_embeddings() {
   _impl_.embeddings_.Clear();
 }
+void Incident::clear_llm() {
+  if (GetArenaForAllocation() == nullptr && _impl_.llm_ != nullptr) {
+    delete _impl_.llm_;
+  }
+  _impl_.llm_ = nullptr;
+}
 Incident::Incident(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
   : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned) {
@@ -2106,6 +2169,7 @@ Incident::Incident(const Incident& from)
     , decltype(_impl_.end_){nullptr}
     , decltype(_impl_.place_){nullptr}
     , decltype(_impl_.analyticsmodule_){nullptr}
+    , decltype(_impl_.llm_){nullptr}
     , decltype(_impl_.isanomaly_){}
     , /*decltype(_impl_._cached_size_)*/{}};
 
@@ -2139,6 +2203,9 @@ Incident::Incident(const Incident& from)
   if (from._internal_has_analyticsmodule()) {
     _this->_impl_.analyticsmodule_ = new ::nv::AnalyticsModule(*from._impl_.analyticsmodule_);
   }
+  if (from._internal_has_llm()) {
+    _this->_impl_.llm_ = new ::nv::LLM(*from._impl_.llm_);
+  }
   _this->_impl_.isanomaly_ = from._impl_.isanomaly_;
   // @@protoc_insertion_point(copy_constructor:nv.Incident)
 }
@@ -2158,6 +2225,7 @@ inline void Incident::SharedCtor(
     , decltype(_impl_.end_){nullptr}
     , decltype(_impl_.place_){nullptr}
     , decltype(_impl_.analyticsmodule_){nullptr}
+    , decltype(_impl_.llm_){nullptr}
     , decltype(_impl_.isanomaly_){false}
     , /*decltype(_impl_._cached_size_)*/{}
   };
@@ -2194,6 +2262,7 @@ inline void Incident::SharedDtor() {
   if (this != internal_default_instance()) delete _impl_.end_;
   if (this != internal_default_instance()) delete _impl_.place_;
   if (this != internal_default_instance()) delete _impl_.analyticsmodule_;
+  if (this != internal_default_instance()) delete _impl_.llm_;
 }
 
 void Incident::ArenaDtor(void* object) {
@@ -2232,6 +2301,10 @@ void Incident::Clear() {
     delete _impl_.analyticsmodule_;
   }
   _impl_.analyticsmodule_ = nullptr;
+  if (GetArenaForAllocation() == nullptr && _impl_.llm_ != nullptr) {
+    delete _impl_.llm_;
+  }
+  _impl_.llm_ = nullptr;
   _impl_.isanomaly_ = false;
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
@@ -2355,6 +2428,14 @@ const char* Incident::_InternalParse(const char* ptr, ::_pbi::ParseContext* ctx)
             CHK_(ptr);
             if (!ctx->DataAvailable(ptr)) break;
           } while (::PROTOBUF_NAMESPACE_ID::internal::ExpectTag<90>(ptr));
+        } else
+          goto handle_unusual;
+        continue;
+      // .nv.LLM llm = 12;
+      case 12:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 98)) {
+          ptr = ctx->ParseMessage(_internal_mutable_llm(), ptr);
+          CHK_(ptr);
         } else
           goto handle_unusual;
         continue;
@@ -2499,6 +2580,13 @@ uint8_t* Incident::_InternalSerialize(
     }
   }
 
+  // .nv.LLM llm = 12;
+  if (this->_internal_has_llm()) {
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
+      InternalWriteMessage(12, _Internal::llm(this),
+        _Internal::llm(this).GetCachedSize(), target, stream);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -2589,6 +2677,13 @@ size_t Incident::ByteSizeLong() const {
         *_impl_.analyticsmodule_);
   }
 
+  // .nv.LLM llm = 12;
+  if (this->_internal_has_llm()) {
+    total_size += 1 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(
+        *_impl_.llm_);
+  }
+
   // bool isAnomaly = 10;
   if (this->_internal_isanomaly() != 0) {
     total_size += 1 + 1;
@@ -2637,6 +2732,10 @@ void Incident::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTO
   if (from._internal_has_analyticsmodule()) {
     _this->_internal_mutable_analyticsmodule()->::nv::AnalyticsModule::MergeFrom(
         from._internal_analyticsmodule());
+  }
+  if (from._internal_has_llm()) {
+    _this->_internal_mutable_llm()->::nv::LLM::MergeFrom(
+        from._internal_llm());
   }
   if (from._internal_isanomaly() != 0) {
     _this->_internal_set_isanomaly(from._internal_isanomaly());

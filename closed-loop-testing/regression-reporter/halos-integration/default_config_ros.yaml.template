@@ -1,0 +1,122 @@
+# SRR-shape default_config_ros.yaml template — IRA v1.6.0 (Isaac Sim 6.0).
+#
+# Isaac Sim 6.0 replaced IRA 0.x with 1.x: external character command files are
+# GONE ("No more command files" — IRA migration guide). Character behaviour is
+# now a behavior tree per character group. SRR drives 3 pedestrians, so each
+# scenario maps to 3 behavior trees (srr_char{0,1,2}.bt.json), emitted directly
+# by scenarios/tools/randomize_paths.py (canonical source: scenarios/behavior-trees/).
+#
+# What SRR customizes vs the stock Halos SIL config:
+#   - environment.base_stage_asset_path — the STOCK Halos scene
+#     (indicator_warehouse_20x20_layout_overflow_test.usd). SRR no longer ships a
+#     custom scene: its NavMesh + forklift are identical to stock, the 3 cameras
+#     are spawned from cameras.yaml, and the /gt/* publishers are added at runtime
+#     via --srr-gt (see below), so nothing needs baking into the USD.
+#   - character.groups — the 3 STOCK Halos groups (inspect_workers /
+#     gather_workers / pickup_workers, num:1 each) so Halos runtime_patches
+#     repositions them to canonical spawns UNCHANGED; each binds a fixed
+#     srr_char{0,1,2}.bt.json. run_multi.sh swaps the active scenario onto those
+#     fixed names (was: sed the character.command_file line).
+#   - simulation_duration — seconds; run_multi.sh overrides per scenario (was:
+#     global.simulation_length in frames).
+#
+# Paths are container paths (`/isaac-sim/sil/...`): Isaac runs inside the Halos
+# isaac-sim container with the SIL dir bind-mounted at /isaac-sim/sil/.
+#
+# Copy this over ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/default_config_ros.yaml
+# (GitHub layout: <halos-repo>/closed-loop-testing/isaac-sim/sil/configs/),
+# or let the SRR skill render it programmatically.
+#
+# DEPLOY-TIME RECONCILIATION (verify on first Isaac 6.0 run):
+#   1. Prim naming / GT publishers — RESOLVED at runtime. IRA spawns each group
+#      below at /World/Characters/<group>/<group>_0 with an asset-dependent
+#      `ManRoot` skeleton (the 6.0 successor to the 5.1 `SkelRoot`), so GT can't
+#      hardcode a path. The opt-in Halos builder
+#      action_graphs/srr_ground_truth.py discovers each group's ManRoot and builds
+#      /World/SRRGraph to publish /gt/character_{0,1,2}/tf + /gt/forklift/tf.
+#      run_multi.sh launches Isaac with `--srr-gt` (default OFF, so normal Halos
+#      runs are unaffected); run_actor_sdg.py then builds the graph in its
+#      post-setup block — AFTER IRA spawned the chars — and pumps their live
+#      Fabric transforms each frame. runtime_patches repositions inspect_workers /
+#      gather_workers / pickup_workers to their canonical spawns + deactivates the
+#      static 5.1 baked Character{,_01,_02}.
+#   2. Camera / VST streaming — SRR perception needs the 3 calibrated cameras
+#      (Camera, Camera_01, Camera_02). run_actor_sdg.py is launched with
+#      --cameras-config cameras.yaml and --enable-vst; confirm frames reach VST /
+#      perception (run_multi's scene-ready gate waits on the perception signal —
+#      mdx-bev detections for 3D, mdx-events for 2D/Phase-1).
+isaacsim.replicator.agent:
+  version: 1.6.0
+  seed: 42
+  # run_multi.sh overrides this per scenario (seconds). Default covers a 5-min run.
+  simulation_duration: 300.0
+  environment:
+    base_stage_asset_path: /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+  character:
+    root_prim_path: /World/Characters
+    motion_library_path: https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/Behavior/110.0/Samples/Assets/MotionLibrary/Human/HumanMotionLibrary.usd
+    groups:
+      # The 3 STOCK Halos groups — names MUST match runtime_patches
+      # _HALOS_CHAR_SPAWN_TARGETS + srr_ground_truth.DEFAULT_CHAR_GROUPS positional
+      # /gt/character_<i> mapping. num:1 each; each binds a DIFFERENT behavior tree:
+      #   inspect_workers -> srr_char0 -> /gt/character_0 (canonical spawn  2.26,-10.30)
+      #   gather_workers  -> srr_char1 -> /gt/character_1 (canonical spawn  0.29,-18.00)
+      #   pickup_workers  -> srr_char2 -> /gt/character_2 (canonical spawn -2.86,-15.28)
+      inspect_workers:
+        num: 1
+        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/srr_char0.bt.json
+        # semantic_labels: stock IRA replicator label pairs as [[key, value]]
+        # lists — `class: character` tags the spawned pedestrian mesh for the
+        # segmentation / bounding-box writers. Same block on all 3 groups.
+        semantic_labels:
+        - - class
+          - character
+      gather_workers:
+        num: 1
+        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/srr_char1.bt.json
+        semantic_labels:
+        - - class
+          - character
+      pickup_workers:
+        num: 1
+        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/srr_char2.bt.json
+        semantic_labels:
+        - - class
+          - character
+  sensor:
+    groups:
+      ceiling_cameras:
+        num: 3
+        aim_at_targets:
+          height_range:
+          - 2.0
+          - 3.0
+          look_down_angle_range:
+          - 0.0
+          - 60.0
+          focal_length_range:
+          - 10.0
+          - 15.0
+          distance_range:
+          - 6.5
+          - 14.5
+  replicator:
+    writers:
+      IRABasicWriter:
+        output_dir: ''
+        rgb: false
+        bounding_box_2d_tight: false
+        bounding_box_2d_loose: false
+        bounding_box_3d: false
+        normals: false
+        semantic_segmentation: false
+        instance_id_segmentation: false
+        instance_segmentation: false
+        camera_params: false
+        start_frame: 0
+        end_frame: 1800
+        sensor_prim_list:
+        - /World/Cameras/ceiling_cameras

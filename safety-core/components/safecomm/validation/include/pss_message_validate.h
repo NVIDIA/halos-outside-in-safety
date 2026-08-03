@@ -9,7 +9,7 @@
  *        DecisionRequest wire messages.
  *
  * Pure C with extern "C" linkage so the same object can be linked into
- * C++ host binaries (PSS daemon, PSD, Gateway) and C firmware (FSI SDm).
+ * C++ host binaries (PSS daemon, PSD, Gateway) and into C firmware builds.
  *
  * Typical receiver sequence:
  *   1. pssSafetyEventVerifyCRC()  / pssDecisionRequestVerifyCRC()
@@ -61,7 +61,10 @@ extern "C" {
  * Maximum valid wire integer for each protocol enum.  Used by the
  * validation helpers; update these when new enumerators are appended.
  */
-#define PSS_EVENTTYPE_MAX              ((int)AI_PIPELINE_VALID)
+/* Client-reported SafetyEvent messages must not use daemon-owned
+ * DecisionRequest-only event types such as PSS_STATUS_NOOP. */
+#define PSS_CLIENT_EVENTTYPE_MAX       ((int)AI_PIPELINE_VALID)
+#define PSS_EVENTTYPE_MAX              ((int)PSS_STATUS_NOOP)
 #define PSS_OBJECTTYPE_MAX             ((int)OBJECT)
 #define PSS_SEVERITY_LEVEL_MAX         ((int)CRITICAL)
 #define PSS_OPERATIONAL_MODE_MAX       ((int)ERROR)
@@ -72,9 +75,9 @@ extern "C" {
 /*
  * MessageIntegrity lives inside #pragma pack(push, 1) wire structs, so its
  * uint32_t crc32 field may sit at a misaligned offset.  Direct member
- * read/write is undefined behavior on strict-alignment targets (e.g. ARM
- * Cortex-R52).  These helpers use memcpy, which the compiler is free to
- * lower to an unaligned-safe load/store intrinsic at -O1+.
+ * read/write is undefined behavior on strict-alignment targets.  These
+ * helpers use memcpy, which the compiler is free to lower to an
+ * unaligned-safe load/store intrinsic at -O1+.
  */
 
 static inline uint16_t pssGetSchemaVersion(const MessageIntegrity *mi)
@@ -154,7 +157,7 @@ bool pssDecisionRequestVerifyCRC(const DecisionRequest *req);
  *   - Non-NULL pointer
  *   - Schema version == PSS_SCHEMA_VERSION
  *   - CRC-32 integrity
- *   - EventType, SeverityLevel, ObjectType enum ranges
+ *   - EventType and ObjectType enum ranges
  *   - confidenceLevel in [0.0f, 1.0f] (NaN is rejected)
  *   - timestamp != 0 (rejects uninitialized events)
  *   - sensorIdentifier / ruleIdentifier NUL-terminated within bounds
@@ -174,8 +177,12 @@ uint32_t validateSafetyEvent(const SafetyEvent *event);
  *   - CRC-32 integrity
  *   - sensorDataSummarySize <= MAX_SENSORS_DATA_SUMMARY_SIZE
  *   - OperationalMode range
- *   - Per-sensor FusedSafetyEvent field validation (types, severity,
- *     confidence, timestamp, status, strings, object types)
+ *   - Per-sensor FusedSafetyEvent field validation (types, daemon-owned
+ *     OPERATIONAL/CRITICAL severity, confidence, timestamp, status, strings,
+ *     object types)
+ *   - Populated SensorData entries have homogeneous severity so PSD's
+ *     first-event routing rule is safe
+ *   - Explicit critical evidence is not labeled OPERATIONAL
  *
  * @return PSS_VALID (0) on success, or a bitmask of PSS_ERR_* flags.
  */

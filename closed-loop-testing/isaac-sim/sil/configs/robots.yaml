@@ -1,0 +1,56 @@
+# Halos SIL forklift / robot Action Graph config (6.0).
+#
+# Drives the Python OmniGraph builders in
+# sil/scripts/action_graphs/forklift_control.py:
+#   - build_control_graph    (cmd_vel -> swivel IK -> articulation)
+#   - build_odometry_graph   (IsaacComputeOdometry -> /odom + TF tree)
+#   - build_safety_graph     (/safety/is_muted -> indicator disk color)
+#
+# One block per robot. Add a robot = add a block here, no code change.
+# Topic/frame fields left out fall back to the ROS2 bridge node defaults
+# (matching the empty fields in the original baked USD graphs).
+#
+# Source of truth this was extracted from (named graphs, pre-refactor):
+#   ROS_Forklift_Control_Graph / Odometry_Graph / Safety_indicator_Graph
+#   in indicator_warehouse_20x20_layout_overflow_test.usd
+
+robots:
+  - name: forklift_b
+    # Articulation root prim (was articulation_controller.inputs:targetPrim
+    # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
+    articulation_prim: /World/forklift_b
+
+    # --- control (ROS_Forklift_Control_Graph) ---
+    control:
+      enabled: true
+      cmd_vel_topic: cmd_vel          # ROS2SubscribeTwist.topicName (USD: default)
+      drive_joint: back_wheel_drive   # velocity-controlled wheel joint
+      swivel_joint: back_wheel_swivel # position-controlled steer joint
+      wheelbase: 1.49                 # constant_double_wheelbase
+      wheel_radius: 0.15              # constant_double_WheelRadius
+      max_steer_deg: 45.0             # SwivelIK MAX_STEER = radians(45)
+      # Frame-convention sign flips (vehicle frame vs ROS frame). The original
+      # baked SwivelIK negated both inputs, so both default to true. Set false
+      # if the robot asset already matches the ROS twist convention.
+      reverse_logic:
+        flip_linear_x: true           # negate cmd_vel linear.x
+        flip_angular_z: true          # negate cmd_vel angular.z
+
+    # --- odometry (Odometry_Graph) ---
+    odometry:
+      enabled: true
+      odom_topic: odom                # ROS2PublishOdometry.topicName (USD: default)
+      tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
+      robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
+
+    # --- safety indicator (Safety_indicator_Graph) ---
+    safety_indicator:
+      enabled: true
+      muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
+      indicator_prim: /World/forklift_b/body/body/safety_indicator
+
+# Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
+# so it lives in its own builder (action_graphs/clock.py).
+clock:
+  enabled: true
+  clock_topic: clock                  # ROS2PublishClock.topicName (USD: default)

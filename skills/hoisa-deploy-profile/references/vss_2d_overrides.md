@@ -1,10 +1,10 @@
-# VSS Warehouse — 2D Profile Overrides (VSS 3.2)
+# VSS Warehouse — 2D Profile Overrides (VSS 3.2.1)
 
-When deploying VSS Warehouse 3.2 for Halos SIL, apply these overrides **before**
+When deploying VSS Warehouse 3.2.1 for Halos SIL, apply these overrides **before**
 running its `docker compose up`. The `vss-deploy-profile` skill handles the
 standard deploy flow — this file specifies only what must be **different** for SIL.
 
-> `<wh_ops>` = the VSS 3.2 warehouse-operations directory
+> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory
 > `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/` — this is where the
 > override files below live (`.env`, the DeepStream config, the VST config).
 >
@@ -15,22 +15,24 @@ standard deploy flow — this file specifies only what must be **different** for
 > `--env-file industry-profiles/warehouse-operations/.env`. Edit the override files
 > below in place, then let `vss-deploy-profile` bring VSS up.
 
-These overrides exist because **Isaac Sim RTSP streams carry no SEI metadata**,
-while the VSS defaults assume SEI is present.
+Isaac 6.0 RTSP *does* embed SEI, but **PSF currently doesn't support sim time** — so these
+overrides **disable SEI extraction** and use **system (wall-clock) timestamps**. Feeding
+Isaac's SEI sim-time as the frame timestamp makes PSF drop events as STALE; system time
+keeps decisions flowing.
 
 ---
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env` (in 3.2 these are often already the `bp_wh_kafka` defaults —
-confirm they are set):
+Set in `<wh_ops>/.env`. Verified against the v3.2.1 tag: only `VLM_MODE` already carries
+the value below — the rest ship differently and must be changed:
 
 ```bash
-BP_PROFILE=bp_wh_kafka                                          # MUST include Kafka for PSF
-LLM_MODE=none                                                   # Not needed for SIL
-VLM_MODE=none                                                   # Not needed for SIL
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # SIL synthetic dataset (3 cams)
-NUM_STREAMS=3                                                   # Matches 3 Isaac Sim cameras
+BP_PROFILE=bp_wh_kafka                                          # default: bp_wh — MUST include Kafka for PSF
+LLM_MODE=none                                                   # default: local — not needed for SIL
+VLM_MODE=none                                                   # already the default
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: nv-warehouse-4cams — SIL synthetic dataset (3 cams)
+NUM_STREAMS=3                                                   # default: 4 — matches 3 Isaac Sim cameras
 ```
 
 **Why**:
@@ -52,7 +54,7 @@ File:
 
 ### Disable SEI extraction in `[source-list]`
 
-Isaac Sim RTSP carries no SEI metadata — comment these out (default = enabled):
+Keep SEI extraction off for SIL (comment these out; default = enabled):
 
 ```ini
 [source-list]
@@ -69,24 +71,31 @@ attach-sys-ts-as-ntp=1       # change from 0 to 1
 # drop-backward-sei=1        # comment out
 ```
 
-**Why**: with SEI extraction left enabled, perception waits for SEI that Isaac
-never sends → it reports **low / 0 FPS** (a camera can stay stuck at `0.00000`),
-and PSF drops most events as **STALE** because the frames carry no proper NTP
-timestamp. `attach-sys-ts-as-ntp=1` fixes the timestamps; disabling SEI fixes the
-FPS. Bounding boxes also stop flickering on VST.
+**Why**: `attach-sys-ts-as-ntp=1` tags each frame with the host's system (wall-clock) time.
+Isaac 6.0 RTSP embeds SEI (which carries a sim-time value), but **PSF currently doesn't
+support sim time** — using it as the frame timestamp makes PSF drop events as STALE, so
+system time keeps the perception → PSF decisions flowing. (`bbox_tolerance_ms` below handles
+residual VST bbox flicker.)
 
 ---
 
 ## VST Config
 
-File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json`
+File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
+`vst_config.json` exist in the deploy tree; edit the one the VST container actually mounts)
 
-```json
-"bbox_tolerance_ms": 100
+```jsonc
+"rtsp_streaming_over_tcp": true,    // ingest Isaac's RTSP over TCP (not UDP)
+"use_sensor_ntp_time": false,       // use arrival time, consistent with attach-sys-ts-as-ntp
+"bbox_tolerance_ms": 100            // default 0; widen metadata-to-frame match to reduce bbox flicker
 ```
 
-Default is `0`. Increasing to 100 ms reduces bounding-box flickering by widening
-the metadata-to-frame matching tolerance window.
+- `rtsp_streaming_over_tcp: true`: Isaac's self-hosted RTSP is served over TCP; forcing TCP
+  ingest avoids UDP packet loss / jitter.
+- `use_sensor_ntp_time: false`: pair with `attach-sys-ts-as-ntp=1` so VST and DeepStream
+  agree on wall-clock arrival time rather than the (drifting) sim-time.
+- `bbox_tolerance_ms: 100`: widens the metadata-to-frame matching tolerance window, reducing
+  bounding-box flickering.
 
 ---
 
@@ -99,17 +108,22 @@ the metadata-to-frame matching tolerance window.
 The TensorRT engine builds on first deploy (~10-15 min). Poll until ready:
 
 ```bash
-until [ "$(docker logs vss-rtvi-cv 2>&1 | grep -c 'stream_name Camera')" -ge 3 ]; do
-  printf '[%s] vss-rtvi-cv not ready yet...\n' "$(date +%H:%M:%S)"
-  docker logs --tail 3 vss-rtvi-cv 2>&1
+# Ready = 3 cameras each reporting a current FPS > 0. Read each camera's latest PERF value;
+# a plain log line-count would false-pass on a 0-FPS zombie source.
+while :; do
+  live=$(docker logs --tail 800 vss-rtvi-cv 2>&1 | grep 'stream_name Camera' | awk '
+    { fps=$1+0; for(i=1;i<=NF;i++) if($i=="stream_name") n=$(i+1); last[n]=fps }
+    END{ c=0; for(k in last) if(last[k]>0) c++; print c }')
+  [ "${live:-0}" -ge 3 ] && break
+  printf '[%s] vss-rtvi-cv live cameras=%s/3 (current FPS > 0)...\n' "$(date +%H:%M:%S)" "${live:-0}"
   sleep 30
 done
 echo "vss-rtvi-cv READY:"
 docker logs vss-rtvi-cv 2>&1 | grep 'PERF' | tail -3
 ```
 
-> All 3 sources must show **non-zero** FPS. If one stays at `0.00000`, the SEI
-> override above was not applied (or the deploy started before it).
+> All 3 sources must show **non-zero** FPS. If one stays at `0.00000`, that stream
+> isn't arriving yet (Isaac not streaming, wrong RTSP URL, or the TensorRT engine still building).
 
 ### Ready signal 2: Kafka `mdx-events` topic has data
 

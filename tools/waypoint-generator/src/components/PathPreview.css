@@ -1,0 +1,118 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+.path-preview-wrapper {
+  position: relative;
+}
+
+.path-preview-canvas {
+  width: 120px;
+  height: 80px;
+  background: #1a1a1a;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  display: block;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.path-preview-canvas:hover {
+  border-color: #76b900;
+}
+
+.path-preview-empty {
+  width: 120px;
+  height: 80px;
+  background: #1a1a1a;
+  border: 1px solid #404040;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 12px;
+}
+
+.path-preview-large {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  margin-left: 12px;
+  z-index: 1000;
+  padding: 12px;
+  background: #242424;
+  border: 2px solid #76b900;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  min-width: 320px;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #404040;
+}
+
+.preview-label {
+  color: #76b900;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.preview-count {
+  color: #999;
+  font-size: 12px;
+}
+
+.path-preview-canvas-large {
+  width: 300px;
+  height: 200px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.preview-legend {
+  display: flex;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #404040;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #999;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-dot.origin {
+  background: #00a0dc;
+}
+
+.legend-dot.waypoint {
+  background: #76b900;
+}
+
+.legend-dot.reverse {
+  background: #ff5252;
+}
+

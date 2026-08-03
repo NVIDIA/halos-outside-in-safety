@@ -43,6 +43,9 @@
 #define CMD_MUTE          0x02   /* Allow Operation   */
 #define CMD_SW_ERROR      0x03
 #define CMD_UNMUTE        0x07   /* Prevent Operation   */
+#define CMD_SAFE_RELEASE_REQUEST 0x08
+#define CMD_SAFE_RELEASE_ACK     0x09
+#define CMD_SAFE_RELEASE_DENIED  0x0A
 
 /* ======================== Structures ======================== */
 
@@ -160,10 +163,13 @@ static inline const char* commandName(uint8_t cmd)
         case CMD_HEARTBEAT: return "HEARTBEAT";
         case CMD_HW_ERROR:  return "HARDWARE ERROR";
         case CMD_MUTE:      return "MUTE (ALLOW OPERATION)";
-        case CMD_SW_ERROR:  return "SOFTWARE ERROR";
+        case CMD_SW_ERROR:  return "FAULT SAFE STATE / ALARM";
         case CMD_UNMUTE:    return "UNMUTE (PREVENT OPERATION)";
+        case CMD_SAFE_RELEASE_REQUEST: return "SAFE RELEASE REQUEST";
+        case CMD_SAFE_RELEASE_ACK:     return "SAFE RELEASE ACK";
+        case CMD_SAFE_RELEASE_DENIED:  return "SAFE RELEASE DENIED";
         default:            return "UNKNOWN";
     }
 }
 
-#endif /* ATL_CMD_PACKET_H */
+#endif /* CMD_PACKET_H */

@@ -11,10 +11,13 @@
 #include <limits>
 #include <string>
 #include "ATLControl.h"
+#include "sdm_decision_freshness.hpp"
 
 /* Must match launchATLControlAlgo validation in ATLControl.cpp */
 static constexpr std::uint32_t kDecisionRepeatIntervalMsMinNonZero = 100U;
 static constexpr std::uint32_t kDecisionRepeatIntervalMsMax        = 36000U;
+static constexpr std::uint32_t kHbTimingMsMin                      = 100U;
+static constexpr std::uint32_t kHbTimingMsMax                      = 600000U;
 
 static void printUsage(const char* prog)
 {
@@ -30,6 +33,15 @@ static void printUsage(const char* prog)
               << "  --decision_interval_ms <MS>  PLC repeat period ms; 0=off, else "
               << kDecisionRepeatIntervalMsMinNonZero << ".." << kDecisionRepeatIntervalMsMax
               << " (default: 5000).\n"
+              << "  --hb_stale_ms <MS>           Gateway HB stale grace, "
+              << kHbTimingMsMin << ".." << kHbTimingMsMax << " (default: 5000).\n"
+              << "  --hb_period_ms <MS>          Gateway HB miss period, "
+              << kHbTimingMsMin << ".." << kHbTimingMsMax << " (default: 5500).\n"
+              << "  --decision_freshness_timeout_ms <MS>\n"
+              << "                                DecisionRequest freshness timeout, "
+              << SDM_DECISION_FRESHNESS_TIMEOUT_MS_MIN << ".."
+              << SDM_DECISION_FRESHNESS_TIMEOUT_MS_MAX
+              << " (default: " << SDM_DECISION_FRESHNESS_TIMEOUT_MS_DEFAULT << ").\n"
               << "  -h, --help                   Show this help message.\n";
 }
 
@@ -71,6 +83,34 @@ static bool parsePort(const char* arg, std::uint16_t& out, const char* name, con
     return true;
 }
 
+static bool parseUint32Range(const char* arg,
+                             std::uint32_t& out,
+                             std::uint32_t min,
+                             std::uint32_t max,
+                             const char* name,
+                             const char* prog)
+{
+    if (!arg || arg[0] == '\0')
+    {
+        std::cerr << "error: " << name << ": invalid integer\n";
+        printUsage(prog);
+        return false;
+    }
+    char* end = nullptr;
+    errno = 0;
+    const unsigned long raw = std::strtoul(arg, &end, 10);
+    if (errno == ERANGE || end == arg || *end != '\0'
+        || raw < static_cast<unsigned long>(min)
+        || raw > static_cast<unsigned long>(max))
+    {
+        std::cerr << "error: " << name << " must be in " << min << ".." << max << "\n";
+        printUsage(prog);
+        return false;
+    }
+    out = static_cast<std::uint32_t>(raw);
+    return true;
+}
+
 int main(int argc, char* argv[])
 {
     std::string    gatewayIP   = "127.0.0.1";
@@ -79,6 +119,9 @@ int main(int argc, char* argv[])
     std::uint16_t  plcPort     = 12345;
     std::uint8_t   maxHbFailures = 10U;
     std::uint32_t  decisionIntervalMs = 5000U;
+    std::uint32_t  hbStaleMs = 5000U;
+    std::uint32_t  hbPeriodMs = 5500U;
+    std::uint32_t  decisionFreshnessTimeoutMs = SDM_DECISION_FRESHNESS_TIMEOUT_MS_DEFAULT;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -165,6 +208,32 @@ int main(int argc, char* argv[])
             }
             decisionIntervalMs = v;
         }
+        else if (strcmp(arg, "--hb_stale_ms") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--hb_stale_ms", argv[0]))
+                return 1;
+            if (!parseUint32Range(argv[++i], hbStaleMs, kHbTimingMsMin,
+                                  kHbTimingMsMax, "--hb_stale_ms", argv[0]))
+                return 1;
+        }
+        else if (strcmp(arg, "--hb_period_ms") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--hb_period_ms", argv[0]))
+                return 1;
+            if (!parseUint32Range(argv[++i], hbPeriodMs, kHbTimingMsMin,
+                                  kHbTimingMsMax, "--hb_period_ms", argv[0]))
+                return 1;
+        }
+        else if (strcmp(arg, "--decision_freshness_timeout_ms") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--decision_freshness_timeout_ms", argv[0]))
+                return 1;
+            if (!parseUint32Range(argv[++i], decisionFreshnessTimeoutMs,
+                                  SDM_DECISION_FRESHNESS_TIMEOUT_MS_MIN,
+                                  SDM_DECISION_FRESHNESS_TIMEOUT_MS_MAX,
+                                  "--decision_freshness_timeout_ms", argv[0]))
+                return 1;
+        }
         else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0)
         {
             printUsage(argv[0]);
@@ -185,5 +254,7 @@ int main(int argc, char* argv[])
     }
 
     /* Blocks until shutdown; non-zero if initialization failed. */
-    return launchATLControlAlgo(gatewayIP, gatewayPort, plcIP, plcPort, maxHbFailures, decisionIntervalMs);
+    return launchATLControlAlgo(gatewayIP, gatewayPort, plcIP, plcPort, maxHbFailures,
+                                decisionIntervalMs, hbStaleMs, hbPeriodMs,
+                                decisionFreshnessTimeoutMs);
 }

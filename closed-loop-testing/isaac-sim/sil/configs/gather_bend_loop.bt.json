@@ -1,0 +1,135 @@
+{
+    "schemaVersion": "2.0.0",
+    "nodeLibraries": [
+        {
+            "name": "omni.behavior.tree.core",
+            "version": "1.0"
+        },
+        {
+            "name": "omni.anim.behavior.tree",
+            "version": "0.1"
+        }
+    ],
+    "root": {
+        "type": "Sequence",
+        "source": "omni.behavior.tree.core",
+        "name": "Root",
+        "children": [
+            {
+                "type": "MoveTo",
+                "source": "omni.anim.behavior.tree",
+                "name": "MoveTo_A_Trip1",
+                "portOverrides": {
+                    "target": {
+                        "type": "carb::Float3",
+                        "value": [
+                            6.28,
+                            -16.37,
+                            0.0
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Wait_PreGather_Trip1",
+                "portOverrides": {
+                    "duration": 1.0
+                }
+            },
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Wait_GatherBend_Trip1",
+                "portOverrides": {
+                    "duration": 5.0
+                }
+            },
+            {
+                "type": "MoveTo",
+                "source": "omni.anim.behavior.tree",
+                "name": "MoveTo_B_Trip1",
+                "portOverrides": {
+                    "target": {
+                        "type": "carb::Float3",
+                        "value": [
+                            0.29,
+                            -18.0,
+                            0.0
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Wait_Long_Trip1_30s",
+                "portOverrides": {
+                    "duration": 30.0
+                }
+            },
+            {
+                "type": "MoveTo",
+                "source": "omni.anim.behavior.tree",
+                "name": "MoveTo_A_Trip2",
+                "portOverrides": {
+                    "target": {
+                        "type": "carb::Float3",
+                        "value": [
+                            6.28,
+                            -16.37,
+                            0.0
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Wait_PreGather_Trip2",
+                "portOverrides": {
+                    "duration": 1.0
+                }
+            },
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Wait_GatherBend_Trip2",
+                "portOverrides": {
+                    "duration": 5.0
+                }
+            },
+            {
+                "type": "MoveTo",
+                "source": "omni.anim.behavior.tree",
+                "name": "MoveTo_B_Trip2",
+                "portOverrides": {
+                    "target": {
+                        "type": "carb::Float3",
+                        "value": [
+                            0.29,
+                            -18.0,
+                            0.0
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "Wait",
+                "source": "omni.behavior.tree.core",
+                "name": "Wait_Short_Trip2_15s",
+                "portOverrides": {
+                    "duration": 15.0
+                }
+            }
+        ],
+        "modifiers": [
+            {
+                "type": "Repeat",
+                "source": "omni.behavior.tree.core",
+                "name": "Repeat"
+            }
+        ]
+    }
+}
