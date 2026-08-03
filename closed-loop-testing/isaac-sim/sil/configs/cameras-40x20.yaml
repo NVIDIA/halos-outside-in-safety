@@ -1,0 +1,66 @@
+# Camera Configuration — Halos SIL on the 40x20 two-dock warehouse
+# ------------------------------------------------------------------
+# Scene-specific variant of cameras.yaml, selected with:
+#     run_sdg.sh --cameras-config /isaac-sim/sil/configs/cameras-40x20.yaml
+#
+# Schema is identical to cameras.yaml (isaacsim.streaming.rtsp); see that
+# file for the field reference and the RTSP URL build formula. Only the
+# three spawn poses differ.
+#
+# Scene: sil/scenes/warehouse_40x20_2fl/
+#            warehouse_40x20_Halos_two_loading_dock_split_doors.usd
+#
+# The 12 cameras that shipped baked into that scene (Camera, Camera_01 ..
+# Camera_11) were deleted so this loader owns camera placement. Only the
+# /World/Cameras Xform is kept — it has an explicit identity transform,
+# which camera_loader.py requires because spawn.position is world-space
+# but is authored as a local op.
+#
+# spawn: values are the baked poses of the three calibrated cameras, read
+# out of the scene before deletion, so Yuxing's calibration.json stays
+# valid without regeneration. Cross-checked by recovering each camera
+# centre from its extrinsicMatrix as C = -R^T t, which reproduces these
+# positions to four decimals. Intrinsics match the 20x20 production cams
+# exactly (fx = fy = 732.9993 px on 1920x1080), so FOV is unchanged.
+#
+# The middle rotation component is 0.0 for all three; the USD stores
+# floating-point noise (~-5e-13) that is not worth preserving.
+cameras:
+  - name: Camera
+    camera_prim: /World/Cameras/Camera
+    port: 8554
+    mount_path: /camera
+    spawn:
+      position: [0.6865862302908072, -13.100615472560536, 2.988968081965182]
+      rotation_yxz_deg: [58.41084, 0.0, -113.80482]
+      focal_length: 8.0
+      horizontal_aperture: 20.955
+      vertical_aperture: 15.2908
+
+  - name: Camera_01
+    camera_prim: /World/Cameras/Camera_01
+    port: 8555
+    mount_path: /camera_01
+    spawn:
+      position: [1.2018104041264843, -21.450373398420584, 2.47357667878432]
+      rotation_yxz_deg: [64.07398, 0.0, -68.234406]
+      focal_length: 8.0
+      horizontal_aperture: 20.955
+      vertical_aperture: 15.2908
+
+  - name: Camera_02
+    camera_prim: /World/Cameras/Camera_02
+    port: 8556
+    mount_path: /camera_02
+    spawn:
+      position: [2.3031514687682284, -17.60645134466215, 2.546547411192872]
+      rotation_yxz_deg: [66.393005, 0.0, -91.3858]
+      focal_length: 8.0
+      horizontal_aperture: 20.955
+      vertical_aperture: 15.2908
+
+# RTSP Server Configuration
+# Ports and mount paths are unchanged from cameras.yaml on purpose:
+# downstream configs reference :8554/camera, :8555/camera_01, :8556/camera_02.
+rtsp:
+  host: ${HOST_IP}

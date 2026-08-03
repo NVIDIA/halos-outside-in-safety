@@ -1,0 +1,107 @@
+# Halos SIL forklift / robot Action Graph config (6.0) — 40x20 TWO-DOCK variant.
+#
+# Same two-robot layout as robots-2fl.yaml, retargeted to the collected 40x20
+# scene. To run this variant:
+#   1. Scene must contain /World/forklift_b2 (a clone of /World/forklift_b —
+#      same ForkliftB asset payload). Paired IRA config:
+#      configs/default_config_ros_40x20.yaml points at
+#        /isaac-sim/sil/scenes/warehouse_40x20_2fl/
+#          warehouse_40x20_Halos_two_loading_dock_split_doors.usd
+#      run_actor_sdg fails fast if a listed articulation prim is missing.
+#   2. Launch Isaac with the 40x20 config trio:
+#        -c /isaac-sim/sil/configs/default_config_ros_40x20.yaml \
+#        --robots-config /isaac-sim/sil/configs/robots-40x20.yaml \
+#        --cameras-config /isaac-sim/sil/configs/cameras-40x20.yaml
+#   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
+#      container (forklift-controller-b2) starts.
+#
+# DIVERGENCE from robots.yaml / robots-2fl.yaml — safety_indicator.enabled is
+# false on both robots here. The 40x20 scene has no safety_indicator mesh: the
+# indicator is being moved into the dynamic-forklift-loading work rather than
+# hand-placed per scene. This is not optional bookkeeping — the graph builder
+# is fail-fast (forklift_common.verify_prim_exists raises RuntimeError on a
+# missing prim), so leaving it enabled aborts the whole launch. Consequence:
+# /safety/is_muted reports `Subscription count: 0` and neither forklift shows
+# the orange disc; safety-core still evaluates and publishes as normal.
+# Flip both back to true, and delete this note, when the mesh exists.
+#
+# Because of that flip the `- name: forklift_b` block is deliberately NOT
+# byte-identical to configs/robots.yaml. Every other field is; keep it that way.
+#
+# One block per robot. Add a robot = add a block here + a controller service
+# (forklift-controller.yml) + the prim in the scene. The TGS rebalance list in
+# runtime_patches/halos_runtime_patches.py is derived from this file.
+
+robots:
+  - name: forklift_b
+    # Articulation root prim (was articulation_controller.inputs:targetPrim
+    # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
+    articulation_prim: /World/forklift_b
+
+    # --- control (ROS_Forklift_Control_Graph) ---
+    control:
+      enabled: true
+      cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
+      drive_joint: back_wheel_drive   # velocity-controlled wheel joint
+      swivel_joint: back_wheel_swivel # position-controlled steer joint
+      wheelbase: 1.49                 # constant_double_wheelbase
+      wheel_radius: 0.15              # constant_double_WheelRadius
+      max_steer_deg: 45.0             # SwivelIK MAX_STEER = radians(45)
+      # Frame-convention sign flips (vehicle frame vs ROS frame). The original
+      # baked SwivelIK negated both inputs, so both default to true. Set false
+      # if the robot asset already matches the ROS twist convention.
+      reverse_logic:
+        flip_linear_x: true           # negate cmd_vel linear.x
+        flip_angular_z: true          # negate cmd_vel angular.z
+
+    # --- odometry (Odometry_Graph) ---
+    odometry:
+      enabled: true
+      odom_topic: forklift_b/odom     # per-robot namespace
+      tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
+      robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
+
+    # --- safety indicator (Safety_indicator_Graph) ---
+    safety_indicator:
+      enabled: false                  # 40x20 scene has no indicator mesh yet — see header
+      muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
+      indicator_prim: /World/forklift_b/body/body/safety_indicator   # path the mesh will take
+
+  # Second forklift: scene-side prim is a clone of /World/forklift_b
+  # (same ForkliftB asset payload -> same joints/params).
+  # Contract: name == controller ROBOT_ID == prim leaf name.
+  - name: forklift_b2
+    articulation_prim: /World/forklift_b2
+
+    control:
+      enabled: true
+      cmd_vel_topic: forklift_b2/cmd_vel
+      drive_joint: back_wheel_drive   # same asset as forklift_b
+      swivel_joint: back_wheel_swivel
+      wheelbase: 1.49
+      wheel_radius: 0.15
+      max_steer_deg: 45.0
+      reverse_logic:
+        flip_linear_x: true
+        flip_angular_z: true
+
+    odometry:
+      enabled: true
+      odom_topic: forklift_b2/odom
+      tf_topic: tf                    # NOTE: TF frame ids are NOT per-robot yet — both
+                                      # forklifts publish the node-default odom->base_link
+                                      # on /tf (cosmetic duplicate in RViz; controllers
+                                      # read odom topics, not TF). Per-robot frame ids
+                                      # are a known follow-up.
+      robot_front: [-1.0, 0.0, 0.0]
+
+    safety_indicator:
+      enabled: false                  # see header
+      muted_topic: /safety/is_muted   # shared global mute (per-forklift mute deferred)
+      indicator_prim: /World/forklift_b2/body/body/safety_indicator  # path the mesh will take
+
+# Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
+# so it lives in its own builder (action_graphs/clock.py).
+clock:
+  enabled: true
+  clock_topic: clock                  # ROS2PublishClock.topicName (USD: default)
