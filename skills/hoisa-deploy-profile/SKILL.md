@@ -64,7 +64,7 @@ Communication Layer → ROS2 /safety/is_muted → Isaac Sim Action Graph (forkli
 ```
 
 **Two separate stacks**:
-- **Stack 1**: VSS Warehouse 3.2.1 (perception) — deploy via the `vss-deploy-profile` skill (or the public VSS Warehouse docs: github.com/NVIDIA-AI-Blueprints/video-search-and-summarization); must be up + healthy first.
+- **Stack 1**: VSS Warehouse 3.2.1 (perception) — deploy via the `vss-deploy-profile` skill (or the public VSS Warehouse docs: https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html); must be up + healthy first.
 - **Stack 2**: Halos (`base`/`sil`/`hil`) — this skill.
 
 ---
