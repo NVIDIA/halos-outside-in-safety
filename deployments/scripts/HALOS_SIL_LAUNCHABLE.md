@@ -10,6 +10,8 @@ This doc has two audiences:
 - **Users** running the Launchable → Sections 1–6.
 - **Launchable maintainers** building/listing the template on Brev → Section 7.
 
+Users can also follow the published version of Sections 1–6: [Deploy on NVIDIA Brev](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/brev-launchable.html).
+
 > Verified end-to-end on a Brev VM: 2× RTX 6000 Ada (48 GB), 26 vCPU, 141 GB RAM,
 > driver 580.126.09, Docker 29.1.5.
 

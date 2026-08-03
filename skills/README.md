@@ -2,6 +2,8 @@
 
 Skills for deploying and operating **Halos Outside-In Safety**. Each subdirectory under `skills/` is a self-contained skill following the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, and `version` declared in its `SKILL.md` frontmatter.
 
+The published walkthrough for this route is [Agentic Deployment](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/agentic-deployment.html), which also gives the manual fallback for each profile.
+
 These are a **developer-side tool**: a coding agent (Claude Code, Codex, or any agentskills.io-compatible host) loads them to deploy and operate the system from natural language.
 
 ## Catalog

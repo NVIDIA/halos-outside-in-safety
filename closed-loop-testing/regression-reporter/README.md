@@ -14,7 +14,7 @@ It lives at `closed-loop-testing/regression-reporter/`; the report skill is a si
 
 ## Documentation
 
-Setup, configuration, and the run/verify walkthrough are maintained in the team's official docs. In-repo entry points:
+Setup, configuration, and the run/verify walkthrough are in the [Regression Testing Reporter docs](https://docs.nvidia.com/halos-outside-in/1.3/testing/srr/index.html); start with the [Quick Start Guide](https://docs.nvidia.com/halos-outside-in/1.3/testing/srr/quickstart.html). In-repo entry points:
 
 - [`skills/hoisa-generate-regression-report/`](../../skills/hoisa-generate-regression-report/) — report skill (multi-test orchestration).
 - [`tools/srr-debug-viewer/`](../../tools/srr-debug-viewer/) — browser viewer for per-clip MP4 + synced panels.

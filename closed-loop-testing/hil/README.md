@@ -5,6 +5,8 @@ The `hil` profile splits the `sil` closed loop across two machines: an **x86 sti
 safety host** running VSS Warehouse perception and the Thor Safety Core. The safety decision
 crosses the network back to the x86 comm-layer, closing the loop over two hosts.
 
+Full documentation: [Hardware-in-the-Loop Testing](https://docs.nvidia.com/halos-outside-in/1.3/testing/hil/index.html) — [Deploy the HIL Closed Loop](https://docs.nvidia.com/halos-outside-in/1.3/testing/hil/quickstart.html) is the two-host bring-up.
+
 Runbook: [`skills/hoisa-deploy-profile/references/halos_hil.md`](../../skills/hoisa-deploy-profile/references/halos_hil.md) —
 prerequisites, deploy order (start the Isaac scenario **before** VSS on the Thor), the
 scene-clear start gate, ready signals, and hil-specific troubleshooting.

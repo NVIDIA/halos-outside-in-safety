@@ -55,8 +55,8 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 | Directory | Description |
 |-----------|-------------|
 | [`ai-perception/`](ai-perception/) | Perception integration: pointer to the reference VSS Blueprint backend and the event-stream integration contract. |
-| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). |
-| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. |
+| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). Component design and data flow: [Integration Guide](https://docs.nvidia.com/halos-outside-in/1.3/integration/index.html). |
+| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. Docs: [Closed-Loop Testing](https://docs.nvidia.com/halos-outside-in/1.3/testing/index.html). |
 | [`skills/`](skills/) | Agentic skills to deploy and operate the system. |
 | [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`). |
 | [`tools/`](tools/) | Repo-wide tooling. |
@@ -70,6 +70,8 @@ For detailed instructions and additional information about this blueprint, pleas
 
 - An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/setup/api-keys).
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
+
+Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html).
 
 ## Hardware Requirements
 

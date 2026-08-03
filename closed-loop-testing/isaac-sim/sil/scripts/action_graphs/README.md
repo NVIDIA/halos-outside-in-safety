@@ -1,6 +1,6 @@
 # `sil/scripts/action_graphs/` — OmniGraph ActionGraph builders
 
-Each Python module in this package builds one OmniGraph (ActionGraph) at a predictable `/World/<Name>Graph` path. Builders are invoked from `run_actor_sdg.py`'s `SET_UP_SIMULATION_DONE_EVENT` callback, one per scenario-specific graph.
+Each Python module in this package builds one OmniGraph (ActionGraph) at a predictable `/World/<Name>Graph` path. Builders are invoked from `run_actor_sdg.py`'s `SET_UP_SIMULATION_DONE_EVENT` callback, one per scenario-specific graph. Reference documentation for these graphs, including the per-graph node wiring: [Isaac Sim Action Graphs](https://docs.nvidia.com/halos-outside-in/1.3/testing/sil/components/action-graph.html).
 
 For one-shot USD prim tweaks (deactivate prims, set xform attributes, etc) see the sibling `sil/scripts/runtime_patches/` package.
 
