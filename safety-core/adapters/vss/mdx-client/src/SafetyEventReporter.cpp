@@ -13,11 +13,10 @@
 #include <mutex>
 #include <chrono>
 #include <thread>
-#include <algorithm>
-#include <cctype>
 
 #include "SafetyEventReporter.hpp"
-#include "MDXSharedState.hpp"
+#include "EventMappingValidation.hpp"
+#include "FrameReportingUtils.hpp"
 #include "sensor_config_parser.h"
 #include "pss_daemon.h"
 #include "NvPSB.h"
@@ -42,6 +41,20 @@ static double getRuleDoubleField(const NvPSFMsgCodecMsg* rule, const char* field
     return 0.0;
 }
 
+static bool getRuleOptionalBoolField(const NvPSFMsgCodecMsg* rule, const char* field,
+                                     bool* value) {
+    if (rule == nullptr || field == nullptr || value == nullptr ||
+        !NvPSFMsgCodecGetFieldPresence(rule, field)) {
+        return false;
+    }
+    const NvPSFMsgCodecFieldResult result = NvPSFMsgCodecGetField(rule, field);
+    if (result.type != NvPSF_VALUE_BOOL) {
+        return false;
+    }
+    *value = result.data.b;
+    return true;
+}
+
 static int32_t getRuleInt32Field(const NvPSFMsgCodecMsg* rule, const char* field) {
     NvPSFMsgCodecFieldResult r = NvPSFMsgCodecGetField(rule, field);
     if (r.type == NvPSF_VALUE_INT32) return r.data.i32;
@@ -50,64 +63,93 @@ static int32_t getRuleInt32Field(const NvPSFMsgCodecMsg* rule, const char* field
 
 static bool stringEqualsCaseInsensitive(const std::string& a, const char* b) {
     if (!b) return false;
-    std::string bStr(b);
-    return std::equal(a.begin(), a.end(), bStr.begin(), bStr.end(),
-        [](char x, char y) { return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y)); });
+    return matchesConfiguredStringCondition(a, b);
 }
 
 static bool parseViolationFilter(const std::string& ruleVal, bool alertVal) {
+    if (!isValidViolationFilter(ruleVal)) return false;
     if (ruleVal.empty() || ruleVal == "any") return true;
     if (ruleVal == "true")  return alertVal == true;
     if (ruleVal == "false") return alertVal == false;
-    return true;
+    return false;
 }
 
 static bool ruleMatches(const NvPSFMsgCodecMsg* rule, const AlertMessage& alert) {
-    double distThresh = getRuleDoubleField(rule, "distance_threshold_meters");
-    if (distThresh > 0.0) {
-        if (strcmp(alert.type, "social_distancing") != 0)
+    const double distThresh = getRuleDoubleField(rule, "distance_threshold_meters");
+    const bool distanceThresholdPresent = NvPSFMsgCodecGetFieldPresence(
+        rule, "distance_threshold_meters");
+    bool proximityViolation = false;
+    const bool proximityViolationPresent = getRuleOptionalBoolField(
+        rule, "proximity_violation", &proximityViolation);
+    const std::string msgSource = getRuleStringField(rule, "message_source");
+    const std::string alertType = getRuleStringField(rule, "alert_type");
+    const std::string configuredPrimaryType = getRuleStringField(rule, "object_type_primary");
+    const std::string configuredSecondaryType = getRuleStringField(rule, "object_type_secondary");
+    const std::string objectType = getRuleStringField(rule, "object_type");
+    const std::string ruleId = getRuleStringField(rule, "rule_id");
+    const std::string restrictedFilter = getRuleStringField(rule, "restricted_area_violation");
+    const std::string confinedFilter = getRuleStringField(rule, "confined_area_violation");
+    const std::string sdFilter = getRuleStringField(rule, "social_distancing_violation");
+    const std::string primaryType = configuredPrimaryType.empty()
+        ? objectType : configuredPrimaryType;
+    const bool isPairRule = isProximityPairRule(
+        alertType, configuredPrimaryType, configuredSecondaryType,
+        proximityViolationPresent, distanceThresholdPresent);
+    if (isPairRule) {
+        const bool hasViolationFilter = !restrictedFilter.empty() ||
+                                        !confinedFilter.empty() || !sdFilter.empty();
+        if (!isValidProximityPairRule(msgSource, alertType, primaryType,
+                                      configuredSecondaryType, proximityViolationPresent,
+                                      proximityViolation, distanceThresholdPresent,
+                                      distThresh, hasViolationFilter) ||
+            !isValidProximityPairRuleId(ruleId)) {
             return false;
-        char expectedRuleId[64];
-        snprintf(expectedRuleId, sizeof(expectedRuleId), "proximity_%.1f", distThresh);
-        std::string r(alert.ruleId);
-        bool idMatch = stringEqualsCaseInsensitive(r, expectedRuleId)
-            || (r.size() > strlen(expectedRuleId) && r.compare(0, strlen(expectedRuleId), expectedRuleId) == 0 && r[strlen(expectedRuleId)] == ':');
-        if (!idMatch) return false;
-    }
-    std::string msgSource = getRuleStringField(rule, "message_source");
-    if (!msgSource.empty() && alert.messageSource[0] != '\0') {
-        if (!stringEqualsCaseInsensitive(msgSource, alert.messageSource))
+        }
+        if (alert.candidateKind != AlertCandidateKind::kProximityPair) {
             return false;
-    }
-    std::string alertType = getRuleStringField(rule, "alert_type");
-    if (!alertType.empty() && alert.type[0] != '\0') {
-        if (!stringEqualsCaseInsensitive(alertType, alert.type))
+        }
+        if (!matchesConfiguredProximityPair(primaryType, configuredSecondaryType,
+                                            alert.object.type, alert.object2.type)) {
             return false;
+        }
+        if (proximityViolation) {
+            if (alert.proximitySelection != ProximitySelection::kThresholdViolation ||
+                alert.proximityThreshold != distThresh) {
+                return false;
+            }
+        } else if (alert.proximitySelection != ProximitySelection::kNoViolation) {
+            return false;
+        }
+    } else if (alert.candidateKind == AlertCandidateKind::kProximityPair) {
+        // A generic frame-social rule cannot consume a pair-specific candidate.
+        return false;
     }
+    if (!violationRuleMatchesCandidateScope(restrictedFilter, confinedFilter, sdFilter,
+                                            msgSource, alertType, alert.messageSource,
+                                            alert.type)) {
+        return false;
+    }
+    if (!violationRuleMatchesCandidateKind(restrictedFilter, confinedFilter, sdFilter,
+                                           alert.candidateKind)) {
+        return false;
+    }
+    if (!matchesConfiguredStringCondition(msgSource, alert.messageSource)) return false;
+    if (!matchesConfiguredStringCondition(alertType, alert.type)) return false;
     std::string eventType = getRuleStringField(rule, "event_type");
-    if (!eventType.empty() && alert.eventType[0] != '\0') {
-        if (!stringEqualsCaseInsensitive(eventType, alert.eventType))
-            return false;
-    }
-    std::string objectType = getRuleStringField(rule, "object_type");
-    if (!objectType.empty() && alert.object.type[0] != '\0') {
-        if (!stringEqualsCaseInsensitive(objectType, alert.object.type))
-            return false;
-    }
-    std::string ruleId = getRuleStringField(rule, "rule_id");
-    if (!ruleId.empty() && alert.ruleId[0] != '\0') {
+    if (!matchesConfiguredStringCondition(eventType, alert.eventType)) return false;
+    if (!isPairRule &&
+        !matchesConfiguredStringCondition(objectType, alert.object.type)) return false;
+    if (!isPairRule && !ruleId.empty()) {
+        if (alert.ruleId[0] == '\0') return false;
         std::string alertRuleId(alert.ruleId);
         bool idMatch = stringEqualsCaseInsensitive(ruleId, alertRuleId.c_str())
             || (alertRuleId.size() > ruleId.size() && alertRuleId.compare(0, ruleId.size(), ruleId) == 0 && alertRuleId[ruleId.size()] == ':');
         if (!idMatch) return false;
     }
-    std::string restrictedFilter = getRuleStringField(rule, "restricted_area_violation");
     if (!parseViolationFilter(restrictedFilter, alert.restrictedAreaViolation))
         return false;
-    std::string confinedFilter = getRuleStringField(rule, "confined_area_violation");
     if (!parseViolationFilter(confinedFilter, alert.confinedAreaViolation))
         return false;
-    std::string sdFilter = getRuleStringField(rule, "social_distancing_violation");
     if (!parseViolationFilter(sdFilter, alert.socialDistancingViolation))
         return false;
     return true;
@@ -127,14 +169,6 @@ static EventType stringToEventType(const std::string& s) {
     };
     auto it = kEventTypeMap.find(s);
     return (it != kEventTypeMap.end()) ? it->second : EVENT_UNKNOWN;
-}
-
-static SeverityLevel stringToSeverity(const std::string& s) {
-    if (s == "LOW") return LOW;
-    if (s == "MEDIUM") return MEDIUM;
-    if (s == "HIGH") return HIGH;
-    if (s == "CRITICAL") return CRITICAL;
-    return MEDIUM;
 }
 
 static ObjectType stringToObjectType(const std::string& s) {
@@ -281,8 +315,7 @@ void SafetyEventReporter::heartbeatLoop() {
 }
 
 bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
-        const NvPSFMsgCodecMsg* config,
-        SharedState& state) {
+        const NvPSFMsgCodecMsg* config) {
     int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
     const NvPSFMsgCodecMsg* matchedRule = nullptr;
     NvPSFMsgCodecMsg* matchedRuleHandle = nullptr;
@@ -301,59 +334,24 @@ bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
     if (!matchedRule) return true;
 
     std::string sensorIdStr(alertMsg.sensorId);
-
     std::string matchedMsgSource = getRuleStringField(matchedRule, "message_source");
     int32_t scaleFactor = getRuleInt32Field(matchedRule, "scale_factor");
 
-    if (strcmp(alertMsg.messageSource, "mdx-frames") == 0 &&
-        stringEqualsCaseInsensitive(matchedMsgSource, "mdx-frames") &&
-        scaleFactor > 1) {
-        std::string curSensorId;
-        uint64_t curFrameCount = 0;
-        {
-            std::lock_guard<std::mutex> lock(state.mtx);
-            curSensorId = state.currentFrameSensorId;
-            curFrameCount = state.currentFrameCount;
-        }
-        if (curSensorId != sensorIdStr ||
-            curFrameCount % static_cast<uint64_t>(scaleFactor) != 0) {
-            NvPSFMsgCodecFreeMsg(matchedRuleHandle);
-            return true;
-        }
-    }
-
-    std::string matchedAlertType = getRuleStringField(matchedRule, "alert_type");
-    std::string matchedRestrictedFilter = getRuleStringField(matchedRule, "restricted_area_violation");
-    std::string matchedConfinedFilter = getRuleStringField(matchedRule, "confined_area_violation");
-
-    bool isRestrictedViolationRule = (matchedMsgSource == "mdx-frames" &&
-        matchedAlertType == "roi" && matchedRestrictedFilter == "true");
-    bool isRestrictedClearedRule = (matchedMsgSource == "mdx-frames" &&
-        matchedAlertType == "restrictedAreaViolationCleared");
-    bool isConfinedViolationRule = (matchedMsgSource == "mdx-frames" &&
-        matchedAlertType == "roi" && matchedConfinedFilter == "true");
-    bool isConfinedClearedRule = (matchedMsgSource == "mdx-frames" &&
-        matchedAlertType == "confinedAreaViolationCleared");
-    {
-        std::lock_guard<std::mutex> lock(state.mtx);
-        if (isRestrictedViolationRule) {
-            if (state.restrictedViolState[sensorIdStr]) { NvPSFMsgCodecFreeMsg(matchedRuleHandle); return true; }
-            state.restrictedViolState[sensorIdStr] = true;
-        } else if (isRestrictedClearedRule) {
-            if (!state.restrictedViolState[sensorIdStr]) { NvPSFMsgCodecFreeMsg(matchedRuleHandle); return true; }
-            state.restrictedViolState[sensorIdStr] = false;
-        } else if (isConfinedViolationRule) {
-            if (state.confinedViolState[sensorIdStr]) { NvPSFMsgCodecFreeMsg(matchedRuleHandle); return true; }
-            state.confinedViolState[sensorIdStr] = true;
-        } else if (isConfinedClearedRule) {
-            if (!state.confinedViolState[sensorIdStr]) { NvPSFMsgCodecFreeMsg(matchedRuleHandle); return true; }
-            state.confinedViolState[sensorIdStr] = false;
-        }
+    if (!shouldReportFrameCandidate(alertMsg.messageSource, matchedMsgSource,
+                                    scaleFactor, alertMsg.frameOrdinal)) {
+        NvPSFMsgCodecFreeMsg(matchedRuleHandle);
+        return true;
     }
 
     std::string outputEvent = getRuleStringField(matchedRule, "output_event");
-    std::string severity = getRuleStringField(matchedRule, "severity");
     std::string ruleName = getRuleStringField(matchedRule, "name");
+    const std::string configuredRuleId = getRuleStringField(matchedRule, "rule_id");
+    const std::string outputRuleIdentifier = selectOutputRuleIdentifier(
+        alertMsg.candidateKind, alertMsg.ruleId, configuredRuleId);
+    if (outputRuleIdentifier.empty()) {
+        NvPSFMsgCodecFreeMsg(matchedRuleHandle);
+        return false;
+    }
 
     SafetyEvent safetyEvent = {};
     /* Pass the producer's endTimestamp through, translated into the
@@ -363,13 +361,14 @@ bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
     safetyEvent.confidenceLevel = 0.7f;
     safetyEvent.processed = false;
     safetyEvent.type = stringToEventType(outputEvent);
-    safetyEvent.severity = stringToSeverity(severity.empty() ? "MEDIUM" : severity);
     strncpy(safetyEvent.sensorIdentifier, alertMsg.sensorId, MAX_INDENTIFIER_LENGTH - 1);
     safetyEvent.sensorIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
-    strncpy(safetyEvent.ruleIdentifier, alertMsg.ruleId, MAX_INDENTIFIER_LENGTH - 1);
+    strncpy(safetyEvent.ruleIdentifier, outputRuleIdentifier.c_str(),
+            MAX_INDENTIFIER_LENGTH - 1);
     safetyEvent.ruleIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
 
-    bool isProximityAlert = (strncmp(alertMsg.ruleId, "proximity_", 10) == 0);
+    const bool isProximityAlert = shouldPopulatePairFusionMetadata(
+        alertMsg.candidateKind);
     if (isProximityAlert) {
         safetyEvent.fusionMetadata.objectID[0] = alertMsg.objectId;
         safetyEvent.fusionMetadata.objectID[1] = alertMsg.objectId2;
@@ -386,8 +385,9 @@ bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
     } else {
         safetyEvent.fusionMetadata.objectID[0] = alertMsg.objectId;
         safetyEvent.fusionMetadata.objectID[1] = 0;
-        safetyEvent.fusionMetadata.coordinates[0].x = alertMsg.coordCount > 0 ? alertMsg.coordinates[0].x : 0.f;
-        safetyEvent.fusionMetadata.coordinates[0].y = alertMsg.coordCount > 0 ? alertMsg.coordinates[0].y : 0.f;
+        const Coordinate commandLocation = selectCommandLocationCoordinate(alertMsg);
+        safetyEvent.fusionMetadata.coordinates[0].x = commandLocation.x;
+        safetyEvent.fusionMetadata.coordinates[0].y = commandLocation.y;
         safetyEvent.fusionMetadata.coordinates[1].x = 0.f;
         safetyEvent.fusionMetadata.coordinates[1].y = 0.f;
         for (int i = 2; i < MAX_TRAJECTORY_COORDINATES; i++) {
@@ -429,10 +429,9 @@ void SafetyEventReporter::printSafetyEvent(std::ostream& out, const SafetyEvent&
         const NvPSFMsgCodecMsg* rule) {
     std::string ruleName = getRuleStringField(rule, "name");
     std::string outputEvent = getRuleStringField(rule, "output_event");
-    std::string severity = getRuleStringField(rule, "severity");
     out << "[MDX_DEBUG] Matched rule: \"" << (ruleName.empty() ? "(unnamed)" : ruleName) << "\"\n"
-        << "  output_event=" << outputEvent << " severity=" << (severity.empty() ? "MEDIUM" : severity)
-        << "\n  SafetyEvent: id=" << e.id << " type=" << e.type << " severity=" << e.severity
+        << "  output_event=" << outputEvent
+        << "\n  SafetyEvent: id=" << e.id << " type=" << e.type
         << " sensor=" << e.sensorIdentifier << " rule=" << e.ruleIdentifier
         << " objectID[0]=" << e.fusionMetadata.objectID[0] << " objectID[1]=" << e.fusionMetadata.objectID[1]
         << " timestamp=" << e.timestamp << " confidence=" << e.confidenceLevel << std::endl;

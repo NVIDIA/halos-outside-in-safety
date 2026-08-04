@@ -6,8 +6,8 @@ The reference perception is **NVIDIA VSS Blueprint** (specifically the **Warehou
 drive the safety core.
 
 ## Reference backend: VSS Blueprint
-- Repo: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-- Deployed via the `vss-deploy-profile` skill (see [`skills/`](../skills/)) or the public VSS Blueprint docs.
+- Repo: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1
+- Deployed via the `vss-deploy-profile` skill (see [`skills/`](../skills/)) or the public [VSS Warehouse Blueprint 3.2.1 quickstart](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html).
 
 ## Integration contract (the seam)
 The Safety Core depends only on the **event stream**, not on perception internals:
@@ -16,7 +16,8 @@ The Safety Core depends only on the **event stream**, not on perception internal
 - **Schema:** MDX protobuf messages — the Metropolis `mdx-messages` schema. The protobuf codec ships in `safety-core/adapters/vss/mdx-msg-codec/` (generated message code under `proto/gen/mdx-messages/`), consumed by the MDX client in `safety-core/adapters/vss/mdx-client/`.
 
 To bring your own perception, publish events that match this contract; the input seam
-lives in `safety-core/adapters/`.
+lives in `safety-core/adapters/`. The rule format that turns those MDX messages into
+Safety Core events is documented in [Event Mapping Configuration](https://docs.nvidia.com/halos-outside-in/1.3/reference/event-mapping-configuration.html).
 
 <!-- TODO: expand — exact event schema, supported profiles (2D/3D),
      version compatibility matrix, and the swap-in procedure. -->

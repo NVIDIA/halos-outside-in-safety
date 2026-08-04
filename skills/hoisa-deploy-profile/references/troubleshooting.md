@@ -147,16 +147,21 @@ already wedges the media, so the contrast only shows cleanly before anything els
 
 ```bash
 declare -A MP=( [8554]=camera [8555]=camera_01 [8556]=camera_02 )
-# sequential — each should print video/x-h264 caps
+# sequential — a healthy port prints codec_name=h264; a wedged one times out
 for p in 8554 8555 8556; do
-  gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:$p/${MP[$p]} protocols=tcp \
-    num-buffers=1 ! fakesink 2>&1 | grep -aE "video/x-h264|no caps|could not"
+  echo "== :$p =="
+  ffprobe -rtsp_transport tcp -rw_timeout 5000000 -v error \
+    -select_streams v -show_entries stream=codec_name \
+    rtsp://127.0.0.1:$p/${MP[$p]} 2>&1 | grep -aE "codec_name|Could not|timed out|method DESCRIBE"
 done
-# concurrent — if these fail but the sequential pass worked, it's the concurrency race
+# concurrent — if the sequential pass worked but this fails, it is the concurrency race
 for p in 8554 8555 8556; do
-  gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:$p/${MP[$p]} protocols=tcp \
-    num-buffers=1 ! fakesink >/tmp/gst_$p.log 2>&1 & done; wait
-grep -lE "no caps|could not|ERROR" /tmp/gst_855*.log   # <- wedged ports
+  ffprobe -rtsp_transport tcp -rw_timeout 5000000 -v error \
+    -select_streams v -show_entries stream=codec_name \
+    rtsp://127.0.0.1:$p/${MP[$p]} >/tmp/ff_$p.log 2>&1 & done; wait
+for p in 8554 8555 8556; do
+  grep -qi h264 /tmp/ff_$p.log && echo ":$p OK" || echo ":$p WEDGED"
+done
 ```
 
 **Prevention (built-in)**: the SIL launch (`run_actor_sdg.py --enable-vst`) **defers VST
@@ -165,6 +170,19 @@ sensor registration until the render is warm** — it waits for the timeline to 
 VST never DESCRIBEs a capless stream (look for `[vst-warmup]` in the run log). A fresh
 `--start --enable-vst` run should not hit this. You can still hit it if **stale** VST
 sensors from a previous run are pointed at Isaac's RTSP and churn it during pre-roll.
+
+**Prevention (restarts)**: the warm-up gate cannot help across a **restart** — the
+previous run's sensors are still registered and their VST clients hammer the new Isaac
+the instant its ports open. Restart via the wrapper, which pauses
+`vss-vios-streamprocessing` for the boot window and resumes it once the mounts deliver:
+
+```bash
+bash closed-loop-testing/scripts/restart_isaac.sh   # see test_scenario.md for expected behavior
+```
+
+Single-host stacks only (`base`/`sil`): the wrapper pauses a **local** VST container.
+On the two-host `hil` profile it cannot reach the Thor-side VST — follow "Restart the
+scenario (hil)" in `halos_hil.md` instead.
 
 **Recovery** — if you do wedge (e.g. stale sensors churning), stop the churn and
 re-provision cleanly:
@@ -243,6 +261,42 @@ curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: applic
 > ℹ️ **Separate issue** — the Isaac **cold**-DESCRIBE wedge (`Active sources : 0`, "no caps") is
 > the section above; its upstream fix is an Isaac RFE: gate the RTSP server's DESCRIBE response on
 > the **first encoded frame** so caps are cached before VST's concurrent DESCRIBEs arrive.
+
+---
+
+## Provisioning Chain Polluted (Duplicate DS Sources / Event Replay Storms)
+
+**Symptom**: after many sensor re-registration cycles (repeated Isaac restarts, recovery
+attempts), DeepStream's `get-stream-info` shows **duplicate camera names** (e.g.
+`Camera_02` twice) or a camera never lands no matter how often you re-register; restarting
+`sdr-controller` makes it *worse* (a burst of `camera_add` pushes replays).
+
+**Cause**: the sensor lifecycle events live in a **Redis stream** with a long retention.
+`sdr-controller` replays it on restart — including every stale add/remove from previous
+cycles — and stale entries steal DeepStream's `max-batch-size` slots.
+
+**Fix — flush the event backlog, then ONE clean registration round** (order matters):
+
+```bash
+docker exec redis redis-cli FLUSHALL          # clears the event backlog + SDR workload cache
+docker restart sdr-controller                 # comes up with an empty, clean cache
+docker restart vss-rtvi-cv                    # DeepStream restarts as an EMPTY pipeline
+sleep 15
+# one clean registration round -> the only events in the stream are the fresh ones
+docker exec isaac-sim bash -lc 'cd /isaac-sim && \
+  ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --delete-all && sleep 3 && \
+  ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --add-from-config /isaac-sim/sil/configs/cameras.yaml'
+# DeepStream reaches N/N in ~30-60 s
+```
+
+If a camera STILL never comes up after this, check its Isaac mount directly
+(`ffprobe -rtsp_transport tcp rtsp://localhost:<port>/<mount>` from inside `isaac-sim`) —
+a dead mount is the upstream "no caps" wedge (section above); restart the scenario with
+`restart_isaac.sh`.
+
+**Full reset (last resort)** — when the state itself is suspect, return the stack to the
+proven-clean first-bring-up state without paying the TensorRT rebuild: procedure in
+`halos_deploy.md` → "Reset to a fresh deployment (keep the caches)".
 
 ---
 
@@ -340,6 +394,34 @@ sudo apt-get update && sudo apt-get install -y docker-compose-plugin
 window too tight for perception latency.
 
 **Fix**: Set `bbox_tolerance_ms=100` in `vst_config.json`.
+
+---
+
+## No ROI / Tripwire Events Reaching the Safety Core (detections look fine)
+
+**Symptom**: Perception detects people / forklifts correctly (boxes look good in
+VST), but the Safety Core never reacts — no MUTE/UNMUTE as a person enters a
+restricted ROI or the forklift crosses the tripwire. **No error is logged** — the
+events simply never arrive at the SDM.
+
+**Cause**: a `calibration.json` misconfiguration. The shipped sample calibrations
+(2D and 3D) already set these correctly — this shows up on a **custom scene / your own
+AMC-generated calibration** (VSS side, not shipped in this repo), most commonly one of:
+1. **A restricted ROI is missing `restrictedObjectTypes`** (e.g. `["Person"]`). The ROI
+   geometry is defined, but no object class is marked restricted, so a person inside it is
+   never reported as a violation. This is the most common cause.
+2. **The ROI / tripwire `id` does not match the `rule_id`** in the ATL event-mapping file
+   (`event_mapping_atl.pb.txt`, referenced by `safety-core/configs/nvpss.conf`) — the event
+   fires but the Safety Core can't map it to `EVENT_0`…`EVENT_5`.
+
+**Fix**: run the calibration prerequisite check in `halos_deploy.md` (§0) — it flags ROIs
+with no `restrictedObjectTypes` and prints the ids to cross-check against the event map. Add
+the missing field per the ROI schema in `calibration_3d.md`. The AMC / Calibration Toolkit
+does not expose restricted / confined object types as a dedicated field, so set them via its
+**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/3.2.1/autocalib-workflow-steps.html#export-calibration-data)
+(advanced) or by editing the exported `calibration.json` directly. Then regenerate / re-mount
+the calibration and **recreate** (not restart) the VSS perception + safety-core containers so
+the new `calibration.json` and event mapping are picked up.
 
 ---
 
@@ -450,3 +532,4 @@ using the same domain ID.
 | Bbox flickering | `bbox_tolerance_ms=100` in VST config |
 | CUDA errors on restart | Full container recreate, not restart |
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
+| No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |

@@ -131,9 +131,12 @@ report per-class detect-fail% and tracking-loss%, and render the spatial heatmap
 `render_perception_heatmap.py --density --fov-mask` + `render_coverage_polygons.py`.
 Skill surfaces the Phase 2 headline (🧍/🚜 detect-fail% / tracking-loss% / pos-offset) and
 the heatmap PNG paths. **Requires Sparse4D 3D detections** (`vss-rtvi-cv` → mdx-bev /
-`vss-behavior-analytics` → mdx-behavior) to have been flowing — the skill verifies
-this at the scene-ready gate. On a 2D-only feed (no mdx-bev) there is no Phase 2; the
-skill says so rather than rendering empty heatmaps.
+`vss-behavior-analytics` → mdx-behavior) to have been flowing for Phase 2. The scene-ready
+gate is now MODE-aware — it derives its topic from the VSS deploy MODE (2d → mdx-raw,
+3d/mv3dt → mdx-bev) and requires decoded detections > 0, so it no longer specifically
+verifies mdx-bev 3D detections; on a 2D deploy the gate passes on mdx-raw. On a 2D-only
+feed (no mdx-bev) there is no Phase 2 — the skill detects that at Phase 2 and says so
+rather than rendering empty heatmaps.
 
 ---
 
@@ -158,7 +161,7 @@ The skill parses these from the natural-language prompt — no rigid syntax requ
 - **Skill always restarts both Halos and SRR compose** between scenarios (do NOT ask it to skip — Safety Core counter drift carries across runs and corrupts the next).
 - **Safety Core cold-start outlier** is expected on scn_0000 (mute_lag spikes). Skill inserts a 30 s warm-up between scene-ready and `/srr/record true` to mitigate, but the first clip may still be slightly worse than the rest.
 - **Live clip monitor** prints one line per forklift TW crossing during recording — these are the demo's "heartbeat" between phase headers.
-- **Cross-run REPORT.md** is produced in Phase 5 — stored at `runs/multi-test-${TIMESTAMP}-REPORT.md`.
+- **Cross-run `summary.md`** is the canonical Phase-5 output — top-level `runs/multi-test-${TIMESTAMP}/summary.md`. (`REPORT.md` is a separate *optional* stakeholder write-up, produced only when asked.)
 
 ---
 

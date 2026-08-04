@@ -47,14 +47,15 @@ survives an Isaac relaunch — exactly the same reason as the 2D profile.
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env`:
+Set in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the rest ship
+differently and must be changed:
 
 ```bash
-BP_PROFILE=bp_wh_kafka                                             # MUST include Kafka for PSF
-LLM_MODE=none                                                      # Not needed for SIL
-VLM_MODE=none                                                      # Not needed for SIL
-NUM_STREAMS=3                                                      # Matches 3 Isaac Sim cameras
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic-3d"   # 3D synthetic calibration dataset
+BP_PROFILE=bp_wh_kafka                                             # default: bp_wh — MUST include Kafka for PSF
+LLM_MODE=none                                                      # default: local — not needed for SIL
+VLM_MODE=none                                                      # already the default
+NUM_STREAMS=3                                                      # default: 4 — matches 3 Isaac Sim cameras
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic-3d"   # default: nv-warehouse-4cams — 3D calibration dataset
 ```
 
 **Why**:
@@ -109,7 +110,7 @@ drop-pipeline-eos=1           # one stream's EOS must not tear down the batched 
 
 **Why these differ from a latency-first default:** 3D (Sparse4D) multi-view inference is
 heavier than 2D per-camera detection, so it runs at a **lower frame rate**. The looser
-`batched-push-timeout`, `latency`, and `low-latency-mode=0` let the muxer wait long enough
+`batched-push-timeout` and `low-latency-mode=0` let the muxer wait long enough
 to assemble a complete 3-camera batch instead of pushing partial batches (which produce
 gaps / zero Kafka output); `sync-inputs-ntp=0` keeps the muxer from stalling on the Isaac
 RTSP feed's timing.
@@ -159,8 +160,6 @@ File: `<wh_ops>/warehouse-3d-app/vst/configs/vst_config.json`
 ```jsonc
 "rtsp_streaming_over_tcp": true,    // ingest Isaac's RTSP over TCP (not UDP)
 "use_sensor_ntp_time": false,       // use arrival time, consistent with attach-sys-ts-as-ntp
-"always_recording": false,          // recording off — SIL does not need clips
-"event_recording": false,           // recording off
 "bbox_tolerance_ms": 100            // default 0; widen metadata-to-frame match to reduce bbox flicker
 ```
 
@@ -168,19 +167,6 @@ File: `<wh_ops>/warehouse-3d-app/vst/configs/vst_config.json`
   ingest avoids UDP packet loss / jitter on the shared host.
 - `use_sensor_ntp_time: false`: pair with `attach-sys-ts-as-ntp=1` so VST and DeepStream
   agree on wall-clock arrival time rather than the (drifting) sim-time.
-- Recording off: SIL is a live closed loop, not a capture run — leaving recording on wastes
-  disk and I/O.
-- **⚠ `always_recording` is configurator-managed — a pre-`up` edit here is silently reverted.**
-  The blueprint-configurator runs a `json_update` op that hard-writes `data.always_recording: true`
-  into this exact file on every `up` (VSS `.../blueprint-configurator/blueprint_config.yml`,
-  the `warehouse-3d-app/.../vst/configs/vst_config.json` op ~line 494 — identical in 3.2.0 and 3.2.1),
-  so a `false` set before `up` is overwritten before the VST container (`vss-vios-streamprocessing`,
-  which mounts this file) reads it. To make `false` stick, do ONE of:
-    - **(preferred)** edit `blueprint_config.yml` too: change `data.always_recording: true` → `false`
-      in that op before `up`; or
-    - after the configurator has finished, edit this file and `docker restart vss-vios-streamprocessing`.
-  The configurator does NOT touch `event_recording`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time`,
-  or `bbox_tolerance_ms`, so those pre-`up` edits survive as written.
 - `bbox_tolerance_ms: 100`: widens the metadata-to-frame matching window, reducing
   bounding-box flicker at the lower 3D frame rate.
 
@@ -249,5 +235,5 @@ echo "mdx-events READY"
 | `batched-push-timeout` | (default) | **`75000`** |
 | `low-latency-mode` | (default `1`) | **`0`** |
 | `config.yaml` | n/a | `num_sensors=3`, `num_torch_threads=8`, `gpu_postprocess: False` |
-| VST | `bbox_tolerance_ms=100` | + `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false`, recording off |
+| VST | `bbox_tolerance_ms=100`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false`, recording off | **same** |
 | Isaac launch | `--enable-vst` | **same** — `--enable-vst` (`test_scenario.md`) |

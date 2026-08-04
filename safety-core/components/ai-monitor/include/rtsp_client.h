@@ -19,9 +19,28 @@
 
 constexpr size_t RTSP_BUFFER_SIZE      = 65536;  // Max bytes per TCP/UDP recv call.
 constexpr int    RTSP_RECV_TIMEOUT_SEC = 60;     // Seconds of silence before the RTP receiver gives up.
-constexpr size_t MAX_RTSP_HEADER = 32u * 1024;   // 32 KB MAX header size for RTSP 
+constexpr size_t MAX_RTSP_HEADER = 32u * 1024;   // 32 KB MAX header size for RTSP
 constexpr size_t MAX_RTSP_BODY = 64u * 1024;            // 64 KB MAX Body size for RTSP
 constexpr int MAX_RTSP_CONNECT_RETRIES = 5; // Maximum number of retries for RTSP/RTP connection.
+
+// Default RTSP signaling port (RFC 7826) when the URL omits ':<port>'.
+constexpr int DEFAULT_RTSP_PORT = 554;
+
+// Default server-advertised RTSP session timeout when the SETUP response
+// omits the `timeout=` parameter; matches typical IP-camera behaviour.
+constexpr int DEFAULT_SESSION_TIMEOUT_SEC = 60;
+
+// Lower clamp for server-advertised session timeout. Anything shorter would
+// force a keep-alive faster than typical RTT and risk false starvation.
+constexpr int MIN_SESSION_TIMEOUT_SEC = 5;
+
+// Default capacity of the NAL queue between the RTSP receive thread and the
+// NVDEC decode thread. ~120 frames @ 30fps = ~4 s producer-side headroom.
+constexpr size_t kDefaultNalQueueCapacity = 120U;
+
+// FU-A drop alert threshold: callers default to emitting SENSOR_INVALID after
+// this many fragmented NAL re-assembly failures within a short window.
+constexpr uint32_t kDefaultFuaDropAlertThreshold = 5U;
 
 // H.264 Annex-B 4-byte start code prepended to every NAL unit.
 extern const unsigned char NAL_START_CODE[4];
@@ -37,7 +56,7 @@ struct NalUnit {
 // Blocks the producer when full and the consumer when empty.
 class NalQueue {
 public:
-    explicit NalQueue(size_t max_size = 120);
+    explicit NalQueue(size_t max_size = kDefaultNalQueueCapacity);
 
     void push(NalUnit unit);
     bool pop(NalUnit& out);
@@ -59,15 +78,18 @@ private:
  */
 class RTSPClient {
 public:
-    RTSPClient(const std::string& url, NalQueue* queue, std::atomic<bool>* stopFlag);
+    RTSPClient() = default;
     ~RTSPClient();
+
+    bool init(const std::string& url, NalQueue* queue, std::atomic<bool>* stopFlag);
 
     bool connectToServer();           // Opens TCP connection to the RTSP server.
     bool setupRTSPSession();          // Runs DESCRIBE, SETUP, PLAY; binds UDP sockets.
     void receiveLoop();               // Blocking RTP receive loop; runs until stop or timeout.
     void requestStop();               // Signals receiveLoop to exit (thread-safe, idempotent).
 
-    void setFuaDropAlertCallback(std::function<void(uint32_t)> cb, uint32_t threshold = 5);
+    void setFuaDropAlertCallback(std::function<void(uint32_t)> cb,
+                                 uint32_t threshold = kDefaultFuaDropAlertThreshold);
 
     /* Human-readable label used in per-stream diagnostic logs (e.g. the
      * periodic FU-A drop-cause histogram). Defaults to "rtsp" if not set;
@@ -76,12 +98,12 @@ public:
 
 private:
     int sockfd_ = -1;                 // TCP socket for RTSP signaling.
-    NalQueue* nalQueue_;
-    std::atomic<bool>* stopFlag_;
+    NalQueue* nalQueue_ = nullptr;
+    std::atomic<bool>* stopFlag_ = nullptr;
     std::atomic<bool> localStop_{false};
     std::string rtspUrl_;
     std::string serverIp_;
-    int serverPort_ = 554;            // Default RTSP port.
+    int serverPort_ = DEFAULT_RTSP_PORT;
     std::string sessionId_;
     int cseq_ = 0;                    // RTSP CSeq counter, incremented per request.
 
@@ -101,7 +123,7 @@ private:
     static constexpr size_t MAX_FUA_SIZE = 4u << 20;
 
     uint32_t fuaDropCount_ = 0;
-    uint32_t fuaDropThreshold_ = 5;
+    uint32_t fuaDropThreshold_ = kDefaultFuaDropAlertThreshold;
     std::function<void(uint32_t)> onFuaDropAlert_;
     void handleFuaDrop(const std::string& reason);
 
@@ -121,7 +143,7 @@ private:
     std::chrono::steady_clock::time_point lastFuaHistogramLog_{};
     uint32_t fuaDropSnapshotAtLastLog_ = 0;
 
-    int sessionTimeoutSec_ = 60;     // Server-advertised session timeout; keep-alive is sent at 1/3 of this.
+    int sessionTimeoutSec_ = DEFAULT_SESSION_TIMEOUT_SEC; // Server-advertised session timeout; keep-alive is sent at 1/3 of this.
     std::chrono::steady_clock::time_point lastKeepAlive_;
     std::chrono::steady_clock::time_point lastDataReceived_;
 
@@ -139,8 +161,10 @@ private:
     bool rtcpBye_ = false;
     uint32_t unknownNalCount_ = 0;
 
-    void parseRTSPUrl(const std::string& url);
+    bool parseRTSPUrl(const std::string& url);
+    void resetSessionState();
     bool sendRequest(const std::string& request);
+    bool sendRequestRaw(const char* data, size_t len);
     std::string receiveRtspResponse();
     int getResponseCode(const std::string& response);
     std::string extractSessionId(const std::string& response);

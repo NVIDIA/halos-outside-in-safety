@@ -57,6 +57,7 @@ chmod 0755 "$RUNTIME_ROOT" "$DEV_ROOT"
 mkdir -p "$OUTPUT_DIR"
 mkdir -p \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/bin" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/saim_baseline" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/configs" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/lib" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl" \
@@ -112,6 +113,12 @@ copy_required "$SAFETY_CORE_CONFIG_DIR/thresholds.cfg" "$RUNTIME_ROOT${INSTALL_P
 copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 copy_required "$PKG_DEB_DIR/launch_safety_core.sh" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/launch_psf.sh"
 chmod 0755 "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/launch_psf.sh"
+
+# safety_monitor falls back to a shipped <sensor>_baseline.cfg.default template
+# when no learned <sensor>_baseline.cfg is present in the baseline directory.
+for baseline_default in "$SOURCE_DIR"/components/ai-monitor/default_baseline/*_baseline.cfg.default; do
+    copy_optional "$baseline_default" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/saim_baseline/"
+done
 
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl/event_mapping_atl.pb.txt" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl/"

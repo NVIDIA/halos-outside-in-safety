@@ -180,6 +180,11 @@ class SRRNode(Node):
             self._char_child = [None for _ in CHAR_TOPICS]
             self.char_buffers = [Buffer() for _ in CHAR_TOPICS]
             self.forklift_buf = Buffer()
+            # Also clear latched safety state — otherwise a PSF feed that died
+            # before this session inherits the previous session's last value
+            # forever and the clip still scores as 100% PSF coverage.
+            self._last_command = None
+            self._last_muted = None
             for i, (buf, topic) in enumerate(zip(self.char_buffers, CHAR_TOPICS)):
                 self._wire_tf(topic, buf, char_slot=i)
             self._wire_tf(FORKLIFT_TOPIC, self.forklift_buf)
@@ -190,15 +195,15 @@ class SRRNode(Node):
             resp.message = f"recording → {self.recorder.path}"
         else:
             n = self.recorder.flush()
-            self.get_logger().info(f"Recording stopped, {n} rows written")
-            resp.message = f"stopped, {n} rows written"
+            self.get_logger().info(f"Recording stopped, {n} total rows written")
+            resp.message = f"stopped, {n} total rows written"
         resp.success = True
         return resp
 
     def _svc_flush(self, req: Trigger.Request, resp: Trigger.Response) -> Trigger.Response:
         n = self.recorder.flush()
         resp.success = True
-        resp.message = f"flushed {n} rows"
+        resp.message = f"flushed; {n} rows written total"
         return resp
 
     # --- Sampling ---

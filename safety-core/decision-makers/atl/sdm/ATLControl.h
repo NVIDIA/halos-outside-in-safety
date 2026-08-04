@@ -18,13 +18,18 @@
  * plcIP/plcPort – PLC destination for commands/heartbeat (ports must be 1..65535; 0 rejected)
  * maxHbFailures – gateway HB miss threshold before tier-3 fail-safe (1..255; default 10)
  * decisionRepeatIntervalMs – PLC decision repeat period in ms (same command re-sent); 0 = off (event-driven only).
- *   Valid: 0, or 100..36000 inclusive (ms). State changes from events still trigger an immediate decision (out of band). */
+ *   Valid: 0, or 100..36000 inclusive (ms). State changes from events still trigger an immediate decision (out of band).
+ * hbStaleMs/hbPeriodMs – gateway HB miss timing model; bounded positive milliseconds.
+ * decisionFreshnessTimeoutMs – max age of a valid DecisionRequest before local safe-state fallback. */
 int  launchATLControlAlgo(const std::string& gatewayIP,
                           std::uint16_t gatewayPort,
                           const std::string& plcIP,
                           std::uint16_t plcPort,
                           std::uint8_t maxHbFailures = 10U,
-                          std::uint32_t decisionRepeatIntervalMs = 5000U);
+                          std::uint32_t decisionRepeatIntervalMs = 5000U,
+                          std::uint32_t hbStaleMs = 5000U,
+                          std::uint32_t hbPeriodMs = 5500U,
+                          std::uint32_t decisionFreshnessTimeoutMs = 7000U);
 void shutdownATLControlAlgo();
 
 void onEventNotificationReceive(const DecisionRequest* request);
@@ -32,7 +37,7 @@ void evaluateATLDecision();
 
 /* Helper declarations */
 std::pair<uint64_t, uint64_t> getCurrentUTCTimeForPacket();
-void sendDecisionCommand(unsigned char command, bool trackAck,
+bool sendDecisionCommand(unsigned char command, bool trackAck,
                         const SensorData* sensorData = nullptr);
 void ackHandlerLoop();
 

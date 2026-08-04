@@ -39,7 +39,7 @@ The orchestrator pipes this stdout into the main demo log so the user sees the l
 Requirements:
 - `rclpy` available. ROS distribution differs by location:
   - **host:** typically `/opt/ros/jazzy/setup.bash`
-  - **srr container:** `/opt/ros/humble/setup.bash`
+  - **srr container:** `/opt/ros/jazzy/setup.bash`
 
   Use a robust source pattern that works either way:
   ```bash

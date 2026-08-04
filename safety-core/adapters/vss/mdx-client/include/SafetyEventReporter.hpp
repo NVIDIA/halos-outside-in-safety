@@ -17,7 +17,18 @@
 
 namespace MDXClient {
 
-struct SharedState;
+inline Coordinate selectCommandLocationCoordinate(const AlertMessage& alert)
+{
+    Coordinate coordinate = {};
+    if (alert.coordCount <= 0) {
+        return coordinate;
+    }
+    int boundedCount = alert.coordCount;
+    if (boundedCount > MAX_COORDINATES_COUNT) {
+        boundedCount = MAX_COORDINATES_COUNT;
+    }
+    return alert.coordinates[boundedCount - 1];
+}
 
 class SafetyEventReporter {
     static constexpr uint32_t kMaxHbAckFailures = 10;
@@ -34,8 +45,7 @@ public:
     void shutdown();
 
     bool reportAlert(const AlertMessage& alertMsg,
-                     const NvPSFMsgCodecMsg* config,
-                     SharedState& state);
+                     const NvPSFMsgCodecMsg* config);
 
 private:
     uint32_t pssClientId_ = 0;

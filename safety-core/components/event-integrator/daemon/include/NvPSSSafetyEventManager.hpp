@@ -13,10 +13,13 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <unordered_set>
 #include <unordered_map>
 
 #include "NvPSSSafetyEventFusion.hpp"
+#include "NvPSSDeliveryFailSafe.hpp"
+#include "NvPSSStatusNoop.hpp"
 #include "pss_daemon.h"
 #include "NvPSD.h"
 #include "NvPSSDToPSD.hpp"
@@ -30,6 +33,11 @@ typedef enum NvPSDChannelBackend_t
     POSIX_SOCKET
 }NvPSDChannelBackend;
 
+static inline bool NvPSSStatusNoopEnabledForBackend(NvPSDChannelBackend backend)
+{
+    return backend == POSIX_MSG_QUE || backend == POSIX_SOCKET;
+}
+
 namespace nvpss
 {
 class NvPSSDRPC;
@@ -37,9 +45,11 @@ class NvPSSDRPC;
 class SafetyEventManager
 {
 public:
-    SafetyEventManager(uint64_t criticalPrioQuePeriod, uint64_t highPrioQuePeriod,
-                       uint64_t mediumPrioQuePeriod, uint64_t lowPrioQuePeriod,
-                       uint64_t inputSafetyEventQuePeriod, uint64_t fusionEventPeriod, NvPSDChannelBackend PSSDToPSDComBackend);
+    SafetyEventManager(uint64_t inputSafetyEventQuePeriod, uint64_t fusionEventPeriod,
+                       NvPSDChannelBackend PSSDToPSDComBackend,
+                       uint32_t pssToPsdRetryBudget,
+                       uint32_t pssToPsdResponseTimeoutMs,
+                       uint32_t statusNoopIntervalMs);
     ~SafetyEventManager();
 
     NvPSSDErr StartSafetyEventManager();
@@ -130,9 +140,7 @@ public:
 
     /*Get references of the queues*/
     std::deque<std::pair<int, FusedSafetyEvent>>& getCriticalPrioQueRef();
-    std::deque<std::pair<int, FusedSafetyEvent>>& getHighPrioQueRef();
-    std::deque<std::pair<int, FusedSafetyEvent>>& getMediumPrioQueRef();
-    std::deque<std::pair<int, FusedSafetyEvent>>& getLowPrioQueRef();
+    std::deque<std::pair<int, FusedSafetyEvent>>& getOperationalPrioQueRef();
     std::deque<std::pair<int, SafetyEvent>>& getInputSafetyEventQueRef();
 
     /* Mutex accessors for shared queues */
@@ -144,11 +152,16 @@ public:
     NvPSSDErr stopPSSDServer();
 
 private:
-    NvPSSDErr manageCriticalPrioQue();
-    NvPSSDErr manageHighPrioQue();
-    NvPSSDErr manageMediumPrioQue();
-    NvPSSDErr manageLowPrioQue();
+    NvPSSDErr managePsdSender();
     NvPSSDErr manageInputSafetyEventQue();
+    bool buildDecisionRequestFromQueuedEvents(NvPSSPsdSendPriority priority,
+                                              DecisionRequest* request);
+    bool hasQueuedEvents(NvPSSPsdSendPriority priority);
+    bool enqueueStatusNoopEvent(uint64_t timestampNs);
+    bool enqueuePsdFusedEvent(NvPSSPsdSendPriority priority,
+                              int clientId,
+                              const FusedSafetyEvent& event);
+    void notifyPsdSenderForQueuedEvent();
 
     /**
      * @brief Handle fused events by adding them to the appropriate priority queue
@@ -173,36 +186,34 @@ private:
 
     SystemStatus makePssStatusForDecisionRequest() const;
     OperationalMode decisionRequestOperationalMode() const;
+    NvPSSDErr sendDecisionRequestWithRetry(DecisionRequest* request,
+                                           DecisionResponse* response,
+                                           const char* requestClass);
+    void markDeliveryFailure(const DecisionRequest& request,
+                             const char* requestClass,
+                             NvPSSDeliveryFailureReason reason,
+                             uint32_t attemptCount,
+                             uint32_t responseTimeoutMs);
+    void markDeliveryRecovered(const DecisionRequest& request, const char* requestClass);
 
     mutable std::mutex rpcOperationalModeMutex_;
     NvPSSDRPC*         rpcForOperationalMode_{nullptr};
 
     std::deque<std::pair<int, FusedSafetyEvent>> criticalPrioQue;
-    std::deque<std::pair<int,FusedSafetyEvent>> highPrioQue;
-    std::deque<std::pair<int,FusedSafetyEvent>> mediumPrioQue;
-    std::deque<std::pair<int,FusedSafetyEvent>> lowPrioQue;
+    std::deque<std::pair<int,FusedSafetyEvent>> operationalPrioQue;
     std::deque<std::pair<int,SafetyEvent>> inputSafetyEventQue;
 
     // Mutexes for thread-safe queue access
     std::mutex criticalPrioQueMutex;
-    std::mutex highPrioQueMutex;
-    std::mutex mediumPrioQueMutex;
-    std::mutex lowPrioQueMutex;
+    std::mutex operationalPrioQueMutex;
     std::mutex inputSafetyEventQueMutex;
 
-    const std::chrono::microseconds criticalPrioQuePeriod;
-    const std::chrono::microseconds highPrioQuePeriod;
-    const std::chrono::microseconds mediumPrioQuePeriod;
-    const std::chrono::microseconds lowPrioQuePeriod;
     const std::chrono::microseconds inputSafetyEventQuePeriod;
     const std::chrono::microseconds fusionEventPeriod;
 
     NvPSDChannelBackend PSSDToPSDComBackend;
 
-    std::thread criticalPrioQueMonitor;
-    std::thread highPrioQueMonitor;
-    std::thread mediumPrioQueMonitor;
-    std::thread lowPrioQueMonitor;
+    std::thread psdSenderMonitor;
     std::thread inputSafetyEventQueMonitor;
     std::atomic<bool> queMonitorsRunning;
 
@@ -227,15 +238,31 @@ private:
      * Events older than this are marked STALE rather than UNKNOWN/PASSTHROUGH. */
     uint64_t stalenessThresholdMs_{UINT64_MAX};
 
-    /* Trust state: invalid sources excluded from fusion; events sent to PSD as UNKNOWN with reported severity.
-     * invalidSensors keyed by pipelineID (sensor); invalidAIPipelines keyed by clientID (AI pipeline). */
+    /* Trust state: invalid sources excluded from fusion; events sent to PSD as UNKNOWN critical evidence.
+     * invalidSensors is keyed by pipelineID (sensor). AI-pipeline trust is pipeline-wide
+     * (one PCM verdict for the whole pipeline), so it is a single latch, not per-client. */
     mutable std::mutex trustStateMutex;
     std::unordered_set<uint8_t> invalidSensors;      /* pipelineID = sensor producing data */
-    std::unordered_set<uint8_t> invalidAIPipelines; /* clientID = AI inference pipeline */
+    /* Pipeline-wide latch of AI-pipeline-invalid: set on AI_PIPELINE_INVALID, cleared on
+     * AI_PIPELINE_VALID. Every MDX client's isTrustedSource derives from this flag, so a
+     * late-connecting or reconnecting client always sees the current state (no stale ids). */
+    bool aiPipelineInvalidGlobal{false};
 
-    /* Monotonic id for DecisionRequest; priority threads assign concurrently — must be atomic. */
+    /* Monotonic id for DecisionRequest. Safety-supported PSD backends assign under
+     * psdSendMtx_ immediately before the first send attempt so Gateway-visible ids
+     * follow send order and retries keep the same logical id. */
     std::atomic<uint32_t> psdRequestId;
     NvPSDCtx* psdCtx;
+    std::atomic<NvPSSDeliveryState> psdDeliveryState_{NvPSSDeliveryState::NORMAL};
+    const uint32_t pssToPsdRetryBudget_;
+    const uint32_t pssToPsdResponseTimeoutMs_;
+    const uint32_t statusNoopIntervalMs_;
+    std::mutex psdSendMtx_;
+    std::mutex psdSenderWakeMtx_;
+    std::condition_variable psdSenderWakeCv_;
+    std::atomic<uint32_t> psdSenderWakeSeq_{0U};
+    std::mutex psdDeliveryAuditMtx_;
+    NvPSSDeliveryFailureReason lastPsdDeliveryFailureReason_{NvPSSDeliveryFailureReason::NONE};
 
     std::unique_ptr<NvPSSDToPSDClient> pssdServer;
 };

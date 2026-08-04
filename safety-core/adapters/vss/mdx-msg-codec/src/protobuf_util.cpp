@@ -177,6 +177,7 @@ void checkFieldType(const Message *message, const FieldDescriptor *field_desc, c
             const FieldDescriptor *key_field = entry_desc->map_key();
             const FieldDescriptor *value_field = entry_desc->map_value();
 
+            bool mapValueFound = false;
             for (int i = 0; i < size; ++i)
             {
                 const Message &entry = reflection->GetRepeatedMessage(*message, field_desc, i);
@@ -186,13 +187,17 @@ void checkFieldType(const Message *message, const FieldDescriptor *field_desc, c
                 {
                     result.type = VALUE_TYPE_MAPVALUE;
                     result.data.mapValue = strdup(entry.GetReflection()->GetString(entry, value_field).c_str());
+                    mapValueFound = true;
                     break;
                 }
             }
-            if (result.type != VALUE_TYPE_MAPVALUE)
+            if (!mapValueFound)
             {
                 // Key not found in map is an expected condition (not all messages have every key).
                 // Return VALUE_TYPE_ERROR silently so callers can handle it gracefully.
+                // Use an explicit flag rather than testing result.type, which may carry a
+                // stale VALUE_TYPE_MAPVALUE (and a stale, already-freed data.mapValue) from a
+                // prior use of an uninitialized Result, causing a double free in the caller.
                 result.type = VALUE_TYPE_ERROR;
             }
         }
@@ -247,7 +252,12 @@ void findField(const Message &message, char *field_name, int index, char *keyStr
 // API function to retrieve a field's value given its field name or path from a message
 Result getFieldValue(const Message &message, char *path)
 {
+    // Initialize to a definite state: an uninitialized Result can carry a stale
+    // VALUE_TYPE_MAPVALUE type and a stale (already-freed) data.mapValue pointer
+    // across calls, which the caller would then free again (double free).
     Result result;
+    result.type = VALUE_TYPE_ERROR;
+    result.data.mapValue = nullptr;
     std::string pathString(path);
     size_t isFullPath = pathString.find('.');
 

@@ -5,14 +5,15 @@
 
 #include "nvdec_decoder.h"
 #include "rtsp_client.h"
+#include "safety_event_reporter.h"
+#include "i_frame_quality_analyzer.h"
+#include "sai_common.h"
 
 #include <algorithm>
-#include <iostream>
-#include <cstring>
-#include <chrono>
-#include <ctime>
+#include <cmath>
 #include <cstdio>
-#include <thread>
+#include <cstring>
+#include <iostream>
 
 std::atomic<uint32_t> NVDECDecoder::s_nextEventId_{1};
 
@@ -24,6 +25,19 @@ NVDECDecoder::NVDECDecoder()
 
 bool NVDECDecoder::initialize() {
     NVTX_RANGE("CUDAInit", 0xFF0000FF);
+
+    // Construct the per-camera analyzer (from the linked backend plugin) before
+    // any CUDA work. Backend runtime init is verified once at startup
+    // (loadAnalyzerBackend in main), so a null here is an analyzer allocation
+    // failure; bail before doing expensive CUDA setup.
+    analyzer_ = createFrameQualityAnalyzer();
+    if (!analyzer_) {
+        std::cerr << "[" << sensorName_ << "] failed to allocate "
+                  << analyzerBackendName()
+                  << " frame-quality analyzer\n";
+        return false;
+    }
+
     CUresult result = cuInit(0);
     if (result != CUDA_SUCCESS) {
         std::cerr << "Failed to initialize CUDA: " << result << "\n";
@@ -99,23 +113,20 @@ bool NVDECDecoder::queryDecoderCaps() {
                   << "  Counter Bit Depth: " << decodeCaps.nCounterBitDepth << "\n";
     }
 #endif
-    histogramEnabled = decodeCaps.bIsHistogramSupported ? true : false;
-    return true;
-}
-
-// Retries NvPSSReportSafetyEvent up to MAX_PSS_REPORT_RETRIES
-NvPSSDErr NVDECDecoder::reportSafetyEvent(uint32_t clientId,
-                                           const SafetyEvent* event) {
-    for (int attempt = 0; attempt <= MAX_PSS_REPORT_RETRIES; ++attempt) {
-        NvPSSDErr err = NvPSSReportSafetyEvent(clientId, event);
-        if (err == NVPSSD_SUCCESS) return NVPSSD_SUCCESS;
-        if (attempt < MAX_PSS_REPORT_RETRIES) {
-            std::cerr << "[SAI] reportSafetyEvent failed, retry "
-                      << (attempt + 1) << "/" << MAX_PSS_REPORT_RETRIES << "\n";
-            std::this_thread::sleep_for(std::chrono::milliseconds(25));
-        }
+    // Enable HW histogram only if supported counter width and bin count are within limits;
+    // otherwise, fall back to CPU/GPU histogram computation.
+    const int  hist_counter_bytes = decodeCaps.nCounterBitDepth / 8;
+    const bool hist_counter_ok    = (hist_counter_bytes == 4 || hist_counter_bytes == 8);
+    const bool hist_bins_ok       = (decodeCaps.nMaxHistogramBins > 0 &&
+                                     static_cast<int>(decodeCaps.nMaxHistogramBins) <= kMaxHistBins);
+    histogramEnabled = decodeCaps.bIsHistogramSupported && hist_counter_ok && hist_bins_ok;
+    if (decodeCaps.bIsHistogramSupported && !(hist_counter_ok && hist_bins_ok)) {
+        std::cerr << "[" << sensorName_ << "] NVDEC histogram unsupported by pipeline (bins="
+                  << decodeCaps.nMaxHistogramBins << ", counter="
+                  << static_cast<int>(decodeCaps.nCounterBitDepth)
+                  << " bits); falling back to CPU/SW histogram for entropy.\n";
     }
-    return NVPSSD_FAIL;
+    return true;
 }
 
 int CUDAAPI NVDECDecoder::HandleVideoSequence(void* pUserData,
@@ -144,16 +155,115 @@ int CUDAAPI NVDECDecoder::HandleVideoSequence(void* pUserData,
         dec->displayHeight = pFormat->coded_height;
     }
 
+    // Ensure decode target has even dimensions for NV12 chroma and downstream processing.
+    // Odd display sizes are rounded down; even inputs remain unchanged.
+    if ((dec->displayWidth & 1) != 0 || (dec->displayHeight & 1) != 0) {
+        std::cerr << "[" << dec->sensorName_ << "] Odd display dimensions "
+                  << dec->displayWidth << "x" << dec->displayHeight
+                  << " rounded down to even for NV12 analysis\n";
+        dec->displayWidth  &= ~1;
+        dec->displayHeight &= ~1;
+    }
+
 #ifdef DEBUG
     std::cout << "  Display Area: " << dec->displayWidth << "x"
               << dec->displayHeight << "\n";
-
-    if (pFormat->frame_rate.numerator && pFormat->frame_rate.denominator) {
-        double fps = (double)pFormat->frame_rate.numerator
-                   / (double)pFormat->frame_rate.denominator;
-        std::cout << "  Frame Rate: " << fps << " fps\n";
-    }
 #endif
+
+    // LEARN: on FPS change, recompute the target. Same resolution preserves
+    // the accumulator (remaining-based, keeps wall-clock = learn_duration_sec_).
+    // Resolution change wipes it (full restart at new FPS, over-runs duration).
+    if (dec->mode_ == RunMode::LEARN && dec->learn_target_frames_ != 0) {
+        double newFps = 0.0;
+        if (pFormat->frame_rate.numerator && pFormat->frame_rate.denominator) {
+            newFps = (double)pFormat->frame_rate.numerator
+                   / (double)pFormat->frame_rate.denominator;
+        }
+
+        if (!std::isfinite(newFps) || newFps <= 0.0) newFps = LEARN_FPS_FALLBACK;
+        if (newFps > LEARN_FPS_MAX) newFps = LEARN_FPS_MAX;
+
+        constexpr double kLearnFpsChangeEpsilon = 1e-3;
+        if (std::fabs(newFps - dec->learn_target_fps_) > kLearnFpsChangeEpsilon) {
+            const double   oldFps = dec->learn_target_fps_;
+            const uint64_t done   = dec->analyzer_->getLearnFramesProcessed();
+            const bool resolution_changing =
+                (dec->displayWidth  != dec->analyzer_->getWidth()) ||
+                (dec->displayHeight != dec->analyzer_->getHeight());
+
+            uint64_t new_target = 0;
+            if (resolution_changing) {
+                // Accumulator will be wiped: restart LEARN with the full
+                // duration at the new FPS so the new-resolution baseline
+                // is not under-sampled.
+                new_target = (uint64_t)std::ceil(
+                    (double)dec->learn_duration_sec_ * newFps);
+                std::cerr << "[" << dec->sensorName_
+                          << "] LEARN: FPS+resolution change ("
+                          << oldFps << " fps@"
+                          << dec->analyzer_->getWidth() << "x"
+                          << dec->analyzer_->getHeight()
+                          << " -> " << newFps << " fps@"
+                          << dec->displayWidth << "x"
+                          << dec->displayHeight
+                          << "); discarding " << done
+                          << " accumulated frames, restarting full LEARN,"
+                          << " new_target=" << new_target << " frames\n";
+            } else {
+                // Same resolution: accumulator preserved, adjust by remaining
+                // wall-clock so total LEARN time stays = learn_duration_sec_.
+                const double covered_sec =
+                    (oldFps > 0.0) ? (double)done / oldFps : 0.0;
+                const double remaining_sec =
+                    ((double)dec->learn_duration_sec_ > covered_sec)
+                        ? ((double)dec->learn_duration_sec_ - covered_sec)
+                        : 0.0;
+                new_target = done +
+                    (uint64_t)std::ceil(remaining_sec * newFps);
+                std::cerr << "[" << dec->sensorName_
+                          << "] LEARN: FPS change ("
+                          << oldFps << " -> " << newFps
+                          << "); done=" << done
+                          << " covered=" << covered_sec << "s"
+                          << " remaining=" << remaining_sec << "s"
+                          << " new_target=" << new_target << " frames\n";
+            }
+
+            dec->learn_target_frames_ = new_target;
+            dec->learn_target_fps_    = newFps;
+        }
+    }
+
+    // First sequence only: convert duration into the initial frame target
+    // using this sequence's FPS, with fallback / clamp on bad headers. After
+    // this point learn_target_frames_ is always > 0 and FPS changes are
+    // handled by the remaining-based recompute above.
+    if (dec->mode_ == RunMode::LEARN && dec->learn_target_frames_ == 0) {
+        double fps = 0.0;
+        if (pFormat->frame_rate.numerator && pFormat->frame_rate.denominator) {
+            fps = (double)pFormat->frame_rate.numerator
+                / (double)pFormat->frame_rate.denominator;
+        }
+        if (!std::isfinite(fps) || fps <= 0.0) {
+            std::cerr << "[" << dec->sensorName_
+                      << "] WARNING: stream FPS unavailable; using fallback "
+                      << LEARN_FPS_FALLBACK << " fps for LEARN target.\n";
+            fps = LEARN_FPS_FALLBACK;
+        }
+        if (fps > LEARN_FPS_MAX) {
+            std::cerr << "[" << dec->sensorName_
+                      << "] WARNING: stream FPS " << fps
+                      << " exceeds cap " << LEARN_FPS_MAX
+                      << "; clamping for LEARN target.\n";
+            fps = LEARN_FPS_MAX;
+        }
+        dec->learn_target_frames_ = (uint64_t)std::ceil(
+            (double)dec->learn_duration_sec_ * fps);
+        dec->learn_target_fps_ = fps;
+        std::cout << "[" << dec->sensorName_ << "] LEARN target: "
+                  << dec->learn_target_frames_ << " frames ("
+                  << dec->learn_duration_sec_ << "s @ " << fps << " fps)\n";
+    }
 
     if (pFormat->coded_width  > dec->decodeCaps.nMaxWidth ||
         pFormat->coded_height > dec->decodeCaps.nMaxHeight) {
@@ -185,13 +295,13 @@ int CUDAAPI NVDECDecoder::HandleVideoSequence(void* pUserData,
     ci.DeinterlaceMode     = cudaVideoDeinterlaceMode_Weave;
     ci.ulTargetWidth       = dec->displayWidth;
     ci.ulTargetHeight      = dec->displayHeight;
-    ci.ulNumOutputSurfaces = 2;
+    ci.ulNumOutputSurfaces = kNumDecodeOutputSurfaces;
     ci.ulCreationFlags     = cudaVideoCreate_PreferCUVID;
     ci.vidLock             = nullptr;
     ci.display_area.left   = (short)pFormat->display_area.left;
     ci.display_area.top    = (short)pFormat->display_area.top;
-    ci.display_area.right  = (short)pFormat->display_area.right;
-    ci.display_area.bottom = (short)pFormat->display_area.bottom;
+    ci.display_area.right  = (short)(pFormat->display_area.left + dec->displayWidth);
+    ci.display_area.bottom = (short)(pFormat->display_area.top  + dec->displayHeight);
     ci.enableHistogram     = dec->histogramEnabled ? 1 : 0;
 
     CUresult result;
@@ -209,18 +319,61 @@ int CUDAAPI NVDECDecoder::HandleVideoSequence(void* pUserData,
 #endif
     {
         NVTX_RANGE("InitAnalyzer", 0xFFFF8800);
-        if (!dec->analyzer.init(dec->displayWidth, dec->displayHeight,
+        if (!dec->analyzer_->init(dec->displayWidth, dec->displayHeight,
                                 dec->histogramEnabled,
                                 dec->histogramEnabled ? (int)dec->decodeCaps.nMaxHistogramBins : 0)) {
-            std::cerr << "Fatal: frame quality analyzer init failed, "
-                         "safety monitoring disabled — stopping.\n";
-            g_stopFlag.store(true);
+            std::cerr << "[" << dec->sensorName_
+                      << "] FATAL: frame quality analyzer init failed; "
+                         "shutting down this stream\n";
+            cuvidDestroyDecoder(dec->decoder);
+            dec->decoder = nullptr;
+            bool expected = false;
+            const bool gainedInvalidEdge =
+                dec->sensorInvalid_.compare_exchange_strong(expected, true,
+                                                            std::memory_order_acq_rel);
+            if (gainedInvalidEdge) {
+                if (dec->eventReporter_ != nullptr) {
+                    dec->eventReporter_->update_slot(dec->sensorName_,
+                                                     SENSOR_INVALID,
+                                                     monotonic_now_ns(), 1.0f,
+                                                     dec->allocEventId(),
+                                                     SAIM_INTERNAL_ERROR);
+                    std::cerr << "[" << dec->sensorName_
+                              << "] SENSOR_INVALID handed to reporter "
+                                 "(analyzer init failed)\n";
+                } else {
+                    std::cerr << "[" << dec->sensorName_
+                              << "] analyzer init failed but eventReporter_ "
+                                 "not set; no SENSOR_INVALID emitted\n";
+                }
+            }
+            dec->analyzerPermanentFault_.store(true, std::memory_order_release);
             return 0;
         }
     }
-    dec->analyzer.setMode(dec->mode_);
-    if (dec->mode_ == RunMode::ACTIVE && dec->baseline_.total_frames > 0)
-        dec->analyzer.setBaseline(dec->baseline_);
+
+    // Per-camera fault-isolation wiring.
+    dec->analyzer_->setSensorInvalidFlag(&dec->sensorInvalid_);
+    dec->analyzer_->setPermanentFaultFlag(&dec->analyzerPermanentFault_);
+    dec->analyzer_->setReportInvalidCallback([dec](const char* reason) {
+        if (dec->eventReporter_ == nullptr) {
+            std::cerr << "[" << dec->sensorName_
+                      << "] analyzer reported INVALID (" << reason
+                      << ") but eventReporter_ not set\n";
+            return;
+        }
+        dec->eventReporter_->update_slot(dec->sensorName_, SENSOR_INVALID,
+                                         monotonic_now_ns(), 1.0f,
+                                         dec->allocEventId(),
+                                         SAIM_INTERNAL_ERROR);
+        std::cerr << "[" << dec->sensorName_
+                  << "] SENSOR_INVALID handed to reporter (" << reason << ")\n";
+    });
+
+    dec->analyzer_->setMode(dec->mode_);
+    if (dec->mode_ == RunMode::ACTIVE &&
+        dec->baseline_.total_frames >= MIN_LEARN_FRAMES_FOR_SIGMA)
+        dec->analyzer_->setBaseline(dec->baseline_);
 
     return pFormat->min_num_decode_surfaces;
 }
@@ -268,7 +421,7 @@ int CUDAAPI NVDECDecoder::HandlePictureDisplay(void* pUserData,
         return 0;
     }
 
-    FrameQualityResult quality = dec->analyzer.analyze(
+    FrameQualityResult quality = dec->analyzer_->analyze(
         (const unsigned char*)(uintptr_t)dpSrcFrame,
         (int)nPitch,
         dpHistogram,
@@ -276,7 +429,7 @@ int CUDAAPI NVDECDecoder::HandlePictureDisplay(void* pUserData,
         dec->histogramEnabled ? (int)(dec->decodeCaps.nCounterBitDepth / 8) : 0);
 
     if (dec->mode_ == RunMode::LEARN) {
-        if (dec->frameCount % 100 == 0)
+        if (dec->frameCount % kLearnProgressLogIntervalFrames == 0)
             std::cout << "  [" << dec->sensorName_ << "][Learn] frame " << dec->frameCount << "\n";
         dec->frameCount++;
         {
@@ -291,7 +444,7 @@ int CUDAAPI NVDECDecoder::HandlePictureDisplay(void* pUserData,
         std::cerr << "[" << dec->sensorName_ << "] Frame " << dec->frameCount
                   << " | analysis error, skipping PSS report\n";
     } else {
-        const ThresholdConfig& tcfg = dec->analyzer.config();
+        const ThresholdConfig& tcfg = dec->analyzer_->config();
         float conf = quality.overall_confidence;
         if (conf < 0.f) conf = 0.f;
         if (conf > 100.f) conf = 100.f;
@@ -327,48 +480,28 @@ int CUDAAPI NVDECDecoder::HandlePictureDisplay(void* pUserData,
         if (enterInvalid &&
             dec->sensorInvalid_.compare_exchange_strong(expectedFalse, true,
                                                         std::memory_order_acq_rel)) {
-            if (dec->pssClientId_ != UINT32_MAX) {
-                SafetyEvent event = {};
-                event.id = dec->allocEventId();
-                event.type = SENSOR_INVALID;
-                event.severity = CRITICAL;
-                event.fusionMetadata.pipelineID = dec->pipelineId_;
-                event.fusionMetadata.clientID = static_cast<uint8_t>(dec->pssClientId_);
-                event.confidenceLevel = 1.0f - (conf / 100.f);
-                struct timespec ts;
-                clock_gettime(CLOCK_MONOTONIC, &ts);
-                event.timestamp = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-                snprintf(event.sensorIdentifier, MAX_INDENTIFIER_LENGTH, "%s", dec->sensorName_.c_str());
-                event.processed = false;
-
-                if(dec->reportSafetyEvent(dec->pssClientId_, &event) != NVPSSD_SUCCESS) {
-                    std::cerr << "[" << dec->sensorName_ << "] Failed to report sensor invalid safety event\n";
-                }
+            if (dec->eventReporter_ != nullptr) {
+                dec->eventReporter_->update_slot(dec->sensorName_,
+                                                 SENSOR_INVALID,
+                                                 monotonic_now_ns(),
+                                                 1.0f - (conf / 100.f),
+                                                 dec->allocEventId(),
+                                                 SAIM_INPUT_DEGRADED);
             } else {
                 std::cerr << "[" << dec->sensorName_ << "] Frame " << dec->frameCount
                           << " | confidence: " << quality.overall_confidence << "%"
-                          << " - PSS client not registered, cannot report event\n";
+                          << " - event reporter not set, cannot report event\n";
             }
         } else if (enterValid &&
                    dec->sensorInvalid_.compare_exchange_strong(expectedTrue, false,
                                                                std::memory_order_acq_rel)) {
-            if (dec->pssClientId_ != UINT32_MAX) {
-                SafetyEvent event = {};
-                event.id = dec->allocEventId();
-                event.type = SENSOR_VALID;
-                event.severity = CRITICAL;
-                event.fusionMetadata.pipelineID = dec->pipelineId_;
-                event.fusionMetadata.clientID = static_cast<uint8_t>(dec->pssClientId_);
-                event.confidenceLevel = conf / 100.f;
-                struct timespec ts;
-                clock_gettime(CLOCK_MONOTONIC, &ts);
-                event.timestamp = (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-                snprintf(event.sensorIdentifier, MAX_INDENTIFIER_LENGTH, "%s", dec->sensorName_.c_str());
-                event.processed = false;
-
-                if (dec->reportSafetyEvent(dec->pssClientId_, &event) != NVPSSD_SUCCESS) {
-                    std::cerr << "[" << dec->sensorName_ << "] Failed to report sensor valid safety event\n";
-                }
+            if (dec->eventReporter_ != nullptr) {
+                dec->eventReporter_->update_slot(dec->sensorName_,
+                                                 SENSOR_VALID,
+                                                 monotonic_now_ns(),
+                                                 conf / 100.f,
+                                                 dec->allocEventId(),
+                                                 SAIM_SENSOR_HEALTHY);
             }
         }
     }
@@ -390,7 +523,26 @@ bool NVDECDecoder::createParser() {
         parser = nullptr;
     }
     frameCount = 0;
-    alertCounter_ = 0;
+    // Fail-safe reset: INVALID + counter at max so SENSOR_VALID requires
+    // a sustained good-frame streak to fire.
+    alertCounter_ = analyzer_->config().counter_max;
+    // Edge-gate: emit only when sensorInvalid_ transitions false->true,
+    // i.e. a mid-session reconnect after the sensor had reached VALID.
+    // If it was already true the reporter slot still mirrors INVALID, so
+    // skipping avoids a redundant PSS send (update_slot_impl would accept
+    // and re-dirty the slot since the new timestamp is newer).
+    bool wasValid = false;
+    if (sensorInvalid_.compare_exchange_strong(wasValid, true,
+                                               std::memory_order_acq_rel) &&
+        eventReporter_ != nullptr) {
+        eventReporter_->update_slot(sensorName_, SENSOR_INVALID,
+                                    monotonic_now_ns(), 1.0f,
+                                    allocEventId(),
+                                    SAIM_STREAM_DISCONNECT);
+        std::cerr << "[" << sensorName_
+                  << "] SENSOR_INVALID handed to reporter "
+                     "(reconnect / parser (re)create)\n";
+    }
 
     CUVIDPARSERPARAMS pp{};
     pp.CodecType              = cudaVideoCodec_H264;
@@ -426,24 +578,38 @@ bool NVDECDecoder::decodeStream(NalQueue& queue) {
 #ifdef DEBUG
     if (mode_ == RunMode::LEARN) {
         std::cout << "[" << sensorName_ << "] Learn mode: will auto-stop after "
-                  << learn_duration_sec_ << " seconds.\n";
+                  << learn_target_frames_ << " analyzed frames.\n";
     }
 #endif
-    auto streamStart = std::chrono::steady_clock::now();
-    int consecutiveErrors = 0;
+    unsigned int consecutiveErrors = 0U;  // matches kMaxConsecutiveParseErrors' type
     bool hadErrors = false;
 
     NalUnit nal;
     while (queue.pop(nal)) {
         if (g_stopFlag.load() || learnComplete_.load()) break;
 
-        if (mode_ == RunMode::LEARN) {
-            auto elapsed = std::chrono::steady_clock::now() - streamStart;
-            auto elapsedSec = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
-            if (elapsedSec >= learn_duration_sec_) {
+        // Per-camera give-up: analyzer exhausted its reinit budget (or
+        // HandleVideoSequence failed to initialize the analyzer). Exit the
+        // NAL loop so runStreamPipeline skips reconnect and only this
+        // thread terminates. Marking hadErrors keeps decodeStream()'s
+        // contract honest: true only for clean EOS / stop / LEARN-complete;
+        // false for any fault-driven early termination.
+        if (analyzerPermanentFault_.load(std::memory_order_acquire)) {
+            std::cerr << "[" << sensorName_
+                      << "] analyzer permanent fault detected; stopping decode\n";
+            hadErrors = true;
+            break;
+        }
+
+        // LEARN stops on accumulated frame count, not wall-clock, so disconnect
+        // gaps and reconnects do not over-count idle time. learn_target_frames_
+        // is 0 until HandleVideoSequence has computed it from the stream FPS.
+        if (mode_ == RunMode::LEARN && learn_target_frames_ > 0) {
+            uint64_t done = analyzer_->getLearnFramesProcessed();
+            if (done >= learn_target_frames_) {
 #ifdef DEBUG
-                std::cout << "\nLearn duration reached (" << learn_duration_sec_
-                          << "s, " << frameCount << " frames). Stopping...\n";
+                std::cout << "\nLEARN target reached (" << done << "/"
+                          << learn_target_frames_ << " frames). Stopping...\n";
 #endif
                 learnComplete_.store(true);
                 break;
@@ -462,7 +628,7 @@ bool NVDECDecoder::decodeStream(NalQueue& queue) {
             hadErrors = true;
             std::cerr << "[" << sensorName_ << "] Failed to parse streaming video data: "
                       << result << "\n";
-            if (++consecutiveErrors >= 30) {
+            if (++consecutiveErrors >= kMaxConsecutiveParseErrors) {
                 std::cerr << "[" << sensorName_ << "] Too many consecutive parse errors ("
                           << consecutiveErrors << "), aborting decode\n";
                 break;
@@ -480,6 +646,11 @@ bool NVDECDecoder::decodeStream(NalQueue& queue) {
             std::cerr << "[" << sensorName_ << "] EOS parse failed\n";
     }
 
+    if (mode_ == RunMode::LEARN && learn_target_frames_ > 0 &&
+        analyzer_->getLearnFramesProcessed() >= learn_target_frames_) {
+        learnComplete_.store(true);
+    }
+
 #ifdef DEBUG
     std::cout << "\nStreaming decode complete!\n"
               << "Total frames decoded: " << frameCount << "\n"
@@ -494,18 +665,16 @@ bool NVDECDecoder::loadThresholdConfig(const std::string& path) {
     NVTX_RANGE("LoadThresholdConfigFile", 0xFF88FF88);
     ThresholdConfig cfg;
     if (!ThresholdConfig::loadFromFile(path, cfg)) return false;
-    analyzer.setConfig(cfg);
+    analyzer_->setConfig(cfg);
 #ifdef DEBUG
     std::cout << "Loaded threshold config from " << path << ":\n"
               << "  w_histogram=" << cfg.w_histogram
               << "  w_contrast=" << cfg.w_contrast
-              << "  w_edge=" << cfg.w_edge << "\n"
-              << "  baseline_mean_margin=" << cfg.baseline_mean_margin
-              << "  baseline_var_margin=" << cfg.baseline_var_margin << "\n"
-              << "  baseline_contrast_margin=" << cfg.baseline_contrast_margin
-              << "  baseline_edge_margin=" << cfg.baseline_edge_margin << "\n"
-              << "  canny_low_thresh=" << cfg.canny_low_thresh
-              << "  canny_high_thresh=" << cfg.canny_high_thresh << "\n"
+              << "  w_edge=" << cfg.w_edge
+              << "  w_entropy=" << cfg.w_entropy
+              << "  w_laplacian=" << cfg.w_laplacian << "\n"
+              << "  k=" << cfg.k
+              << "  sigma_floor_fraction=" << cfg.sigma_floor_fraction << "\n"
               << "  score_low_threshold=" << cfg.score_low_threshold
               << "  score_high_threshold=" << cfg.score_high_threshold << "\n"
               << "  counter_max=" << cfg.counter_max
@@ -517,36 +686,68 @@ bool NVDECDecoder::loadThresholdConfig(const std::string& path) {
 
 bool NVDECDecoder::saveBaseline(const std::string& path) {
     NVTX_RANGE("SaveBaseline", 0xFF44FF88);
-    BaselineValues b = analyzer.getLearnedBaseline();
+    BaselineValues b = analyzer_->getLearnedBaseline();
     if (b.total_frames == 0) {
         std::cerr << "[" << sensorName_ << "] No frames analyzed during learning\n";
         return false;
     }
+    // Pin the canny thresholds used during LEARN so ACTIVE reproduces the same
+    // edge map.
+    b.canny_low_thresh  = analyzer_->config().canny_low_thresh;
+    b.canny_high_thresh = analyzer_->config().canny_high_thresh;
+    // Reject under-sampled LEARN: sigma from too few frames is dominated by sampling noise.
+    if (b.total_frames < MIN_LEARN_FRAMES_FOR_SIGMA) {
+        std::cerr << "[" << sensorName_ << "] LEARN ended with only "
+                  << b.total_frames << " frames (< MIN_LEARN_FRAMES_FOR_SIGMA="
+                  << MIN_LEARN_FRAMES_FOR_SIGMA << "); baseline not saved\n";
+        return false;
+    }
 #ifdef DEBUG
     std::cout << "\nLearned baseline from " << b.total_frames << " frames:\n"
-              << "  hist_mean:    " << b.hist_mean << "\n"
-              << "  hist_var:     " << b.hist_var << "\n"
-              << "  rms_contrast: " << b.rms_contrast << "\n"
-              << "  edge_density: " << b.edge_density << "\n";
+              << "  hist_mean:         " << b.hist_mean    << "  (sigma=" << b.hist_mean_std    << ")\n"
+              << "  hist_var:          " << b.hist_var     << "  (sigma=" << b.hist_var_std     << ")\n"
+              << "  rms_contrast:      " << b.rms_contrast << "  (sigma=" << b.rms_contrast_std << ")\n"
+              << "  edge_density:      " << b.edge_density << "  (sigma=" << b.edge_density_std << ")\n"
+              << "  canny_low_thresh:  " << b.canny_low_thresh << "\n"
+              << "  canny_high_thresh: " << b.canny_high_thresh << "\n";
 #endif
     return b.saveToFile(path);
 }
 
 bool NVDECDecoder::loadBaseline(const std::string& path) {
     NVTX_RANGE("LoadBaselineFile", 0xFF88FFAA);
+
+    // Pre-seed canny from the current analyzer config so a baseline.cfg that
+    // omits canny_* keys (older files) cleanly falls back to thresholds.cfg
+    // values, or to CANNY_*_THRESH compile-time defaults when those are also
+    // absent. baseline.cfg's canny_* keys (if present) overwrite the pre-seed.
+    baseline_.canny_low_thresh  = analyzer_->config().canny_low_thresh;
+    baseline_.canny_high_thresh = analyzer_->config().canny_high_thresh;
+
     if (!BaselineValues::loadFromFile(path, baseline_)) return false;
+
+    // Push the resolved canny back into the analyzer so the edge kernel uses
+    // the same thresholds as LEARN (when baseline.cfg pinned them) or the
+    // fallback chain (when it didn't).
+    ThresholdConfig cfg = analyzer_->config();
+    cfg.canny_low_thresh  = baseline_.canny_low_thresh;
+    cfg.canny_high_thresh = baseline_.canny_high_thresh;
+    analyzer_->setConfig(cfg);
+
 #ifdef DEBUG
     std::cout << "Loaded baseline (" << baseline_.total_frames << " frames):\n"
-              << "  hist_mean:    " << baseline_.hist_mean << "\n"
-              << "  hist_var:     " << baseline_.hist_var << "\n"
-              << "  rms_contrast: " << baseline_.rms_contrast << "\n"
-              << "  edge_density: " << baseline_.edge_density << "\n";
+              << "  hist_mean:         " << baseline_.hist_mean    << "  (sigma=" << baseline_.hist_mean_std    << ")\n"
+              << "  hist_var:          " << baseline_.hist_var     << "  (sigma=" << baseline_.hist_var_std     << ")\n"
+              << "  rms_contrast:      " << baseline_.rms_contrast << "  (sigma=" << baseline_.rms_contrast_std << ")\n"
+              << "  edge_density:      " << baseline_.edge_density << "  (sigma=" << baseline_.edge_density_std << ")\n"
+              << "  canny_low_thresh:  " << baseline_.canny_low_thresh << "\n"
+              << "  canny_high_thresh: " << baseline_.canny_high_thresh << "\n";
 #endif
     return true;
 }
 
 bool NVDECDecoder::validateThresholdConfig() const {
-    return analyzer.config().validate();
+    return analyzer_->config().validate();
 }
 
 bool NVDECDecoder::validateBaseline() const {
@@ -557,12 +758,16 @@ void NVDECDecoder::cleanup() {
     NVTX_RANGE("CleanupPipeline", 0xFF880000);
     if (cuContext)
         cuCtxSetCurrent(cuContext);
-    analyzer.cleanup();
+    if (analyzer_) analyzer_->cleanup();
     if (parser)  { cuvidDestroyVideoParser(parser); parser = nullptr; }
     if (decoder) { cuvidDestroyDecoder(decoder);     decoder = nullptr; }
     frameCount = 0;
     alertCounter_ = 0;
-    sensorInvalid_.store(false);
+    // Preserve INVALID on teardown so racing reads never see a stale "valid".
+    // alertCounter_=0 is irrelevant here (parser destroyed); createParser()
+    // re-seeds if the decoder is reused.
+    sensorInvalid_.store(true);
+    analyzerPermanentFault_.store(false);
     frameWidth = 0;  frameHeight = 0;
     displayWidth = 0; displayHeight = 0;
     if (cuContext) { cuDevicePrimaryCtxRelease(cuDevice_); cuContext = nullptr; }

@@ -18,7 +18,7 @@
  * Protocol schema version.  Increment on any wire-incompatible change
  * to SafetyEvent, FusedSafetyEvent, or DecisionRequest.
  */
-#define PSS_SCHEMA_VERSION 1U
+#define PSS_SCHEMA_VERSION 3U
 
 #pragma pack(push, 1)
 
@@ -63,7 +63,8 @@ typedef enum {
     SENSOR_INVALID,
     SENSOR_VALID,
     AI_PIPELINE_INVALID,
-    AI_PIPELINE_VALID
+    AI_PIPELINE_VALID,
+    PSS_STATUS_NOOP
 }EventType;
 
 /**
@@ -99,15 +100,19 @@ typedef enum {
 }ObjectType;
 
 /**
- * @enum EventSeverity
- * @brief Enumeration for event severity levels
+ * @brief Fixed-width downstream event severity for PSS daemon-built
+ *        FusedSafetyEvent entries.
+ *
+ * Client SafetyEvent messages do not carry severity. PSS daemon assigns one
+ * of these values when constructing DecisionRequest payloads for PSD/SDM
+ * routing.
  */
-typedef enum {
-    LOW,     /* Low severity event */
-    MEDIUM,  /* Medium severity event */
-    HIGH,    /* High severity event */
-    CRITICAL /* Critical severity event */
-}SeverityLevel;
+typedef uint8_t SeverityLevel;
+
+enum {
+    OPERATIONAL = 0U,  /* Normal operational/no-op traffic */
+    CRITICAL = 1U      /* Fault-safe latch or recovery evidence */
+};
 
 /**
  * @enum PSSOperationalMode
@@ -175,7 +180,6 @@ typedef struct {
     char sensorIdentifier[MAX_INDENTIFIER_LENGTH]; /* Name of sensor generating the Safety Event */
     char ruleIdentifier[MAX_INDENTIFIER_LENGTH]; /* Name of rule generating the Safety Event */
     EventType type;                /* Type of the safety event */
-    SeverityLevel severity;        /* Severity level of the event */
     uint64_t timestamp;            /* Monotonic nanoseconds (CLOCK_MONOTONIC or equivalent).
                                       Both sender and receiver must use the same monotonic epoch.
                                       Receivers should reject events older than a configurable
@@ -195,7 +199,7 @@ typedef struct {
     char sensorIdentifier[MAX_INDENTIFIER_LENGTH]; /* Name of primary sensor generating the Safety Event */
     char ruleIdentifier[MAX_INDENTIFIER_LENGTH]; /* Name of rule generating the Safety Event */
     EventType type;                /* Type of the safety event */
-    SeverityLevel severity;        /* Severity level of the event */
+    SeverityLevel severity;        /* PSS daemon-owned OPERATIONAL/CRITICAL routing severity */
     uint64_t timestamp;            /* Monotonic nanoseconds of the earliest source event
                                       (same epoch as SafetyEvent.timestamp) */
     float confidenceLevel;         /* Calculated fusion confidence */

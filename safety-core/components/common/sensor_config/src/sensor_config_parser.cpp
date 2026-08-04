@@ -96,9 +96,6 @@ SensorConfigErr sensorConfigParse(const char* path, SensorConfig* out)
         out->count++;
     }
 
-    if (out->count == 0)
-        return SENSOR_CONFIG_ERR_EMPTY_FILE;
-
     return SENSOR_CONFIG_OK;
 }
 
@@ -116,7 +113,6 @@ const char* sensorConfigErrStr(SensorConfigErr err)
         case SENSOR_CONFIG_ERR_TOO_MANY_ENTRIES:     return "too many entries (max 8)";
         case SENSOR_CONFIG_ERR_NULL_ARG:             return "null argument";
         case SENSOR_CONFIG_ERR_EMPTY_RTSP_URL:       return "empty rtspUrl";
-        case SENSOR_CONFIG_ERR_EMPTY_FILE:            return "sensor config file contains no entries";
         default:                                     return "unknown error";
     }
 }

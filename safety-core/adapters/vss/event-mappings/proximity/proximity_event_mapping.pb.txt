@@ -4,31 +4,32 @@
 rules {
   name: "Proximity no violation (safe distance, >2m or SD false)"
   message_source: "mdx-frames"
-  alert_type: "no_violation"
-  rule_id: "proximity_no_violation"
+  alert_type: "social_distancing"
+  rule_id: "agility_digit_person_no_violation"
   object_type_primary: "Agility_Digit_Humanoid"
   object_type_secondary: "Person"
-  output_event: "EVENT_0"
-  severity: "HIGH"
+  proximity_violation: false
+  output_event: "EVENT_8"
 }
 rules {
   name: "Proximity 2m > distance > 1m"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
+  rule_id: "agility_digit_person_lt_2m"
   object_type_primary: "Agility_Digit_Humanoid"
   object_type_secondary: "Person"
+  proximity_violation: true
   distance_threshold_meters: 2.0
-  output_event: "EVENT_1"
-  severity: "HIGH"
+  output_event: "EVENT_9"
 }
 rules {
   name: "Proximity distance < 1m"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
+  rule_id: "agility_digit_person_lt_1m"
   object_type_primary: "Agility_Digit_Humanoid"
   object_type_secondary: "Person"
+  proximity_violation: true
   distance_threshold_meters: 1.0
-  output_event: "EVENT_2"
-  severity: "HIGH"
+  output_event: "EVENT_10"
 }
-

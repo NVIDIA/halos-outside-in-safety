@@ -15,7 +15,7 @@
  * Modeled after PSS daemon's PSSConfigParser: parses simple text files with
  * one key=value pair per line, supports '#' comments and blank lines,
  * trims whitespace from keys and values, and provides typed getters with
- * try/catch protection and sensible defaults.
+ * errno-based safe parsing and sensible defaults.
  */
 class SaiConfigParser {
 public:

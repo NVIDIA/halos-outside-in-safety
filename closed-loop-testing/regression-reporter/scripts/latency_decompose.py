@@ -25,7 +25,7 @@ warnings.filterwarnings("ignore")
 from srr import aggregator as A
 
 RUN = Path(sys.argv[1] if len(sys.argv) > 1 else "/app/runs/multi-test-20260615-043909")
-roi, tw_x, tw_y_min, tw_y_max = A.load_roi(Path("/app/calibration.json"))
+roi, tw = A.load_roi(Path("/app/calibration.json"))
 parquets = sorted(RUN.glob("*/scenes/scn_*.parquet"))
 HZ = 30
 WIN = 3 * HZ  # +-3s search window
@@ -83,11 +83,12 @@ for pq in parquets:
         sdf = pd.read_parquet(pq, columns=["arrival_wall_time"])
         ba_override = A.filter_ba_pool(pool, float(sdf["arrival_wall_time"].iloc[0]),
                                        float(sdf["arrival_wall_time"].iloc[-1]))
-    v, df = A.analyze_clip(pq, roi, tw_x, tw_y_min, tw_y_max, ba_events_override=ba_override)
+    v, df = A.analyze_clip(pq, roi, tw, ba_events_override=ba_override)
     if len(df) < 5:
         continue
     t = df["arrival_wall_time"].to_numpy()
-    bev = df["bev_create_time"].to_numpy() if "bev_create_time" in df.columns else None
+    bev = (pd.to_numeric(df["bev_create_time"], errors="coerce").to_numpy(dtype=float)
+           if "bev_create_time" in df.columns else None)
     dets_row = [parse(s) for s in df["detections_json"]] if "detections_json" in df.columns else None
     if bev is not None:
         d = t - bev
@@ -120,7 +121,7 @@ for pq in parquets:
             best = fk_center_x(dets, fk_x[i], fk_y[i])
             if best is not None:
                 det_cx[i] = best["x"]
-                det_in_trailer[i] = (best["x"] > tw_x and tw_y_min <= best["y"] <= tw_y_max)
+                det_in_trailer[i] = tw.is_inside(best["x"], best["y"])
 
     # BA event times
     evts = ba_override if ba_override is not None else []

@@ -28,14 +28,14 @@ common symptoms:
 
 - `clip_logs.py` missing entirely → Phase 6a `docker exec` fails
 - `vst_video.py` writes per-clip MP4s to `videos/scenes/scn_*.mp4` (old layout) while host source writes flat `videos/scn_*.mp4` (new layout) — breaks aggregator's `../videos/<scn>.mp4` link in per-clip MD reports
-- Phase 2 perception metrics absent / wrong if `aggregator.py`, `kafka_consumer.py`, `schema.py`, or `recorder.py` predate the 3D pipeline (fd101f2)
+- Phase 2 perception metrics absent / wrong if `aggregator.py`, `kafka_consumer.py`, `schema.py`, or `recorder.py` predate the 3D pipeline
 - `render_perception_heatmap.py` / `render_coverage_polygons.py` missing or pre-`--density` → Phase 6d heatmap step fails at import or rejects the flag
 
 **Detect**:
 
 ```bash
 SRR_SRC_DIR="${SRR_PIPELINE_DIR}/srr-service/srr"
-for f in clip_logs.py aggregator.py kafka_consumer.py schema.py recorder.py utils/vst_video.py tw_split.py; do
+for f in clip_logs.py aggregator.py kafka_consumer.py schema.py recorder.py utils/vst_video.py tw_split.py tripwire.py; do
   HOST_MTIME=$(stat -c '%Y' "$SRR_SRC_DIR/$f" 2>/dev/null || echo 0)
   CTR_MTIME=$(docker exec srr stat -c '%Y' "/app/srr/$f" 2>/dev/null || echo 0)
   if (( HOST_MTIME > CTR_MTIME )); then
@@ -71,6 +71,7 @@ docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/schema.py"           srr:/app/srr
 docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/recorder.py"         srr:/app/srr/   # Phase 2 parquet cols
 docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/utils/vst_video.py"  srr:/app/srr/utils/
 docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/tw_split.py"         srr:/app/srr/
+docker cp "${SRR_PIPELINE_DIR}/srr-service/srr/tripwire.py"         srr:/app/srr/   # Tripwire model (imported by aggregator/tw_split/clip_logs)
 docker cp "${SRR_PIPELINE_DIR}/scripts/render_perception_heatmap.py" srr:/app/scripts/   # Phase 6d
 docker cp "${SRR_PIPELINE_DIR}/scripts/render_coverage_polygons.py"  srr:/app/scripts/   # Phase 6d
 ```
@@ -93,7 +94,7 @@ Skip this step on the 2nd–Nth scenarios of a multi-test — image state is sta
 
 ## Step 3.−1 — Verify SRR fixtures synced into the Isaac SIL dir (one-time / first scenario)
 
-SRR's canonical test fixtures (the 6 scenarios' IRA 1.6 behavior trees,
+SRR's canonical test fixtures (the scenario behavior trees — 5 sweep + `fixed`,
 NavMesh JSON, and the Script-Editor utilities) live under
 `regression-reporter/scenarios/{behavior-trees,scenes,isaac-scripts}/`. Isaac Sim reads
 those at the in-container path `/isaac-sim/sil/...`, which is bind-mounted
@@ -112,7 +113,7 @@ Check each path exists under ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/si
   configs/srr_char0.bt.json                (active tree — Character)
   configs/srr_char1.bt.json                (active tree — Character_01)
   configs/srr_char2.bt.json                (active tree — Character_02)
-  configs/srr_in-roi_char0.bt.json         (per-scenario trees; 6 scenarios x 3 chars)
+  configs/srr_in-roi_char0.bt.json         (per-scenario trees; 6 sets = 5 sweep + fixed, x3 chars)
   configs/srr_fast_char0.bt.json           (spot-check a couple more names)
   configs/navmesh.json
   scripts/isaac/check_srr_prereqs.py       (GT pre-flight diagnostic)
@@ -187,7 +188,7 @@ docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env up -d
 Check `docker ps --format '{{.Names}}'` until all names are listed:
   safety-core, comm-layer, isaac-sim
 Poll every 30 s, max 5 min total. Print one heartbeat line per poll
-("[MM:SS] waiting on <missing-name>"). Report [ok] when all 4 are up,
+("[MM:SS] waiting on <missing-name>"). Report [ok] when all 3 are up,
 or [fail: <reason>] if 5 min elapses with services missing.
 ```
 
@@ -346,7 +347,7 @@ Set it to outlast scene-load + Safety Core warm-up + the recording window (buffe
 ```bash
 CONFIG=${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/default_config_ros.yaml
 RECORD_S=$2                       # this scenario's recording seconds
-SIM_DUR=$(( RECORD_S + 30 + 600 ))   # + Safety Core warm-up + scene-load/margin buffer
+SIM_DUR=$(( RECORD_S + 30 + 1800 ))  # + Safety Core warm-up + scene-load/margin buffer (matches run_multi's +1800: outlasts RTSP wait + a scene-ready reprovision retry)
 sed -i "s|^\(\s*\)simulation_duration:.*|\1simulation_duration: ${SIM_DUR}.0|" "$CONFIG"
 ```
 
@@ -403,10 +404,26 @@ Log:
 ```
 Tail /tmp/isaac-scenario-<TIMESTAMP>-<LABEL>.log inside the host
 (it's a docker exec stdout redirect — should appear on host).
-Look for all 3 lines:
-  RTSPWriter_World_Cameras_Camera_rgb
-  RTSPWriter_World_Cameras_Camera_01_rgb
-  RTSPWriter_World_Cameras_Camera_02_rgb
+Confirm the current Isaac-6.0 scene-ready markers in the log:
+  [rtsp-cameras] Loaded 3 cameras from ...
+  [rtsp-cameras] Action Graph built at /World/RTSPMultiGraph
+  3x "  - <name>: rtsp://<host>:<port><mount>"   (one per camera; ports 8554/8555/8556)
+  Pressing Play (timeline.play())
+  [srr-gt] Action Graph built at /World/SRRGraph (4 publishers)   # only with --srr-gt
+
+Then confirm the 3 RTSP mounts serve H.264 and the 4 GT topics have a publisher:
+  ffprobe -v error -show_streams rtsp://<host>:8554/camera   # repeat per port
+  ros2 topic info /gt/forklift/tf -v | grep 'Publisher count'   # =1; same for /gt/character_{0,1,2}/tf
+
+Finally confirm perception actually pulled all three streams — the Isaac-side
+markers above go green even when DeepStream ingested nothing, so a run started
+on that state records no detections at all:
+  docker logs vss-rtvi-cv --tail 50 | grep -o 'Active sources : [0-9]*' | tail -1   # want 3
+A count below 3 means the empty-pipeline provisioning race: restart vss-rtvi-cv,
+re-register the sensors (vst_sensor_manager.py --delete-all then
+--add-from-config), and re-check before recording.
+
+Do NOT rely on RTSPWriter_World_Cameras_*_rgb — Isaac 6.0 never emits those.
 
 If first run on this scene: shaders compile takes ~5-7 min — that's normal.
 If subsequent run: streams should appear within ~90 s.
@@ -414,7 +431,9 @@ If subsequent run: streams should appear within ~90 s.
 Poll every 30 s. Report progress with last 2 lines of the log.
 Max 8 min on first run, 3 min on subsequent.
 
-Report [ok] when all 3 RTSP lines present, or [fail: <reason>] otherwise.
+Report [ok] when /World/RTSPMultiGraph is built + 3 rtsp:// stream lines present
++ DeepStream reports 3/3 active sources (and, with --srr-gt, /World/SRRGraph
+built), or [fail: <reason>] otherwise.
 ```
 
 When [ok], log:
@@ -501,7 +520,12 @@ Borrows the ready signals defined in
    break early (the `consumer_timeout_ms` is only an idle fallback for a dead
    topic). A bare `sum(1 for _ in c)` NEVER returns on a live topic — it only
    stops after a full idle gap — and it leaks an in-container consumer you then
-   have to kill. This mirrors `run_multi.sh` `phase_wait_scene_ready`.
+   have to kill. (The scene-ready GATE itself no longer polls `mdx-events`:
+   `run_multi.sh`'s `phase_wait_scene_ready` calls `resolve_scene_ready_topic()`,
+   which derives the topic from the VSS MODE — 2d → `mdx-raw`, 3d/mv3dt → `mdx-bev`
+   — and requires DECODED `detections > 0` via `parse_mdx_bev_bytes`, not an
+   any-message probe. That decode pattern is what Check 4 below mirrors; this
+   Check 3 remains a valid mdx-events liveness probe for the BA→SRR path.)
 
 4. (Phase 2 only — skip if mdx-bev not in use) mdx-bev decodes REAL detections:
    docker exec srr python3 -c "
@@ -521,6 +545,13 @@ Borrows the ready signals defined in
    polls — fresh after a compose restart the 3D scene takes ~3 min to load and
    perception emits EMPTY mdx-bev frames until then, so a bare "has any message"
    check false-positives. Phase 2 metrics will be absent if this never goes > 0.)
+
+   > **2D deploy:** the scene-ready GATE runs this SAME decode-detections>0 probe
+   > but on **`mdx-raw`** (2D DeepStream publishes decoded detections there), not
+   > mdx-bev — that is what SKILL.md's 3f.7 gate means by "mdx-raw for 2D". To
+   > mirror the gate manually on a 2D host, change `'mdx-bev'` above to `'mdx-raw'`.
+   > (mdx-bev carries no data on 2D, so the 3D form would never pass; there is no
+   > separate Phase 2 on 2D.)
 
 Report [ok] only if the applicable conditions pass, or [fail: which check failed]
 with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
@@ -556,12 +587,16 @@ sleep 30
 docker logs --tail 200 "$PERCEPTION" 2>&1 | grep PERF -A1 | tail -5
 # If all 3 FPS values now ≥ $FPS_MIN → re-run the Step 3f.7 gate and continue.
 
-# Tier 2 — perception restart + isaac-sim scene restart
+# Tier 2 — Isaac scenario restart (~2 min)
 # (use if Tier 1 still shows FPS=0 — the RTSP streams may have flap-disconnected)
-docker restart isaac-sim "$PERCEPTION"
-sleep 60
-# Then re-execute Step 3e (wait for shaders + 3 RTSP streams ready)
-# and re-poll the 3f.7 gate.
+# Do NOT `docker restart isaac-sim` (never reloads the scene — the driver runs via
+# `docker exec -d`) and do NOT relaunch run_actor_sdg.py bare under a live VST
+# ("no caps" wedge). The wrapper reuses the running driver's args (keeps --srr-gt)
+# and waits for warm mounts + DeepStream 3/3:
+bash "$HOISA_ROOT_PATH"/closed-loop-testing/scripts/restart_isaac.sh
+# Then re-poll the 3f.7 gate (skip Step 3e — mounts are already warm). Expected
+# uuid churn / source_id shuffle: hoisa-deploy-profile references/test_scenario.md
+# § "Restart the scenario on a live stack".
 
 # Tier 3 — full VSS reset recipe (SKILL.md § "When VSS is corrupted")
 #   or vss-deploy-profile skill teardown/redeploy (references/teardown.md)

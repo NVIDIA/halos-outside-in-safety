@@ -198,7 +198,16 @@ phase_set_behavior_tree() {
 
   # simulation_duration (seconds) must outlast scene-load + PSF warmup + the
   # recording window, with buffer. Old schema used frames (simulation_length).
-  local sim_dur=$(( rec_s + PSF_WARMUP_S + 600 ))
+  # 1800 s buffer = scene-load (+ RTSP-wait up to 240 s) + up to TWO scene-ready windows (the gate's
+  # reprovision-retry path can burn ~700 s of wall clock per window, the
+  # nominal 360 s timeout plus per-poll docker-exec/consume latency the
+  # 'waited' counter does not account for) + reprovision sleeps + PSF warm-up.
+  # Budget: ~180-240 s load + 2×~700 s windows + ~28 s reprovision ≈ 1670 s.
+  # With the old +600 the sim could hit simulation_duration MID-RECORDING
+  # precisely when the reprovision retry succeeded late — silently truncating
+  # GT with no guard to catch it. A longer timeline is harmless: the
+  # per-scenario compose restart tears the scene down long before it ends.
+  local sim_dur=$(( rec_s + PSF_WARMUP_S + 1800 ))
   sed -i "s|^\(\s*\)simulation_duration:.*|\1simulation_duration: ${sim_dur}.0|" "$ISAAC_CONFIG"
 
   # Sanity check — the duration line must now carry the new value.
@@ -277,45 +286,101 @@ phase_vst_workaround() {
 }
 
 # Bare-run scene-ready gate (when the skill isn't orchestrating the agent
-# check). After a compose restart the 3D scene takes ~3 min to load; until then
-# perception emits EMPTY mdx-bev frames, so a "has any message" check gives a
-# false-positive. We therefore require real detections (decoded objects > 0)
-# before recording. Falls back to proceeding after SCENE_READY_TIMEOUT_S so we
-# never hang forever.
+# check). After a compose restart the scene takes ~3 min to load; until then the
+# perception pipeline emits nothing useful, so a "has any message" check gives a
+# false-positive. We therefore require a REAL perception signal before recording.
+# Falls back to proceeding after SCENE_READY_TIMEOUT_S so we never hang forever.
+#
+# Profile-aware (2D vs 3D). The topic we poll is chosen by the deploy MODE
+# (resolve_scene_ready_topic, below): 2d -> mdx-raw (DeepStream), 3d/mv3dt ->
+# mdx-bev (Sparse4D/BEV). Both carry the same nv.Frame protobuf, so one decoder
+# covers both and we always require decoded detections > 0 (a real perception
+# signal, not "has any message"). MODE comes from the VSS warehouse env, so the
+# gate never hardcodes a mode-specific topic.
 #
 # The counter is CUMULATIVE, not "consecutive". Perception legitimately
-# interleaves EMPTY mdx-bev frames (e.g. a sparse scene where only one actor is
-# in FOV, like `fast`), so the old "2 consecutive hits, hard-reset on any miss"
-# gate false-timed-out on such scenes and burned the whole timeout before
-# proceeding — even though detections were flowing. We now accumulate hits and
-# only decay the counter after several consecutive empty polls (never below 0),
-# so intermittent empties don't wipe progress. Tunables: SCENE_READY_HITS
-# (non-empty polls needed) and SCENE_READY_MISS_DECAY (consecutive empties that
-# drop one hit).
+# interleaves EMPTY frames (e.g. a sparse scene where only one actor is in FOV,
+# like `fast`), so the old "2 consecutive hits, hard-reset on any miss" gate
+# false-timed-out on such scenes and burned the whole timeout before proceeding —
+# even though detections were flowing. We now accumulate hits and only decay the
+# counter after several consecutive empty polls (never below 0), so intermittent
+# empties don't wipe progress. Tunables: SCENE_READY_HITS (non-empty polls needed)
+# and SCENE_READY_MISS_DECAY (consecutive empties that drop one hit).
 SCENE_READY_TIMEOUT_S="${SCENE_READY_TIMEOUT_S:-360}"
 SCENE_READY_HITS="${SCENE_READY_HITS:-2}"
 SCENE_READY_MISS_DECAY="${SCENE_READY_MISS_DECAY:-3}"
+# Which Kafka topic carries the perception signal depends on the deploy MODE.
+# Resolve it once, in priority order:
+#   1. explicit SCENE_READY_TOPIC override (set in .env to force a topic)
+#   2. auto-derive from the VSS warehouse env's MODE (ENV_VSS_PATH): the same
+#      nv.Frame protobuf flows on mdx-raw for 2d (DeepStream) and mdx-bev for
+#      3d/mv3dt (Sparse4D/BEV), so one decoder covers both — only the topic
+#      differs by mode. Reading MODE from the VSS deployment's own env keeps a
+#      single source of truth (no 2D/3D flag duplicated on the SRR side).
+#   3. fall back to mdx-bev (prior default) when neither is available.
+resolve_scene_ready_topic() {
+  if [ -n "${SCENE_READY_TOPIC:-}" ]; then printf '%s' "$SCENE_READY_TOPIC"; return; fi
+  local mode=""
+  [ -n "${ENV_VSS_PATH:-}" ] && [ -f "$ENV_VSS_PATH" ] && \
+    mode=$(grep -sE '^MODE=' "$ENV_VSS_PATH" | head -1 | cut -d= -f2 | tr -d ' "'"'"'' || true)
+  case "$mode" in
+    2d)        printf 'mdx-raw' ;;
+    3d|mv3dt)  printf 'mdx-bev' ;;
+    *)         printf 'mdx-bev' ;;
+  esac
+}
 phase_wait_scene_ready() {
-  log "Waiting for scene-ready (mdx-bev detections, need ${SCENE_READY_HITS} non-empty polls, timeout ${SCENE_READY_TIMEOUT_S}s)..."
-  local waited=0 step=10 hits=0 misses=0
-  while [ "$waited" -lt "$SCENE_READY_TIMEOUT_S" ]; do
-    # Decode mdx-bev in the srr container; exit 0 only if objects > 0.
-    if docker exec srr python3 -c "
+  # Pick the perception topic by deploy MODE (resolve_scene_ready_topic);
+  # decode it and require real detections > 0. One code path covers 2d (mdx-raw)
+  # and 3d/mv3dt (mdx-bev) since both carry the same nv.Frame protobuf.
+  local topic probe_py signal
+  topic="$(resolve_scene_ready_topic)"
+  signal="perception detections (${topic})"
+  probe_py="
 from kafka import KafkaConsumer
 from srr.kafka_consumer import parse_mdx_bev_bytes
-c=KafkaConsumer('mdx-bev', bootstrap_servers='localhost:9092', auto_offset_reset='latest', value_deserializer=None, consumer_timeout_ms=8000)
+c=KafkaConsumer('${topic}', bootstrap_servers='localhost:9092', auto_offset_reset='latest', value_deserializer=None, consumer_timeout_ms=8000)
 n=0
-for m in c:
+# Bound the scan: consumer_timeout_ms only fires when the topic goes IDLE, so a
+# busy topic streaming all-EMPTY frames would otherwise block this loop (and the
+# whole gate poll) indefinitely. ~500 messages is one 15-20 s look at a 30 Hz feed.
+for i, m in enumerate(c):
     if (parse_mdx_bev_bytes(m.value).get('detections') or []): n+=1
-    if n>=1: break
+    if n>=1 or i>=500: break
 import sys; sys.exit(0 if n>=1 else 1)
-" >/dev/null 2>&1; then
+"
+  if _scene_ready_wait_once; then return 0; fi
+  # A first-pass timeout is more often the empty-DeepStream-pipeline race than
+  # a slow scene (healthy scenarios reach ready in well under a minute): the
+  # per-scenario perception restart leaves a (re)started DeepStream with an
+  # EMPTY REST pipeline, and the SDR is event-driven with no reconcile-on-start,
+  # so if its stream push raced the restart nothing ever retries and the gate
+  # times out on a stack that will never produce a signal. Re-provision once,
+  # give the gate one more full window, then fall through with the historical
+  # WARN (verdict-side guards treat that exactly as before).
+  # NOTE: this intermediate line must NOT contain the substring
+  # "WARN scene-ready timeout" — downstream log distillers pair one terminal
+  # scene-ready line per scenario (the success line or that WARN marker).
+  log "WARN scene-ready first-pass timed out — reprovisioning perception (empty-pipeline race), then retrying once..."
+  phase_reprovision_perception || true
+  if _scene_ready_wait_once; then return 0; fi
+  log "WARN scene-ready timeout — proceeding anyway (data may be empty)."
+}
+
+# One full scene-ready wait window. Reads $signal/$probe_py resolved by
+# phase_wait_scene_ready (bash dynamic scoping — only called from there).
+# Returns 0 when the perception signal is flowing, 1 on timeout.
+_scene_ready_wait_once() {
+  log "Waiting for scene-ready (${signal}, need ${SCENE_READY_HITS} non-empty polls, timeout ${SCENE_READY_TIMEOUT_S}s)..."
+  local waited=0 step=10 hits=0 misses=0
+  while [ "$waited" -lt "$SCENE_READY_TIMEOUT_S" ]; do
+    if docker exec srr python3 -c "$probe_py" >/dev/null 2>&1; then
       hits=$((hits + 1)); misses=0
-      log "  detections seen (${hits}/${SCENE_READY_HITS}) at T+${waited}s"
-      [ "$hits" -ge "$SCENE_READY_HITS" ] && { log "scene-ready: detections flowing."; return 0; }
+      log "  signal seen (${hits}/${SCENE_READY_HITS}) at T+${waited}s"
+      [ "$hits" -ge "$SCENE_READY_HITS" ] && { log "scene-ready: perception signal flowing."; return 0; }
     else
       misses=$((misses + 1))
-      # Tolerate intermittent EMPTY mdx-bev frames: only decay one hit after
+      # Tolerate intermittent empty polls: only decay one hit after
       # SCENE_READY_MISS_DECAY consecutive empties, and never below 0 — no hard
       # reset (that was the false-timeout bug on sparse scenes).
       if [ "$misses" -ge "$SCENE_READY_MISS_DECAY" ] && [ "$hits" -gt 0 ]; then
@@ -325,7 +390,33 @@ import sys; sys.exit(0 if n>=1 else 1)
     fi
     sleep "$step"; waited=$((waited + step))
   done
-  log "WARN scene-ready timeout — proceeding anyway (data may be empty)."
+  return 1
+}
+
+phase_reprovision_perception() {
+  # Deterministic recovery for the empty-DeepStream-pipeline race (see the
+  # first-pass timeout comment in phase_wait_scene_ready). Same recipe as
+  # restart_isaac.sh reprovision_sensors(): restart DeepStream first — a
+  # (re)started vss-rtvi-cv always comes back as an EMPTY REST pipeline; never
+  # re-register into a possibly polluted one — then ONE clean VST registration
+  # round inside the isaac-sim container so VST emits fresh camera_add events
+  # for the SDR to push. The Isaac driver and its RTSP streams are untouched
+  # (encoders stay warm, so no cold-window race), and this runs strictly
+  # BEFORE recording starts.
+  local rtvi
+  rtvi=$(docker ps -a --format '{{.Names}}' | grep -xE 'vss-rtvi-cv' || true)
+  if [ -z "$rtvi" ]; then
+    log "  reprovision skipped (vss-rtvi-cv not found)"; return 1
+  fi
+  log "  reprovision: restarting ${rtvi} (guarantees an empty pipeline)..."
+  docker restart "$rtvi" >/dev/null 2>&1 || docker start "$rtvi" >/dev/null 2>&1 || true
+  sleep 15
+  log "  reprovision: one clean VST sensor registration round..."
+  docker exec isaac-sim bash -lc \
+    "cd /isaac-sim && ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --delete-all && sleep 3 && \
+     ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --add-from-config /isaac-sim/sil/configs/cameras.yaml" \
+    >/dev/null 2>&1 || { log "  reprovision WARN: sensor registration round failed"; return 1; }
+  sleep 10   # let the SDR push the fresh adds into the empty pipeline
 }
 
 phase_psf_warmup() {
@@ -391,7 +482,24 @@ phase_analyze() {
   local scn_host_dir="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}/${label}"
   if [[ -x "$snap_script" && -d "$scn_host_dir" ]]; then
     log "snapshotting pss.log (per-scn)..."
-    bash "$snap_script" "$scn_host_dir" --per-scn || log "snapshot_pss WARN (non-fatal)"
+    # The per-scenario PSF forensic log is destroyed by the next scenario's
+    # compose restart, so a failed snapshot loses it permanently. Fail the sweep
+    # by default instead of silently warning; set SRR_PSS_STRICT=0
+    # to downgrade to a non-fatal warning (tolerate one lost log, keep sweeping).
+    if ! bash "$snap_script" "$scn_host_dir" --per-scn; then
+      _pss_src="${PSF_LOG_DIR:-${MDX_DATA_DIR:-/data/sil-data}/psf-log}/pss.log"
+      if [[ "${SRR_PSS_STRICT:-1}" == "0" ]]; then
+        log "WARN snapshot_pss FAILED for ${label} (src=${_pss_src}) — PSF forensic log for this scenario is MISSING (SRR_PSS_STRICT=0, continuing)"
+      else
+        log "ERROR snapshot_pss FAILED for ${label} (src=${_pss_src}) — PSF forensic log for this scenario would be LOST; aborting the sweep (set SRR_PSS_STRICT=0 to downgrade to a warning)"
+        exit 1
+      fi
+    fi
+    # Refresh the run-level concat right away, not only at end-of-multi-test:
+    # if the run is aborted or resumed later, a stale run-level pss.log makes
+    # clip_logs slice every clip recorded after its last timestamp to 0 lines.
+    bash "$snap_script" "${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}" \
+      || log "snapshot_pss cross-run WARN (non-fatal)"
   fi
 
   # Guard the flush-vs-read race: the recorder's writer.close() footer may not
@@ -431,6 +539,7 @@ phase_analyze() {
   log "aggregator done."
 
   log "vst_video pulling per-clip MP4..."
+  sleep 15  # let the VST recorder flush the segment after record-stop, or the last clip's MP4 can come up short/missing
   # Videos go INSIDE the run dir so per-clip reports' [../videos/scn_X.mp4] resolve.
   docker exec srr bash -c "
     cd /app && python3 -m srr.utils.vst_video split-run \

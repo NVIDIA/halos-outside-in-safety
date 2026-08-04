@@ -43,7 +43,8 @@
 #   2. Camera / VST streaming — SRR perception needs the 3 calibrated cameras
 #      (Camera, Camera_01, Camera_02). run_actor_sdg.py is launched with
 #      --cameras-config cameras.yaml and --enable-vst; confirm frames reach VST /
-#      perception (run_multi's scene-ready gate waits on mdx-bev detections).
+#      perception (run_multi's scene-ready gate waits on the perception signal —
+#      mdx-bev detections for 3D, mdx-events for 2D/Phase-1).
 isaacsim.replicator.agent:
   version: 1.6.0
   seed: 42
