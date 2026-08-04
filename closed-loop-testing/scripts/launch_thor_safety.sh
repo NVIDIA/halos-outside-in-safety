@@ -7,8 +7,9 @@
 # On Thor the Safety Core is hybrid (nv-psf container + host binaries) and is orchestrated by
 # /opt/nvidia/psf/bin/launch_hoisa.sh, not by docker compose. This helper reads a profile env
 # (deployments/profiles/<profile>.env) and invokes launch_hoisa.sh with the matching flags.
-# SDM_TARGET selects CCPLEX vs FSI. The same launcher path serves the base (overlay) profile
-# and the HIL safety host. See skills/hoisa-deploy-profile/references/halos_thor.md.
+# SDM_TARGET selects where the SDM runs (`ccplex` — the Thor application cores). The same
+# launcher path serves the base (overlay) profile and the HIL safety host.
+# See skills/hoisa-deploy-profile/references/halos_thor.md.
 #
 # Usage:
 #   bash closed-loop-testing/scripts/launch_thor_safety.sh <profile>   # e.g. base-thor
@@ -39,22 +40,12 @@ esac
 
 # --- Safety Core host install present? ---
 LAUNCHER=/opt/nvidia/psf/bin/launch_hoisa.sh
-[ -x "$LAUNCHER" ] || { echo "ERROR: $LAUNCHER not found — install the Safety Core Tegra package first (PSF docs HOISA User Guide §1)."; exit 1; }
+[ -x "$LAUNCHER" ] || { echo "ERROR: $LAUNCHER not found — install the Safety Core Tegra package first (Deployment Guide 1.1 Debian Installation: https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html#debian-installation)."; exit 1; }
 [ -f "$PSF_SENSOR_CONFIG" ] || { echo "ERROR: sensor config not found: $PSF_SENSOR_CONFIG (copy the template + fill the VST URLs)."; exit 1; }
 
 SDM_TARGET="${SDM_TARGET:-ccplex}"
 PSF_LAUNCH_MODE="${PSF_LAUNCH_MODE:-active}"
 KAFKA_BROKER="${KAFKA_BROKER:-localhost:9092}"
-
-# --- FSI prerequisite: nvFsiCom daemon must already be running (the launcher does NOT start it) ---
-if [ "$SDM_TARGET" = "fsi" ]; then
-    if ! pgrep -x nvFsiCom >/dev/null; then
-        echo "ERROR: SDM_TARGET=fsi but the nvFsiCom daemon is not running. Start it first:"
-        echo "   sudo /opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom &"
-        echo "(FSI also requires the HOISA FSI firmware reflashed — see halos_thor.md §5B.)"
-        exit 1
-    fi
-fi
 
 echo "=== Halos Thor Safety Core launch ==="
 echo "  Profile:    $PROFILE"
@@ -64,9 +55,8 @@ echo "  Cmd sink:   ${PSF_CMD_RX_IP}:${PSF_CMD_RX_PORT}"
 echo "  Kafka:      $KAFKA_BROKER"
 echo ""
 
-# launch_hoisa.sh runs `docker run nv-psf` + spawns the host SDM (ccplex) or the fsicom-agent
-# bridge (fsi) + the AI monitor, and installs its own signal-trap cleanup. Stop with
-# stop_thor_safety.sh. For fsi, see the fsicom-agent relay-flags note in halos_thor.md §5B.
+# launch_hoisa.sh runs `docker run nv-psf` + spawns the host SDM (atl_sdm) and the AI monitor,
+# and installs its own signal-trap cleanup. Stop with stop_thor_safety.sh.
 exec sudo "$LAUNCHER" \
     --mode "$PSF_LAUNCH_MODE" --app atl \
     --sdm-target "$SDM_TARGET" \

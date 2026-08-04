@@ -30,8 +30,9 @@
 #include "pss_protocol.h"
 #include "pss_message_validate.h"
 #include "NvPSDGateway.h"
+#include "NvPSDGatewayContract.hpp"
 
-static constexpr uint8_t  MAX_EVENT_TYPES_PER_CLIENT = 32;
+static constexpr uint8_t  MAX_EVENT_TYPES_PER_CLIENT = NVPSD_GATEWAY_MAX_EVENT_TYPES_PER_CLIENT;
 static constexpr unsigned int MAX_DECISION_MAKER_CLIENTS = NVPSD_GATEWAY_MAX_CLIENTS;
 static constexpr int      HB_SEND_INTERVAL_MS   = 2000;
 static constexpr int      HB_ACK_TIMEOUT_MS     = 3000;
@@ -59,7 +60,10 @@ static std::mutex        clientTableMutex;
  * an fd until close — safe if gatewayUdpSock is closed/replaced while another thread sendto/recvfroms. */
 static std::mutex        gatewaySocketMutex;
 static std::atomic<uint32_t> hbSeqNo{0};
+static std::atomic<uint64_t> gatewayClientEpochSeed{1U};
 static unsigned int      g_maxClients = MAX_DECISION_MAKER_CLIENTS;
+static std::mutex        pssSequenceMutex;
+static NvPSDGatewayPssSequenceState pssSequenceState;
 
 namespace {
 
@@ -115,6 +119,8 @@ struct ClientEntry
     std::unordered_set<EventType> eventTypes;
     bool               inUse;
     uint32_t           lastAckedSeq{0};
+    uint64_t           gatewayTxEpoch{0};
+    uint32_t           nextGatewayTxSeq{NVPSD_GATEWAY_DECISION_TX_SEQ_MIN};
     int                missedCount{0};
 };
 static ClientEntry clientTable[MAX_DECISION_MAKER_CLIENTS];
@@ -130,6 +136,36 @@ static std::atomic<bool>                            stopGatewayPssHb{true};
 static std::thread                                  gatewayPssHbThread;
 
 static void sendToRelevantClients(const DecisionRequest& req, bool sendFullRequest);
+
+static uint64_t makeGatewayEpochSeed()
+{
+    const uint64_t nowCount = static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const uint64_t pidPart = static_cast<uint64_t>(static_cast<uint32_t>(getpid())) << 16U;
+    const uint64_t mixed = nowCount ^ pidPart;
+    uint64_t seed = mixed ^ (mixed << 17U) ^ (mixed >> 29U);
+    if (!NvPSDGatewayDecisionPacketEpochIsValid(seed))
+        seed = 1ULL;
+    return seed;
+}
+
+static uint64_t allocateGatewayClientEpoch()
+{
+    uint64_t epoch = gatewayClientEpochSeed.fetch_add(1U, std::memory_order_relaxed);
+    if (!NvPSDGatewayDecisionPacketEpochIsValid(epoch))
+    {
+        gatewayClientEpochSeed.store(2ULL, std::memory_order_relaxed);
+        epoch = 1ULL;
+    }
+    return epoch;
+}
+
+static uint32_t nextGatewayTxSeqAfter(uint32_t txSeq)
+{
+    return (txSeq >= NVPSD_GATEWAY_DECISION_TX_SEQ_MAX)
+        ? NVPSD_GATEWAY_DECISION_TX_SEQ_MIN
+        : (txSeq + 1U);
+}
 
 static void terminatePssClientLocked()
 {
@@ -224,7 +260,7 @@ struct SendItem
 {
     struct sockaddr_in addr;
     socklen_t          addrLen;
-    DecisionRequest    payload;
+    NvPSDGatewayDecisionRequestPacket packet;
     uint8_t            eventCount;
 };
 
@@ -288,24 +324,45 @@ static void sendToRelevantClients(const DecisionRequest& req, bool sendFullReque
                 continue;
 
             SendItem item = {};
+            DecisionRequest payload = {};
             item.addr = clientTable[c].addr;
             item.addrLen = clientTable[c].addrLen;
             if (sendFullRequest)
             {
-                item.payload = req;
-                item.payload.sensorDataSummarySize = std::min(req.sensorDataSummarySize,
+                payload = req;
+                payload.sensorDataSummarySize = std::min(req.sensorDataSummarySize,
                     static_cast<uint8_t>(MAX_SENSORS_DATA_SUMMARY_SIZE));
-                item.eventCount = item.payload.sensorDataSummarySize;
+                item.eventCount = payload.sensorDataSummarySize;
             }
             else
             {
                 item.eventCount = buildRequestFromIndex(req, g_eventTypeToIndices,
-                                                        clientTable[c].eventTypes, &item.payload);
+                                                        clientTable[c].eventTypes, &payload);
             }
-            if (item.eventCount == 0 && item.payload.pssStatus.mode != ERROR)
+            if (!NvPSDGatewayShouldSendDecisionRequest(sendFullRequest,
+                                                       item.eventCount,
+                                                       payload.pssStatus.mode))
                 continue;
-            /* Payload may differ per client (filtering); recompute CRC before each send. */
-            pssDecisionRequestSetCRC(&item.payload);
+
+            if (!NvPSDGatewayDecisionPacketEpochIsValid(clientTable[c].gatewayTxEpoch))
+            {
+                clientTable[c].gatewayTxEpoch = allocateGatewayClientEpoch();
+                clientTable[c].nextGatewayTxSeq = NVPSD_GATEWAY_DECISION_TX_SEQ_MIN;
+            }
+
+            const uint32_t gatewayTxSeq = clientTable[c].nextGatewayTxSeq;
+            /* Payload may differ per client (filtering); recompute CRC before each packet is wrapped. */
+            pssDecisionRequestSetCRC(&payload);
+            if (!NvPSDGatewayBuildDecisionRequestPacket(payload,
+                                                        clientTable[c].gatewayTxEpoch,
+                                                        gatewayTxSeq,
+                                                        &item.packet))
+            {
+                NvPSBWriteData(NVPSB_LOG_ERR,
+                               "PSD-Gateway: failed to build Gateway DecisionRequest packet", "");
+                continue;
+            }
+            clientTable[c].nextGatewayTxSeq = nextGatewayTxSeqAfter(gatewayTxSeq);
             g_toSendList.push_back(item);
         }
     }
@@ -325,7 +382,7 @@ static void sendToRelevantClients(const DecisionRequest& req, bool sendFullReque
         ssize_t sent = -1;
         for (int eintrAttempt = 0; eintrAttempt < SENDTO_EINTR_MAX_RETRIES; ++eintrAttempt)
         {
-            sent = sendto(scoped.fd, &item.payload, sizeof(DecisionRequest), 0,
+            sent = sendto(scoped.fd, &item.packet, sizeof(item.packet), 0,
                           reinterpret_cast<const struct sockaddr*>(&item.addr), item.addrLen);
             if (sent >= 0)
                 break;
@@ -336,13 +393,27 @@ static void sendToRelevantClients(const DecisionRequest& req, bool sendFullReque
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(SENDTO_EINTR_RETRY_SLEEP_MS));
         }
-        if (sent < 0 && errno == EINTR)
-            NvPSBWriteData(NVPSB_LOG_ERR,
-                           "PSD-Gateway: failed to send DecisionRequest (EINTR retries exhausted)", "");
+        const NvPSDGatewayPacketSendResult sendResult =
+            NvPSDGatewayDecisionPacketSendResult(sent);
+        if (sendResult == NvPSDGatewayPacketSendResult::FAILED_SYSCALL)
+        {
+            if (errno == EINTR)
+            {
+                NvPSBWriteData(NVPSB_LOG_ERR,
+                               "PSD-Gateway: failed to send DecisionRequest (EINTR retries exhausted)", "");
+            }
+        }
+        else if (sendResult == NvPSDGatewayPacketSendResult::FAILED_SHORT_SEND)
+        {
+            NvPSBWriteData(NVPSB_LOG_ERR, "PSD-Gateway: short Gateway DecisionRequest packet send", "");
+        }
 #ifdef NVPSF_DBG
-        if (sent >= 0)
-            NvPSBWriteData(NVPSB_LOG_INFO, "PSD-Gateway: sent request id=" + std::to_string(req.requestId) +
-                              " with " + std::to_string(item.eventCount) + " events", "");
+        if (sendResult == NvPSDGatewayPacketSendResult::SENT)
+            NvPSBWriteData(NVPSB_LOG_INFO,
+                           "PSD-Gateway: sent Gateway packet seq=" +
+                               std::to_string(item.packet.gatewayTxSeq) +
+                               " request id=" + std::to_string(item.packet.request.requestId) +
+                               " with " + std::to_string(item.eventCount) + " events", "");
 #endif
     }
 }
@@ -416,19 +487,17 @@ static void registrationListenerLoop()
             (size_t)n < 5 + count * sizeof(uint32_t))
             continue;
 
-        /* Validate each event type from external input; reject out-of-range and EVENT_UNKNOWN sentinel. */
-        std::unordered_set<EventType> types;
-        const uint32_t eventUnknownVal = static_cast<uint32_t>(EVENT_UNKNOWN);
+        /* Validate each event type from external input. Mandatory system/safety events are added only after
+         * at least one client-requested type is valid, so empty/all-invalid REGR packets stay rejected. */
+        uint32_t rawEventTypes[MAX_EVENT_TYPES_PER_CLIENT] = {};
         for (uint8_t i = 0; i < count; ++i)
         {
             uint32_t val;
             std::memcpy(&val, buf.data() + 5 + i * sizeof(uint32_t), sizeof(uint32_t));
-            uint32_t raw = ntohl(val);
-            if (raw >= eventUnknownVal)
-                continue;
-            types.insert(static_cast<EventType>(raw));
+            rawEventTypes[i] = ntohl(val);
         }
-        if (types.empty())
+        std::unordered_set<EventType> types;
+        if (!NvPSDGatewayBuildRegisteredEventSet(rawEventTypes, count, &types))
         {
             NvPSBWriteData(NVPSB_LOG_WARNING, "PSD-Gateway: ignoring REGR with no valid event types", "");
             continue;
@@ -451,6 +520,9 @@ static void registrationListenerLoop()
             }
             if (slot >= 0)
             {
+                const bool existingSameClient =
+                    clientTable[slot].inUse &&
+                    clientKey(&clientTable[slot].addr) == peerKey;
                 if (clientTable[slot].inUse)
                     g_addrToSlot.erase(clientKey(&clientTable[slot].addr));
                 clientTable[slot].addr = sender;
@@ -459,6 +531,11 @@ static void registrationListenerLoop()
                 clientTable[slot].inUse = true;
                 clientTable[slot].lastAckedSeq = HB_SEQ_NONE;  /* first HB will be counted as missed until ACK */
                 clientTable[slot].missedCount = 0;
+                if (!existingSameClient)
+                {
+                    clientTable[slot].gatewayTxEpoch = allocateGatewayClientEpoch();
+                    clientTable[slot].nextGatewayTxSeq = NVPSD_GATEWAY_DECISION_TX_SEQ_MIN;
+                }
                 g_addrToSlot[peerKey] = static_cast<unsigned int>(slot);
                 NvPSBWriteData(NVPSB_LOG_INFO,
                                "PSD-Gateway: registered client " + std::to_string(slot) +
@@ -560,6 +637,8 @@ static void heartbeatSenderLoop()
                     const uint64_t bkey = clientKey(&clientTable[c].addr);
                     g_addrToSlot.erase(bkey);
                     clientTable[c].inUse = false;
+                    clientTable[c].gatewayTxEpoch = 0U;
+                    clientTable[c].nextGatewayTxSeq = NVPSD_GATEWAY_DECISION_TX_SEQ_MIN;
                     NvPSBWriteData(NVPSB_LOG_ERR,
                                    "PSD-Gateway: client " + std::to_string(c) +
                                        " HB failure miss=" + std::to_string(m) + "/" + std::to_string(maxF) +
@@ -601,13 +680,86 @@ NvPSDErr onEventNotificationReceive(const DecisionRequest* request,
 
     response->decisionId = request->requestId;
 
-    /* PSS ERROR mode: forward full request to all registered decision maker clients */
+    /* PSS request ids are Gateway delivery evidence. Suppress exact duplicates
+     * to avoid replaying non-idempotent physical events; convert invalid ids
+     * and sequence gaps/resets into SW_FAIL evidence while preserving current
+     * valid traffic for restart/liveness tolerance. */
+    NvPSDGatewayPssRequestObservation pssObservation =
+        NvPSDGatewayPssRequestObservation::INVALID;
+    {
+        std::lock_guard<std::mutex> lock(pssSequenceMutex);
+        pssObservation = NvPSDGatewayObservePssRequestId(&pssSequenceState, request->requestId);
+    }
+
+    if (!NvPSDGatewayShouldForwardObservedPssRequest(pssObservation))
+    {
+        if (pssObservation == NvPSDGatewayPssRequestObservation::DUPLICATE_OR_STALE)
+        {
+            NvPSBWriteData(
+                NVPSB_LOG_WARNING,
+                "PSD-Gateway: duplicate PSS DecisionRequest suppressed",
+                "requestId=" + std::to_string(request->requestId));
+            response->action = NO_ACTION_REQUIRED;
+            response->confidenceLevel = 1.0F;
+            return NVPSD_SUCCESS;
+        }
+
+        NvPSBWriteData(
+            NVPSB_LOG_ERR,
+            "PSD-Gateway: invalid PSS DecisionRequest id suppressed; sending SW_FAIL to all clients",
+            "requestId=" + std::to_string(request->requestId));
+        DecisionRequest swFailReq = {};
+        if (NvPSDGatewayBuildInvalidPssRequestIdSwFailRequest(*request, &swFailReq))
+        {
+            sendToRelevantClients(swFailReq, true);
+        }
+        else
+        {
+            NvPSBWriteData(
+                NVPSB_LOG_ERR,
+                "PSD-Gateway: failed to build invalid PSS request-id SW_FAIL request",
+                "requestId=" + std::to_string(request->requestId));
+        }
+        response->action = NO_ACTION_REQUIRED;
+        response->confidenceLevel = 0.0F;
+        return NVPSD_SUCCESS;
+    }
+
+    if (pssObservation == NvPSDGatewayPssRequestObservation::GAP &&
+        request->pssStatus.mode != ERROR)
+    {
+        DecisionRequest swFailReq = {};
+        if (NvPSDGatewayBuildPssSequenceGapSwFailRequest(*request, &swFailReq))
+        {
+            NvPSBWriteData(
+                NVPSB_LOG_ERR,
+                "PSD-Gateway: PSS DecisionRequest sequence gap/reset detected; sending SW_FAIL before current request",
+                "currentRequestId=" + std::to_string(request->requestId));
+            sendToRelevantClients(swFailReq, true);
+        }
+        else
+        {
+            NvPSBWriteData(
+                NVPSB_LOG_ERR,
+                "PSD-Gateway: failed to build PSS sequence-gap SW_FAIL request",
+                "currentRequestId=" + std::to_string(request->requestId));
+        }
+    }
+
+    /* PSS ERROR mode: send an explicit all-client fault before the filtered original request. */
     if (request->pssStatus.mode == ERROR)
     {
+        DecisionRequest swFailReq = {};
+        /* Local output is non-null; helper's false path exists only for
+         * public null-output validation, so there is no runtime failure branch
+         * to handle here. */
+        (void)NvPSDGatewayBuildPssErrorSwFailRequest(*request, &swFailReq);
         NvPSBWriteData(
             NVPSB_LOG_WARNING,
-            "PSD-Gateway: PSS in ERROR mode – forwarding full request to clients", "");
-        sendToRelevantClients(*request, true);
+            "PSD-Gateway: PSS in ERROR mode; sending SW_FAIL to all clients before filtered request",
+            "requestId=" + std::to_string(request->requestId));
+        sendToRelevantClients(swFailReq, true);
+        sendToRelevantClients(*request, false);
         response->action = NO_ACTION_REQUIRED;
         return NVPSD_SUCCESS;
     }
@@ -615,8 +767,9 @@ NvPSDErr onEventNotificationReceive(const DecisionRequest* request,
     /* Normal / Degraded mode: forward all events (including STALE) to SDM */
     if (request->sensorDataSummarySize > 0)
     {
+        const bool statusNoopOnly = NvPSDGatewayIsStatusNoopOnlyRequest(*request);
         sendToRelevantClients(*request, false);
-        response->action = IMPLEMENT_SAFETY_CONTROL;
+        response->action = statusNoopOnly ? NO_ACTION_REQUIRED : IMPLEMENT_SAFETY_CONTROL;
     }
     else
     {
@@ -651,8 +804,13 @@ int launchPSDControl(const std::string& sdmIP, unsigned int sdmPort, unsigned in
     }
     g_maxClients = numClients;
 
+    gatewayClientEpochSeed.store(makeGatewayEpochSeed(), std::memory_order_relaxed);
     for (unsigned int i = 0; i < MAX_DECISION_MAKER_CLIENTS; ++i)
+    {
         clientTable[i].inUse = false;
+        clientTable[i].gatewayTxEpoch = 0U;
+        clientTable[i].nextGatewayTxSeq = NVPSD_GATEWAY_DECISION_TX_SEQ_MIN;
+    }
     g_addrToSlot.clear();
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);

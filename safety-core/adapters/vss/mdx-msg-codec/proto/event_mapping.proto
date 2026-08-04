@@ -3,6 +3,66 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/*
+ * User-defined rules to map MDX alerts (from mdx-events / mdx-frames) to PSS safety event types.
+ * Empty string for a condition means "match any". First matching rule wins.
+ *
+ * --- MDX-FRAMES VIOLATION SOURCES (ext.pb / schema.pb) ---
+ * mdx-frames (FrameMessage) carries three kinds of violations we track:
+ *
+ * 1. restricted_area_violation
+ *    From: each readable rois entry with non-empty id and type. The exact
+ *    ROI-local info["restrictedAreaViolation"] value is used; only lowercase
+ *    "true" and "false" are valid. For each candidate, objectIds must contain
+ *    a unique, representable ID that resolves exactly to one current-frame
+ *    object whose type case-insensitively matches roi.type. Missing, malformed,
+ *    ambiguous, unresolved, or type-mismatched data produces no candidate.
+ *
+ * 2. confined_area_violation
+ *    From: each readable ROI under the same id/type/objectIds/info proof as
+ *    restricted_area_violation, using info["confinedAreaViolation"].
+ *
+ * 3. social_distancing_violation
+ *    The generic frame-social candidate comes from FrameMessage.socialDistancing:
+ *    a positive proximityDetections count is "true"; zero or an absent optional
+ *    submessage in a successfully decoded frame is "false"; a negative count
+ *    creates no generic candidate. It is distinct from the pair candidates below.
+ *
+ * For a non-empty restricted_area_violation or confined_area_violation filter, rules must
+ * use message_source="mdx-frames" and alert_type="roi". For a non-empty
+ * social_distancing_violation filter, rules must use message_source="mdx-frames" and
+ * alert_type="social_distancing". ROI and social-distance filters cannot be combined.
+ *
+ * Every valid candidate is evaluated independently for its current frame. There are no
+ * transition-only cleared alert types. Both asserted and false ROI rules may constrain
+ * object_type, which is matched only after the current-frame ROI/object proof succeeds.
+ * Internal candidate kinds keep restricted ROI, confined ROI, generic frame-social, and
+ * pair candidates separate, so a default false value cannot cross-match a different kind.
+ *
+ * --- CONFIGURATION-DEFINED PROXIMITY PAIRS ---
+ * A pair rule has message_source="mdx-frames", alert_type="social_distancing",
+ * primary/secondary object types (object_type is the primary fallback), and an
+ * explicitly present proximity_violation value. A true value requires a present,
+ * finite positive distance_threshold_meters; a false value requires the threshold
+ * to be omitted. Primary/secondary matching is unordered. Every pair rule must
+ * provide a unique, non-empty rule_id that fits the PSS ruleIdentifier field.
+ * The configured rule_id is emitted to PSS only after a strict pair match.
+ *
+ * For a valid physical pair, an absent socialDistancing submessage is false. A present
+ * submessage is false only when proximityDetections is zero and
+ * info["proximityViolation"] is exactly "false"; every other non-negative value is
+ * true, while a negative count creates no pair candidate. A true pair selects the
+ * smallest configured threshold at or above its current (x,y,z) distance. A false pair,
+ * or a true pair outside every configured threshold, is eligible only for an explicit
+ * proximity_violation=false mapping.
+ *
+ * Each valid physical pair is independent: multiple matching pairs in one frame can
+ * produce multiple configured outputs. Pair rules cannot use the generic
+ * social_distancing_violation filter. The producer contract must ensure that the SD
+ * report applies to the configured type pair; cluster data does not bind a violation to
+ * a particular object ID pair in this mapping schema.
+ */
+
 syntax = "proto3";
 
 package mdx.client.config;
@@ -17,32 +77,41 @@ message EventMappingRule {
   // --- Conditions (empty string = match any) ---
   // Source topic: "mdx-events" or "mdx-frames"
   string message_source = 2;
-  // Alert type: "tripwire", "roi", "empty_roi", "social_distancing",
-  // "restrictedAreaViolationCleared", "confinedAreaViolationCleared", "socialDistancingViolationCleared",
-  // "proximityCleared" (emitted when a proximity rule's pair goes back above its threshold),
-  // "object_presence" (periodic: one event per frame per object matching object_type; N objects -> N events).
+  // Alert type: "tripwire", "roi", "empty_roi", "social_distancing", or
+  // "object_presence" (one event
+  // per current frame per object matching object_type).
   string alert_type = 3;
   // Event direction (mdx-events): "IN", "OUT", "ENTRY", "EXIT"
   string event_type = 4;
-  // Object type: "person", "Person", "forklift", "vehicle", etc.
+  // Object type: "person", "Person", "forklift", "vehicle", etc. It is
+  // also the primary-type fallback for a proximity pair rule.
   string object_type = 5;
-  // Rule/tripwire/ROI identifier (e.g. "tripwire-1", "roi-restricted-1"). Always exact match (case-insensitive).
+  // Rule/tripwire/ROI identifier (e.g. "tripwire-1", "roi-restricted-1").
+  // For proximity-pair rules it is required, unique among pair rules, and is
+  // emitted as the PSS ruleIdentifier after strict type/outcome matching. Other
+  // rule categories match it exactly,
+  // case-insensitively.
   string rule_id = 6;
   bool rule_id_prefix_match = 7;  // Deprecated / ignored: rule_id is always matched exactly
 
   // --- mdx-frames only: violation filters ---
-  // Values: "any" (or empty) = don't filter; "true" = must be set; "false" = must be unset
-  string restricted_area_violation = 8;   // From rois (TypeCount): restricted area
-  string confined_area_violation = 9;     // From rois (TypeCount): confined area
-  string social_distancing_violation = 10; // From FrameMessage.socialDistancing (SD.proximityDetections)
+  // Values: "any" (or empty) = don't filter; "true" = current-frame true; "false" = current-frame false.
+  // A non-empty restricted/confined filter requires message_source="mdx-frames" and alert_type="roi".
+  string restricted_area_violation = 8;   // From exact ROI-local info value and current object proof
+  string confined_area_violation = 9;     // From exact ROI-local info value and current object proof
+  // A non-empty social filter requires message_source="mdx-frames" and alert_type="social_distancing".
+  string social_distancing_violation = 10; // From FrameMessage.socialDistancing.proximityDetections
 
   // --- Output ---
   string output_event = 11;  // e.g. "EVENT_0", "ROI_ENTRY", "ROI_EXIT", "TW_CROSSING_ENTRY"
-  string severity = 12;      // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+  reserved 12;
+  reserved "severity";
 
-  // --- Proximity (mdx-frames only; evaluated only when SD violated). Pair = (primary, secondary). ---
-  // Rule threshold must be <= SD.threshold in the frame. Distance from Object.coordinate.
-  double distance_threshold_meters = 13;
+  // --- Proximity pair (mdx-frames only). Pair = unordered (primary, secondary). ---
+  // Required only when proximity_violation is true. Presence distinguishes a configured
+  // zero threshold (invalid) from an omitted threshold. Distance is computed from current
+  // Object.coordinate.
+  optional double distance_threshold_meters = 13;
   // Secondary in the pair (e.g. "Person"). Empty = same as primary (e.g. person-person).
   string object_type_secondary = 14;
   // Primary in the pair (e.g. "Agility_Digit_Humanoid", "Fourier_GR1_T2_Humanoid"). If empty, object_type is used as primary.
@@ -52,6 +121,11 @@ message EventMappingRule {
   // Emit this rule's event every N frames (default 1 = every frame). E.g. scale_factor 5 = emit on frames 5, 10, 15, ...
   // Only applies when message_source is "mdx-frames" (object_presence, proximity, roi, etc.).
   int32 scale_factor = 16;
+
+  // Required for proximity-pair rules only. true requires a present finite positive
+  // distance_threshold_meters; false requires distance_threshold_meters to be absent.
+  // Pair rules must use message_source="mdx-frames" and alert_type="social_distancing".
+  optional bool proximity_violation = 17;
 }
 
 message EventMappingConfig {

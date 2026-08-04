@@ -10,6 +10,8 @@
 
 #include "NvPSSSafetyEventManager.hpp"
 #include "NvPSSDRPC.hpp"
+#include "NvPSSDeliveryFailSafe.hpp"
+#include "NvPSSStatusNoop.hpp"
 #include "NvPSB.h"
 #include "pss_protocol.h"
 #include "pss_message_validate.h"
@@ -20,27 +22,119 @@ extern std::atomic<uint32_t> g_pssWarnThreshold;
 namespace nvpss
 {
 
-SafetyEventManager::SafetyEventManager(uint64_t criticalPrioQuePeriod, uint64_t highPrioQuePeriod,
-                                       uint64_t mediumPrioQuePeriod, uint64_t lowPrioQuePeriod,
-                                       uint64_t inputSafetyEventQuePeriod, uint64_t fusionEventPeriod, NvPSDChannelBackend PSSDToPSDComBackend)
+static const char* NvPSSChannelBackendName(NvPSDChannelBackend backend)
+{
+    switch (backend)
+    {
+        case NvPSDChannelBackend::POSIX_MSG_QUE:
+            return "POSIX_MSG_QUE";
+        case NvPSDChannelBackend::POSIX_SOCKET:
+            return "POSIX_SOCKET";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+static bool NvPSSEventTypeRequiresCriticalDelivery(EventType type)
+{
+    return type == SW_FAIL ||
+           type == SENSOR_INVALID ||
+           type == SENSOR_VALID ||
+           type == AI_PIPELINE_INVALID ||
+           type == AI_PIPELINE_VALID;
+}
+
+static SeverityLevel NvPSSClassifyPsdSeverity(const FusedSafetyEvent& event,
+                                              bool isHealthy,
+                                              bool isTrustedSource,
+                                              OperationalMode mode)
+{
+    if (mode == ERROR ||
+        event.severity == CRITICAL ||
+        NvPSSEventTypeRequiresCriticalDelivery(event.type) ||
+        !isHealthy ||
+        !isTrustedSource)
+    {
+        return CRITICAL;
+    }
+
+    return OPERATIONAL;
+}
+
+static NvPSSPsdSendPriority NvPSSPsdSendPriorityFromSeverity(SeverityLevel severity)
+{
+    return (severity == CRITICAL)
+        ? NvPSSPsdSendPriority::CRITICAL
+        : NvPSSPsdSendPriority::OPERATIONAL;
+}
+
+static SeverityLevel NvPSSDecisionRequestSeverity(const DecisionRequest* request)
+{
+    if (request == nullptr)
+        return OPERATIONAL;
+
+    const uint8_t count = request->sensorDataSummarySize > MAX_SENSORS_DATA_SUMMARY_SIZE
+        ? MAX_SENSORS_DATA_SUMMARY_SIZE
+        : request->sensorDataSummarySize;
+
+    for (uint8_t i = 0U; i < count; ++i)
+    {
+        const SensorData& sensorData = request->sensorDataSummary[i];
+        if (NvPSSClassifyPsdSeverity(
+            sensorData.event,
+            sensorData.isHealthy,
+            sensorData.isTrustedSource,
+            request->pssStatus.mode) == CRITICAL)
+        {
+            return CRITICAL;
+        }
+    }
+
+    return OPERATIONAL;
+}
+
+static void NvPSSFinalizeDecisionRequestSeverity(DecisionRequest* request)
+{
+    if (request == nullptr)
+        return;
+
+    const uint8_t count = request->sensorDataSummarySize > MAX_SENSORS_DATA_SUMMARY_SIZE
+        ? MAX_SENSORS_DATA_SUMMARY_SIZE
+        : request->sensorDataSummarySize;
+    const SeverityLevel requestSeverity = NvPSSDecisionRequestSeverity(request);
+
+    for (uint8_t i = 0U; i < count; ++i)
+    {
+        request->sensorDataSummary[i].event.severity = requestSeverity;
+    }
+}
+
+SafetyEventManager::SafetyEventManager(uint64_t inputSafetyEventQuePeriod, uint64_t fusionEventPeriod,
+                                       NvPSDChannelBackend PSSDToPSDComBackend,
+                                       uint32_t pssToPsdRetryBudget,
+                                       uint32_t pssToPsdResponseTimeoutMs,
+                                       uint32_t statusNoopIntervalMs)
     :criticalPrioQue(MAX_EVENTS_PER_QUE, std::make_pair(-1, FusedSafetyEvent())),
-    highPrioQue(MAX_EVENTS_PER_QUE, std::make_pair(-1,FusedSafetyEvent())),
-    mediumPrioQue(MAX_EVENTS_PER_QUE, std::make_pair(-1, FusedSafetyEvent())),
-    lowPrioQue(MAX_EVENTS_PER_QUE, std::make_pair(-1,FusedSafetyEvent())),
+    operationalPrioQue(MAX_EVENTS_PER_QUE, std::make_pair(-1,FusedSafetyEvent())),
     inputSafetyEventQue(MAX_EVENTS_PER_QUE, std::make_pair(-1, SafetyEvent())),
-    criticalPrioQuePeriod(criticalPrioQuePeriod), highPrioQuePeriod(highPrioQuePeriod),
-    mediumPrioQuePeriod(mediumPrioQuePeriod), lowPrioQuePeriod(lowPrioQuePeriod),
     inputSafetyEventQuePeriod(inputSafetyEventQuePeriod), fusionEventPeriod(fusionEventPeriod), PSSDToPSDComBackend(PSSDToPSDComBackend),
     queMonitorsRunning(false), maxPipelinesSupported(2), registeredPipelines(),
-    psdRequestId(0)
+    psdRequestId(1), psdCtx(nullptr),
+    pssToPsdRetryBudget_(NvPSSDeliveryRetryWindowMsIsValid(
+                             pssToPsdRetryBudget, pssToPsdResponseTimeoutMs)
+                             ? pssToPsdRetryBudget
+                             : NVPSS_PSS_TO_PSD_RETRY_BUDGET_DEFAULT),
+    pssToPsdResponseTimeoutMs_(NvPSSDeliveryRetryWindowMsIsValid(
+                                  pssToPsdRetryBudget, pssToPsdResponseTimeoutMs)
+                                  ? pssToPsdResponseTimeoutMs
+                                  : NVPSS_PSS_TO_PSD_RESPONSE_TIMEOUT_MS_DEFAULT),
+    statusNoopIntervalMs_(NvPSSStatusNoopIntervalMsIsValid(statusNoopIntervalMs)
+                              ? statusNoopIntervalMs
+                              : NVPSS_STATUS_NOOP_INTERVAL_MS_DEFAULT)
 {
-    psdCtx = nullptr;
-
     // Clear all the deques before start
     criticalPrioQue.clear();
-    highPrioQue.clear();
-    mediumPrioQue.clear();
-    lowPrioQue.clear();
+    operationalPrioQue.clear();
     inputSafetyEventQue.clear();
 
     NvPSBWriteData(NVPSB_LOG_INFO, "Instance of NvPSSDaemon-Event Manager is created", "");
@@ -59,13 +153,18 @@ void SafetyEventManager::SetRpcForOperationalMode(NvPSSDRPC* rpc)
 
 OperationalMode SafetyEventManager::decisionRequestOperationalMode() const
 {
+    const NvPSSDeliveryState deliveryState = psdDeliveryState_.load(std::memory_order_relaxed);
+    if (deliveryState == NvPSSDeliveryState::DELIVERY_ERROR_ACTIVE)
+        return ERROR;
+
     std::lock_guard<std::mutex> lock(rpcOperationalModeMutex_);
     NvPSSDRPC* const rpc = rpcForOperationalMode_;
     if (!rpc)
-        return NORMAL;
-    return rpc->getSafetyMonitorOperationalMode(
+        return NvPSSDeliveryOperationalMode(deliveryState, NORMAL);
+    return NvPSSDeliveryOperationalMode(deliveryState,
+        rpc->getSafetyMonitorOperationalMode(
         g_pssMaxHbFailures.load(std::memory_order_relaxed),
-        g_pssWarnThreshold.load(std::memory_order_relaxed));
+        g_pssWarnThreshold.load(std::memory_order_relaxed)));
 }
 
 SystemStatus SafetyEventManager::makePssStatusForDecisionRequest() const
@@ -73,24 +172,324 @@ SystemStatus SafetyEventManager::makePssStatusForDecisionRequest() const
     return {false, false, decisionRequestOperationalMode()};
 }
 
+void SafetyEventManager::markDeliveryFailure(const DecisionRequest& request,
+                                             const char* requestClass,
+                                             NvPSSDeliveryFailureReason reason,
+                                             uint32_t attemptCount,
+                                             uint32_t responseTimeoutMs)
+{
+    {
+        std::lock_guard<std::mutex> lock(psdDeliveryAuditMtx_);
+        lastPsdDeliveryFailureReason_ = reason;
+    }
+    psdDeliveryState_.store(NvPSSDeliveryState::DELIVERY_ERROR_ACTIVE, std::memory_order_relaxed);
+
+    NvPSBWriteData(NVPSB_LOG_ERR,
+        "PSS_TO_PSD_DELIVERY_FAILURE",
+        "backend=" + std::string(NvPSSChannelBackendName(PSSDToPSDComBackend)) +
+            ", requestId=" + std::to_string(request.requestId) +
+            ", class=" + std::string(requestClass ? requestClass : "unknown") +
+            ", reason=" + NvPSSDeliveryFailureReasonName(reason) +
+            ", attempts=" + std::to_string(attemptCount) +
+            ", timeoutMs=" + std::to_string(responseTimeoutMs) +
+            ", resultingMode=ERROR"
+            ", auditPath=PSB_LOG");
+}
+
+void SafetyEventManager::markDeliveryRecovered(const DecisionRequest& request, const char* requestClass)
+{
+    const NvPSSDeliveryState previous =
+        psdDeliveryState_.exchange(NvPSSDeliveryState::NORMAL, std::memory_order_relaxed);
+    if (previous == NvPSSDeliveryState::DELIVERY_RETRYING)
+        return;
+    if (previous != NvPSSDeliveryState::DELIVERY_ERROR_ACTIVE)
+    {
+        return;
+    }
+
+    NvPSSDeliveryFailureReason previousReason = NvPSSDeliveryFailureReason::NONE;
+    {
+        std::lock_guard<std::mutex> lock(psdDeliveryAuditMtx_);
+        previousReason = lastPsdDeliveryFailureReason_;
+        lastPsdDeliveryFailureReason_ = NvPSSDeliveryFailureReason::NONE;
+    }
+
+    NvPSBWriteData(NVPSB_LOG_INFO,
+        "PSS_TO_PSD_DELIVERY_RECOVERED",
+        "backend=" + std::string(NvPSSChannelBackendName(PSSDToPSDComBackend)) +
+            ", requestId=" + std::to_string(request.requestId) +
+            ", class=" + std::string(requestClass ? requestClass : "unknown") +
+            ", previousReason=" + NvPSSDeliveryFailureReasonName(previousReason) +
+            ", auditPath=PSB_LOG");
+}
+
+NvPSSDErr SafetyEventManager::sendDecisionRequestWithRetry(DecisionRequest* request,
+                                                           DecisionResponse* response,
+                                                           const char* requestClass)
+{
+    if (request == nullptr || response == nullptr)
+        return NVPSSD_FAIL;
+
+    const uint32_t retryBudget = pssToPsdRetryBudget_;
+    const uint32_t responseTimeoutMs = pssToPsdResponseTimeoutMs_;
+    NvPSSDeliveryFailureReason lastReason = NvPSSDeliveryFailureReason::NONE;
+    bool requestIdAssigned = request->requestId != 0U;
+    const char* const backendName = NvPSSChannelBackendName(PSSDToPSDComBackend);
+
+    for (uint32_t attempt = 1U; attempt <= retryBudget; ++attempt)
+    {
+        NvPSSDErr sendErr = NVPSSD_FAIL;
+        {
+            std::lock_guard<std::mutex> lock(psdSendMtx_);
+            if (!requestIdAssigned)
+            {
+                NvPSSAssignSerializedDecisionRequestId(
+                    request, NvPSSAllocateSerializedDecisionRequestId(&psdRequestId));
+                requestIdAssigned = true;
+            }
+            request->pssStatus = makePssStatusForDecisionRequest();
+            NvPSSFinalizeDecisionRequestSeverity(request);
+            pssDecisionRequestSetCRC(request);
+            if (PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_MSG_QUE)
+            {
+                const NvPSDErr psdErr = (psdCtx != nullptr)
+                    ? NvPSDProcessDecisionRequest(psdCtx, request, response)
+                    : NVPSD_FAIL;
+                sendErr = (psdErr == NVPSD_SUCCESS) ? NVPSSD_SUCCESS : NVPSSD_FAIL;
+                lastReason = NvPSSDeliveryReasonFromNvPSDErr(psdErr);
+            }
+            else if (PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_SOCKET)
+            {
+                sendErr = (pssdServer != nullptr)
+                    ? pssdServer->sendDecisionRequestToPSD(*request, response, responseTimeoutMs)
+                    : NVPSSD_FAIL;
+                lastReason = NvPSSDeliveryFailureReason::PROCESS_DECISION_REQUEST_FAILED;
+            }
+            else
+            {
+                lastReason = NvPSSDeliveryFailureReason::PROCESS_DECISION_REQUEST_FAILED;
+            }
+        }
+
+        if (sendErr == NVPSSD_SUCCESS)
+        {
+            markDeliveryRecovered(*request, requestClass);
+            return NVPSSD_SUCCESS;
+        }
+
+        if (attempt < retryBudget)
+        {
+            psdDeliveryState_.store(NvPSSDeliveryState::DELIVERY_RETRYING, std::memory_order_relaxed);
+            NvPSBWriteData(NVPSB_LOG_WARNING,
+                "PSS-to-PSD delivery attempt failed",
+                "backend=" + std::string(backendName) +
+                    ", requestId=" + std::to_string(request->requestId) +
+                    ", class=" + std::string(requestClass ? requestClass : "unknown") +
+                    ", reason=" + NvPSSDeliveryFailureReasonName(lastReason) +
+                    ", attempt=" + std::to_string(attempt) +
+                    "/" + std::to_string(retryBudget));
+        }
+    }
+
+    markDeliveryFailure(*request, requestClass, lastReason, retryBudget, responseTimeoutMs);
+    return NVPSSD_FAIL;
+}
+
+static uint64_t monotonicNowNs()
+{
+    struct timespec ts = {};
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 1ULL;
+    return (static_cast<uint64_t>(ts.tv_sec) * SEC_TO_NANO_SEC) +
+           static_cast<uint64_t>(ts.tv_nsec);
+}
+
+bool SafetyEventManager::buildDecisionRequestFromQueuedEvents(NvPSSPsdSendPriority priority,
+                                                              DecisionRequest* request)
+{
+    if (request == nullptr)
+        return false;
+
+    std::deque<std::pair<int, FusedSafetyEvent>>* queue = nullptr;
+    std::mutex* queueMutex = nullptr;
+    FusedSafetyEvent events[MAX_SENSORS_DATA_SUMMARY_SIZE] = {};
+    uint8_t eventCount = 0U;
+
+    switch (priority)
+    {
+        case NvPSSPsdSendPriority::CRITICAL:
+            queue = &criticalPrioQue;
+            queueMutex = &criticalPrioQueMutex;
+            break;
+        case NvPSSPsdSendPriority::OPERATIONAL:
+            queue = &operationalPrioQue;
+            queueMutex = &operationalPrioQueMutex;
+            break;
+        default:
+            return false;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(*queueMutex);
+        if (queue->empty())
+            return false;
+
+        size_t queueEventCount = queue->size();
+        if (queueEventCount > MAX_SENSORS_DATA_SUMMARY_SIZE)
+            queueEventCount = MAX_SENSORS_DATA_SUMMARY_SIZE;
+        eventCount = static_cast<uint8_t>(queueEventCount);
+        for (uint8_t i = 0U; i < eventCount; ++i)
+        {
+            events[i] = std::get<1>(queue->front());
+            queue->pop_front();
+        }
+    }
+
+    *request = {};
+    request->pssStatus = makePssStatusForDecisionRequest();
+    request->sensorDataSummarySize = eventCount;
+
+    for (uint8_t i = 0U; i < request->sensorDataSummarySize; ++i)
+    {
+        FusedSafetyEvent ev = events[i];
+        request->sensorDataSummary[i].clientID =
+            static_cast<uint32_t>(ev.fusionMetadata.clientID);
+        if (ev.type == PSS_STATUS_NOOP)
+        {
+            request->sensorDataSummary[i].clientID = 0U;
+            request->sensorDataSummary[i].isHealthy = true;
+            request->sensorDataSummary[i].isTrustedSource = true;
+        }
+        else
+        {
+            const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
+                                            ev.fusionMetadata.clientID);
+            request->sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
+            request->sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
+        }
+        request->sensorDataSummary[i].event = ev;
+    }
+
+    NvPSSFinalizeDecisionRequestSeverity(request);
+
+    const char* const priorityName = NvPSSPsdSendPriorityName(priority);
+    NvPSBWriteData(NVPSB_LOG_INFO,
+                   "EXIT POINT: Sending queued priority events to PSD Gateway",
+                   "priority=" + std::string(priorityName) +
+                       ", eventCount=" + std::to_string(eventCount));
+
+    return true;
+}
+
+bool SafetyEventManager::hasQueuedEvents(NvPSSPsdSendPriority priority)
+{
+    std::deque<std::pair<int, FusedSafetyEvent>>* queue = nullptr;
+    std::mutex* queueMutex = nullptr;
+
+    switch (priority)
+    {
+        case NvPSSPsdSendPriority::CRITICAL:
+            queue = &criticalPrioQue;
+            queueMutex = &criticalPrioQueMutex;
+            break;
+        case NvPSSPsdSendPriority::OPERATIONAL:
+            queue = &operationalPrioQue;
+            queueMutex = &operationalPrioQueMutex;
+            break;
+        default:
+            return false;
+    }
+
+    std::lock_guard<std::mutex> lock(*queueMutex);
+    return !queue->empty();
+}
+
+bool SafetyEventManager::enqueueStatusNoopEvent(uint64_t timestampNs)
+{
+    FusedSafetyEvent event = {};
+    NvPSSBuildStatusNoopFusedEvent(&event, 0U, timestampNs);
+
+    bool queued = false;
+    {
+        std::lock_guard<std::mutex> lock(operationalPrioQueMutex);
+        if (operationalPrioQue.size() < MAX_EVENTS_PER_QUE)
+        {
+            operationalPrioQue.push_front(std::make_pair(0, event));
+            queued = true;
+        }
+        else if (!operationalPrioQue.empty() &&
+                 std::get<1>(operationalPrioQue.back()).type != PSS_STATUS_NOOP)
+        {
+            operationalPrioQue.pop_back();
+            operationalPrioQue.push_front(std::make_pair(0, event));
+            queued = true;
+        }
+    }
+
+    if (!queued)
+    {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+            "status/no-op operational queue insertion skipped; queue full", "");
+        return false;
+    }
+
+    notifyPsdSenderForQueuedEvent();
+    NvPSBWriteData(NVPSB_LOG_INFO,
+        "queued status/no-op event in operational queue", "");
+    return true;
+}
+
+bool SafetyEventManager::enqueuePsdFusedEvent(NvPSSPsdSendPriority priority,
+                                              int clientId,
+                                              const FusedSafetyEvent& event)
+{
+    std::deque<std::pair<int, FusedSafetyEvent>>* queue = nullptr;
+    std::mutex* queueMutex = nullptr;
+
+    switch (priority)
+    {
+        case NvPSSPsdSendPriority::CRITICAL:
+            queue = &criticalPrioQue;
+            queueMutex = &criticalPrioQueMutex;
+            break;
+        case NvPSSPsdSendPriority::OPERATIONAL:
+            queue = &operationalPrioQue;
+            queueMutex = &operationalPrioQueMutex;
+            break;
+        default:
+            return false;
+    }
+
+    bool queued = false;
+    {
+        std::lock_guard<std::mutex> lock(*queueMutex);
+        if (queue->size() < MAX_EVENTS_PER_QUE)
+        {
+            queue->push_back(std::make_pair(clientId, event));
+            queued = true;
+        }
+    }
+
+    if (queued)
+        notifyPsdSenderForQueuedEvent();
+
+    return queued;
+}
+
+void SafetyEventManager::notifyPsdSenderForQueuedEvent()
+{
+    psdSenderWakeSeq_.fetch_add(1U, std::memory_order_release);
+    psdSenderWakeCv_.notify_one();
+}
+
 std::deque<std::pair<int, FusedSafetyEvent>>& SafetyEventManager::getCriticalPrioQueRef()
 {
     return criticalPrioQue;
 }
 
-std::deque<std::pair<int, FusedSafetyEvent>>& SafetyEventManager::getHighPrioQueRef()
+std::deque<std::pair<int, FusedSafetyEvent>>& SafetyEventManager::getOperationalPrioQueRef()
 {
-    return highPrioQue;
-}
-
-std::deque<std::pair<int, FusedSafetyEvent>>& SafetyEventManager::getMediumPrioQueRef()
-{
-    return mediumPrioQue;
-}
-
-std::deque<std::pair<int, FusedSafetyEvent>>& SafetyEventManager::getLowPrioQueRef()
-{
-    return lowPrioQue;
+    return operationalPrioQue;
 }
 
 std::deque<std::pair<int, SafetyEvent>>& SafetyEventManager::getInputSafetyEventQueRef()
@@ -123,6 +522,17 @@ NvPSSDErr SafetyEventManager::StartSafetyEventManager()
         {
             NvPSBWriteData(NVPSB_LOG_ERR, "Failed to initialize NvPSD", "");
             NvPSDDestroyContext(psdCtx);
+            psdCtx = nullptr;
+            err = NVPSSD_FAIL;
+            goto exit;
+        }
+
+        if (NvPSDSetDecisionResponseTimeoutMs(psdCtx, pssToPsdResponseTimeoutMs_) != NVPSD_SUCCESS)
+        {
+            NvPSBWriteData(NVPSB_LOG_ERR, "Failed to configure NvPSD DecisionResponse timeout", "");
+            NvPSDExit(psdCtx);
+            NvPSDDestroyContext(psdCtx);
+            psdCtx = nullptr;
             err = NVPSSD_FAIL;
             goto exit;
         }
@@ -132,6 +542,7 @@ NvPSSDErr SafetyEventManager::StartSafetyEventManager()
             NvPSBWriteData(NVPSB_LOG_ERR, "Failed to start NvPSD", "");
             NvPSDExit(psdCtx);
             NvPSDDestroyContext(psdCtx);
+            psdCtx = nullptr;
             err = NVPSSD_FAIL;
             goto exit;
         }
@@ -153,12 +564,16 @@ NvPSSDErr SafetyEventManager::StartSafetyEventManager()
             goto exit;
         }
     }
+    else
+    {
+        NvPSBWriteData(NVPSB_LOG_ERR,
+            "Unsupported PSS-to-PSD backend for SafetyEventManager", "");
+        err = NVPSSD_FAIL;
+        goto exit;
+    }
 
     queMonitorsRunning = true;
-    criticalPrioQueMonitor = std::thread(&SafetyEventManager::manageCriticalPrioQue, this);
-    highPrioQueMonitor = std::thread(&SafetyEventManager::manageHighPrioQue, this);
-    mediumPrioQueMonitor = std::thread(&SafetyEventManager::manageMediumPrioQue, this);
-    lowPrioQueMonitor = std::thread(&SafetyEventManager::manageLowPrioQue, this);
+    psdSenderMonitor = std::thread(&SafetyEventManager::managePsdSender, this);
     inputSafetyEventQueMonitor = std::thread(&SafetyEventManager::manageInputSafetyEventQue, this);
 
 exit:
@@ -168,549 +583,137 @@ exit:
 NvPSSDErr SafetyEventManager::StopSafetyEventManager()
 {
     queMonitorsRunning = false;
+    psdSenderWakeSeq_.fetch_add(1U, std::memory_order_release);
+    psdSenderWakeCv_.notify_all();
 
     if(PSSDToPSDComBackend == POSIX_SOCKET)
     {
         stopPSSDServer();
     }
 
-    if (criticalPrioQueMonitor.joinable()) criticalPrioQueMonitor.join();
-    if (highPrioQueMonitor.joinable()) highPrioQueMonitor.join();
-    if (mediumPrioQueMonitor.joinable()) mediumPrioQueMonitor.join();
-    if (lowPrioQueMonitor.joinable()) lowPrioQueMonitor.join();
+    if (psdSenderMonitor.joinable()) psdSenderMonitor.join();
     if (inputSafetyEventQueMonitor.joinable()) inputSafetyEventQueMonitor.join();
 
     return NVPSSD_SUCCESS;
 }
 
-NvPSSDErr SafetyEventManager::manageCriticalPrioQue()
+NvPSSDErr SafetyEventManager::managePsdSender()
 {
     DecisionRequest psdDecisionRequest{};
     DecisionResponse psdDecisionResponse{};
+    const bool statusNoopEnabled =
+        NvPSSStatusNoopEnabledForBackend(PSSDToPSDComBackend);
+    const uint64_t statusNoopIntervalNs =
+        static_cast<uint64_t>(statusNoopIntervalMs_) * 1000000ULL;
+    const uint64_t operationalReleasePeriodNs =
+        NvPSSPsdSendPriorityReleasePeriodNs(NvPSSPsdSendPriority::OPERATIONAL);
+    uint64_t nextStatusNoopNs = NvPSSPsdSaturatingAddNs(monotonicNowNs(), statusNoopIntervalNs);
+    NvPSSPsdReleaseGate operationalGate{};
+    uint32_t observedWakeSeq = psdSenderWakeSeq_.load(std::memory_order_acquire);
 
-    if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_MSG_QUE)
+    while (queMonitorsRunning)
     {
-        while(queMonitorsRunning)
+        const uint64_t nowNs = monotonicNowNs();
+        if (statusNoopEnabled && nowNs >= nextStatusNoopNs)
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(criticalPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(criticalPrioQueMutex);
-            if(criticalPrioQue.empty())
-            {
-                lock.unlock();
-                continue;
-            }
-            else
-            {
-                // Log data exit point - sending to smartdoor_psd
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending CRITICAL priority events to PSD Gateway",
-                            "Event Type: " + std::to_string(std::get<1>(criticalPrioQue.front()).type) +
-                            ", Severity: " + std::to_string(std::get<1>(criticalPrioQue.front()).severity));
+            const bool noopQueued = enqueueStatusNoopEvent(nowNs);
+            NvPSSPsdForceReleaseGateDue(&operationalGate, nowNs);
+            NvPSSPsdUpdateStatusNoopDeadline(
+                &nextStatusNoopNs, noopQueued, nowNs, statusNoopIntervalNs);
+        }
 
-                psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
+        const bool criticalQueued = hasQueuedEvents(NvPSSPsdSendPriority::CRITICAL);
+        const bool operationalQueued = hasQueuedEvents(NvPSSPsdSendPriority::OPERATIONAL);
+
+        NvPSSPsdUpdateReleaseGate(
+            &operationalGate, operationalQueued, nowNs, operationalReleasePeriodNs);
+
+        NvPSSPsdReleaseSnapshot releaseSnapshot{};
+        releaseSnapshot.criticalQueued = criticalQueued;
+        releaseSnapshot.operationalQueued = operationalQueued;
+        releaseSnapshot.operationalGate = operationalGate;
+        releaseSnapshot.nowNs = nowNs;
+
+        NvPSSPsdSendPriority duePriority = NvPSSPsdSendPriority::OPERATIONAL;
+        if (NvPSSPsdSelectDuePriority(&releaseSnapshot, &duePriority))
+        {
+            const char* requestClass = nullptr;
+            if (!buildDecisionRequestFromQueuedEvents(duePriority, &psdDecisionRequest))
+                continue;
+
+            requestClass = NvPSSPsdSendPriorityName(duePriority);
+
+            psdDecisionResponse = {};
+            if(sendDecisionRequestWithRetry(&psdDecisionRequest, &psdDecisionResponse, requestClass)
+                != NVPSSD_SUCCESS)
+            {
+                if (NvPSSDecisionRequestIsStatusNoopOnly(&psdDecisionRequest))
                 {
-                    size_t n = criticalPrioQue.size();
-                    if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                        n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                    psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                }
-                for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                {
-                    const FusedSafetyEvent& ev = std::get<1>(criticalPrioQue.front());
-                    psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                    const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                    ev.fusionMetadata.clientID);
-                    psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].event = ev;
-                    criticalPrioQue.pop_front();
-                }
-                lock.unlock();
-                pssDecisionRequestSetCRC(&psdDecisionRequest);
-                if(NvPSDProcessDecisionRequest(psdCtx,&psdDecisionRequest,&psdDecisionResponse)
-                    != NVPSD_SUCCESS)
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "Failed to report events to PSD", "");
-                    /*TODO : This is a serious failure. Devise a strategy to handle this kind
-                        of failure*/
+                    NvPSBWriteData(NVPSB_LOG_ERR,
+                        "failed to send status/no-op DecisionRequest", "");
                 }
                 else
                 {
-                    NvPSBWriteData(NVPSB_LOG_INFO, "Reported CRITICAL priority event to PSD", "");
+                    NvPSBWriteData(NVPSB_LOG_ERR,
+                        "Failed to report queued priority events to PSD",
+                        "priority=" + std::string(requestClass ? requestClass : "unknown"));
                 }
-            }
-        }
-    }
-    else if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_SOCKET)
-    {
-        /*Busy wait for critical que*/
-        while (queMonitorsRunning)
-        {
-            std::unique_lock<std::mutex> lock(criticalPrioQueMutex);
-            if(criticalPrioQue.empty())
-            {
-                lock.unlock();
-                // Sleep instead of busy-wait to reduce CPU usage to near-zero
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
-                continue;
             }
             else
             {
-                // Get event data BEFORE popping from queue; clientID = semantic AI pipeline id.
-                FusedSafetyEvent fusedEvent = std::get<1>(criticalPrioQue.front());
-                const uint32_t semanticClientId = static_cast<uint32_t>(fusedEvent.fusionMetadata.clientID);
-
-                // Remove event from queue after extracting data
-                criticalPrioQue.pop_front();
-
-                // Release lock before processing/logging
-                lock.unlock();
-
-                // Log data exit point - sending to PSD clients via socket
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending CRITICAL priority event to PSD clients via socket",
-                              "Event Type: " + std::to_string(fusedEvent.type) +
-                              ", Severity: " + std::to_string(fusedEvent.severity) +
-                              ", Client ID: " + std::to_string(semanticClientId));
-
-                // Send DecisionRequest via socket (replacing message queue logic)
-                if(pssdServer)
-                {
-                    DecisionRequest psdDecisionRequest{};
-                    DecisionResponse psdDecisionResponse{};
-
-                    psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                    psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                    psdDecisionRequest.sensorDataSummarySize = 1;
-                    psdDecisionRequest.sensorDataSummary[0].clientID = semanticClientId;
-                    psdDecisionRequest.sensorDataSummary[0].event = fusedEvent;
-                    const auto ts0 = QueryTrustState(fusedEvent.fusionMetadata.pipelineID,
-                                                     fusedEvent.fusionMetadata.clientID);
-                    psdDecisionRequest.sensorDataSummary[0].isHealthy = !ts0.sensorInvalid;
-                    psdDecisionRequest.sensorDataSummary[0].isTrustedSource = !ts0.aiPipelineInvalid;
-                    pssDecisionRequestSetCRC(&psdDecisionRequest);
-
-                    if(pssdServer->sendDecisionRequestToPSD(psdDecisionRequest, &psdDecisionResponse) == NVPSSD_SUCCESS)
-                    {
-                        NvPSBWriteData(NVPSB_LOG_INFO, "Successfully sent CRITICAL DecisionRequest and received response via socket", "");
-                    }
-                    else
-                    {
-                        NvPSBWriteData(NVPSB_LOG_ERR, "Failed to send CRITICAL DecisionRequest via socket", "");
-                        /*TODO : This is a serious failure. Devise a strategy to handle this kind of failure*/
-                    }
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "PSD server not available for DecisionRequest processing", "");
-                }
+                NvPSBWriteData(NVPSB_LOG_INFO,
+                    "Reported queued priority events to PSD",
+                    "backend=" + std::string(NvPSSChannelBackendName(PSSDToPSDComBackend)) +
+                        ", priority=" + std::string(requestClass ? requestClass : "unknown"));
             }
+
+            const uint64_t postSendNs = monotonicNowNs();
+            switch (duePriority)
+            {
+                case NvPSSPsdSendPriority::OPERATIONAL:
+                    NvPSSPsdAdvanceReleaseGateAfterSend(
+                        &operationalGate,
+                        hasQueuedEvents(NvPSSPsdSendPriority::OPERATIONAL),
+                        postSendNs,
+                        operationalReleasePeriodNs);
+                    break;
+                default:
+                    break;
+            }
+            continue;
         }
-    }
-    return NVPSSD_SUCCESS;
-}
 
-NvPSSDErr SafetyEventManager::manageHighPrioQue()
-{
-    DecisionRequest psdDecisionRequest{};
-    DecisionResponse psdDecisionResponse{};
-
-    if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_MSG_QUE)
-    {
-        while (queMonitorsRunning)
+        uint64_t nextWakeNs = UINT64_MAX;
+        if (statusNoopEnabled && nextStatusNoopNs < nextWakeNs)
+            nextWakeNs = nextStatusNoopNs;
+        if (operationalQueued && operationalGate.armed &&
+            operationalGate.deadlineNs < nextWakeNs)
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(highPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(highPrioQueMutex);
-            if(highPrioQue.empty())
-            {
-                lock.unlock();
-                continue;
-            }
-            else
-            {
-                // Log data exit point - sending to smartdoor_psd
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending HIGH priority events to PSD Gateway",
-                            "Event count: " + std::to_string(highPrioQue.size()));
-                psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                {
-                    size_t n = highPrioQue.size();
-                    if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                        n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                    psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                }
-                for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                {
-                    const FusedSafetyEvent& ev = std::get<1>(highPrioQue.front());
-                    psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                    const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                    ev.fusionMetadata.clientID);
-                    psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].event = ev;
-                    highPrioQue.pop_front();
-                }
-                lock.unlock();
-                pssDecisionRequestSetCRC(&psdDecisionRequest);
-                /*Now pass this bundle to PSD*/
-                if(NvPSDProcessDecisionRequest(psdCtx,&psdDecisionRequest,&psdDecisionResponse)
-                    != NVPSD_SUCCESS)
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "Failed to report events to PSD", "");
-                    /*TODO : This is a serious failure. Devise a strategy to handle this kind
-                    of failure*/
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_INFO,"Reported HIGH priority events to PSD", "");
-                }
-            }
+            nextWakeNs = operationalGate.deadlineNs;
         }
-    }
 
-    else if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_SOCKET)
-    {
-        while (queMonitorsRunning)
+        std::unique_lock<std::mutex> waitLock(psdSenderWakeMtx_);
+        if (nextWakeNs != UINT64_MAX)
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(highPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(highPrioQueMutex);
-            if(highPrioQue.empty())
-            {
-                lock.unlock();
-                // Sleep instead of busy-wait to reduce CPU usage to near-zero
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
+            const uint64_t waitStartNs = monotonicNowNs();
+            if (waitStartNs >= nextWakeNs)
                 continue;
-            }
-            else
-            {
-                // Log data exit point - sending to PSD clients via socket
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending HIGH priority events to PSD clients via socket",
-                              "Event count: " + std::to_string(highPrioQue.size()));
-
-                // Send DecisionRequest with bundled HIGH priority events via socket
-                if(pssdServer)
-                {
-                    DecisionRequest psdDecisionRequest{};
-                    DecisionResponse psdDecisionResponse{};
-
-                    psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                    psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                    {
-                        size_t n = highPrioQue.size();
-                        if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                            n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                        psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                    }
-                    for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                    {
-                        const FusedSafetyEvent& ev = std::get<1>(highPrioQue.front());
-                        psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                        const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                        ev.fusionMetadata.clientID);
-                        psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                        psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                        psdDecisionRequest.sensorDataSummary[i].event = ev;
-                        highPrioQue.pop_front();
-                    }
-
-                    // Release lock before processing/logging
-                    lock.unlock();
-                    pssDecisionRequestSetCRC(&psdDecisionRequest);
-
-                    if(pssdServer->sendDecisionRequestToPSD(psdDecisionRequest, &psdDecisionResponse) == NVPSSD_SUCCESS)
-                    {
-                        NvPSBWriteData(NVPSB_LOG_INFO, "Successfully sent HIGH priority DecisionRequest bundle and received response via socket",
-                                      "Event count: " + std::to_string(psdDecisionRequest.sensorDataSummarySize));
-                    }
-                    else
-                    {
-                        NvPSBWriteData(NVPSB_LOG_ERR, "Failed to send HIGH priority DecisionRequest bundle via socket", "");
-                    }
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "PSD server not available for HIGH priority DecisionRequest processing", "");
-                    highPrioQue.clear();
-                    lock.unlock();
-                }
-
-            }
+            const uint64_t waitNs = nextWakeNs - waitStartNs;
+            psdSenderWakeCv_.wait_for(waitLock, std::chrono::nanoseconds(waitNs),
+                [this, observedWakeSeq] {
+                    return !queMonitorsRunning.load(std::memory_order_acquire) ||
+                        psdSenderWakeSeq_.load(std::memory_order_acquire) != observedWakeSeq;
+                });
         }
-    }
-    else
-    {
-        NvPSBWriteData(NVPSB_LOG_ERR, "Backend other than message queue and posix socket is not supported for high priority events", "");
-        return NVPSSD_FAIL;
-    }
-
-    return NVPSSD_SUCCESS;
-}
-
-
-
-NvPSSDErr SafetyEventManager::manageMediumPrioQue()
-{
-    DecisionRequest psdDecisionRequest{};
-    DecisionResponse psdDecisionResponse{};
-
-    if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_MSG_QUE)
-    {
-        while (queMonitorsRunning)
+        else
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(mediumPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(mediumPrioQueMutex);
-            if(mediumPrioQue.empty())
-            {
-                lock.unlock();
-                continue;
-            }
-            else
-            {
-                // Log data exit point - sending to psd
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending MEDIUM priority events to PSD clients",
-                            "Event count: " + std::to_string(mediumPrioQue.size()));
-                psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                {
-                    size_t n = mediumPrioQue.size();
-                    if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                        n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                    psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                }
-                for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                {
-                    const FusedSafetyEvent& ev = std::get<1>(mediumPrioQue.front());
-                    psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                    const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                    ev.fusionMetadata.clientID);
-                    psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].event = ev;
-                    mediumPrioQue.pop_front();
-                }
-
-                lock.unlock();
-                pssDecisionRequestSetCRC(&psdDecisionRequest);
-                /*Now pass this bundle to PSD*/
-                if(NvPSDProcessDecisionRequest(psdCtx,&psdDecisionRequest,&psdDecisionResponse)
-                    != NVPSD_SUCCESS)
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "Failed to report events to PSD", "");
-                    /*TODO : This is a serious failure. Devise a strategy to handle this kind
-                    of failure*/
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_INFO,"Reported MEDIUM priority events to PSD", "");
-                }
-            }
+            psdSenderWakeCv_.wait(waitLock,
+                [this, observedWakeSeq] {
+                    return !queMonitorsRunning.load(std::memory_order_acquire) ||
+                        psdSenderWakeSeq_.load(std::memory_order_acquire) != observedWakeSeq;
+                });
         }
-    }
-
-    else if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_SOCKET)
-    {
-        while (queMonitorsRunning)
-        {
-            std::this_thread::sleep_for(std::chrono::microseconds(mediumPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(mediumPrioQueMutex);
-            if(mediumPrioQue.empty())
-            {
-                lock.unlock();
-                // Sleep instead of busy-wait to reduce CPU usage to near-zero
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
-                continue;
-            }
-            else
-            {
-                // Log data exit point - sending to PSD clients via socket
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending MEDIUM priority events to PSD clients via socket",
-                              "Event count: " + std::to_string(mediumPrioQue.size()));
-
-                // Send DecisionRequest with bundled MEDIUM priority events via socket
-                if(pssdServer)
-                {
-                    DecisionRequest psdDecisionRequest{};
-                    DecisionResponse psdDecisionResponse{};
-
-                    psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                    psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                    {
-                        size_t n = mediumPrioQue.size();
-                        if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                            n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                        psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                    }
-                    for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                    {
-                        const FusedSafetyEvent& ev = std::get<1>(mediumPrioQue.front());
-                        psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                        const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                        ev.fusionMetadata.clientID);
-                        psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                        psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                        psdDecisionRequest.sensorDataSummary[i].event = ev;
-                        mediumPrioQue.pop_front();
-                    }
-
-                    lock.unlock();
-                    pssDecisionRequestSetCRC(&psdDecisionRequest);
-                    if(pssdServer->sendDecisionRequestToPSD(psdDecisionRequest, &psdDecisionResponse) == NVPSSD_SUCCESS)
-                    {
-                        NvPSBWriteData(NVPSB_LOG_INFO, "Successfully sent MEDIUM priority DecisionRequest bundle and received response via socket",
-                                      "Event count: " + std::to_string(psdDecisionRequest.sensorDataSummarySize));
-                    }
-                    else
-                    {
-                        NvPSBWriteData(NVPSB_LOG_ERR, "Failed to send MEDIUM priority DecisionRequest bundle via socket", "");
-                    }
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "PSD server not available for MEDIUM priority DecisionRequest processing", "");
-                    mediumPrioQue.clear();
-                    lock.unlock();
-                }
-
-            }
-        }
-    }
-    else
-    {
-        NvPSBWriteData(NVPSB_LOG_ERR, "Backend other than message queue and posix socket is not supported for medium priority events", "");
-        return NVPSSD_FAIL;
-    }
-
-    return NVPSSD_SUCCESS;
-}
-
-
-NvPSSDErr SafetyEventManager::manageLowPrioQue()
-{
-    DecisionRequest psdDecisionRequest{};
-    DecisionResponse psdDecisionResponse{};
-
-    if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_MSG_QUE)
-    {
-        while (queMonitorsRunning)
-        {
-            std::this_thread::sleep_for(std::chrono::microseconds(lowPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(lowPrioQueMutex);
-            if(lowPrioQue.empty())
-            {
-                lock.unlock();
-                continue;
-            }
-            else
-            {
-                // Log data exit point - sending to PSD Gateway
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending LOW priority events to PSD Gateway",
-                            "Event count: " + std::to_string(lowPrioQue.size()));
-                psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                {
-                    size_t n = lowPrioQue.size();
-                    if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                        n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                    psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                }
-                for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                {
-                    const FusedSafetyEvent& ev = std::get<1>(lowPrioQue.front());
-                    psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                    const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                    ev.fusionMetadata.clientID);
-                    psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                    psdDecisionRequest.sensorDataSummary[i].event = ev;
-                    lowPrioQue.pop_front();
-                }
-                lock.unlock();
-                pssDecisionRequestSetCRC(&psdDecisionRequest);
-                /*Now pass this bundle to PSD*/
-                if(NvPSDProcessDecisionRequest(psdCtx,&psdDecisionRequest,&psdDecisionResponse)
-                    != NVPSD_SUCCESS)
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "Failed to report events to PSD", "");
-                    /*TODO : This is a serious failure. Devise a strategy to handle this kind
-                    of failure*/
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_INFO,"Reported LOW priority events to PSD", "");
-                }
-            }
-        }
-    }
-
-    else if(PSSDToPSDComBackend == NvPSDChannelBackend::POSIX_SOCKET)
-    {
-        while (queMonitorsRunning)
-        {
-            std::this_thread::sleep_for(std::chrono::microseconds(lowPrioQuePeriod));
-            std::unique_lock<std::mutex> lock(lowPrioQueMutex);
-            if(lowPrioQue.empty())
-            {
-                lock.unlock();
-                // Sleep instead of busy-wait to reduce CPU usage to near-zero
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
-                continue;
-            }
-            else
-            {
-                // Log data exit point - sending to PSD clients via socket
-                NvPSBWriteData(NVPSB_LOG_INFO, "EXIT POINT: Sending LOW priority events to PSD clients via socket",
-                              "Event count: " + std::to_string(lowPrioQue.size()));
-
-                // Send DecisionRequest with bundled LOW priority events via socket
-                if(pssdServer)
-                {
-                    DecisionRequest psdDecisionRequest{};
-                    DecisionResponse psdDecisionResponse{};
-
-                    psdDecisionRequest.requestId = psdRequestId.fetch_add(1, std::memory_order_relaxed);
-                    psdDecisionRequest.pssStatus = makePssStatusForDecisionRequest();
-                    {
-                        size_t n = lowPrioQue.size();
-                        if (n > MAX_SENSORS_DATA_SUMMARY_SIZE)
-                            n = MAX_SENSORS_DATA_SUMMARY_SIZE;
-                        psdDecisionRequest.sensorDataSummarySize = static_cast<uint8_t>(n);
-                    }
-                    for (uint8_t i = 0; i < psdDecisionRequest.sensorDataSummarySize; i++)
-                    {
-                        const FusedSafetyEvent& ev = std::get<1>(lowPrioQue.front());
-                        psdDecisionRequest.sensorDataSummary[i].clientID = static_cast<uint32_t>(ev.fusionMetadata.clientID);
-                        const auto ts = QueryTrustState(ev.fusionMetadata.pipelineID,
-                                                        ev.fusionMetadata.clientID);
-                        psdDecisionRequest.sensorDataSummary[i].isHealthy = !ts.sensorInvalid;
-                        psdDecisionRequest.sensorDataSummary[i].isTrustedSource = !ts.aiPipelineInvalid;
-                        psdDecisionRequest.sensorDataSummary[i].event = ev;
-                        lowPrioQue.pop_front();
-                    }
-                    lock.unlock();
-                    pssDecisionRequestSetCRC(&psdDecisionRequest);
-                    if(pssdServer->sendDecisionRequestToPSD(psdDecisionRequest, &psdDecisionResponse) == NVPSSD_SUCCESS)
-                    {
-                        NvPSBWriteData(NVPSB_LOG_INFO, "Successfully sent LOW priority DecisionRequest bundle and received response via socket",
-                                      "Event count: " + std::to_string(psdDecisionRequest.sensorDataSummarySize));
-                    }
-                    else
-                    {
-                        NvPSBWriteData(NVPSB_LOG_ERR, "Failed to send LOW priority DecisionRequest bundle via socket", "");
-                    }
-                }
-                else
-                {
-                    NvPSBWriteData(NVPSB_LOG_ERR, "PSD server not available for LOW priority DecisionRequest processing", "");
-                    lowPrioQue.clear();
-                    lock.unlock();
-                }
-
-            }
-        }
-    }
-    else
-    {
-        NvPSBWriteData(NVPSB_LOG_ERR, "Backend other than message queue and posix socket is not supported for low priority events", "");
-        return NVPSSD_FAIL;
+        observedWakeSeq = psdSenderWakeSeq_.load(std::memory_order_acquire);
     }
 
     return NVPSSD_SUCCESS;
@@ -750,49 +753,23 @@ NvPSSDErr SafetyEventManager::manageInputSafetyEventQue()
                 // Release lock before expensive fusion processing
                 lock.unlock();
 
-                /* Events from invalid sensors (pipelineID) or invalid AI pipelines (clientID) are not fused; send to PSD as UNKNOWN with reported severity. */
+                /* Events from invalid sensors (pipelineID) or invalid AI pipelines (clientID) are not fused; send to PSD as UNKNOWN critical evidence. */
                 const auto trust = QueryTrustState(eventToProcess.fusionMetadata.pipelineID,
                                                    eventToProcess.fusionMetadata.clientID);
                 if (trust.sensorInvalid || trust.aiPipelineInvalid)
                 {
                     FusedSafetyEvent invalidEvent = CreateInvalidSourceEvent(eventToProcess);
+                    invalidEvent.severity = NvPSSClassifyPsdSeverity(
+                        invalidEvent,
+                        !trust.sensorInvalid,
+                        !trust.aiPipelineInvalid,
+                        decisionRequestOperationalMode());
                     /* Use semantic AI pipeline id for PSD attribution, not RPC slot. */
                     const int semanticClientId = static_cast<int>(invalidEvent.fusionMetadata.clientID);
-                    switch (invalidEvent.severity)
-                    {
-                        case CRITICAL:
-                            {
-                                std::lock_guard<std::mutex> qLock(criticalPrioQueMutex);
-                                if (criticalPrioQue.size() < MAX_EVENTS_PER_QUE)
-                                    criticalPrioQue.push_back(std::make_pair(semanticClientId, invalidEvent));
-                            }
-                            break;
-                        case HIGH:
-                            {
-                                std::lock_guard<std::mutex> qLock(highPrioQueMutex);
-                                if (highPrioQue.size() < MAX_EVENTS_PER_QUE)
-                                    highPrioQue.push_back(std::make_pair(semanticClientId, invalidEvent));
-                            }
-                            break;
-                        case MEDIUM:
-                            {
-                                std::lock_guard<std::mutex> qLock(mediumPrioQueMutex);
-                                if (mediumPrioQue.size() < MAX_EVENTS_PER_QUE)
-                                    mediumPrioQue.push_back(std::make_pair(semanticClientId, invalidEvent));
-                            }
-                            break;
-                        case LOW:
-                            {
-                                std::lock_guard<std::mutex> qLock(lowPrioQueMutex);
-                                if (lowPrioQue.size() < MAX_EVENTS_PER_QUE)
-                                    lowPrioQue.push_back(std::make_pair(semanticClientId, invalidEvent));
-                            }
-                            break;
-                        default:
-                            NvPSBWriteData(NVPSB_LOG_ERR, "Invalid severity level for invalid source event",
-                                          "Severity: " + std::to_string(invalidEvent.severity));
-                            break;
-                    }
+                    (void)enqueuePsdFusedEvent(
+                        NvPSSPsdSendPriorityFromSeverity(invalidEvent.severity),
+                        semanticClientId,
+                        invalidEvent);
                 }
                 else if(ProcessSafetyEventForFusion(eventToProcess) != NVPSSD_SUCCESS)
                 {
@@ -811,7 +788,7 @@ NvPSSDErr SafetyEventManager::manageInputSafetyEventQue()
             } else
             {
                 lock.unlock();
-                // No-op. Severity threads will be filled by input safety events.
+                // No-op. Operational/critical output queues are filled by input safety events.
             }
         }
     }
@@ -960,15 +937,7 @@ NvPSSDErr SafetyEventManager::ProcessSafetyEventForFusion(const SafetyEvent& eve
          * omits the NUL terminator. */
         const size_t sensorIdLen = strnlen(event.sensorIdentifier, MAX_INDENTIFIER_LENGTH);
         std::string sensorId(event.sensorIdentifier, sensorIdLen);
-        if (sensorId.empty())
-        {
-            NvPSBWriteData(NVPSB_LOG_WARNING,
-                "Rejecting event: sensorIdentifier is empty for pipelineID " +
-                std::to_string(pipelineId) + " (expected '" + cfgIt->second + "')", "");
-            result = NVPSSD_FAIL;
-            goto done;
-        }
-        if (sensorId != cfgIt->second)
+        if (!sensorId.empty() && sensorId != cfgIt->second)
         {
             NvPSBWriteData(NVPSB_LOG_WARNING,
                 "Rejecting event: sensorIdentifier '" + sensorId +
@@ -1004,55 +973,16 @@ NvPSSDErr SafetyEventManager::ProcessSafetyEventForFusion(const SafetyEvent& eve
     {
         // Directly create a FusedSafetyEvent of status PASSTHROUGH and route to decision
         FusedSafetyEvent fusedEvent = CreateBypassEvent(event);
+        fusedEvent.severity = NvPSSClassifyPsdSeverity(
+            fusedEvent,
+            true,
+            true,
+            decisionRequestOperationalMode());
 
-        // Add fusedEvent to appropriate queue based on severity
-        switch (fusedEvent.severity)
-        {
-            case CRITICAL:
-                {
-                    std::lock_guard<std::mutex> lock(criticalPrioQueMutex);
-                    // Add to critical priority queue
-                    if (criticalPrioQue.size() < MAX_EVENTS_PER_QUE)
-                    {
-                        // Add to critical queue
-                        criticalPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                }
-                break;
-
-            case HIGH:
-                {
-                    std::lock_guard<std::mutex> lock(highPrioQueMutex);
-                    // Add to high priority queue
-                    if (highPrioQue.size() < MAX_EVENTS_PER_QUE)
-                    {
-                        highPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                }
-                break;
-
-            case MEDIUM:
-                {
-                    std::lock_guard<std::mutex> lock(mediumPrioQueMutex);
-                    // Add to medium priority queue
-                    if (mediumPrioQue.size() < MAX_EVENTS_PER_QUE)
-                    {
-                        mediumPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                }
-                break;
-
-            case LOW:
-                {
-                    std::lock_guard<std::mutex> lock(lowPrioQueMutex);
-                    // Add to low priority queue
-                    if (lowPrioQue.size() < MAX_EVENTS_PER_QUE)
-                    {
-                        lowPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                }
-                break;
-        }
+        (void)enqueuePsdFusedEvent(
+            NvPSSPsdSendPriorityFromSeverity(fusedEvent.severity),
+            fusedEvent.fusionMetadata.clientID,
+            fusedEvent);
 
         return NVPSSD_SUCCESS;
     }
@@ -1099,7 +1029,6 @@ NvPSSDErr SafetyEventManager::HandleFusedEvents()
     struct timespec ts = {};
     uint64_t timestamp_ns;
 #endif
-    uint64_t batchNowMs = 0;
     if (!fusionEnabled)
     {
         while (true)
@@ -1119,44 +1048,19 @@ NvPSSDErr SafetyEventManager::HandleFusedEvents()
             FusedSafetyEvent fusedEvent = (trustBypass.sensorInvalid || trustBypass.aiPipelineInvalid)
                 ? CreateInvalidSourceEvent(event)
                 : CreateBypassEvent(event);
+            fusedEvent.severity = NvPSSClassifyPsdSeverity(
+                fusedEvent,
+                !trustBypass.sensorInvalid,
+                !trustBypass.aiPipelineInvalid,
+                decisionRequestOperationalMode());
 
             /* Use semantic client ID (fusionMetadata.clientID) for queue key, consistent with invalid-source and fusion-enabled paths. */
             const int semanticClientId = static_cast<int>(fusedEvent.fusionMetadata.clientID);
 
-            switch (fusedEvent.severity)
-            {
-                case CRITICAL:
-                    {
-                        std::lock_guard<std::mutex> lock(criticalPrioQueMutex);
-                        if (criticalPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            criticalPrioQue.push_back(std::make_pair(semanticClientId, fusedEvent));
-                    }
-                    break;
-
-                case HIGH:
-                    {
-                        std::lock_guard<std::mutex> lock(highPrioQueMutex);
-                        if (highPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            highPrioQue.push_back(std::make_pair(semanticClientId, fusedEvent));
-                    }
-                    break;
-
-                case MEDIUM:
-                    {
-                        std::lock_guard<std::mutex> lock(mediumPrioQueMutex);
-                        if (mediumPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            mediumPrioQue.push_back(std::make_pair(semanticClientId, fusedEvent));
-                    }
-                    break;
-
-                case LOW:
-                    {
-                        std::lock_guard<std::mutex> lock(lowPrioQueMutex);
-                        if (lowPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            lowPrioQue.push_back(std::make_pair(semanticClientId, fusedEvent));
-                    }
-                    break;
-            }
+            (void)enqueuePsdFusedEvent(
+                NvPSSPsdSendPriorityFromSeverity(fusedEvent.severity),
+                semanticClientId,
+                fusedEvent);
         }
 
 
@@ -1164,15 +1068,6 @@ NvPSSDErr SafetyEventManager::HandleFusedEvents()
     {
         // Get fused events
         auto fusedEvents = eventFusion->GetFusedEvents();
-
-        /* Snapshot monotonic time once for the whole batch so we avoid
-         * a clock_gettime syscall per event in the loop below. */
-        {
-            struct timespec tsNow;
-            clock_gettime(CLOCK_MONOTONIC, &tsNow);
-            batchNowMs = static_cast<uint64_t>(tsNow.tv_sec) * 1000ULL
-                       + static_cast<uint64_t>(tsNow.tv_nsec) / 1000000ULL;
-        }
 
         // Process each fused event and add to appropriate priority queue
         for (auto fusedEvent : fusedEvents)
@@ -1183,43 +1078,18 @@ NvPSSDErr SafetyEventManager::HandleFusedEvents()
             timestamp_ns = (ts.tv_nsec + ts.tv_sec*SEC_TO_NANO_SEC);
             std::cout << "Event Severity queue timestamp in ns: " << timestamp_ns << std::endl;
 #endif
-            if (isEventStale(fusedEvent.timestamp, batchNowMs))
-                fusedEvent.status = STALE;
 
-            switch (fusedEvent.severity)
-            {
-                case CRITICAL:
-                    {
-                        std::lock_guard<std::mutex> lock(criticalPrioQueMutex);
-                        if (criticalPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            criticalPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                    break;
-
-                case HIGH:
-                    {
-                        std::lock_guard<std::mutex> lock(highPrioQueMutex);
-                        if (highPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            highPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                    break;
-
-                case MEDIUM:
-                    {
-                        std::lock_guard<std::mutex> lock(mediumPrioQueMutex);
-                        if (mediumPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            mediumPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                    break;
-
-                case LOW:
-                    {
-                        std::lock_guard<std::mutex> lock(lowPrioQueMutex);
-                        if (lowPrioQue.size() < MAX_EVENTS_PER_QUE)
-                            lowPrioQue.push_back(std::make_pair(fusedEvent.fusionMetadata.clientID, fusedEvent));
-                    }
-                    break;
-            }
+            const auto trust = QueryTrustState(fusedEvent.fusionMetadata.pipelineID,
+                                               fusedEvent.fusionMetadata.clientID);
+            fusedEvent.severity = NvPSSClassifyPsdSeverity(
+                fusedEvent,
+                !trust.sensorInvalid,
+                !trust.aiPipelineInvalid,
+                decisionRequestOperationalMode());
+            (void)enqueuePsdFusedEvent(
+                NvPSSPsdSendPriorityFromSeverity(fusedEvent.severity),
+                fusedEvent.fusionMetadata.clientID,
+                fusedEvent);
         }
 
         eventFusion->ClearFusedEvents(fusedEvents.size());
@@ -1304,7 +1174,7 @@ FusedSafetyEvent SafetyEventManager::CreateBypassEvent(const SafetyEvent& event)
     fusedEvent.type = event.type;
     fusedEvent.timestamp = event.timestamp;
     fusedEvent.confidenceLevel = event.confidenceLevel;
-    fusedEvent.severity = event.severity;
+    fusedEvent.severity = OPERATIONAL;
     std::memcpy(&fusedEvent.fusionMetadata, &event.fusionMetadata, sizeof(EventFusionMetadata));
 
     fusedEvent.status = isEventStale(event.timestamp) ? STALE : UNKNOWN;
@@ -1325,15 +1195,37 @@ void SafetyEventManager::SetSensorConfig(const std::unordered_map<uint8_t, std::
 
 bool SafetyEventManager::OnTrustReport(uint32_t rpcClientId, uint8_t reporterClientType, const SafetyEvent& event)
 {
-    /* Only Safety Monitor may send SENSOR_* / AI_PIPELINE_* VALID/INVALID events (enforced at RPC; reject here as defense in depth). */
-    if (reporterClientType != CLIENT_SAFETY_MONITOR)
+    /* Defense-in-depth per-event-type authorization. The RPC layer enforces
+     * the same rule when accepting REPORT_SAFETY_EVENT (NvPSSDRPC.cpp); rejecting
+     * here too so malformed in-process call sequences cannot bypass it. */
+    const bool isSensorTrustReport     = (event.type == SENSOR_INVALID      || event.type == SENSOR_VALID);
+    const bool isAIPipelineTrustReport = (event.type == AI_PIPELINE_INVALID || event.type == AI_PIPELINE_VALID);
+    if (!isSensorTrustReport && !isAIPipelineTrustReport)
     {
-        NvPSBWriteData(NVPSB_LOG_WARNING, "Trust report rejected: only Safety Monitor may send VALID/INVALID events", "");
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+                       "Trust report rejected: event type is not a trust-report type",
+                       "eventType: " + std::to_string(event.type));
+        return false;
+    }
+    const bool sensorReporterOk     = (reporterClientType == CLIENT_SAFETY_MONITOR);
+    const bool aiPipelineReporterOk = (reporterClientType == CLIENT_PERCEPTION_MONITOR);
+    if ((isSensorTrustReport && !sensorReporterOk) ||
+        (isAIPipelineTrustReport && !aiPipelineReporterOk))
+    {
+        NvPSBWriteData(NVPSB_LOG_WARNING,
+                       "Trust report rejected: client type not authorized for this event type",
+                       "reporterType: " + std::to_string(reporterClientType) +
+                       ", eventType: " + std::to_string(event.type));
         return false;
     }
 
     (void)rpcClientId;
 
+    /* AI-pipeline trust is pipeline-wide: PCM emits one verdict for the whole AI
+     * pipeline, not per MDX client (fusionMetadata.clientID is not used here), so it
+     * is tracked as a single global latch. Every MDX client -- already connected,
+     * late-connecting, or reconnecting into a reused slot -- consistently reads the
+     * current state via QueryTrustState, with no per-client bookkeeping to go stale. */
     std::lock_guard<std::mutex> lock(trustStateMutex);
     switch (event.type)
     {
@@ -1344,10 +1236,10 @@ bool SafetyEventManager::OnTrustReport(uint32_t rpcClientId, uint8_t reporterCli
             invalidSensors.erase(event.fusionMetadata.pipelineID);
             break;
         case AI_PIPELINE_INVALID:
-            invalidAIPipelines.insert(event.fusionMetadata.clientID);  /* clientID = target AI pipeline */
+            aiPipelineInvalidGlobal = true;
             break;
         case AI_PIPELINE_VALID:
-            invalidAIPipelines.erase(event.fusionMetadata.clientID);
+            aiPipelineInvalidGlobal = false;
             break;
         default:
             break;
@@ -1358,9 +1250,13 @@ bool SafetyEventManager::OnTrustReport(uint32_t rpcClientId, uint8_t reporterCli
 SafetyEventManager::TrustState SafetyEventManager::QueryTrustState(
     uint8_t pipelineId, uint8_t clientId) const
 {
+    /* AI-pipeline trust is a single pipeline-wide latch, so clientId no longer selects
+     * per-client state; it is retained in the signature for callers and for the
+     * sensor-trust lookup keyed by pipelineId. */
+    (void)clientId;
     std::lock_guard<std::mutex> lock(trustStateMutex);
     return { invalidSensors.count(pipelineId) != 0,
-             invalidAIPipelines.count(clientId) != 0 };
+             aiPipelineInvalidGlobal };
 }
 
 FusedSafetyEvent SafetyEventManager::CreateInvalidSourceEvent(const SafetyEvent& event) const
@@ -1374,7 +1270,7 @@ FusedSafetyEvent SafetyEventManager::CreateInvalidSourceEvent(const SafetyEvent&
     fusedEvent.type = event.type;
     fusedEvent.timestamp = event.timestamp;
     fusedEvent.confidenceLevel = event.confidenceLevel;
-    fusedEvent.severity = event.severity;  /* Use reported severity, not forced CRITICAL */
+    fusedEvent.severity = CRITICAL;
     fusedEvent.status = isEventStale(event.timestamp) ? STALE : UNKNOWN;
     std::memcpy(&fusedEvent.fusionMetadata, &event.fusionMetadata, sizeof(EventFusionMetadata));
     return fusedEvent;

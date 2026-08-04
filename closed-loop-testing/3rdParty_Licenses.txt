@@ -8134,7 +8134,7 @@ END OF TERMS AND CONDITIONS
 
 ---
 
-## SRR (Regression Reporter) Dependencies
+## Regression Testing Reporter Dependencies
 
 Added by closed-loop-testing/regression-reporter (srr-service Docker image,
 base ros:jazzy-ros-base). The srr-debug-viewer (tools/) and the

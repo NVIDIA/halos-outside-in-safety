@@ -9,13 +9,13 @@ services:
     network_mode: host
     environment:
       - UDP_PORT=${COMM_UDP_PORT}
-      - OPCUA_ENDPOINT=${COMM_OPCUA_ENDPOINT}
-      - ROS_TOPIC_PREFIX=${COMM_ROS_TOPIC_PREFIX}
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
+      - OPCUA_ENDPOINT=${COMM_OPCUA_ENDPOINT:-opc.tcp://0.0.0.0:4840/safety/}
+      - ROS_TOPIC_PREFIX=${COMM_ROS_TOPIC_PREFIX:-/safety}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     volumes:
-      - ${COMM_LOG_DIR}:/app/logs:rw
+      - ${COMM_LOG_DIR:-${MDX_DATA_DIR}/comm-layer}:/app/logs:rw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "from asyncua.sync import Client; c=Client('opc.tcp://localhost:4840/safety/'); c.connect(); c.disconnect()"]

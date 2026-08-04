@@ -7,7 +7,7 @@
 # Sends SIGTERM to launch_hoisa.sh so its trap handler cleans up the host binaries and the
 # nv-psf container; falls back to explicit kills. Uses `pkill -x <basename>` (exact match),
 # never `pkill -f <pattern>` — over SSH the latter can match this shell's own argv and kill
-# the session. Leaves the nvFsiCom daemon running (start/stop it separately for FSI).
+# the session.
 #
 # Usage:
 #   bash closed-loop-testing/scripts/stop_thor_safety.sh
@@ -22,7 +22,7 @@ if pgrep -x launch_hoisa.sh >/dev/null; then
 fi
 
 # 2. Fallback: explicit kills (exact basename) if the trap did not finish
-for p in atl_sdm proximity_sdm safety_monitor fsicom-agent atl_sdm_cmd_receiver; do
+for p in atl_sdm proximity_sdm safety_monitor atl_sdm_cmd_receiver; do
     sudo pkill -x "$p" 2>/dev/null || true
 done
 
@@ -32,11 +32,11 @@ sudo docker rm nv-psf 2>/dev/null || true
 
 # 4. Verify
 sleep 1
-REMAIN=$(ps -eo comm | grep -cE '^(launch_hoisa\.sh|atl_sdm|proximity_sdm|safety_monitor|fsicom-agent)$' || true)
+REMAIN=$(ps -eo comm | grep -cE '^(launch_hoisa\.sh|atl_sdm|proximity_sdm|safety_monitor)$' || true)
 if [ "$REMAIN" -eq 0 ] && [ -z "$(sudo docker ps -q -f name=nv-psf)" ]; then
     echo "Stopped."
 else
     echo "WARNING: some processes/containers may still be alive:"
-    ps -eo pid,comm | grep -E '(launch_hoisa|atl_sdm|safety_monitor|fsicom)' | grep -v grep || true
+    ps -eo pid,comm | grep -E '(launch_hoisa|atl_sdm|safety_monitor)' | grep -v grep || true
     sudo docker ps -f name=nv-psf || true
 fi

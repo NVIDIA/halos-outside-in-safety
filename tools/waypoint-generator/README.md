@@ -116,7 +116,7 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 
 ## Calibration
 
-The bundled `public/Top.png` and the calibration values come from the [VSS blueprint sample data](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic) for the same warehouse scene that ships with `closed-loop-testing`:
+The bundled `public/Top.png` and the calibration values come from the [VSS blueprint sample data](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic) for the same warehouse scene that ships with `closed-loop-testing`:
 - Scale factor: 49.51 pixels/meter
 - Default forklift start: (1.0, -13.39) in world coordinates
 

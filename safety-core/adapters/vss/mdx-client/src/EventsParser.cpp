@@ -60,6 +60,7 @@ std::vector<AlertMessage> EventsParser::parseEventsMessage(const std::string& da
     alertMsg.restrictedAreaViolation = false;
     alertMsg.confinedAreaViolation = false;
     alertMsg.socialDistancingViolation = false;
+    alertMsg.candidateKind = AlertCandidateKind::kNone;
     if (strcmp(alertMsg.type, "tripwire") == 0 || strcmp(alertMsg.type, "roi") == 0)
         alerts.push_back(alertMsg);
     NvPSFMsgCodecFreeMsg(msg);

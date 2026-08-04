@@ -22,6 +22,8 @@ from typing import Optional
 import pandas as pd
 from shapely.geometry import MultiPoint, Point, Polygon
 
+from srr.tripwire import Tripwire
+
 
 # ---------- ROI / tripwire defaults (from VSS calibration sample-data) ----------
 
@@ -36,25 +38,21 @@ DEFAULT_TW_Y_MIN = -18.9756077
 DEFAULT_TW_Y_MAX = -11.2385153
 
 
-def load_roi(calib_path: Optional[Path]) -> tuple[Polygon, float, float, float]:
-    """Returns (roi_polygon, tw_x, tw_y_min, tw_y_max)."""
+def load_roi(calib_path: Optional[Path]) -> tuple[Polygon, Tripwire]:
+    """Returns (roi_polygon, tripwire).
+
+    The tripwire's inside side comes from the calibration's ``direction``
+    field (arrow head = inside/trailer side) — see srr.tripwire.
+    """
     if calib_path and calib_path.exists():
         d = json.loads(calib_path.read_text())
         # all sensors share the same ROI/TW in this scene; take first
         s0 = d["sensors"][0]
         coords = [(c["x"], c["y"]) for c in s0["rois"][0]["roiCoordinates"]]
-        wire = s0["tripwires"][0]["wire"]
-        return (
-            Polygon(coords),
-            wire["p1"]["x"],
-            min(wire["p1"]["y"], wire["p2"]["y"]),
-            max(wire["p1"]["y"], wire["p2"]["y"]),
-        )
+        return (Polygon(coords), Tripwire.from_calib_dict(s0["tripwires"][0]))
     return (
         Polygon(DEFAULT_ROI_VERTICES),
-        DEFAULT_TW_X,
-        DEFAULT_TW_Y_MIN,
-        DEFAULT_TW_Y_MAX,
+        Tripwire.legacy(DEFAULT_TW_X, DEFAULT_TW_Y_MIN, DEFAULT_TW_Y_MAX),
     )
 
 
@@ -206,6 +204,16 @@ class ClipVerdict:
 
     # diagnostic note (e.g. "trimmed N cold-start frames")
     note: str = ""
+
+    # --- validity guards (additive; defaults keep legacy output unchanged) ---
+    # % frames carrying a real /safety/is_muted observation. Frames recorded
+    # before any message arrives hold None and are scored as UNMUTED — 100%
+    # means every frame had real PSF data.
+    pct_psf_data: float = 100.0
+    # Actors whose GT position never changed across the whole clip while BA
+    # simultaneously observed tripwire crossings (the known /gt TF freeze) —
+    # expected_mute is untrustworthy for such clips.
+    gt_frozen_actors: list[str] = field(default_factory=list)
 
 
 def in_roi(roi: Polygon, x: Optional[float], y: Optional[float]) -> bool:
@@ -468,7 +476,7 @@ def _estimate_forklift_origin_offset(rows: list, gate_m: float,
 
 def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
                            coverage_pad_m: float = 0.0,
-                           tw_x: float = DEFAULT_TW_X,
+                           tw: Optional[Tripwire] = None,
                            boundary_m: float = 2.0,
                            split_dist_m: float = 1.0) -> Optional[dict]:
     """Per-clip 3D perception metrics from the recorded mdx-bev detections.
@@ -632,8 +640,11 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
     cls_incov_present = {c: 0 for c in classes}
     # Per-actor in-coverage matched distances → per-actor multi-gate recall.
     actor_incov_dist: dict = {a: [] for a in _GT_ACTOR_CLASS}
+    if tw is None:
+        tw = Tripwire.legacy(DEFAULT_TW_X, DEFAULT_TW_Y_MIN, DEFAULT_TW_Y_MAX)
     # Trailer-boundary slice for the forklift: frames where the forklift GT
-    # sits within ±boundary_m of the tripwire (x = tw_x). This isolates the
+    # sits within ±boundary_m of the tripwire (perpendicular distance to the
+    # wire line — was abs(x - tw_x) for the vertical wire). This isolates the
     # previously-observed ~33% forklift detection loss around the trailer boundary.
     fk_boundary_present = 0
     fk_boundary_missed = 0
@@ -691,7 +702,7 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
                     fn_in += 1
                     cls_fn_in[cls] += 1
                     actor_stats[a]["missed_in_cov"] += 1
-                if a == "forklift" and abs(gx - tw_x) <= boundary_m:
+                if a == "forklift" and tw.line_distance(gx, gy) <= boundary_m:
                     fk_boundary_present += 1
                     if not matched:
                         fk_boundary_missed += 1
@@ -805,7 +816,7 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
                   if fk_boundary_present else None,
         "track_loss_pct": round(100 * fk_boundary_missed / fk_boundary_present, 2)
                           if fk_boundary_present else None,
-        "window_m": boundary_m, "tw_x": round(tw_x, 3),
+        "window_m": boundary_m, "tw_x": round(tw.x_ref, 3),
     }
 
     # Split / fragmentation: per detector frame, ≥2 tracks of the same class
@@ -923,12 +934,11 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
     return out
 
 
-def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
-                 tw_y_min: float, tw_y_max: float,
+def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
                  ba_events_override: Optional[list[dict]] = None) -> tuple[ClipVerdict, pd.DataFrame]:
     df = pd.read_parquet(parquet_path)
     # Phase 2 metrics computed on the full df (before the cold-start GT drop).
-    phase2 = compute_phase2_metrics(df, tw_x=tw_x)
+    phase2 = compute_phase2_metrics(df, tw=tw)
 
     # Drop the cold-start window: skip leading frames where any required GT TF is still NaN.
     # In Isaac Sim, /gt/<char>/tf can publish ~seconds after the sim starts, so a clip captured
@@ -944,8 +954,13 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
         n_dropped = first_valid
         df = df.iloc[first_valid:].reset_index(drop=True)
     elif first_valid is None:
-        # All-NaN GT — nothing to do, but the clip will be empty/degenerate
-        df = df.iloc[0:0]
+        # No row has the complete GT set → the clip cannot be graded. Raise a
+        # clear error (main() records it in failures.json and the summary
+        # counts it) instead of crashing later with an opaque IndexError.
+        raise ValueError(
+            "no frame has complete GT TF data (some /gt/*/tf never published "
+            "in this window) — clip is ungradable"
+        )
 
     # --- ground truth flags per frame ---
     char_in_roi = pd.DataFrame({
@@ -955,11 +970,7 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
     import numpy as _np
     any_char = _np.array(char_in_roi.any(axis=1).fillna(False).tolist(), dtype=bool)
     fk_in_trailer = _np.array([
-        bool(
-            pd.notna(fx) and pd.notna(fy)
-            and fx > tw_x
-            and tw_y_min <= fy <= tw_y_max
-        )
+        bool(pd.notna(fx) and pd.notna(fy) and tw.is_inside(fx, fy))
         for fx, fy in zip(df["forklift_x"], df["forklift_y"])
     ], dtype=bool)
     df["any_char_in_roi"] = any_char
@@ -968,6 +979,11 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
     df["expected_mute"] = fk_in_trailer & ~any_char
 
     # --- observed PSF state (NaN-safe bool) ---
+    # Validity first: frames recorded before ANY /safety/is_muted message hold
+    # None; the fill below scores them as UNMUTED. Track how much of the clip
+    # had a real observation so a dead PSF feed cannot silently score as PASS.
+    n_psf_valid = int(df["is_muted"].notna().sum())
+    pct_psf_data = round(100.0 * n_psf_valid / len(df), 2) if len(df) else 0.0
     is_muted_raw = df["is_muted"]
     if is_muted_raw.dtype == "object":
         is_muted_raw = is_muted_raw.where(is_muted_raw.notna(), False)
@@ -1078,6 +1094,22 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
             n_ba_roi_person_dedup += 1
         last_ts = t
 
+    # --- GT-freshness guard: frozen forklift TF (known /gt freeze bug) ---
+    # The freeze leaves valid-looking CONSTANT coordinates (not NaN), so the
+    # cold-start trim never catches it. Fire only on a conservative dual
+    # condition: the forklift GT never moved for the WHOLE clip (>=3 s of
+    # data) while BA simultaneously reported tripwire crossings. A truly
+    # parked forklift produces no TW events, so this misfires only when a
+    # TW-Forklift event lands in the clip's BA window anyway — either a
+    # spurious BA event over a stationary clip, or (top-level mode) a real
+    # neighboring-boundary event pulled in by the ±BA_POOL_PAD_S pool pad.
+    gt_frozen_actors: list[str] = []
+    if len(df) >= 90 and n_ba_tw_forklift > 0:
+        _fkx = df["forklift_x"].dropna()
+        _fky = df["forklift_y"].dropna()
+        if len(_fkx) and _fkx.nunique() <= 1 and _fky.nunique() <= 1:
+            gt_frozen_actors.append("forklift")
+
     # --- per-event matching: GT → first BA event within MAX_MATCH_DELAY_S ---
     ba_roi_entry_match = match_first_ba(gt_roi_entry_times, roi_ts, t0)
     ba_tw_in_match = match_first_ba(gt_tw_entry_times, tw_right_ts, t0)
@@ -1136,6 +1168,8 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw_x: float,
         n_mute_transitions=len(mute_lags),
         mute_never_engaged=(n_expected_mute > 0 and n_under == n_expected_mute),
         unmute_never_engaged=(n_expected_unmute > 0 and n_over == n_expected_unmute),
+        pct_psf_data=pct_psf_data,
+        gt_frozen_actors=gt_frozen_actors,
         n_ba_events=len(all_evts),
         n_ba_roi_person=n_ba_roi_person,
         n_ba_tw_forklift=n_ba_tw_forklift,
@@ -1184,16 +1218,29 @@ def render_clip_report(v: ClipVerdict) -> str:
     ]
     if v.video_path:
         lines.append(f"- **Video**: [{v.video_path}]({v.video_path})")
+    validity_lines = []
+    if v.pct_psf_data < 100.0:
+        validity_lines.append(
+            f"- ⚠ **PSF feed coverage: {v.pct_psf_data}%** — frames without a real "
+            f"/safety/is_muted observation score as UNMUTED"
+        )
+    if v.gt_frozen_actors:
+        validity_lines.append(
+            f"- 🚫 **GT_FROZEN**: {', '.join(v.gt_frozen_actors)} GT never moved this "
+            f"clip while BA observed tripwire crossings — expected_mute and the "
+            f"verdict are untrustworthy"
+        )
     lines += [
         "",
         "## Ground truth (from /gt/*/tf)",
         "",
         f"- any character in ROI: **{v.pct_any_char_in_roi}%** of frames",
-        f"- forklift in trailer (x>{DEFAULT_TW_X:.3f}): **{v.pct_forklift_in_trailer}%**",
+        f"- forklift in trailer (inside-side of the trailer tripwire): **{v.pct_forklift_in_trailer}%**",
         f"- expected MUTE: **{v.pct_expected_mute}%**",
         "",
         "## Observed PSF state (from /safety/is_muted + /safety/command)",
         "",
+        *validity_lines,
         f"- actual MUTE: **{v.pct_actual_mute}%**",
         f"- UNMUTE+Alarm command: {v.pct_unmute_alarm}%",
         f"- No-Op command: {v.pct_no_op}%",
@@ -1459,7 +1506,8 @@ def render_clip_report(v: ClipVerdict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_summary(verdicts: list[ClipVerdict], top_level: bool = False) -> str:
+def render_summary(verdicts: list[ClipVerdict], top_level: bool = False,
+                   n_analyze_errors: int = 0) -> str:
     if not verdicts:
         return "# SRR Aggregator — no clips found\n"
     n = len(verdicts)
@@ -1556,10 +1604,87 @@ def render_summary(verdicts: list[ClipVerdict], top_level: bool = False) -> str:
                 "",
             ]
 
+    # Per-scenario ghost check: the pooled rate above can mask one dead
+    # scenario diluted by healthy ones (4×90% + 1×0% pools to ~72%). Same
+    # threshold + same phase2-alive downgrade, applied per run_label. Additive
+    # — the pooled banner above is unchanged.
+    scen_ghost_banner: list[str] = []
+    _runs_g: dict[str, list[ClipVerdict]] = {}
+    for v in verdicts:
+        _runs_g.setdefault(v.run_label or "(unknown)", []).append(v)
+    if len(_runs_g) > 1:
+        for _run in sorted(_runs_g):
+            _vs = _runs_g[_run]
+            _g = sum(getattr(v, fld).gt_count for v in _vs
+                     for fld in ("ba_roi_entry_match", "ba_tw_in_match", "ba_tw_out_match"))
+            _m = sum(getattr(v, fld).matched for v in _vs
+                     for fld in ("ba_roi_entry_match", "ba_tw_in_match", "ba_tw_out_match"))
+            _alive = any(
+                v.phase2 and v.phase2.get("enabled")
+                and (v.phase2.get("unique_detector_frames") or 0) > 0
+                and (v.phase2.get("det_tp") or 0) > 0
+                for v in _vs
+            )
+            if _g > 0 and _m / _g < GHOST_RESULT_BA_THRESHOLD and not _alive:
+                scen_ghost_banner.append(
+                    f"> 🚫 **PERCEPTION_LIKELY_DEAD in `{_run}`** — BA match {_m}/{_g} "
+                    f"({100 * _m / _g:.1f}%) for this scenario alone (the pooled rate "
+                    f"above can mask a single dead scenario)."
+                )
+        if scen_ghost_banner:
+            scen_ghost_banner.append("")
+
+    # PSF-feed validity banner: a dead /safety/is_muted feed makes every frame
+    # score as UNMUTED — unmute-test scenarios then PASS with zero real safety
+    # output. Fires only when clips carry missing PSF observations.
+    n_clips_all = len(verdicts)
+    n_psf_dead = sum(1 for v in verdicts if v.pct_psf_data == 0)
+    n_psf_partial = sum(1 for v in verdicts if 0 < v.pct_psf_data < 100.0)
+    psf_banner: list[str] = []
+    if n_clips_all and n_psf_dead == n_clips_all:
+        psf_banner = [
+            "> 🚫 **PSF_FEED_DEAD** — no /safety/is_muted message was received in ANY "
+            "clip; every frame scored as UNMUTED by default. match%, verdicts and "
+            "Unmute-correct% are fabricated. Check the safety-core container and the "
+            "comm-layer bridge, then re-run.",
+            "",
+        ]
+    elif n_psf_dead or n_psf_partial:
+        psf_banner = [
+            f"> ⚠️ **PSF feed gaps** — {n_psf_dead} clip(s) with NO /safety/is_muted "
+            f"data and {n_psf_partial} with partial coverage; affected frames score "
+            f"as UNMUTED (see per-clip reports).",
+            "",
+        ]
+
+    # GT-frozen banner (known /gt TF freeze: constant coordinates while BA saw
+    # tripwire crossings) — those clips grade against wrong ground truth.
+    n_frozen = sum(1 for v in verdicts if v.gt_frozen_actors)
+    frozen_banner: list[str] = []
+    if n_frozen:
+        frozen_banner = [
+            f"> 🚫 **GT_FROZEN** — {n_frozen} clip(s) where forklift GT never moved "
+            f"while BA observed tripwire crossings (known /gt TF freeze). "
+            f"expected_mute is wrong there; treat those verdicts as untrustworthy.",
+            "",
+        ]
+
+    analyze_error_lines: list[str] = []
+    if n_analyze_errors:
+        analyze_error_lines = [
+            f"> ⚠️ **{n_analyze_errors} clip(s) failed analysis** and are EXCLUDED "
+            f"from every number below (see failures.json).",
+            "",
+        ]
+
     lines = [
         f"# SRR Aggregator — {n} clip(s)",
         "",
         *ghost_banner,
+        *scen_ghost_banner,
+        *psf_banner,
+        *frozen_banner,
+        *analyze_error_lines,
         "## Headline",
         "",
         f"- total clips: **{n}**",
@@ -1899,9 +2024,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     calib_path = Path(args.calib) if args.calib else None
-    roi, tw_x, tw_y_min, tw_y_max = load_roi(calib_path)
+    roi, tw = load_roi(calib_path)
     print(f"[agg] ROI bounds: {list(roi.exterior.coords)}")
-    print(f"[agg] TW x={tw_x:.3f}, y∈[{tw_y_min:.3f}, {tw_y_max:.3f}]")
+    print(f"[agg] TW {tw}")
 
     if args.top_level:
         parquets = sorted(runs_dir.glob("*/scenes/scn_*.parquet"))
@@ -1936,7 +2061,7 @@ def main() -> None:
                     scene_start = float(scene_df["arrival_wall_time"].iloc[0])
                     scene_end = float(scene_df["arrival_wall_time"].iloc[-1])
                     ba_override = filter_ba_pool(pool, scene_start, scene_end)
-            v, _df = analyze_clip(pq, roi, tw_x, tw_y_min, tw_y_max,
+            v, _df = analyze_clip(pq, roi, tw,
                                    ba_events_override=ba_override)
             verdicts.append(v)
             if args.top_level:
@@ -1963,6 +2088,7 @@ def main() -> None:
         except Exception as e:
             print(f"[agg] FAIL {pq.name}: {e}")
             failures.append({"file": pq.name, "category": "analyze_error", "error": str(e)})
+    n_analyze_errors = sum(1 for f in failures if f.get("category") == "analyze_error")
 
     if args.top_level:
         summary_path = runs_dir / "summary.md"
@@ -1970,7 +2096,8 @@ def main() -> None:
     else:
         summary_path = out_dir / "summary.md"
         failures_path = out_dir / "failures.json"
-    summary_path.write_text(render_summary(verdicts, top_level=args.top_level))
+    summary_path.write_text(render_summary(verdicts, top_level=args.top_level,
+                                           n_analyze_errors=n_analyze_errors))
     failures_path.write_text(json.dumps({
         "total_clips": len(verdicts),
         "failed_clips": len(failures),

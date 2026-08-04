@@ -29,10 +29,10 @@ runs/multi-test-${TIMESTAMP}/
 
 | File | Contents |
 |---|---|
-| **Top-level** `summary.md` | Headline + per-run rollup table + 66-clip detail table with mp4 links. **Open this first.** |
+| **Top-level** `summary.md` | Validity-guard banners (PSF_FEED_DEAD / PSF feed gaps / GT_FROZEN / per-scenario PERCEPTION_LIKELY_DEAD / analyze-errors, when they fire — see "Validity-guard banners" below) + Headline + per-run rollup table + 66-clip detail table with mp4 links. **Open this first.** |
 | **Per-run** `<run>/reports/summary.md` | Same structure, scoped to one scenario; per-clip table only |
 | **Per-clip** `<run>/reports/scn_*.md` | The actual ground truth, the deepest evidence. GT events vs Safety Core state, mismatch windows with timestamps, BA detection per event, links to MP4 |
-| **failures.json** | List of clips with verdict=FAIL (match% < 80) and key fields, ready for programmatic triage |
+| **failures.json** | List of clips with verdict=FAIL (match% < 80) and key fields, plus clips that failed analysis (`category: analyze_error`, e.g. incomplete GT TF — excluded from all headline numbers), ready for programmatic triage |
 
 ---
 
@@ -70,6 +70,20 @@ BA perception — per-event match (window ≤ 3 s):
 | **TW events missing `direction`** | Raw count of BA TW Forklift events that didn't include the `direction` field. ~10 % is normal; means VSS/perception dropped the field on those emissions | ≤ 15 % |
 | **worst UNMUTE/MUTE lag** | Max time in ms between a GT transition and the matching Safety Core state change. Long lag (> 3 s) signals state-machine drift | UNMUTE lag ≤ 1 s (safety-critical), MUTE lag ≤ 5 s |
 | **mismatch frame totals** | Disjoint counts of over-mute (suppressed when shouldn't) vs under-mute (didn't suppress when should). High under-mute = annoying false alarm; high over-mute = **alarm suppressed when person present** = safety-critical |
+
+---
+
+## Validity-guard banners — check these FIRST (a fired banner = headline UNTRUSTWORTHY)
+
+The aggregator prepends these to `summary.md` when a run's inputs are unreliable — the numbers below them were computed on a broken measurement rig. Do not report the headline until you have accounted for any that fired.
+
+| Banner | Trigger | What it means |
+|---|---|---|
+| `🚫 PSF_FEED_DEAD` | no `/safety/is_muted` message in ANY clip | the whole PSF feed was dead → every mute/unmute number is fabricated (missing frames default to unmuted) |
+| `⚠️ PSF feed gaps` | N clip(s) with no `/safety/is_muted` data (`pct_psf_data` < 100 somewhere) | partial PSF coverage → those clips' match% is inflated |
+| `🚫 GT_FROZEN` | N clip(s) where the forklift GT never moved while BA reported TW crossings | frozen `/gt` TF → `expected_mute` graded against wrong ground truth |
+| `🚫 PERCEPTION_LIKELY_DEAD` (pooled) / `… in <run>` (per-scenario) | BA per-event match < 0.50 and Phase-2 not alive | perception (not just SRR) likely dead → match% meaningless. The per-scenario variant catches one dead scenario the pooled rate would dilute |
+| `⚠️ N clip(s) failed analysis` | clips that raised an analysis error (e.g. a `/gt/*/tf` that never published) | those clips are EXCLUDED from every headline number; they appear in `failures.json` with `category: analyze_error` |
 
 ---
 
@@ -220,7 +234,7 @@ Each per-clip MD has:
 | **Verdict + Window** | Quick gist: PASS/FAIL, ISO times for cross-referencing |
 | **Video link** | Open the MP4 directly to see what reality looked like |
 | **Ground truth** | %char_in_roi, %forklift_in_trailer, %expected_mute — what the test expected |
-| **Observed Safety Core state** | %actual_mute + command breakdown — what Safety Core did |
+| **Observed Safety Core state** | %actual_mute + command breakdown — what Safety Core did. May also carry a `⚠ PSF feed coverage: <pct>%` line (frames with no real `/safety/is_muted` message; the rest were scored as unmuted) and a `🚫 GT_FROZEN` line (forklift GT froze → this clip's expected_mute + verdict are untrustworthy) |
 | **Match — over-mute / under-mute** | Direction of the mismatch. Under-mute = safety-critical |
 | **Mismatch windows** | **Most useful section.** Lists every contiguous (≥ 0.5 s) window with `start/end/duration/direction`. Reviewer can `ffmpeg -ss <start>` directly to inspect that exact moment in the MP4 |
 | **Reaction lag** | UNMUTE/MUTE: median + p95 + max + transition count |
@@ -309,7 +323,7 @@ m_uml  = re.search(r"worst UNMUTE lag[^*]*\*\*([\d.]+) ms\*\*", txt)
 m_ml   = re.search(r"worst MUTE lag[^*]*\*\*([\d.]+) ms\*\*", txt)
 ```
 
-Or just `failures.json` for a clean list of the FAIL clips with all fields.
+Or just `failures.json` for a clean list of the FAIL and analyze-error clips with all fields.
 
 ---
 

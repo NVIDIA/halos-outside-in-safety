@@ -5,6 +5,8 @@
 
 #include "sai_config_parser.h"
 
+#include "sai_common.h"
+
 #include <fstream>
 #include <iostream>
 
@@ -77,41 +79,25 @@ std::string SaiConfigParser::getString(const std::string& key,
 float SaiConfigParser::getFloat(const std::string& key, float defaultValue) const {
     auto it = values_.find(key);
     if (it == values_.end()) return defaultValue;
-    try {
-        size_t pos = 0;
-        float val = std::stof(it->second, &pos);
-        std::string tail = trim(it->second.substr(pos));
-        if (!tail.empty()) {
-            std::cerr << "[Config] Trailing junk after float for key '"
-                      << key << "': '" << it->second << "'\n";
-            return defaultValue;
-        }
-        return val;
-    } catch (const std::exception&) {
+    float val;
+    if (!safe_stof(it->second, val)) {
         std::cerr << "[Config] Invalid float for key '" << key
                   << "': " << it->second << "\n";
         return defaultValue;
     }
+    return val;
 }
 
 int SaiConfigParser::getInt(const std::string& key, int defaultValue) const {
     auto it = values_.find(key);
     if (it == values_.end()) return defaultValue;
-    try {
-        size_t pos = 0;
-        int val = std::stoi(it->second, &pos);
-        std::string tail = trim(it->second.substr(pos));
-        if (!tail.empty()) {
-            std::cerr << "[Config] Trailing junk after int for key '"
-                      << key << "': '" << it->second << "'\n";
-            return defaultValue;
-        }
-        return val;
-    } catch (const std::exception&) {
+    int val;
+    if (!safe_stoi(it->second, val)) {
         std::cerr << "[Config] Invalid int for key '" << key
                   << "': " << it->second << "\n";
         return defaultValue;
     }
+    return val;
 }
 
 bool SaiConfigParser::hasKey(const std::string& key) const {

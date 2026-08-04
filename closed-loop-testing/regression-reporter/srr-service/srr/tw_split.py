@@ -3,7 +3,7 @@
 """
 Cut a continuous-run parquet into per-scene parquets at forklift TW crossings.
 
-Each time forklift_x crosses the trailer tripwire (x = TW_X) is a scene boundary.
+Each time the forklift crosses the trailer tripwire is a scene boundary.
 Consecutive boundaries delimit one scene.
 
 Run inside SRR container:
@@ -16,7 +16,7 @@ Outputs:
   scenes/scenes_manifest.csv     — adds ISO times + VST query templates
 
 Configuration (precedence: --calib JSON > env var > default):
-- TW_X            : x-coordinate of the tripwire (loaded from calibration.json
+- TW              : the tripwire segment + inside side (loaded from calibration.json
                     `sensors[0].tripwires[0].wire.p1.x` if --calib provided)
 - VST_BASE_URL    : env var, e.g. http://<HOST_IP>:30888/vst/api (defined in
                     Halos compose .env; SRR inherits it via env_file)
@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+
+from srr.tripwire import Tripwire
 
 
 # Defaults — overridden by env vars at module load, optionally by --calib at runtime.
@@ -53,28 +55,34 @@ def get_sensors() -> tuple[str, ...]:
     return tuple(s.strip() for s in raw.split(",") if s.strip())
 
 
-def load_tw_x(calib_path: Optional[Path]) -> float:
-    """Load the tripwire x-coordinate from calibration.json, fall back to default."""
+def load_tripwire(calib_path: Optional[Path]) -> Tripwire:
+    """Load the tripwire (wire + inside side from ``direction``) from
+    calibration.json, fall back to the legacy vertical-wire default."""
     if calib_path and calib_path.exists():
         try:
             d = json.loads(calib_path.read_text())
-            return float(d["sensors"][0]["tripwires"][0]["wire"]["p1"]["x"])
+            return Tripwire.from_calib_dict(d["sensors"][0]["tripwires"][0])
         except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
             print(f"[tw_split] WARN: --calib failed to parse ({e}); using default TW_X={DEFAULT_TW_X}")
-    return DEFAULT_TW_X
+    return Tripwire.legacy(DEFAULT_TW_X, 0.0, 1.0)
 
 
 # Module-level (import-time) values — kept for backward compat with callers that
 # import these names directly. Mutated by main() if --calib provided.
-TW_X = DEFAULT_TW_X
+TW = Tripwire.legacy(DEFAULT_TW_X, 0.0, 1.0)
 VST_BASE = get_vst_base()
 SENSORS = get_sensors()
 
 
 def crossings(df: pd.DataFrame) -> list[tuple[int, float]]:
-    """Return [(row_index, wall_time)] of each forklift_x TW crossing."""
-    s = df["forklift_x"].dropna()
-    side = (s > TW_X).astype(int).diff().fillna(0)
+    """Return [(row_index, wall_time)] of each forklift TW crossing.
+
+    Crossing = the forklift's signed side of the wire line flips (same
+    infinite-line semantics the old ``forklift_x > TW_X`` test had, but
+    orientation-agnostic and driven by the calibration's direction field)."""
+    fk = df[["forklift_x", "forklift_y"]].dropna()
+    inside = fk.apply(lambda r: TW.is_past(r["forklift_x"], r["forklift_y"]), axis=1)
+    side = inside.astype(int).diff().fillna(0)
     cross = side[side != 0]
     return [(idx, float(df.loc[idx, "arrival_wall_time"])) for idx in cross.index]
 
@@ -151,8 +159,10 @@ def split(parquet_in: Path, out_dir: Path, source: str = "gt") -> list[dict]:
         # Side at scene midpoint. forklift_x may be None/NaN when the forklift
         # GT is absent (e.g. out of sensor coverage) — treat as outside_trailer.
         mid = seg.iloc[len(seg) // 2]
-        fk_x = mid["forklift_x"]
-        forklift_side = "in_trailer" if (pd.notna(fk_x) and fk_x > TW_X) else "outside_trailer"
+        fk_x, fk_y = mid["forklift_x"], mid["forklift_y"]
+        forklift_side = ("in_trailer"
+                         if (pd.notna(fk_x) and pd.notna(fk_y) and TW.is_past(fk_x, fk_y))
+                         else "outside_trailer")
 
         scenes.append({
             "scenario_id":  scn_id,
@@ -209,7 +219,7 @@ def write_manifest(scenes: list[dict], out_dir: Path) -> None:
 
 
 def main() -> None:
-    global TW_X, VST_BASE, SENSORS
+    global TW, VST_BASE, SENSORS
     ap = argparse.ArgumentParser()
     ap.add_argument("parquet_in", type=Path)
     ap.add_argument("out_dir", type=Path, nargs="?", default=None)
@@ -226,10 +236,10 @@ def main() -> None:
     args = ap.parse_args()
 
     # Apply runtime overrides to module-level constants used by split()/write_manifest()
-    TW_X = load_tw_x(args.calib if args.calib and args.calib.exists() else None)
+    TW = load_tripwire(args.calib if args.calib and args.calib.exists() else None)
     VST_BASE = args.vst_base_url.rstrip("/")
     SENSORS = tuple(s.strip() for s in args.sensors.split(",") if s.strip())
-    print(f"[tw_split] TW_X={TW_X} · VST={VST_BASE} · sensors={SENSORS}")
+    print(f"[tw_split] TW={TW} · VST={VST_BASE} · sensors={SENSORS}")
 
     out_dir = args.out_dir or (args.parquet_in.parent / "scenes")
     scenes = split(args.parquet_in, out_dir, source=args.source)

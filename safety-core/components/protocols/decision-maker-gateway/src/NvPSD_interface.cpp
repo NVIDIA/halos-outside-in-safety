@@ -101,6 +101,21 @@ NvPSDErr NvPSDSetPssHeartbeatExternallyManaged(NvPSDCtx* ctx, int externallyMana
     return ctx->mNvPSD->setPssHeartbeatExternallyManaged(externallyManaged != 0);
 }
 
+NvPSDErr NvPSDSetDecisionResponseTimeoutMs(NvPSDCtx* ctx, uint32_t timeoutMs)
+{
+    if (!ctx)
+    {
+        std::cerr << "ERROR: NULL context provided to NvPSDSetDecisionResponseTimeoutMs" << std::endl;
+        return NVPSD_FAIL;
+    }
+    if (!ctx->mNvPSD)
+    {
+        std::cerr << "ERROR: NvPSD context not initialized" << std::endl;
+        return NVPSD_FAIL;
+    }
+    return ctx->mNvPSD->NvPSDSetDecisionResponseTimeoutMs(timeoutMs);
+}
+
 NvPSDErr NvPSDRegisterCallbacks(NvPSDCtx* ctx, NvPSDCallbacks* callbacks)
 {
     NvPSDErr err = NVPSD_SUCCESS;
@@ -226,7 +241,6 @@ NvPSDErr NvPSDProcessDecisionRequest(NvPSDCtx* ctx, const DecisionRequest* reque
     err = ctx->mNvPSD->NvPSDGenerateDecision(request, response);
     if(err != NVPSD_SUCCESS)
     {
-        err = NVPSD_FAIL;
         goto exit;
     }
 
@@ -351,4 +365,3 @@ NvPSDErr NvPSDRegisterEventTypes(NvPSDCtx* ctx, const EventType* eventTypes, uin
 exit:
     return err;
 }
-

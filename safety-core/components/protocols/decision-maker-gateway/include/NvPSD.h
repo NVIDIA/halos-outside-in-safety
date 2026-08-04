@@ -31,6 +31,10 @@ typedef enum NvPSDEndpoint_t
     NVPSD_CLIENT
 }NvPSDEndpoint;
 
+#define NVPSD_DECISION_RESPONSE_TIMEOUT_MS_DEFAULT 2000U
+#define NVPSD_DECISION_RESPONSE_TIMEOUT_MS_MIN     100U
+#define NVPSD_DECISION_RESPONSE_TIMEOUT_MS_MAX     30000U
+
 /**
  * @brief Structure for PSD callbacks.
  *
@@ -114,6 +118,19 @@ NvPSDErr NvPSDRegisterCallbacks(NvPSDCtx* ctx, NvPSDCallbacks* callbacks);
  * @return NvPSDErr NVPSD_SUCCESS or NVPSD_FAIL.
  */
 NvPSDErr NvPSDSetPssHeartbeatExternallyManaged(NvPSDCtx* ctx, int externallyManaged);
+
+/**
+ * @brief Set the PSS-facing DecisionResponse wait timeout for POSIX message queue delivery.
+ *
+ * The value must be within NVPSD_DECISION_RESPONSE_TIMEOUT_MS_MIN and
+ * NVPSD_DECISION_RESPONSE_TIMEOUT_MS_MAX.  The default is
+ * NVPSD_DECISION_RESPONSE_TIMEOUT_MS_DEFAULT.
+ *
+ * @param[in] ctx Pointer to the NvPSD context.
+ * @param[in] timeoutMs Timeout in milliseconds.
+ * @return NvPSDErr NVPSD_SUCCESS or NVPSD_FAIL.
+ */
+NvPSDErr NvPSDSetDecisionResponseTimeoutMs(NvPSDCtx* ctx, uint32_t timeoutMs);
 
 /**
  * @brief Starts the PSD communication.

@@ -1,7 +1,7 @@
 ---
 name: hoisa-generate-regression-report
 description: >-
-  Run the SRR (Safety Regression Reporter) multi-scenario test pipeline on the
+  Run the Regression Testing Reporter (`srr`) multi-scenario test pipeline on the
   SIL stack. Picks one or more of 6 pre-built test cases (in-roi, psf-edge,
   psf-clear, balanced, fast, fixed), launches each in Isaac Sim with a clean
   compose restart, records 30 Hz parquet of GT + Safety Core state + BA / 3D
@@ -126,7 +126,7 @@ The two new Kafka consumers (`BEV_TOPIC=mdx-bev`, `BEHAVIOR_TOPIC=mdx-behavior`)
 
 Per-scenario produces: 1 parquet → tw_split → N per-clip parquets → aggregator → `summary.md` (Phase 1 + Phase 2 sections) + `failures.json` + per-clip `scn_*.md` + per-clip `scn_*.mp4` auto-pulled from VST. Optional post-process: `clip_logs` evidence CSVs (incl. `detections.csv` / `tracker_state.csv` / `ba_positions.csv`) and spatial heatmaps.
 
-**Clip semantics**: each forklift x-coordinate crossing of the trailer tripwire (x = 9.574) is a scene boundary. Consecutive boundaries delimit one clip (~40 s each). 5 min recording → ~7 clips, 10 min → ~15, 20 min → ~30.
+**Clip semantics**: each forklift crossing of the trailer tripwire (inside-side; warehouse wire at x = 9.574) is a scene boundary. Consecutive boundaries delimit one clip (~40 s each). 5 min recording → ~7 clips, 10 min → ~15, 20 min → ~30.
 
 ---
 
@@ -175,7 +175,7 @@ When running the skill, print exactly this format. The phases / sections are anc
 > All test runs complete.
 
 > Analyzing results...
-  Aggregating per-scenario summary.md → cross-run REPORT.md
+  Aggregating per-scenario summary.md → cross-run summary.md
   Computing safety-critical unmute% per scenario...
 
 > Done. Top-level summary: /app/runs/multi-test-YYYYMMDD-HHMMSS/summary.md
@@ -218,7 +218,7 @@ This applies to every long wait in the workflow:
 | Long wait | What to verify each tick | Tick interval | Max patience |
 |---|---|---:|---:|
 | Halos compose up after `down` | `docker ps` shows new container IDs for the services | 30 s | 5 min |
-| Scene load + shader compile | Tail `/tmp/isaac-scenario-<TS>-<LBL>.log`; expect 3 RTSPWriter lines | 30 s | 8 min (first), 3 min (subsequent) |
+| Scene load + shader compile | Tail `/tmp/isaac-scenario-<TS>-<LBL>.log`; expect `/World/RTSPMultiGraph` built + 3 `rtsp://` stream lines, then `vss-rtvi-cv` reporting `Active sources : 3` | 30 s | 8 min (first), 3 min (subsequent) |
 | Safety Core warm-up (30 s) | Confirm `/safety/is_muted` still publishing | 15 s | 90 s |
 | **Recording window** (5–20 min) | Verify (a) parquet file size growing, (b) parquet `ba_events_json` rows > 0 (after 90 s), (c) `$PERCEPTION` FPS ≥ `$FPS_MIN` on all 3 cams (≥25 for 2D, ≥5 for 3D) | **60 s** | RECORD_S |
 | Analysis (tw_split + aggregator + vst pull) | `ls scenes/scn_*.parquet` count, `summary.md` size > 0, mp4 count | 15 s | 5 min |
@@ -274,7 +274,8 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
 |-------|--------------------------------|
 | Compose restart | `docker ps --format '{{.Names}}'` shows all 4: safety-core, comm-layer, isaac-sim, srr |
 | Safety Core chain alive | `ros2 topic echo /safety/is_muted --once` exits 0 |
-| Scene loaded | `/tmp/isaac-scenario.log` contains `RTSPWriter_World_Cameras_Camera*_rgb` for all 3 cams |
+| Scene loaded | `/tmp/isaac-scenario.log` contains `Action Graph built at /World/RTSPMultiGraph` + 3 `rtsp://` stream lines |
+| Perception ingesting | `docker logs vss-rtvi-cv --tail 50 \| grep -o 'Active sources : [0-9]*' \| tail -1` = 3 (Isaac markers go green even when DeepStream pulled nothing) |
 | Recording active | `ros2 service call /srr/record SetBool` returned `success: True` |
 | Recording done | The above plus parquet file size > 100 KB and incrementing stops |
 | Analysis done | `summary.md` exists with header `# SRR Aggregator — N clip(s)` matching expected clip count |
@@ -322,7 +323,7 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
     - [ ] 3e. Wait for shaders + 3 RTSP streams ready
     - [ ] 3f. Launch live_clip_monitor.py (background — known-broken; see 03_monitor.md)
     - [ ] 3f.5 Safety Core warm-up 30 s
-    - [ ] 3f.7 **VSS perception health gate** (FPS ≥ 5 on 3 cams + Kafka mdx-events flowing; for Phase 2 also require **mdx-bev** decoding real detections > 0) — HARD GATE, fail → abort
+    - [ ] 3f.7 **VSS perception health gate** (FPS ≥ 5 on 3 cams + the scene-ready topic decoding real detections > 0 — `mdx-raw` for 2D / `mdx-bev` for 3D, per VSS MODE; `mdx-events` flowing confirms the BA→SRR Phase-1 path) — HARD GATE, fail → abort
     - [ ] 3g. /srr/record SetBool true
     - [ ] 3h. Sleep RECORD_S (with BA event + perception FPS heartbeat)
     - [ ] 3i. /srr/record SetBool false
@@ -330,7 +331,7 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
     - [ ] 3k. Phase 4 analyze (per-scn, **DO BEFORE next iter's 3a**):
               move parquet → **`sudo chmod -R a+rwX <scn-host-dir>`** (docker mkdir creates root-owned dir on bind-mount) → **snapshot_pss.sh --per-scn** → tw_split → aggregator → **vst_video.split-run** (Step 4a VST timeline probe before pull) → flatten `videos/scenes/*.mp4` to `videos/` if stale-image fallback
               — 04_analyze.md. Batching these to end-of-multi-test loses pss.log (next 3a truncates) + MP4s (Isaac removes VST sensors after sim_length)
-    - [ ] 3l. Verify: summary.md row count == expected clip count + no PERCEPTION_LIKELY_DEAD banner
+    - [ ] 3l. Verify: summary.md row count == expected clip count + NO validity-guard banner — `PERCEPTION_LIKELY_DEAD` (pooled or per-scenario `… in <run>`), `PSF_FEED_DEAD`, `PSF feed gaps`, `GT_FROZEN`, or `N clip(s) failed analysis`. Any of these = headline metrics UNTRUSTWORTHY. **This is a SECONDARY net** — 3f.7's FPS ≥ 5 hard-gate is the primary defense against dead perception: a single stray true-positive detection anywhere in the run flips the aggregator's `phase2_alive` check and downgrades the red `PERCEPTION_LIKELY_DEAD` banner to a soft note, so "no banner" alone is NOT proof of live perception — 3f.7 must have passed too
 - [ ] 4. Cross-run rollup → references/05_report.md
     - [ ] 4a. Concat per-scn pss.log → `<runs-base>/pss.log` (`snapshot_pss.sh` cross-run mode)
     - [ ] 4b. aggregator `--top-level` → top-level summary.md (idempotent — re-run is safe)
@@ -379,7 +380,7 @@ User-facing + companion docs elsewhere in the repo:
 
 | Constant | Source | Notes |
 |---|---|---|
-| `TW_X` (forklift trailer tripwire) | `$CALIBRATION_JSON` (`sensors[0].tripwires[0].wire.p1.x`); fallback 9.574 | clip boundary detector key |
+| `TW_X` (forklift trailer tripwire) | `$CALIBRATION_JSON` (`sensors[0].tripwires[0].wire.p1.x`); fallback 9.574 | clip boundary detector key; inside-side derived from `sensors[0].tripwires[0].direction` (falls back to legacy inside=+x if `direction` missing) |
 | `ROI` (work zone) | `$CALIBRATION_JSON`; fallback x ∈ [4.877, 9.574], y ∈ [-18.976, -11.239] | rectangular polygon |
 | `SAMPLE_HZ` | 30 (built-in) | SRR recording rate |
 | `PADDING_SEC` | 1.0 (built-in) | tw_split clip-boundary padding (BA TW events at x≈10.2-10.6 land in in-trailer half) |
@@ -391,7 +392,7 @@ User-facing + companion docs elsewhere in the repo:
 | `SAMPLE_HZ` (3D too) | 30 (built-in, `service.py`) | mdx-bev is **replace-not-append** per tick; mdx-behavior kept per `track_id` with `BA_POS_TTL_S=1.0` |
 | `gate_m` | 1.5 m (built-in, `aggregator.py`) | nearest-GT match gate for detect-fail / recall. Multi-gate recall also reported @0.5/1.0/1.5 m |
 | `coverage_pad_m` | **0.0** (built-in) | coverage = convex hull of detections, pad=0 (a nonzero pad over-reports detect-fail by counting out-of-FOV GT as misses) |
-| `boundary_m` | 2.0 m (built-in) | forklift trailer-boundary slice (±2 m of `TW_X`) |
+| `boundary_m` | 2.0 m (built-in) | forklift trailer-boundary slice (within 2 m perpendicular distance of the tripwire line) |
 | `split_dist_m` | 1.0 m (built-in) | same-class split/fragmentation threshold |
 | forklift GT origin offset | estimated per-run (~0.39 m → ~0.08 m residual) | GT `body` TF is behind the 3D-box centre; aggregator infers + removes the bias before matching |
 | Repo root | `$HOISA_ROOT_PATH` (REQUIRED) | halos-outside-in-safety repo root — everything below derives from it |

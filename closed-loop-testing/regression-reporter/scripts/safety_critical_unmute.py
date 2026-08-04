@@ -5,7 +5,8 @@
 
 For each summary.md in <multi-test-dir>/<label>/reports/, filter to clips
 where chars > 70% in ROI AND fk > 50% in trailer (= dangerous condition),
-then compute avg `100 - actMute%` across those clips.
+then compute avg `100 - over-mute%` across those clips (over-mute% =
+suppressed the safety response while a person was present).
 
 Usage:
   python3 safety_critical_unmute.py --multi-test-dir <dir>
@@ -18,23 +19,52 @@ from pathlib import Path
 
 
 def parse_summary(path: Path) -> list[dict]:
-    """Read summary.md table → list of clip dicts."""
+    """Parse the per-clip Markdown table by HEADER (robust to column reordering
+    and Markdown-linked clip cells). Returns a list of clip dicts."""
+    lines = path.read_text().splitlines()
+    header_idx = None
+    cols: list[str] = []
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("|") and "%char_in_roi" in line and "%fk_trailer" in line:
+            cols = [c.strip() for c in line.strip().strip("|").split("|")]
+            header_idx = i
+            break
+    if header_idx is None:
+        return []
+
+    def col(name: str) -> int:
+        return cols.index(name) if name in cols else -1
+
+    i_clip = col("Clip")
+    i_roi = col("%char_in_roi")
+    i_fk = col("%fk_trailer")
+    i_over = col("over-mute%")
+    i_match = col("match%")
+    if min(i_clip, i_roi, i_fk, i_over) < 0:
+        return []
+
+    def num(cell: str) -> float:
+        # strip markdown/bold/% and any link wrapper, keep the number
+        s = re.sub(r"[*`%]", "", cell).strip()
+        return float(s)
+
     rows = []
-    for line in path.read_text().splitlines():
-        if not line.startswith("| scn_"):
+    for line in lines[header_idx + 2:]:          # skip header + its |---| separator
+        if not line.lstrip().startswith("|"):
+            break                                # table ended
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) <= max(i_clip, i_roi, i_fk, i_over):
             continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        # Columns: clip rows dur char_in_roi fk_trailer expMute actMute match%
-        # unmute_lag mute_lag gt_ROI n_ROI_dedup n_ROI_raw gt_TW_in n_TW_R
-        # gt_TW_out n_TW_L
+        m = re.search(r"scn_\d+", cells[i_clip])  # handles "[scn_0000](scn_0000.md)"
+        if not m:
+            continue
         try:
             rows.append({
-                "clip": cells[0],
-                "char_in_roi": float(cells[3]),
-                "fk_trailer": float(cells[4]),
-                "expMute": float(cells[5]),
-                "actMute": float(cells[6]),
-                "match": float(cells[7]),
+                "clip": m.group(0),
+                "char_in_roi": num(cells[i_roi]),
+                "fk_trailer": num(cells[i_fk]),
+                "over_mute": num(cells[i_over]),
+                "match": num(cells[i_match]) if i_match >= 0 else float("nan"),
             })
         except (IndexError, ValueError):
             continue
@@ -56,11 +86,17 @@ def main() -> int:
     print(f"  {'Scenario':<22} {'Crit/All':>8} {'Unmute%':>8} {'Pass(>=95)':>10}")
     print(f"  {'-'*22} {'-'*8} {'-'*8} {'-'*10}")
 
+    summaries_found = 0
+    rows_parsed = 0
+    scenarios_with_critical = 0
+
     for label_dir in sorted(base.iterdir()):
         summary = label_dir / "reports" / "summary.md"
         if not summary.exists():
             continue
+        summaries_found += 1
         rows = parse_summary(summary)
+        rows_parsed += len(rows)
         if not rows:
             continue
         critical = [r for r in rows
@@ -71,13 +107,28 @@ def main() -> int:
             print(f"  {label_dir.name:<22} {f'0/{total}':>8} {'-':>8} "
                   f"{'(no overlap)':>10}")
             continue
-        unmute = [100 - r["actMute"] for r in critical]
+        scenarios_with_critical += 1
+        unmute = [100 - r["over_mute"] for r in critical]
         avg = sum(unmute) / len(unmute)
         passes = sum(1 for u in unmute if u >= 95)
         print(f"  {label_dir.name:<22} {f'{ncrit}/{total}':>8} "
               f"{avg:>7.1f}% {f'{passes}/{ncrit}':>10}")
 
     print()
+
+    # INVALID guards: a run that produced summaries but yields an
+    # empty result table must NOT look like a pass.
+    if summaries_found == 0:
+        print("  INVALID: no <scenario>/reports/summary.md found under the run dir")
+        return 2
+    if rows_parsed == 0:
+        print("  INVALID: summaries present but 0 clip rows parsed "
+              "(summary.md format changed? see safety_critical_unmute.parse_summary)")
+        return 2
+    if scenarios_with_critical == 0:
+        print("  INVALID: parsed clips but NO scenario had a safety-critical "
+              "(char_in_roi>70 & fk_trailer>50) clip — nothing to score")
+        return 2
     return 0
 
 

@@ -31,6 +31,23 @@ struct Coordinate {
     float y;
 };
 
+// Internal candidate category. It is never serialized into the PSS event.
+enum class AlertCandidateKind : uint8_t {
+    kNone = 0,
+    kRestrictedRoi,
+    kConfinedRoi,
+    kFrameSocial,
+    kProximityPair,
+};
+
+// Internal pair outcome. It is never serialized into the PSS event.
+enum class ProximitySelection : uint8_t {
+    kNone = 0,
+    kUnknown,
+    kNoViolation,
+    kThresholdViolation,
+};
+
 // Unified alert message from mdx-events or mdx-frames (same as ATL, with optional violation flags)
 struct AlertMessage {
     char sensorId[IDENTIFIER_NAME_LENGTH];
@@ -39,6 +56,7 @@ struct AlertMessage {
     char ruleId[IDENTIFIER_NAME_LENGTH];
     char endTimestamp[MAX_END_TIMESTAMP_LENGTH];
     uint32_t id;
+    uint64_t frameOrdinal;  /* mdx-frames parser ordinal; zero for mdx-events */
     uint32_t objectId;
     uint32_t objectId2;  /* Second object ID for proximity (pair); 0 when single-object */
     ObjectInfo object;
@@ -49,6 +67,9 @@ struct AlertMessage {
     bool restrictedAreaViolation;   // mdx-frames: from rois (TypeCount)
     bool confinedAreaViolation;     // mdx-frames: from rois (TypeCount)
     bool socialDistancingViolation; // mdx-frames: from FrameMessage.socialDistancing (SD.proximityDetections)
+    AlertCandidateKind candidateKind;
+    ProximitySelection proximitySelection;
+    double proximityThreshold;      // Valid only when proximitySelection is kThresholdViolation
     Coordinate coordinates[MAX_COORDINATES_COUNT];
     int coordCount;
 };

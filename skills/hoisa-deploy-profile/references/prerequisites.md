@@ -46,7 +46,7 @@ Suitable: RTX PRO 6000, RTX A6000 Ada, RTX A6000, L40S, L40.
 
 **Fail** (`nvidia-smi` missing or not loaded): the agent does **not** auto-install GPU drivers.
 - Installed but not loaded → load the module, no reboot: `sudo modprobe nvidia && sudo modprobe nvidia_uvm`
-- Missing → the user installs it (cloud / Brev images already ship the driver). Per-platform pinned versions are in the VSS prerequisites (e.g. Ubuntu 24.04 → `580.105.08`, 22.04 → `580.65.06`); download: https://www.nvidia.com/en-us/drivers/
+- Missing → the user installs it (cloud / Brev images already ship the driver). Per-platform pinned versions are in the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html) (x86 Ubuntu 24.04 → `580.105.08`, IGX-THOR → `580.00`); download: https://www.nvidia.com/en-us/drivers/
 
 ---
 
@@ -148,7 +148,7 @@ eval "$(grep NGC_CLI_API_KEY ~/.bashrc)"
 ```
 
 **Fail** (no key in any source) — guide user:
-1. https://ngc.nvidia.com → Setup → API Keys → Generate Personal Key
+1. https://ngc.nvidia.com → Account → API Keys → Generate Personal Key
 2. Set NGC Catalog permission
 3. User adds the key themselves — do NOT ask user to paste the key into chat
 

@@ -6,8 +6,8 @@
 #include "rtsp_client.h"
 
 #include <iostream>
+#include <cstdio>
 #include <cstring>
-#include <stdexcept>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -47,50 +47,131 @@ void NalQueue::markFinished() {
     cv_not_full_.notify_all();
 }
 
-RTSPClient::RTSPClient(const std::string& url, NalQueue* queue,
-                       std::atomic<bool>* stopFlag)
-    : nalQueue_(queue), stopFlag_(stopFlag)
-{
-    if (!nalQueue_)
-        throw std::runtime_error("RTSPClient: nalQueue must not be null");
-    if (!stopFlag_)
-        throw std::runtime_error("RTSPClient: stopFlag must not be null");
-    rtspUrl_ = url;
-    parseRTSPUrl(url);
+bool RTSPClient::init(const std::string& url, NalQueue* queue,
+                      std::atomic<bool>* stopFlag) {
+    if (!queue) {
+        std::cerr << "RTSPClient::init: nalQueue must not be null\n";
+        return false;
+    }
+    if (!stopFlag) {
+        std::cerr << "RTSPClient::init: stopFlag must not be null\n";
+        return false;
+    }
+    // Reset before assigning new pointers so the prior session's sockets
+    // are closed and counters/flags do not bleed into the new session.
+    resetSessionState();
+    nalQueue_ = queue;
+    stopFlag_ = stopFlag;
+    rtspUrl_  = url;
+    return parseRTSPUrl(url);
+}
+
+void RTSPClient::resetSessionState() {
+    sendTeardown();
+    if (sockfd_ >= 0)    { ::close(sockfd_);    sockfd_    = -1; }
+    if (rtpSockfd_ >= 0) { ::close(rtpSockfd_); rtpSockfd_ = -1; }
+    if (rtcpSockfd_ >= 0){ ::close(rtcpSockfd_); rtcpSockfd_ = -1; }
+
+    localStop_.store(false);
+
+    sessionId_.clear();
+    cseq_              = 0;
+    streamBuf_.clear();
+
+    clientRtpPort_  = 0;
+    clientRtcpPort_ = 0;
+    serverRtpPort_  = 0;
+    serverRtcpPort_ = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(fuaMutex_);
+        fuaBuf_.clear();
+        fuaInProgress_ = false;
+        fuaNextSeq_    = 0;
+    }
+
+    fuaDropCount_              = 0;
+    fuaDropInterrupted_        = 0;
+    fuaDropContinuation_       = 0;
+    fuaDropSeqDiscontinuity_   = 0;
+    fuaDropSizeLimit_          = 0;
+    fuaDropSsrcChange_         = 0;
+    fuaDropShutdown_           = 0;
+    fuaDropOther_              = 0;
+    lastFuaHistogramLog_       = std::chrono::steady_clock::time_point{};
+    fuaDropSnapshotAtLastLog_  = 0;
+
+    sessionTimeoutSec_ = DEFAULT_SESSION_TIMEOUT_SEC;
+    lastKeepAlive_     = std::chrono::steady_clock::time_point{};
+    lastDataReceived_  = std::chrono::steady_clock::time_point{};
+
+    rxIterSinceHk_ = 0;
+
+    expectedSSRC_         = 0;
+    ssrcLocked_           = false;
+    ssrcMismatchCount_    = 0;
+    expectedPayloadType_  = -1;
+    currentRtpTimestamp_  = 0;
+    rtcpBye_              = false;
+    unknownNalCount_      = 0;
 }
 
 RTSPClient::~RTSPClient() {
-    try { sendTeardown(); } catch (...) {}
+    sendTeardown();
     if (sockfd_ >= 0) ::close(sockfd_);
     if (rtpSockfd_ >= 0) ::close(rtpSockfd_);
     if (rtcpSockfd_ >= 0) ::close(rtcpSockfd_);
 }
 
-// Extracts serverIp and serverPort from an "rtsp://host[:port]/..." URL.
-void RTSPClient::parseRTSPUrl(const std::string& url) {
-    size_t start = url.find("://");
-    if (start == std::string::npos)
-        throw std::runtime_error("Invalid RTSP URL: missing ://");
-    start += 3;
+// Parses "rtsp://host[:port]/..."; returns false on malformed URL.
+bool RTSPClient::parseRTSPUrl(const std::string& url) {
+    static const char kScheme[] = "rtsp://";
+    static const size_t kSchemeLen = sizeof(kScheme) - 1;
+    if (url.compare(0, kSchemeLen, kScheme) != 0) {
+        std::cerr << "Invalid RTSP URL: must start with rtsp:// (got '"
+                  << url << "')\n";
+        return false;
+    }
+    size_t start = kSchemeLen;
 
     size_t slashPos = url.find('/', start);
     if (slashPos == std::string::npos) slashPos = url.size();
 
     std::string hostPort = url.substr(start, slashPos - start);
+    if (hostPort.empty()) {
+        std::cerr << "Invalid RTSP URL: empty host in '" << url << "'\n";
+        return false;
+    }
     size_t colonPos = hostPort.find(':');
+    if (colonPos == 0) {
+        std::cerr << "Invalid RTSP URL: empty host before ':' in '"
+                  << url << "'\n";
+        return false;
+    }
     if (colonPos != std::string::npos) {
         serverIp_ = hostPort.substr(0, colonPos);
         std::string portStr = hostPort.substr(colonPos + 1);
+        if (portStr.empty()) {
+            std::cerr << "Invalid RTSP URL: empty port after ':' in '"
+                      << url << "'\n";
+            return false;
+        }
         int port;
-        if (!safe_stoi(portStr, port))
-            throw std::runtime_error("Invalid RTSP URL: bad port '" + portStr + "'");
-        if (port < 1 || port > 65535)
-            throw std::runtime_error("Invalid RTSP URL: port " + portStr + " out of range 1-65535");
+        if (!safe_stoi(portStr, port)) {
+            std::cerr << "Invalid RTSP URL: bad port '" << portStr << "'\n";
+            return false;
+        }
+        if (port < 1 || port > 65535) {
+            std::cerr << "Invalid RTSP URL: port " << portStr
+                      << " out of range 1-65535\n";
+            return false;
+        }
         serverPort_ = port;
     } else {
         serverIp_ = hostPort;
-        serverPort_ = 554;
+        serverPort_ = DEFAULT_RTSP_PORT;
     }
+    return true;
 }
 
 bool RTSPClient::connectToServer() {
@@ -155,16 +236,21 @@ bool RTSPClient::connectToServer() {
 }
 
 bool RTSPClient::sendRequest(const std::string& request) {
+    return sendRequestRaw(request.c_str(), request.size());
+}
+
+bool RTSPClient::sendRequestRaw(const char* data, size_t len) {
+    if (sockfd_ < 0 || data == nullptr) return false;
     size_t totalSent = 0;
-    while (totalSent < request.size()) {
-        ssize_t sent = send(sockfd_, request.c_str() + totalSent,
-                            request.size() - totalSent, MSG_NOSIGNAL);
+    while (totalSent < len) {
+        ssize_t sent = send(sockfd_, data + totalSent,
+                            len - totalSent, MSG_NOSIGNAL);
         if (sent < 0) {
             if (errno == EINTR) continue;
             return false;
         }
         if (sent == 0) return false;
-        totalSent += sent;
+        totalSent += static_cast<size_t>(sent);
     }
     return true;
 }
@@ -282,11 +368,11 @@ std::string RTSPClient::extractSessionId(const std::string& response) {
         if (tPos != std::string::npos) {
             if(safe_stoi(params.substr(tPos + 8), sessionTimeoutSec_) == false) {
                 std::cerr << "Failed to parse session timeout from RTSP response\n";
-                sessionTimeoutSec_ = 60;
+                sessionTimeoutSec_ = DEFAULT_SESSION_TIMEOUT_SEC;
             }
             else {
-                if(sessionTimeoutSec_ < 5)
-                    sessionTimeoutSec_ = 5;
+                if(sessionTimeoutSec_ < MIN_SESSION_TIMEOUT_SEC)
+                    sessionTimeoutSec_ = MIN_SESSION_TIMEOUT_SEC;
             }
         }
         return sessionLine.substr(0, semicolon);
@@ -716,7 +802,7 @@ void RTSPClient::pushNalUnit(const unsigned char* data, size_t len) {
 void RTSPClient::setFuaDropAlertCallback(std::function<void(uint32_t)> cb,
                                          uint32_t threshold) {
     onFuaDropAlert_ = std::move(cb);
-    fuaDropThreshold_ = (threshold > 0) ? threshold : 5;
+    fuaDropThreshold_ = (threshold > 0) ? threshold : kDefaultFuaDropAlertThreshold;
 }
 
 void RTSPClient::handleFuaDrop(const std::string& reason) {
@@ -1104,10 +1190,19 @@ void RTSPClient::requestStop() {
 
 void RTSPClient::sendTeardown() {
     if (sockfd_ < 0 || sessionId_.empty()) return;
-    std::string req = "TEARDOWN " + rtspUrl_ + " RTSP/1.0\r\n"
-        "CSeq: " + std::to_string(++cseq_) + "\r\n"
-        "Session: " + sessionId_ + "\r\n\r\n";
-    if (!sendRequest(req))
+    // Stack buffer (no allocation) so the destructor cannot hit std::bad_alloc.
+    char req[1024];
+    int n = snprintf(req, sizeof(req),
+                     "TEARDOWN %s RTSP/1.0\r\n"
+                     "CSeq: %d\r\n"
+                     "Session: %s\r\n\r\n",
+                     rtspUrl_.c_str(), ++cseq_, sessionId_.c_str());
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof(req)) {
+        std::cerr << "RTSP TEARDOWN request too large to send (skipping)\n";
+        sessionId_.clear();
+        return;
+    }
+    if (!sendRequestRaw(req, static_cast<size_t>(n)))
         std::cerr << "RTSP TEARDOWN send failed\n";
     sessionId_.clear();
 }

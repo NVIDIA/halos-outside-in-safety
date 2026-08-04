@@ -13,7 +13,7 @@
 /**
  * Launch the PSD gateway control loop.
  * Gateway binds to sdmIP:sdmPort for UDP: receives SDM client registrations (event subscriptions),
- * sends DecisionRequests to registered clients filtered by their EVENT_* subscription,
+ * sends envelope-wrapped DecisionRequests to registered clients filtered by their EVENT_* subscription,
  * and runs heartbeat (HB) exchange with each registered client.
  *
  * @param sdmIP   IP address to bind (e.g. "0.0.0.0" for all interfaces).

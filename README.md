@@ -44,9 +44,9 @@ The three pillars connect through a perception event stream: cameras feed AI per
 
 | Profile | Description |
 |---------|-------------|
-| `base` | Safety Core on an existing perception feed; the MUTE / UNMUTE decision is rendered as the VST `halo_safety` overlay. No simulation. Runs on x86 by default, or on IGX Thor (CCPLEX or FSI; see [`halos_thor.md`](skills/hoisa-deploy-profile/references/halos_thor.md)). |
+| `base` | Safety Core on an existing perception feed; the MUTE / UNMUTE decision is rendered as the VST `halo_safety` overlay. No simulation. Runs on x86 by default, or on IGX Thor (see [`halos_thor.md`](skills/hoisa-deploy-profile/references/halos_thor.md)). |
 | `sil` | Full single-host closed loop: NVIDIA Isaac Sim drives a forklift, and the safety decision is fed back to the simulated forklift over ROS. |
-| `hil` 🚧 | Hardware-in-the-loop: the Safety Core runs on an NVIDIA Thor device. Under development. |
+| `hil` | Hardware-in-the-loop: the Safety Core runs on an NVIDIA Thor device. |
 
 Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill or by hand (see the [Quickstart Guide](#quickstart-guide)).
 
@@ -55,28 +55,30 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 | Directory | Description |
 |-----------|-------------|
 | [`ai-perception/`](ai-perception/) | Perception integration: pointer to the reference VSS Blueprint backend and the event-stream integration contract. |
-| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). |
-| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. |
+| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). Component design and data flow: [Integration Guide](https://docs.nvidia.com/halos-outside-in/1.3/integration/index.html). |
+| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. Docs: [Closed-Loop Testing](https://docs.nvidia.com/halos-outside-in/1.3/testing/index.html). |
 | [`skills/`](skills/) | Agentic skills to deploy and operate the system. |
-| [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`). |
+| [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`), and the Brev Launchable notebook under `scripts/`. |
 | [`tools/`](tools/) | Repo-wide tooling. |
 | [`whitepaper/`](whitepaper/) | Technical narrative. |
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/halos-outside-in/latest/index.html).
+For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/halos-outside-in/1.3/index.html).
 
 ## Prerequisites
 
-- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/setup/api-keys).
+- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys).
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
+
+Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html).
 
 ## Hardware Requirements
 
 Requirements depend on the profile:
 
-- **`base`** (inference: VSS Blueprint perception + Safety Core) follows the VSS Blueprint hardware requirements. See the [VSS prerequisites](https://docs.nvidia.com/vss/latest/prerequisites.html).
-- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/latest/sil/prerequisites.html).
+- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html).
+- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html#closed-loop-host).
 
 ## Quickstart Guide
 
@@ -88,14 +90,20 @@ Deploy the perception backend (VSS Blueprint) first, then a Halos profile.
 
 The [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill brings up both stacks (the VSS Blueprint perception backend and the chosen profile) and runs the test scenario. See [`skills/`](skills/) for install and usage.
 
+### Deploy on NVIDIA Brev
+
+**Ideal for:** trying the closed loop without provisioning a host.
+
+The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/deploy?launchableID=env-3HDWGZrNkyyaBTIlsIeEZB6f1Fo) provisions a cloud GPU instance with the driver, Docker, and both repositories in place, then opens JupyterLab. One notebook — [`deployments/scripts/deploy_hoisa_launchable.ipynb`](deployments/scripts/deploy_hoisa_launchable.ipynb) — brings up the whole `sil` loop and prints the evidence that the safety decision is reacting to the simulated scene. Walkthrough: [Deploy on NVIDIA Brev](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/brev-launchable.html).
+
 ### Docker Compose Deployment
 
 **Ideal for:** deploying by hand on your own host or bare-metal instance.
 
-1. Deploy the [NVIDIA VSS Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) perception backend first. It publishes the detection events the Safety Core consumes.
+1. Deploy the [NVIDIA VSS Warehouse Blueprint 3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) perception backend first. It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
-For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/latest/deployment/index.html).
+For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).
 
 #### System Requirements
 

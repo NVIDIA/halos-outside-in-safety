@@ -9,12 +9,13 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <set>
+#include <utility>
+#include "FrameOrdinalTracker.hpp"
 #include "common.hpp"
 #include "NvPSFMsgCodec.h"
 
 namespace MDXClient {
-
-struct SharedState;
 
 class FramesParser {
 public:
@@ -23,14 +24,35 @@ public:
     explicit FramesParser(NextEventIdFn nextEventId, bool debugMode = false);
 
     std::vector<AlertMessage> parseFramesMessage(const std::string& data,
-        const NvPSFMsgCodecMsg* config, SharedState& state);
+        const NvPSFMsgCodecMsg* config);
 
 private:
     NextEventIdFn nextEventId_;
     bool debugMode_;
+    FrameOrdinalTracker frameOrdinalTracker_;
+    uint64_t currentFrameOrdinal_ = 0U;
 
     AlertMessage buildAlertFromFrameRoi(const NvPSFMsgCodecMsg* frameMsg,
-        const NvPSFMsgCodecMsg* roi, uint32_t objectId);
+        const NvPSFMsgCodecMsg* roi, const NvPSFMsgCodecMsg* object,
+        uint32_t objectId);
+    AlertMessage buildRoiStateAlert(const NvPSFMsgCodecMsg* frameMsg,
+        const std::string& roiId, const std::string& objectType);
+    // Emit per-frame "restricted-area cleared" alerts (EVENT_5) for monitored
+    // restricted areas that are present in the frame but contain no violating
+    // object of the configured type. VST reports a violation as a per-object ROI
+    // entry and omits it once the object leaves (it never sends a false entry),
+    // so this is required for the SDM to ever see the violation clear.
+    void emitRestrictedAreaClears(const NvPSFMsgCodecMsg* frameMsg,
+        const NvPSFMsgCodecMsg* config,
+        const std::set<std::string>& presentRestrictedRoiIds,
+        const std::vector<std::pair<std::string, std::string>>& restrictedViolations,
+        const std::vector<std::pair<std::string, std::string>>& restrictedRoiEmitted,
+        std::vector<AlertMessage>& alerts);
+    // A successfully decoded frame with no ROI entries is an approved
+    // application-event clear condition. Emit only configured false ROI rules;
+    // this does not change downstream fault-latch or manual-release behavior.
+    void emitEmptyRoiClears(const NvPSFMsgCodecMsg* frameMsg,
+        const NvPSFMsgCodecMsg* config, std::vector<AlertMessage>& alerts);
     AlertMessage buildAlertFromFrameSocialDistancing(const NvPSFMsgCodecMsg* frameMsg);
     AlertMessage buildAlertFromFrameObject(const NvPSFMsgCodecMsg* frameMsg,
         const NvPSFMsgCodecMsg* obj, const char* type, const std::string& ruleId, uint32_t assignId);

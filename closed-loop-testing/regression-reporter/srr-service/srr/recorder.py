@@ -14,6 +14,35 @@ import pyarrow.parquet as pq
 
 from .schema import Frame
 
+# Explicit parquet schema — never let pyarrow infer it from a batch. The
+# Phase-2 / BA columns stay None until the 3D pipeline (or a BA detection)
+# produces output, so an inferred first batch types them `null`; the first
+# batch that carries a value then raises "Table schema does not match schema
+# used to create file" inside the sample timer, which kills rclpy.spin() and
+# takes the whole recording down mid-run.
+SCHEMA = pa.schema(
+    [
+        ("arrival_wall_time", pa.float64()),
+        ("sim_time", pa.float64()),
+        ("char_0_x", pa.float64()),
+        ("char_0_y", pa.float64()),
+        ("char_1_x", pa.float64()),
+        ("char_1_y", pa.float64()),
+        ("char_2_x", pa.float64()),
+        ("char_2_y", pa.float64()),
+        ("forklift_x", pa.float64()),
+        ("forklift_y", pa.float64()),
+        ("psf_command", pa.string()),
+        ("is_muted", pa.bool_()),
+        ("ba_events_json", pa.string()),
+        ("detections_json", pa.string()),
+        ("tracker_state_json", pa.string()),
+        ("bev_frame_id", pa.string()),
+        ("bev_create_time", pa.float64()),
+        ("ba_positions_json", pa.string()),
+    ]
+)
+
 
 class Recorder:
     def __init__(self, out_dir: str = "runs") -> None:
@@ -22,12 +51,14 @@ class Recorder:
         self.path: Optional[Path] = None
         self._writer: Optional[pq.ParquetWriter] = None
         self._buf: list[Frame] = []
+        self._total_rows = 0
 
     def open(self) -> None:
         ts = time.strftime("%Y%m%d-%H%M%S")
         self.path = self.out / f"run-{ts}.parquet"
         self._writer = None
         self._buf.clear()
+        self._total_rows = 0
 
     def append(self, f: Frame) -> None:
         self._buf.append(f)
@@ -62,15 +93,17 @@ class Recorder:
             for f in self._buf
         ]
         self._buf.clear()
-        table = pa.Table.from_pylist(rows)
+        self._total_rows += len(rows)
+        table = pa.Table.from_pylist(rows, schema=SCHEMA)
         if self._writer is None:
-            self._writer = pq.ParquetWriter(self.path, table.schema, compression="snappy")
+            self._writer = pq.ParquetWriter(self.path, SCHEMA, compression="snappy")
         self._writer.write_table(table)
 
     def flush(self) -> int:
-        n = len(self._buf)
+        """Flush the buffer, close the writer, and return the CUMULATIVE number of
+        rows written to this parquet (not just the final in-memory buffer)."""
         self._flush_to_writer()
         if self._writer is not None:
             self._writer.close()
             self._writer = None
-        return n
+        return self._total_rows

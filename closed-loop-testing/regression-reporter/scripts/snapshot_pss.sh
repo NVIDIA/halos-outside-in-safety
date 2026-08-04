@@ -48,7 +48,42 @@ while [[ $# -gt 0 ]]; do
     *)  SRC="$1"; shift ;;
   esac
 done
-SRC="${SRC:-${PSS_LOG_SRC:-/data/sil-data/psf-log/pss.log}}"
+# When invoked standalone (not via run_multi.sh, which already `set -a; source`s
+# the SIL profile), MDX_DATA_DIR / PSF_LOG_DIR are not in the environment. Load
+# them from the SIL deployment profile so the documented per-scenario command
+# resolves the SAME data root used to launch SIL. Override the profile path with
+# SIL_ENV; a real (non-template) MDX_DATA_DIR is required for this to take effect.
+if [[ -z "${PSF_LOG_DIR:-}" && -z "${MDX_DATA_DIR:-}" ]]; then
+  _SP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # Prefer HOISA_ROOT_PATH (same root run_multi.sh derives the profile from) when
+  # it is exported; fall back to a script-relative repo root so a bare standalone
+  # invocation (no repo .env sourced) still resolves. Default profile: sil.env.
+  SIL_ENV="${SIL_ENV:-${HOISA_ROOT_PATH:-$_SP_DIR/../../..}/deployments/profiles/sil.env}"
+  if [[ -f "$SIL_ENV" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SIL_ENV"
+    set +a
+    # An unedited template profile yields placeholder paths — and PSF_LOG_DIR is
+    # derived from MDX_DATA_DIR, so it inherits the placeholder too. Ignore both
+    # so resolution falls through to the documented default instead of /path/to/.
+    case "${MDX_DATA_DIR:-}" in /path/to/*) MDX_DATA_DIR="" ;; esac
+    case "${PSF_LOG_DIR:-}"  in /path/to/*) PSF_LOG_DIR=""  ;; esac
+  fi
+fi
+
+# Resolve the source pss.log so a non-default data root still finds the Safety
+# Core log. Priority: explicit <source-pss-log> arg > PSS_LOG_SRC override >
+# PSF_LOG_DIR (from the profile env) > MDX_DATA_DIR > neutral fallback.
+if [[ -z "$SRC" ]]; then
+  if   [[ -n "${PSS_LOG_SRC:-}" ]]; then SRC="$PSS_LOG_SRC"
+  elif [[ -n "${PSF_LOG_DIR:-}"  ]]; then SRC="$PSF_LOG_DIR/pss.log"
+  elif [[ -n "${MDX_DATA_DIR:-}" ]]; then SRC="$MDX_DATA_DIR/psf-log/pss.log"
+  else SRC="/data/sil-data/psf-log/pss.log"
+  fi
+fi
+
+echo "snapshot_pss: resolved source = $SRC" >&2
 
 if [[ ! -d "$RUN_DIR" ]]; then
   echo "snapshot_pss: no such dir: $RUN_DIR" >&2; exit 1
@@ -81,10 +116,16 @@ if [[ "$MODE" == "per-scn" ]]; then
   # scenarios' lines were truncated by the prior compose restart). A plain
   # copy preserves the entire scenario including PSF init lines that no
   # mtime-window heuristic would catch.
-  if [[ ! -f "$SRC" ]]; then
-    echo "snapshot_pss: source pss.log not found: $SRC" >&2; exit 1
+  # Missing OR empty (0-byte) source both mean no Safety Core evidence for this
+  # scenario — fail rather than copy an empty log that would silently "pass".
+  if [[ ! -s "$SRC" ]]; then
+    echo "snapshot_pss: source pss.log missing or empty: $SRC" >&2; exit 1
   fi
-  write_out "$SRC" "$OUT"
+  # A failed write (host EPERM AND container fallback both denied) must propagate,
+  # otherwise run_multi's strict sweep-abort never sees the lost snapshot.
+  if ! write_out "$SRC" "$OUT"; then
+    exit 1
+  fi
   LINES=$(wc -l < "$SRC")
   SIZE=$(du -h "$SRC" | awk '{print $1}')
   echo "snapshot_pss: copied $SRC → $OUT ($LINES lines, $SIZE) [per-scn]"
@@ -94,12 +135,20 @@ fi
 # ---- cross-run mode ----
 
 # Prefer concat of per-scn snapshots (preserves PSF data even across restarts).
-PER_SCN_FILES=( "$RUN_DIR"/*/pss.log )
-if [[ -f "${PER_SCN_FILES[0]:-}" ]]; then
-  # Concat then sort by leading ISO timestamp (line-stable sort -k1,1).
-  # Skipping dedupe is fine — sorted view is what clip_logs reads.
+# Exclude _discarded/ (aborted attempts) and drop exact-duplicate lines: when
+# the source log is NOT truncated between scenarios (stack kept up between
+# runs), each per-scn snapshot is a cumulative copy of the same source — a
+# plain concat would then repeat every line once per overlapping snapshot.
+PER_SCN_FILES=()
+for f in "$RUN_DIR"/*/pss.log; do
+  [[ "$f" == *"_discarded"* ]] && continue
+  [[ -f "$f" ]] && PER_SCN_FILES+=( "$f" )
+done
+if [[ ${#PER_SCN_FILES[@]} -gt 0 ]]; then
+  # Concat, sort by leading ISO timestamp (line-stable sort -k1,1), dedupe
+  # exact lines (first occurrence wins; output stays timestamp-sorted).
   TMP=$(mktemp)
-  cat "${PER_SCN_FILES[@]}" | sort -s -k1,1 > "$TMP"
+  cat "${PER_SCN_FILES[@]}" | sort -s -k1,1 | awk '!seen[$0]++' > "$TMP"
   write_out "$TMP" "$OUT"
   LINES=$(wc -l < "$TMP")
   SIZE=$(du -h "$TMP" | awk '{print $1}')
