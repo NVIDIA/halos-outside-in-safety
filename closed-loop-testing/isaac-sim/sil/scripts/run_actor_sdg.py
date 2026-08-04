@@ -715,7 +715,7 @@ def main():
     # last value).
     isaac_asset_root = os.environ.get(
         "ISAAC_ASSET_ROOT",
-        "https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0",
+        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0",
     )
     sys.argv.append(f"--/persistent/isaac/asset_root/default={isaac_asset_root}")
 
