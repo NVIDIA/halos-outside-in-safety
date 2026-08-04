@@ -1,14 +1,15 @@
 # 40x20 TWO-DOCK variant of default_config_ros_2fl.yaml — identical except
-# base_stage_asset_path points at the collected 40x20 scene. Launch with
+# base_stage_asset_path points at the flattened 40x20 scene. Launch with
 # BOTH flags (plus COMPOSE_PROFILES including `multi-robot`):
 #   ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros_40x20.yaml \
 #     --robots-config /isaac-sim/sil/configs/robots-40x20.yaml \
 #     --cameras-config /isaac-sim/sil/configs/cameras-40x20.yaml ...
 # Keep everything below in sync by hand with default_config_ros.yaml.
 #
-# The scene is a Collect As bundle, not a single file: the root layer below
-# resolves its dependencies through relative paths next to it, so the .usd
-# and its sibling asset folders must move together.
+# The scene is a single flattened .usd that resolves the warehouse shell and the
+# pallet truck from ../collected-assets (MDX_DATA_DIR) and everything else from
+# public S3, so it needs no Nucleus login. The first load fetches ~70 layers from
+# S3 into isaac-cache and is slower than later runs.
 #
 # The three behavior trees keep their 20x20 endpoints: this scene shares the
 # dock-1 coordinate frame, and all six points were checked against the 40x20
@@ -22,7 +23,7 @@ isaacsim.replicator.agent:
   seed: 42
   simulation_duration: 600.0
   environment:
-    base_stage_asset_path: /isaac-sim/sil/scenes/warehouse_40x20_2fl/warehouse_40x20_Halos_two_loading_dock_split_doors.usd
+    base_stage_asset_path: /isaac-sim/sil/scenes/warehouse_40x20_two_loading_dock.usd
   character:
     groups:
       inspect_workers:

@@ -1,12 +1,11 @@
 # Halos SIL forklift / robot Action Graph config (6.0) — 40x20 TWO-DOCK variant.
 #
-# Same two-robot layout as robots-2fl.yaml, retargeted to the collected 40x20
-# scene. To run this variant:
+# Same two-robot layout as robots-2fl.yaml, retargeted to the 40x20 scene. To
+# run this variant:
 #   1. Scene must contain /World/forklift_b2 (a clone of /World/forklift_b —
 #      same ForkliftB asset payload). Paired IRA config:
 #      configs/default_config_ros_40x20.yaml points at
-#        /isaac-sim/sil/scenes/warehouse_40x20_2fl/
-#          warehouse_40x20_Halos_two_loading_dock_split_doors.usd
+#        /isaac-sim/sil/scenes/warehouse_40x20_two_loading_dock.usd
 #      run_actor_sdg fails fast if a listed articulation prim is missing.
 #   2. Launch Isaac with the 40x20 config trio:
 #        -c /isaac-sim/sil/configs/default_config_ros_40x20.yaml \

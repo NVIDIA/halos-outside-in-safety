@@ -7,8 +7,7 @@
 # file for the field reference and the RTSP URL build formula. Only the
 # three spawn poses differ.
 #
-# Scene: sil/scenes/warehouse_40x20_2fl/
-#            warehouse_40x20_Halos_two_loading_dock_split_doors.usd
+# Scene: sil/scenes/warehouse_40x20_two_loading_dock.usd
 #
 # The 12 cameras that shipped baked into that scene (Camera, Camera_01 ..
 # Camera_11) were deleted so this loader owns camera placement. Only the

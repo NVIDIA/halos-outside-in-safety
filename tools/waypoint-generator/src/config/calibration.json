@@ -20,5 +20,5 @@
     "trackWidth": 0.99,
     "forkLength": 1.0
   },
-  "note": "Calibration for the 40x20 two-dock scene (warehouse_40x20_Halos_two_loading_dock_split_doors). Formula: pixelX = (worldX + transX) * scale, pixelY = (-worldY + transY) * scale. scaleFactor and transX are taken verbatim from Yuxing's VSS calibration.json; transY is converted from the VSS value 39.43329917942558 because VSS measures pixelY from the image bottom: transY = imageHeight / scaleFactor - transY_vss = 1080 / 26.829178663553755 - 39.43329917942558. defaultForkliftStart is /World/forklift_b; for forklift_b2 use world_y -21.63."
+  "note": "Calibration for the 40x20 two-dock scene (sil/scenes/warehouse_40x20_two_loading_dock.usd). Formula: pixelX = (worldX + transX) * scale, pixelY = (-worldY + transY) * scale. scaleFactor and transX are taken verbatim from Yuxing's VSS calibration.json; transY is converted from the VSS value 39.43329917942558 because VSS measures pixelY from the image bottom: transY = imageHeight / scaleFactor - transY_vss = 1080 / 26.829178663553755 - 39.43329917942558. defaultForkliftStart is /World/forklift_b; for forklift_b2 use world_y -21.63."
 }
