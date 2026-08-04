@@ -703,16 +703,11 @@ def main():
 
     # Override the default Nucleus asset root with the public S3 prefix
     # so Kit's provider_nucleus plugin does not require OMNI_USER/OMNI_PASS
-    # at boot - no Nucleus call is needed by IRA, the JWT was only consumed
-    # by the kit-boot Nucleus token refresh against the extension-default
-    # Omniverse asset root.
-    #
-    # This prefix is load-bearing: both the character asset_path and the
-    # motion_library_path in default_config_ros.yaml are asset-root-relative
-    # (Isaac/People/Characters/ and
-    # Isaac/People/MotionLibrary/HumanMotionLibrary.usd), so IRA resolves them
-    # against the value set here. Only the scene stays absolute (local
-    # /isaac-sim/sil/...).
+    # at boot. The Halos asset_path / motion_library_path / scene paths in
+    # default_config_ros.yaml are all S3 URLs (or local /isaac-sim/sil/...),
+    # so no Nucleus call is actually needed by IRA - the JWT was only
+    # consumed by the kit-boot Nucleus token refresh against the
+    # extension-default Omniverse asset root.
     #
     # Override via sys.argv so SimulationApp forwards the flag to Kit before
     # provider_nucleus boots. Operator can pin a different prefix by passing
