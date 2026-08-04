@@ -8,17 +8,17 @@ isaacsim.replicator.agent:
     groups:
       inspect_workers:
         num: 1
-        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        asset_path: Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/inspect_loop.bt.json
       gather_workers:
         num: 1
-        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        asset_path: Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/gather_bend_loop.bt.json
       pickup_workers:
         num: 1
-        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        asset_path: Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/pickup_loop.bt.json
-    motion_library_path: https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/Behavior/110.0/Samples/Assets/MotionLibrary/Human/HumanMotionLibrary.usd
+    motion_library_path: Isaac/People/MotionLibrary/HumanMotionLibrary.usd
   sensor:
     groups:
       ceiling_cameras:

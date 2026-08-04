@@ -54,7 +54,11 @@ isaacsim.replicator.agent:
     base_stage_asset_path: /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
   character:
     root_prim_path: /World/Characters
-    motion_library_path: https://omniverse-content-staging.s3.us-west-2.amazonaws.com/Assets/Behavior/110.0/Samples/Assets/MotionLibrary/Human/HumanMotionLibrary.usd
+    # Asset-root-relative, like the group asset_paths below (run_actor_sdg.py pins
+    # the root). Must be spelled out: IRA 1.6.7 validates this field against a
+    # minLength schema and rejects "" with "'' is too short" before it would ever
+    # fall back to its own default.
+    motion_library_path: Isaac/People/MotionLibrary/HumanMotionLibrary.usd
     groups:
       # The 3 STOCK Halos groups — names MUST match runtime_patches
       # _HALOS_CHAR_SPAWN_TARGETS + srr_ground_truth.DEFAULT_CHAR_GROUPS positional
@@ -64,7 +68,7 @@ isaacsim.replicator.agent:
       #   pickup_workers  -> srr_char2 -> /gt/character_2 (canonical spawn -2.86,-15.28)
       inspect_workers:
         num: 1
-        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        asset_path: Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/srr_char0.bt.json
         # semantic_labels: stock IRA replicator label pairs as [[key, value]]
         # lists — `class: character` tags the spawned pedestrian mesh for the
@@ -74,14 +78,14 @@ isaacsim.replicator.agent:
           - character
       gather_workers:
         num: 1
-        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        asset_path: Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/srr_char1.bt.json
         semantic_labels:
         - - class
           - character
       pickup_workers:
         num: 1
-        asset_path: https://omniverse-content-staging.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/People/Characters/
+        asset_path: Isaac/People/Characters/
         behavior_tree: /isaac-sim/sil/configs/srr_char2.bt.json
         semantic_labels:
         - - class
