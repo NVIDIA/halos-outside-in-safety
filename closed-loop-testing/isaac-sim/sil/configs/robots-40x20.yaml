@@ -14,10 +14,11 @@
 #   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
 #      container (forklift-controller-b2) starts.
 #
-# The safety_indicator mesh was copied into the 40x20 scene from the 20x20 one, so
-# both robots enable it as in robots-2fl.yaml. The graph builder is fail-fast
-# (forklift_common.verify_prim_exists raises RuntimeError on a missing prim), so
-# deleting the mesh from the scene without disabling it here aborts the launch.
+# The safety_indicator disc is NOT in this scene's USD: indicator_loader.py
+# authors it from the `mesh:` blocks below, before the graph builder runs. The
+# 20x20 scenes still carry a baked disc and declare no `mesh:` block, so the
+# loader is a no-op for them. Declaring `mesh:` while a baked disc still sits at
+# the same prim path is an error — two sources of truth for one prim.
 #
 # One block per robot. Add a robot = add a block here + a controller service
 # (forklift-controller.yml) + the prim in the scene. The TGS rebalance list in
@@ -57,6 +58,14 @@ robots:
       enabled: true
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
       indicator_prim: /World/forklift_b/body/body/safety_indicator
+      # Disc geometry comes from indicator_loader.py, not from the scene USD.
+      # Every field is optional and defaults to the values below, which are the
+      # ones the 20x20 scene authored by hand. Drop the whole block to go back
+      # to requiring a baked disc in the scene.
+      mesh:
+        radius: 1.5                   # metres, final world-space size
+        segments: 32
+        height_offset: 0.0
 
   # Second forklift: scene-side prim is a clone of /World/forklift_b
   # (same ForkliftB asset payload -> same joints/params).
@@ -87,9 +96,13 @@ robots:
       robot_front: [-1.0, 0.0, 0.0]
 
     safety_indicator:
-      enabled: true                   # indicator mesh comes along with the prim clone
+      enabled: true
       muted_topic: /safety/is_muted   # shared global mute (per-forklift mute deferred)
       indicator_prim: /World/forklift_b2/body/body/safety_indicator
+      mesh:
+        radius: 1.5
+        segments: 32
+        height_offset: 0.0
 
 # Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
 # so it lives in its own builder (action_graphs/clock.py).

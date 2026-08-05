@@ -56,6 +56,7 @@ class ActorSDGRunner:
         enable_runtime_patches=True,
         enable_rtsp=True,
         enable_camera_spawn=True,
+        enable_indicator_spawn=True,
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
@@ -100,6 +101,10 @@ class ActorSDGRunner:
         # Config-driven no-op when no camera carries a spawn block.
         # See sil/scripts/camera_loader.py.
         self.enable_camera_spawn = enable_camera_spawn
+        # Safety-indicator disc geometry from robots.yaml `mesh:` blocks.
+        # Config-driven no-op when no robot carries one (scenes with a baked
+        # disc). See sil/scripts/indicator_loader.py.
+        self.enable_indicator_spawn = enable_indicator_spawn
 
         # Forklift control/odometry/safety + clock graphs (replace the
         # baked OmniGraphs that used to live in the scene USD). Driven by
@@ -191,6 +196,13 @@ class ActorSDGRunner:
             if self.enable_rtsp and self.cameras_config_path:
                 from action_graphs import build_rtsp_graph
                 build_rtsp_graph(self.cameras_config_path)
+            #   2b. indicator_loader authors the safety-indicator discs
+            #      declared with a `mesh:` block in robots.yaml. Must run
+            #      BEFORE build_forklift_graphs (the safety builder
+            #      fail-fasts on a missing disc prim).
+            if self.enable_indicator_spawn and self.robots_config_path:
+                from indicator_loader import spawn_indicators
+                spawn_indicators(self.robots_config_path)
             #   3. action_graphs.build_forklift_graphs wires the per-robot
             #      control + odometry + safety indicator graphs, replacing
             #      ROS_Forklift_Control_Graph / Odometry_Graph /
@@ -635,6 +647,9 @@ Examples:
                         default=True,
                         help="Skip camera_loader (dynamic Camera prim spawn from cameras.yaml spawn: blocks)")
     parser.add_argument("--robots-config", help="Path to robots.yaml for forklift control/odom/safety + clock graphs")
+    parser.add_argument("--no-indicator-spawn", dest="enable_indicator_spawn", action="store_false",
+                        default=True,
+                        help="Skip indicator_loader (safety-indicator disc geometry from robots.yaml mesh: blocks)")
     parser.add_argument("--no-forklift", dest="enable_forklift", action="store_false",
                         default=True,
                         help="Skip build_forklift_graphs (control + odometry + safety indicator)")
@@ -783,6 +798,7 @@ def main():
         enable_runtime_patches=args.enable_runtime_patches,
         enable_rtsp=args.enable_rtsp,
         enable_camera_spawn=args.enable_camera_spawn,
+        enable_indicator_spawn=args.enable_indicator_spawn,
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,
