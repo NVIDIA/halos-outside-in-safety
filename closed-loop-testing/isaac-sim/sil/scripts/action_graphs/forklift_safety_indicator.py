@@ -18,6 +18,8 @@ from .forklift_common import (
     clear_existing_graph,
     ensure_extensions_enabled,
     load_and_validate_robots_yaml,
+    resolve_indicator_colors,
+    resolve_indicator_prim,
     verify_prim_exists,
 )
 
@@ -62,8 +64,10 @@ def compute(db):
         return False
 
     color_attr = UsdGeom.Mesh(disk_prim).GetDisplayColorAttr()
-    # GREEN when muted (loading allowed), RED/ORANGE while the alarm is active.
-    target = Gf.Vec3f(0.0, 1.0, 0.0) if is_muted else Gf.Vec3f(1.0, 0.3, 0.0)
+    # Muted means loading is allowed; the alarm colour is the resting state.
+    # Both arrive as node inputs so this body stays identical for every robot.
+    rgb = db.inputs.color_muted if is_muted else db.inputs.color_alarm
+    target = Gf.Vec3f(float(rgb[0]), float(rgb[1]), float(rgb[2]))
 
     # Write only on a transition. USD is the state store, so no per-instance
     # bookkeeping is needed (a script-level dict would be shared by every
@@ -76,18 +80,14 @@ def compute(db):
     color_attr.Set([target])
     # flush: run_sdg.sh redirects stdout to a file, so without this the
     # transition lines sit in the block buffer and never reach the log.
+    # The colour is printed rather than named: it is configurable now, so
+    # "green" would be a guess about what the config says.
     print("[forklift-safety] " + graph_path + " -> "
-          + ("MUTED/green" if is_muted else "ALARM/orange")
+          + ("MUTED" if is_muted else "ALARM")
+          + " rgb=" + str(tuple(round(float(c), 3) for c in target))
           + " disk=" + indicator_prim, flush=True)
     return True
 '''
-
-
-def _resolve_indicator_prim(robot: dict) -> str:
-    cfg = robot.get("safety_indicator", {}) or {}
-    return cfg.get(
-        "indicator_prim", f"{robot['articulation_prim']}/body/body/safety_indicator"
-    )
 
 
 def _build_one_safety_graph(robot: dict) -> None:
@@ -101,7 +101,8 @@ def _build_one_safety_graph(robot: dict) -> None:
     name = robot["name"]
     graph_path = f"/World/{name}_SafetyGraph"
     muted_topic = cfg.get("muted_topic", "/safety/is_muted")
-    indicator_prim = _resolve_indicator_prim(robot)
+    indicator_prim = resolve_indicator_prim(robot)
+    color_muted, color_alarm = resolve_indicator_colors(robot)
 
     stage = omni.usd.get_context().get_stage()
     verify_prim_exists(stage, indicator_prim, "safety indicator")
@@ -120,6 +121,8 @@ def _build_one_safety_graph(robot: dict) -> None:
             keys.CREATE_ATTRIBUTES: [
                 ("Indicator.inputs:is_muted", "bool"),
                 ("Indicator.inputs:indicator_prim", "string"),
+                ("Indicator.inputs:color_muted", "colorf[3]"),
+                ("Indicator.inputs:color_alarm", "colorf[3]"),
             ],
             keys.SET_VALUES: [
                 ("SubscribeIsMuted.inputs:messageName", "Bool"),
@@ -127,6 +130,8 @@ def _build_one_safety_graph(robot: dict) -> None:
                 ("SubscribeIsMuted.inputs:topicName", muted_topic),
                 ("Indicator.inputs:script", _SAFETY_SCRIPT_BODY),
                 ("Indicator.inputs:indicator_prim", indicator_prim),
+                ("Indicator.inputs:color_muted", color_muted),
+                ("Indicator.inputs:color_alarm", color_alarm),
                 ("Indicator.inputs:usePath", False),
             ],
             keys.CONNECT: [
@@ -169,7 +174,10 @@ def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     for robot in robots:
         if not (robot.get("safety_indicator", {}) or {}).get("enabled", True):
             continue
-        prim = _resolve_indicator_prim(robot)
+        # Parse the colours here too, so a malformed palette fails before any
+        # graph is built rather than on the robot that happens to be last.
+        resolve_indicator_colors(robot)
+        prim = resolve_indicator_prim(robot)
         if prim in claims:
             raise RuntimeError(
                 f"safety indicator prim {prim} is claimed by both "

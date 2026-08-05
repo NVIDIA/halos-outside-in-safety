@@ -86,6 +86,68 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
     return robots, clock_cfg
 
 
+# Safety-indicator appearance, shared by the graph builder (which recolours the
+# disk) and indicator_loader.py (which authors it, initialised to the alarm
+# colour so a disk looks the same before the first ROS message as after an
+# unmute). Both read them from here, because a builder and a loader disagreeing
+# about the palette shows up as a disk that changes colour at startup for no
+# reason.
+DEFAULT_COLOR_MUTED = (0.0, 1.0, 0.0)
+DEFAULT_COLOR_ALARM = (1.0, 0.3, 0.0)
+
+
+def resolve_indicator_prim(robot: dict) -> str:
+    """Where this robot's indicator disk lives.
+
+    The fallback appends ForkliftB's internal hierarchy, which is right only
+    for that model — spell `indicator_prim` out in robots.yaml for anything
+    else. Shared so the loader authors the disk at exactly the path the graph
+    builder later verifies.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    return cfg.get(
+        "indicator_prim", f"{robot['articulation_prim']}/body/body/safety_indicator"
+    )
+
+
+def resolve_indicator_colors(robot: dict) -> tuple[tuple[float, float, float],
+                                                   tuple[float, float, float]]:
+    """(muted, alarm) RGB for this robot's disk, defaults applied.
+
+    Lives under `safety_indicator`, not under its `mesh:` block: a scene whose
+    disk is still baked into the USD has no `mesh:` block and would otherwise
+    be unable to change the colours.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    name = robot.get("name", "?")
+    out = []
+    for key, default in (("color_muted", DEFAULT_COLOR_MUTED),
+                         ("color_alarm", DEFAULT_COLOR_ALARM)):
+        value = cfg.get(key)
+        if value is None:
+            out.append(default)
+            continue
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            raise ValueError(
+                f"robots.yaml: '{name}'.safety_indicator.{key} must be [r, g, b], "
+                f"got {value!r}"
+            )
+        for component in value:
+            # bool is an int subclass; `true` in YAML must not read as 1.0.
+            if isinstance(component, bool) or not isinstance(component, (int, float)):
+                raise ValueError(
+                    f"robots.yaml: '{name}'.safety_indicator.{key} components must be "
+                    f"numbers, got {value!r}"
+                )
+            if not 0.0 <= float(component) <= 1.0:
+                raise ValueError(
+                    f"robots.yaml: '{name}'.safety_indicator.{key} components are "
+                    f"0..1, not 0..255, got {value!r}"
+                )
+        out.append(tuple(float(c) for c in value))
+    return out[0], out[1]
+
+
 def ensure_extensions_enabled() -> None:
     """Enable isaacsim.core.nodes + isaacsim.ros2.bridge if not yet on.
     Idempotent.

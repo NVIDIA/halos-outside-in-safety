@@ -58,6 +58,11 @@ robots:
       enabled: true
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
       indicator_prim: /World/forklift_b/body/body/safety_indicator
+      # RGB 0..1, read by the Action Graph on every state change. Outside
+      # `mesh:` on purpose: a scene with a baked disc has no mesh block and can
+      # still repaint. These two values are the defaults.
+      color_muted: [0.0, 1.0, 0.0]    # loading allowed
+      color_alarm: [1.0, 0.3, 0.0]    # resting state, also the disc's initial colour
       # Disc geometry comes from indicator_loader.py, not from the scene USD.
       # Every field is optional and defaults to the values below, which are the
       # ones the 20x20 scene authored by hand. Drop the whole block to go back
@@ -99,6 +104,8 @@ robots:
       enabled: true
       muted_topic: /safety/is_muted   # shared global mute (per-forklift mute deferred)
       indicator_prim: /World/forklift_b2/body/body/safety_indicator
+      color_muted: [0.0, 1.0, 0.0]
+      color_alarm: [1.0, 0.3, 0.0]
       mesh:
         radius: 1.5
         segments: 32

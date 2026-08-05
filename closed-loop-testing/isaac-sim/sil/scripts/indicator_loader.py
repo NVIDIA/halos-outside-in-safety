@@ -20,11 +20,12 @@ Per-robot `safety_indicator.mesh:` block, every field optional:
             segments: 32         # triangle-fan segments
             height_offset: 0.0   # metres above the parent origin
 
-The disc is created AT `indicator_prim`, so that one path stays the single
-place the geometry and the Action Graph agree on. Its parent must already
+The disc is created at the path `forklift_common.resolve_indicator_prim()`
+reports, the same resolver the Action Graph builder uses, so the geometry
+cannot land somewhere the builder then calls missing. Its parent must already
 exist — for a ForkliftB that is `body/body` inside the asset payload, and a
-different forklift model has a different internal path, which is exactly why
-the path is spelled out in the config rather than derived.
+different forklift model has a different internal path, which is why
+`indicator_prim` is worth spelling out in the config for anything else.
 
 `radius` is the final size: the 33 points are authored at that radius rather
 than as a 0.5-radius disc plus `xformOp:scale = (3, 3, 1)` the way the baked
@@ -33,10 +34,11 @@ the config is what you measure in the viewport; a NON-uniform parent scale is
 rejected, because it would draw an ellipse and look like a rendering fault
 rather than a config one.
 
-Colours are deliberately absent. The ScriptNode in
-`action_graphs/forklift_safety_indicator.py` still holds the muted and alarm
-colours, so a `color_*` key here would be silently overwritten on the first
-state change. They move together, in the change that puts them on node inputs.
+Colours are configured one level up, as `safety_indicator.color_muted` /
+`color_alarm`, not inside `mesh:`: they are read by the Action Graph on every
+state change, and a scene whose disc is still baked into the USD has no `mesh:`
+block yet may well want a different palette. This loader only uses the alarm
+colour, as the initial value of `displayColor`.
 
 Robots without a `mesh:` block are left untouched (disc assumed baked in the
 scene USD) — the loader is a no-op for them, which is what keeps the 20x20
@@ -67,10 +69,6 @@ _DEFAULT_RADIUS = 1.5
 _DEFAULT_SEGMENTS = 32
 _DEFAULT_HEIGHT_OFFSET = 0.0
 
-# Matches the authored alarm colour in the scene and the ScriptNode's
-# unmuted branch, so a disc that is never written looks the same as before.
-_INITIAL_COLOR = (1.0, 0.3, 0.0)
-
 
 def _load_robots_yaml(yaml_path: str) -> list[dict]:
     import yaml
@@ -95,9 +93,12 @@ def _validate_mesh_block(name: str, mesh: dict) -> None:
         raise ValueError(f"robots.yaml: '{name}'.safety_indicator.mesh must be a mapping")
     unknown = set(mesh) - {"radius", "segments", "height_offset"}
     if unknown:
+        hint = ""
+        if unknown & {"color_muted", "color_alarm"}:
+            hint = " — colours belong one level up, under safety_indicator"
         raise ValueError(
             f"robots.yaml: '{name}'.safety_indicator.mesh has unknown keys: "
-            f"{sorted(unknown)} (colours live in the Action Graph for now)"
+            f"{sorted(unknown)}{hint}"
         )
     for field in ("radius", "height_offset"):
         if field in mesh and not _is_number(mesh[field]):
@@ -155,17 +156,19 @@ def _parent_uniform_scale(stage, disc_path: str) -> float:
 def _create_one(stage, robot: dict) -> str:
     from pxr import Gf, Sdf, UsdGeom, Vt
 
-    from action_graphs.forklift_common import verify_prim_exists
+    from action_graphs.forklift_common import (
+        resolve_indicator_colors,
+        resolve_indicator_prim,
+        verify_prim_exists,
+    )
 
     name = robot.get("name", "?")
     cfg = robot["safety_indicator"]
     mesh_cfg = cfg["mesh"] or {}
-    path = cfg.get("indicator_prim")
-    if not path:
-        raise ValueError(
-            f"robots.yaml: '{name}'.safety_indicator needs 'indicator_prim' to say "
-            f"where the disc goes"
-        )
+    # Same resolver the graph builder uses, so the disc cannot be authored at a
+    # path the builder then reports as missing.
+    path = resolve_indicator_prim(robot)
+    _, color_alarm = resolve_indicator_colors(robot)
 
     verify_prim_exists(stage, path.rsplit("/", 1)[0], f"{name} indicator parent")
 
@@ -208,8 +211,10 @@ def _create_one(stage, robot: dict) -> str:
     ]))
     disc.GetSubdivisionSchemeAttr().Set(UsdGeom.Tokens.none)
     # Constant interpolation: one colour for the whole disc, which is what the
-    # ScriptNode overwrites on each state change.
-    disc.GetDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*_INITIAL_COLOR)]))
+    # ScriptNode overwrites on each state change. Initialised to the alarm
+    # colour, the resting state, so the disc does not visibly change colour on
+    # the first ROS message for no reason.
+    disc.GetDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*color_alarm)]))
     disc.GetNormalsAttr().Set(Vt.Vec3fArray([Gf.Vec3f(0.0, 0.0, 1.0)] * len(face_indices)))
     disc.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
 
