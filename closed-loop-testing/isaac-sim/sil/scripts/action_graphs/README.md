@@ -12,7 +12,7 @@ For one-shot USD prim tweaks (deactivate prims, set xform attributes, etc) see t
 | `forklift_common.py` | `build_forklift_graphs(config_path)`, `strip_baked_scene_graphs()` | Shared helpers + orchestrator that builds the three per-robot forklift graphs below. Driven by `robots.yaml`. |
 | `forklift_control.py` | `build_control_graph(config_path)` | Per-robot `cmd_vel` → swivel-IK → articulation graph. Replaces the baked `ROS_Forklift_Control_Graph`. |
 | `forklift_odometry.py` | `build_odometry_graph(config_path)` | Per-robot `IsaacComputeOdometry` → ROS 2 odom/tf graph. Replaces the baked `Odometry_Graph`. |
-| `forklift_safety_indicator.py` | `build_safety_graph(config_path)` | Per-robot `/safety/is_muted` → indicator-color graph. Replaces the baked `Safety_indicator_Graph`. |
+| `forklift_safety_indicator.py` | `build_safety_graph(config_path)` | Per-robot mute-topic → indicator-color graph. Replaces the baked `Safety_indicator_Graph`. See [Mute topic contract](#mute-topic-contract). |
 | `clock.py` | `build_clock_graph(config_path)` | ROS 2 `/clock` publisher graph. Replaces the baked `Clock_Publisher_Graph`. Driven by `robots.yaml` `clock:` block. |
 | `srr_ground_truth.py` | `build_srr_gt_graph()` | **Opt-in** (`run_actor_sdg.py --srr-gt`, default OFF). SRR regression-harness ground-truth `/gt/*/tf` publisher (`/World/SRRGraph`). Resolves the IRA-spawned characters + forklift from the live stage and pumps their Fabric world transforms each frame. No effect on a normal Halos run. |
 
@@ -51,6 +51,37 @@ Each builder:
 - **YAML config externalization.** Per-scenario shape (camera count, ROS topic list, etc.) lives in `sil/configs/*.yaml`, not in Python. Lets ops edit without touching code.
 - **Graph path under `/World/`.** Operator finds the graph in the Stage panel at a predictable location.
 - **Forklift graphs are Python builders here, not baked in USD.** In Isaac Sim 5.1 the forklift control / odometry / safety-indicator / clock graphs lived baked in the scene's USD layer. The 6.0 migration rebuilt them as the `forklift_*` and `clock` modules above; `forklift_common.strip_baked_scene_graphs()` removes any residual baked graphs at load time so the Python builders are authoritative — see refactor 1 in the architecture doc.
+
+## Mute topic contract
+
+`forklift_safety_indicator.py` subscribes to `/<name>/safety/is_muted`, derived from the robot's `name` by `forklift_common.resolve_muted_topic()`. comm-layer builds the same string in `SafetyRosBridge._robot_muted_topic()` for every robot listed in its `ROS_ROBOT_IDS` (set from `COMM_ROBOT_IDS` in the deployment profile).
+
+The two sides agree by convention, not by sharing a file: **comm-layer also runs in HIL, where `robots.yaml` does not exist**, so it cannot read the robot list from Isaac's config. That leaves exactly one thing duplicated — the list of robot names — and adding a robot means editing both `robots.yaml` and `COMM_ROBOT_IDS`.
+
+Forgetting the second edit is silent. Isaac subscribes to a topic nobody publishes, the disc stays on its alarm colour, and nothing is logged as an error.
+
+Check publisher counts rather than waiting for a message: the bridge publishes only when the UDP sequence changes, not at a fixed rate, so `ros2 topic echo` on a healthy topic can sit there for a long time with nothing to show.
+
+```bash
+docker exec comm-layer bash -lc \
+  'source /opt/ros/jazzy/setup.bash && ros2 topic info /forklift_b2/safety/is_muted'
+```
+
+`Publisher count: 0` means Isaac is listening but comm-layer is not mirroring that name; `Unknown topic` means neither side has it, so the graph did not build either. A healthy mirror reports one of each:
+
+```
+Type: std_msgs/msg/Bool
+Publisher count: 1
+Subscription count: 1
+```
+
+The topic each graph actually subscribed to is printed at build time:
+
+```
+[forklift-safety] Safety graph built at /World/forklift_b2_SafetyGraph (disk=..., topic=/forklift_b2/safety/is_muted)
+```
+
+Every mirror carries the **same value** as the global `/safety/is_muted`. PSF reasons about camera-covered zones, not about named trucks, and its UDP packet has no field for a robot id — so per-robot topics are currently about the shape of the interface, not about per-truck decisions. Scenes that predate the mirrors (both 20x20 configs) name `muted_topic: /safety/is_muted` explicitly and are unaffected.
 
 ## Lifecycle ordering
 

@@ -59,6 +59,9 @@ robots:
     # --- safety indicator (Safety_indicator_Graph) ---
     safety_indicator:
       enabled: true
+      # Explicit on purpose: the default is now the per-robot
+      # /<name>/safety/is_muted, which only exists where comm-layer is told to
+      # mirror it (COMM_ROBOT_IDS). This scene stays on the global topic.
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
       indicator_prim: /World/forklift_b/body/body/safety_indicator
 

@@ -13,6 +13,12 @@
 #        --cameras-config /isaac-sim/sil/configs/cameras-40x20.yaml
 #   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
 #      container (forklift-controller-b2) starts.
+#   4. COMM_ROBOT_IDS (sil.env) must list the same names, or comm-layer never
+#      publishes the /<name>/safety/is_muted the indicators here listen to and
+#      the discs sit on their alarm colour with nothing in the log. comm-layer
+#      also runs in HIL, where this file does not exist, so it cannot read the
+#      names from here — the list is duplicated on purpose. Verify with:
+#        ros2 topic info /forklift_b2/safety/is_muted   # want Publisher count: 1
 #
 # The safety_indicator disc is NOT in this scene's USD: indicator_loader.py
 # authors it from the `mesh:` blocks below, before the graph builder runs. The
@@ -59,7 +65,10 @@ robots:
     # --- safety indicator (Safety_indicator_Graph) ---
     safety_indicator:
       enabled: true
-      muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
+      # No muted_topic here: it defaults to /<name>/safety/is_muted, which is what
+      # comm-layer publishes for every robot listed in COMM_ROBOT_IDS (sil.env).
+      # Both halves derive the name from the robot name, so it is never typed
+      # twice. Name it explicitly to point a robot at the global /safety/is_muted.
       indicator_prim: /World/forklift_b/body/body/safety_indicator
       # RGB 0..1, read by the Action Graph on every state change. Outside
       # `mesh:` on purpose: a scene with a baked disc has no mesh block and can
@@ -101,7 +110,7 @@ robots:
 
     safety_indicator:
       enabled: true
-      muted_topic: /safety/is_muted   # shared global mute (per-forklift mute deferred)
+      # topic defaults to /forklift_b2/safety/is_muted — see forklift_b above
       indicator_prim: /World/forklift_b2/body/body/safety_indicator
       color_muted: [0.0, 1.0, 0.0]
       color_alarm: [1.0, 0.3, 0.0]

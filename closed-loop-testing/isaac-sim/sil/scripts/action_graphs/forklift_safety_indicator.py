@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Halos SIL forklift safety indicator Action Graph builder.
 
-Replaces the baked Safety_indicator_Graph: std_msgs/Bool /safety/is_muted
+Replaces the baked Safety_indicator_Graph: a std_msgs/Bool mute topic
 -> indicator disk display color (green when muted, red/orange otherwise).
+
+The topic defaults to the per-robot `/<name>/safety/is_muted` that comm-layer
+mirrors; scenes still on the single global `/safety/is_muted` name it explicitly.
 
 Builds /World/<name>_SafetyGraph per robot in robots.yaml.
 Shared helpers live in forklift_common.py.
@@ -20,6 +23,7 @@ from .forklift_common import (
     load_and_validate_robots_yaml,
     resolve_indicator_colors,
     resolve_indicator_prim,
+    resolve_muted_topic,
     verify_prim_exists,
 )
 
@@ -100,7 +104,7 @@ def _build_one_safety_graph(robot: dict) -> None:
 
     name = robot["name"]
     graph_path = f"/World/{name}_SafetyGraph"
-    muted_topic = cfg.get("muted_topic", "/safety/is_muted")
+    muted_topic = resolve_muted_topic(robot)
     indicator_prim = resolve_indicator_prim(robot)
     color_muted, color_alarm = resolve_indicator_colors(robot)
 
@@ -158,12 +162,15 @@ def _build_one_safety_graph(robot: dict) -> None:
     is_muted_attr = stage.GetAttributeAtPath(f"{graph_path}/Indicator.inputs:is_muted")
     is_muted_attr.AddConnection(Sdf.Path(f"{graph_path}/SubscribeIsMuted.outputs:data"))
 
-    print(f"[forklift-safety] Safety graph built at {graph_path} (disk={indicator_prim})",
-          flush=True)
+    # The topic is in the log because it is now derived rather than written in
+    # the config: this line is what you compare against `ros2 topic list` when a
+    # disk stays on its alarm colour because nobody publishes what it listens to.
+    print(f"[forklift-safety] Safety graph built at {graph_path} "
+          f"(disk={indicator_prim}, topic={muted_topic})", flush=True)
 
 
 def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
-    """Build the /safety/is_muted -> indicator color graph per robot."""
+    """Build the mute-topic -> indicator color graph per robot."""
     robots, _ = load_and_validate_robots_yaml(config_path)
 
     # Two robots resolving to the same disk is the signature of the bug this
@@ -174,9 +181,11 @@ def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     for robot in robots:
         if not (robot.get("safety_indicator", {}) or {}).get("enabled", True):
             continue
-        # Parse the colours here too, so a malformed palette fails before any
-        # graph is built rather than on the robot that happens to be last.
+        # Parse the colours and the topic here too, so a malformed palette or a
+        # relative topic name fails before any graph is built rather than on the
+        # robot that happens to be last.
         resolve_indicator_colors(robot)
+        resolve_muted_topic(robot)
         prim = resolve_indicator_prim(robot)
         if prim in claims:
             raise RuntimeError(

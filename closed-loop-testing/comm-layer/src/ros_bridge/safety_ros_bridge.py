@@ -16,13 +16,14 @@ Based on architecture diagram:
 """
 
 import logging
+import re
 import threading
 import time
 import json
 from dataclasses import dataclass
 from datetime import datetime
 from queue import Queue, Empty
-from typing import Optional, Callable
+from typing import List, Optional, Callable
 
 import sys
 import os
@@ -87,6 +88,10 @@ class SafetyRosBridge:
     - /safety/status (Int32): Safety status code (1=MUTED, 2=ACTIVE)
     - /safety/is_alarm (Bool): True if alarm is active
     - /safety/is_muted (Bool): True if safety is muted
+    - /<robot>/safety/is_muted (Bool): same value again, one topic per robot in
+      `robot_ids`. PSF reasons about camera-covered zones, not about named
+      trucks, so these mirrors are about the shape of the interface, not about
+      per-truck decisions — they are all equal to /safety/is_muted.
     
     Usage:
         # OPC UA mode
@@ -103,7 +108,8 @@ class SafetyRosBridge:
         input_queue: Optional[Queue] = None,
         opc_ua_url: Optional[str] = None,
         topic_prefix: str = "/safety",
-        publish_rate_hz: float = 10.0
+        publish_rate_hz: float = 10.0,
+        robot_ids: Optional[List[str]] = None
     ):
         """
         Initialize ROS2 bridge
@@ -113,11 +119,14 @@ class SafetyRosBridge:
             opc_ua_url: OPC UA server URL (OPC UA mode)
             topic_prefix: ROS2 topic prefix
             publish_rate_hz: Publish rate in Hz
+            robot_ids: Robots to mirror is_muted to, as /<id><prefix>/is_muted.
+                Empty means only the global topic is published.
         """
         self.opc_ua_url = opc_ua_url
         self.topic_prefix = topic_prefix
         self.publish_rate = publish_rate_hz
         self.input_queue = input_queue
+        self.robot_ids = list(robot_ids or [])
         
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -259,6 +268,9 @@ class SafetyRosBridge:
             msg_muted.data = self._current_is_muted
             self._publishers['is_muted'].publish(msg_muted)
             
+            for robot_id in self.robot_ids:
+                self._publishers[f"is_muted:{robot_id}"].publish(msg_muted)
+            
         except Exception as e:
             logger.error(f"Failed to publish to ROS2: {e}")
     
@@ -269,6 +281,16 @@ class SafetyRosBridge:
     @property
     def last_command(self) -> Optional[SafetyCommand]:
         return self._last_command
+    
+    def _robot_muted_topic(self, robot_id: str) -> str:
+        """Per-robot mirror of the global is_muted topic.
+        
+        The prefix is kept so a deployment that renames /safety renames both the
+        global topic and the mirrors together. Isaac derives the same name from
+        the robot's `name` in robots.yaml, so the string is spelled out once on
+        each side and never typed into a config file.
+        """
+        return f"/{robot_id}{self.topic_prefix}/is_muted"
     
     def _setup_ros2(self):
         """Setup ROS2 node and publishers"""
@@ -295,6 +317,22 @@ class SafetyRosBridge:
             )
             
             logger.info(f"ROS2 publishers created with prefix: {self.topic_prefix}")
+            
+            # Per-robot mirrors of is_muted. PSF decides for a covered zone, not for a
+            # named truck, so every one of these carries the SAME value as the global
+            # topic. They exist so subscribers can already bind to a per-robot name;
+            # the day PSF can attribute a decision to a truck, only this loop changes.
+            for robot_id in self.robot_ids:
+                topic = self._robot_muted_topic(robot_id)
+                self._publishers[f"is_muted:{robot_id}"] = self._node.create_publisher(
+                    Bool, topic, 10
+                )
+            if self.robot_ids:
+                logger.info(
+                    "Mirroring is_muted to %s — all carry the same global decision "
+                    "(PSF does not attribute mute per robot yet)",
+                    ", ".join(self._robot_muted_topic(r) for r in self.robot_ids)
+                )
             
         except Exception as e:
             logger.error(f"Failed to setup ROS2: {e}")
@@ -473,6 +511,27 @@ class SafetyRosBridge:
                 rclpy.spin_once(self._node, timeout_sec=0.001)
 
 
+def _parse_robot_ids(raw: str) -> List[str]:
+    """Split the --robot-ids string, rejecting anything that is not a ROS name token.
+    
+    An id that cannot form a valid topic would otherwise become a publisher nobody
+    can reach, which looks exactly like the failure this feature exists to make
+    visible: a subscriber waiting on a topic that is never published. Better to
+    refuse to start.
+    """
+    ids = [token.strip() for token in raw.split(',') if token.strip()]
+    for robot_id in ids:
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', robot_id):
+            raise SystemExit(
+                f"--robot-ids: '{robot_id}' is not a valid ROS name token "
+                f"(letters, digits and underscore; cannot start with a digit)"
+            )
+    duplicates = {robot_id for robot_id in ids if ids.count(robot_id) > 1}
+    if duplicates:
+        raise SystemExit(f"--robot-ids: repeated entries {sorted(duplicates)}")
+    return ids
+
+
 def main():
     """Standalone entry point"""
     import argparse
@@ -482,7 +541,12 @@ def main():
     parser.add_argument('--direct', action='store_true', help='Direct mode (start ESL receiver)')
     parser.add_argument('--topic-prefix', default='/safety', help='ROS2 topic prefix')
     parser.add_argument('--rate', type=float, default=10.0, help='Publish rate (Hz)')
+    parser.add_argument('--robot-ids', default='',
+                        help='Comma-separated robots to mirror is_muted to, e.g. '
+                             '"forklift_b,forklift_b2". Empty publishes the global '
+                             'topic only. Must match the robot names in robots.yaml.')
     args = parser.parse_args()
+    robot_ids = _parse_robot_ids(args.robot_ids)
     
     print("""
 ╔══════════════════════════════════════════════════════════╗
@@ -502,7 +566,8 @@ def main():
     bridge = SafetyRosBridge(
         opc_ua_url=args.opcua,
         topic_prefix=args.topic_prefix,
-        publish_rate_hz=args.rate
+        publish_rate_hz=args.rate,
+        robot_ids=robot_ids
     )
     
     # Add logging callback (receives tracked state from bridge)

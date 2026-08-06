@@ -110,6 +110,35 @@ def resolve_indicator_prim(robot: dict) -> str:
     )
 
 
+# Must stay in step with SafetyRosBridge._robot_muted_topic() in comm-layer, which
+# builds the same name from the same robot name. The two systems agree by
+# convention rather than by sharing a file: comm-layer also runs in HIL, where
+# robots.yaml does not exist. Deriving it on both sides means the string is
+# written once per system and never typed into a config file, so the halves
+# cannot drift through a typo — only through someone changing one of these two
+# functions.
+DEFAULT_SAFETY_TOPIC_PREFIX = "/safety"
+
+
+def resolve_muted_topic(robot: dict) -> str:
+    """Which topic this robot's indicator listens on.
+
+    Defaults to `/<name>/safety/is_muted`, the per-robot mirror comm-layer
+    publishes when its ROS_ROBOT_IDS lists this robot. Scenes that predate the
+    mirrors keep working by naming the global `/safety/is_muted` explicitly.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    topic = cfg.get(
+        "muted_topic", f"/{robot['name']}{DEFAULT_SAFETY_TOPIC_PREFIX}/is_muted"
+    )
+    if not isinstance(topic, str) or not topic.startswith("/"):
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.muted_topic "
+            f"must be an absolute topic name starting with '/', got {topic!r}"
+        )
+    return topic
+
+
 def resolve_odom_frames(robot: dict) -> tuple[str, str]:
     """(odom_frame_id, base_frame_id) for this robot's TF edge.
 
