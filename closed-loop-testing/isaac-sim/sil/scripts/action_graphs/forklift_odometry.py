@@ -18,6 +18,7 @@ from .forklift_common import (
     clear_existing_graph,
     ensure_extensions_enabled,
     load_and_validate_robots_yaml,
+    resolve_odom_frames,
     set_rel_target,
     verify_prim_exists,
 )
@@ -38,6 +39,7 @@ def _build_one_odometry_graph(robot: dict) -> None:
     robot_front = cfg.get("robot_front", [-1.0, 0.0, 0.0])
     odom_topic = cfg.get("odom_topic")
     tf_topic = cfg.get("tf_topic")
+    odom_frame, base_frame = resolve_odom_frames(robot)
 
     stage = omni.usd.get_context().get_stage()
     verify_prim_exists(stage, robot_prim, "chassis")
@@ -45,6 +47,13 @@ def _build_one_odometry_graph(robot: dict) -> None:
 
     set_values = [
         ("PublishOdometry.inputs:robotFront", tuple(robot_front)),
+        # Both nodes describe the same edge of the tree, so both must be told
+        # the same pair. Leaving them at the node defaults (odom -> base_link)
+        # made every robot publish the same edge onto one /tf.
+        ("PublishOdometry.inputs:odomFrameId", odom_frame),
+        ("PublishOdometry.inputs:chassisFrameId", base_frame),
+        ("PublishRawTF.inputs:parentFrameId", odom_frame),
+        ("PublishRawTF.inputs:childFrameId", base_frame),
     ]
     if odom_topic:
         set_values.append(("PublishOdometry.inputs:topicName", odom_topic))
@@ -86,12 +95,30 @@ def _build_one_odometry_graph(robot: dict) -> None:
         stage, f"{graph_path}/ComputeOdometry", "inputs:chassisPrim", robot_prim
     )
 
-    print(f"[forklift-odometry] Odometry graph built at {graph_path} (robot={robot_prim})")
+    print(f"[forklift-odometry] Odometry graph built at {graph_path} "
+          f"(robot={robot_prim}, tf={odom_frame}->{base_frame})", flush=True)
 
 
 def build_odometry_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     """Build the IsaacComputeOdometry -> ROS2 publishers graph per robot."""
     robots, _ = load_and_validate_robots_yaml(config_path)
+
+    # Two robots on one frame pair is the bug this phase exists to remove, and
+    # it is silent: /tf carries both edges and consumers see the pose flicker
+    # between two trucks. Derived frames cannot collide (robot names are unique
+    # and validated), so this only catches a hand-written pair.
+    claims: dict[tuple[str, str], str] = {}
+    for robot in robots:
+        if not (robot.get("odometry", {}) or {}).get("enabled", True):
+            continue
+        frames = resolve_odom_frames(robot)
+        if frames in claims:
+            raise RuntimeError(
+                f"TF frames {frames[0]}->{frames[1]} are claimed by both "
+                f"{claims[frames]} and {robot['name']} — each robot needs its own pair"
+            )
+        claims[frames] = robot["name"]
+
     ensure_extensions_enabled()
     for robot in robots:
         _build_one_odometry_graph(robot)

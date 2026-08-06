@@ -52,6 +52,9 @@ robots:
       odom_topic: forklift_b/odom     # per-robot namespace
       tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
       robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
+      # TF frame ids default to <name>/odom -> <name>/base_link, so two trucks do
+      # not publish the same edge onto one /tf. Override with odom_frame_id /
+      # base_frame_id to get the bare ROS names back.
 
     # --- safety indicator (Safety_indicator_Graph) ---
     safety_indicator:
@@ -80,11 +83,7 @@ robots:
     odometry:
       enabled: true
       odom_topic: forklift_b2/odom
-      tf_topic: tf                    # NOTE: TF frame ids are NOT per-robot yet — both
-                                      # forklifts publish the node-default odom->base_link
-                                      # on /tf (cosmetic duplicate in RViz; controllers
-                                      # read odom topics, not TF). Per-robot frame ids
-                                      # are a known follow-up.
+      tf_topic: tf                    # frame ids default to forklift_b2/odom -> .../base_link
       robot_front: [-1.0, 0.0, 0.0]
 
     safety_indicator:

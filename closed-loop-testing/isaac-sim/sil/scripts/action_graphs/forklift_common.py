@@ -110,6 +110,44 @@ def resolve_indicator_prim(robot: dict) -> str:
     )
 
 
+def resolve_odom_frames(robot: dict) -> tuple[str, str]:
+    """(odom_frame_id, base_frame_id) for this robot's TF edge.
+
+    Defaults are namespaced with the robot name, matching what `odom_topic`
+    already does. The node defaults are the bare `odom` -> `base_link`, so
+    every robot published the same edge onto one /tf and a consumer saw the
+    pose flick between trucks. Namespacing by default fixes that for every
+    scene at once rather than only where someone remembered to override it;
+    the cost is that a single-robot scene also gets `forklift_b/odom` instead
+    of the conventional bare `odom`, which explicit keys can restore.
+    """
+    cfg = robot.get("odometry", {}) or {}
+    name = robot["name"]
+    out = []
+    for key, default in (("odom_frame_id", f"{name}/odom"),
+                         ("base_frame_id", f"{name}/base_link")):
+        value = cfg.get(key, default)
+        if not isinstance(value, str) or not value:
+            raise ValueError(
+                f"robots.yaml: '{name}'.odometry.{key} must be a non-empty string, "
+                f"got {value!r}"
+            )
+        if value.startswith("/"):
+            # tf2 rejects leading slashes outright, and it fails at publish time
+            # inside the bridge where the message is easy to miss.
+            raise ValueError(
+                f"robots.yaml: '{name}'.odometry.{key} must not start with '/' "
+                f"(tf2 rejects it), got {value!r}"
+            )
+        out.append(value)
+    if out[0] == out[1]:
+        raise ValueError(
+            f"robots.yaml: '{name}'.odometry frame ids are identical ({out[0]}); "
+            f"a TF edge needs two distinct frames"
+        )
+    return out[0], out[1]
+
+
 def resolve_indicator_colors(robot: dict) -> tuple[tuple[float, float, float],
                                                    tuple[float, float, float]]:
     """(muted, alarm) RGB for this robot's disk, defaults applied.

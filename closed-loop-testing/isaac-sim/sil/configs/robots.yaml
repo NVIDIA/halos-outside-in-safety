@@ -47,6 +47,9 @@ robots:
       odom_topic: forklift_b/odom     # per-robot namespace
       tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
       robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
+      # TF frame ids default to <name>/odom -> <name>/base_link, so two trucks do
+      # not publish the same edge onto one /tf. Override with odom_frame_id /
+      # base_frame_id to get the bare ROS names back.
 
     # --- safety indicator (Safety_indicator_Graph) ---
     safety_indicator:
