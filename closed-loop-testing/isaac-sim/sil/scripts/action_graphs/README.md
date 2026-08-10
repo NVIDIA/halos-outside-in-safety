@@ -92,6 +92,12 @@ SimulationApp(experience=...) [ext load]
 SimulationManager.load_config_file(yaml)
         |
         v
+forklift_overlay.generate_overlay()        <- sibling module; forklift prims from
+        |                                     robots.yaml spawn: blocks, into a layer
+        |                                     that sublayers the scene. Retargets
+        |                                     base_stage_asset_path to it, so the
+        |                                     trucks are there when the stage opens.
+        v
 await setup_simulation()
         |   - EnvironmentLoader.load()     (stage + USD-baked AGs load)
         |   - CharacterLoader.load()       (IRA spawns chars at NavMesh-random positions)
