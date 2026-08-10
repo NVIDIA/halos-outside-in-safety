@@ -23,12 +23,13 @@ tilted has no way to say so here — that is a deliberate limit, not an oversigh
 and the day it arrives an `orientation_wxyz` escape hatch belongs next to `yaw_deg`.
 
 Unlike `camera_loader.py` and `indicator_loader.py`, this does NOT author into the
-live stage. IRA bakes the navmesh inside `setup_simulation()`, and every hook we
-have runs after that returns, so a truck authored at runtime is not an obstacle:
-characters path straight through it and nothing raises. Cameras and indicator
-discs are immune because they are neither physics bodies nor navmesh obstacles;
-a forklift is both. The overlay exists so the truck is present before IRA opens
-the stage, which is the only moment early enough.
+live stage. Not for pathfinding reasons — the scene's navmesh settings carry
+`excludeRigidBodies`, so a forklift is skipped by the bake whether or not it is
+there when it runs, and a point under a parked truck measures as walkable. The
+reasons are that the static USD tooling (`scene_scan.py`, the waypoint
+generator) reads files rather than the live stage, that a definition in a file
+can be reviewed and diffed while a session layer dies with the process, and that
+PhysX then sees exactly the shape the baked scene used to give it.
 
 Idempotency needs no marker attribute: the layer is rewritten whole on every run.
 A robot whose prim path is ALREADY authored in the scene is an error — the baked

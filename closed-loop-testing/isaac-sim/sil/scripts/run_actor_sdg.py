@@ -171,9 +171,8 @@ class ActorSDGRunner:
 
             # Forklifts declared with a `spawn:` block in robots.yaml are added by
             # a generated layer that sublayers the scene, and the config is pointed
-            # at that layer instead. This is the last moment early enough: the
-            # trucks must exist before setup_simulation() bakes the navmesh, or
-            # characters walk straight through them. Config-driven no-op when no
+            # at that layer instead — here, because setup_simulation() opens the
+            # stage and there is no seam inside it. Config-driven no-op when no
             # robot carries a spawn: block. See sil/scripts/forklift_overlay.py.
             if self.enable_forklift_spawn and self.robots_config_path:
                 from forklift_overlay import generate_overlay
