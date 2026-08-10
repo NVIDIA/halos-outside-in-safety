@@ -1,0 +1,258 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Halos SIL forklift overlay — authors forklift prims from robots.yaml.
+
+Adding a forklift used to mean editing the scene USD: duplicate the prim, retype
+the payload, retype the transform. This module generates a small USD layer that
+sublayers the scene and adds one prim per robot carrying a `spawn:` block, so the
+fleet is described in `robots.yaml` and the scene describes only the warehouse.
+
+    robots:
+      - name: forklift_b2
+        articulation_prim: /World/forklift_b2
+        spawn:
+          asset_path: https://.../Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+          position: [2.0, -21.63, 0.0]   # metres, world space
+          yaw_deg: 180.0                 # optional, default 0 — rotation about Z
+          scale: 1.0                     # optional, default 1 — scalar or [x, y, z]
+
+`yaw_deg` rather than a quaternion: every truck in every scene so far sits flat on
+the floor and differs only in heading, and `(6.123234e-17, 0, 0, 1)` is not a
+number anyone should have to type or recognise. A truck that genuinely needs to be
+tilted has no way to say so here — that is a deliberate limit, not an oversight,
+and the day it arrives an `orientation_wxyz` escape hatch belongs next to `yaw_deg`.
+
+Unlike `camera_loader.py` and `indicator_loader.py`, this does NOT author into the
+live stage. IRA bakes the navmesh inside `setup_simulation()`, and every hook we
+have runs after that returns, so a truck authored at runtime is not an obstacle:
+characters path straight through it and nothing raises. Cameras and indicator
+discs are immune because they are neither physics bodies nor navmesh obstacles;
+a forklift is both. The overlay exists so the truck is present before IRA opens
+the stage, which is the only moment early enough.
+
+Idempotency needs no marker attribute: the layer is rewritten whole on every run.
+A robot whose prim path is ALREADY authored in the scene is an error — the baked
+truck and the YAML both claim the path, and silently letting the overlay win would
+hide a half-finished migration.
+
+Generated, never hand-edited, and gitignored. It is written next to the scene so
+the relative sublayer stays readable and the static USD tooling (scene_scan.py,
+the waypoint generator) can open it the same way it opens the scene.
+"""
+
+from __future__ import annotations
+
+import datetime
+import math
+import os
+
+_OVERLAY_SUFFIX = ".overlay.usda"
+
+
+def _validate_spawn(robot: dict) -> tuple[str, str, tuple[float, float, float], float,
+                                          tuple[float, float, float]]:
+    """(prim_path, asset_path, position, yaw_deg, scale) for one robot, validated."""
+    name = robot.get("name", "?")
+    cfg = robot["spawn"]
+    if not isinstance(cfg, dict):
+        raise ValueError(f"robots.yaml: '{name}'.spawn must be a mapping, got {cfg!r}")
+
+    prim_path = robot.get("articulation_prim")
+    if not isinstance(prim_path, str) or not prim_path.startswith("/"):
+        raise ValueError(
+            f"robots.yaml: '{name}'.articulation_prim must be an absolute prim path "
+            f"to spawn this robot, got {prim_path!r}"
+        )
+
+    asset_path = cfg.get("asset_path")
+    if not isinstance(asset_path, str) or not asset_path:
+        raise ValueError(f"robots.yaml: '{name}'.spawn.asset_path is required")
+
+    position = cfg.get("position")
+    if not isinstance(position, (list, tuple)) or len(position) != 3:
+        raise ValueError(
+            f"robots.yaml: '{name}'.spawn.position must be [x, y, z], got {position!r}"
+        )
+    for component in position:
+        if isinstance(component, bool) or not isinstance(component, (int, float)):
+            raise ValueError(
+                f"robots.yaml: '{name}'.spawn.position components must be numbers, "
+                f"got {position!r}"
+            )
+
+    yaw_deg = cfg.get("yaw_deg", 0.0)
+    if isinstance(yaw_deg, bool) or not isinstance(yaw_deg, (int, float)):
+        raise ValueError(f"robots.yaml: '{name}'.spawn.yaw_deg must be a number, got {yaw_deg!r}")
+
+    scale = cfg.get("scale", 1.0)
+    if isinstance(scale, (int, float)) and not isinstance(scale, bool):
+        scale = (float(scale),) * 3
+    elif isinstance(scale, (list, tuple)) and len(scale) == 3:
+        scale = tuple(float(s) for s in scale)
+    else:
+        raise ValueError(
+            f"robots.yaml: '{name}'.spawn.scale must be a number or [x, y, z], got {scale!r}"
+        )
+
+    return (prim_path, asset_path,
+            tuple(float(c) for c in position), float(yaw_deg), scale)
+
+
+def _yaw_to_quat(yaw_deg: float):
+    """Quaternion for a rotation about Z, as (w, x, y, z)."""
+    half = math.radians(yaw_deg) / 2.0
+    w, z = math.cos(half), math.sin(half)
+    # cos(pi/2) is 6.1e-17, not 0. Snapping it keeps the generated file readable
+    # without changing the pose: the two differ far below single-precision.
+    snap = lambda v: 0.0 if abs(v) < 1e-12 else v  # noqa: E731
+    return snap(w), 0.0, 0.0, snap(z)
+
+
+def _author_robot(layer, prim_path: str, asset_path: str, position, yaw_deg: float, scale) -> None:
+    from pxr import Gf, Sdf
+
+    prim = Sdf.CreatePrimInLayer(layer, Sdf.Path(prim_path))
+    # Ancestors stay `over` (CreatePrimInLayer's default), so the overlay adds the
+    # truck to the scene's /World without redefining it.
+    prim.specifier = Sdf.SpecifierDef
+    prim.payloadList.prependedItems.append(Sdf.Payload(asset_path))
+
+    w, x, y, z = _yaw_to_quat(yaw_deg)
+
+    def attr(name, typename, value, uniform=False):
+        spec = Sdf.AttributeSpec(
+            prim, name, typename,
+            Sdf.VariabilityUniform if uniform else Sdf.VariabilityVarying,
+        )
+        spec.default = value
+
+    attr("xformOp:translate", Sdf.ValueTypeNames.Double3, Gf.Vec3d(*position))
+    attr("xformOp:orient", Sdf.ValueTypeNames.Quatf, Gf.Quatf(w, Gf.Vec3f(x, y, z)))
+    attr("xformOp:scale", Sdf.ValueTypeNames.Float3, Gf.Vec3f(*scale))
+    # Same op order the scene authored by hand. Without it the ops are ignored and
+    # the truck lands at the origin, which reads as a bad position rather than a
+    # missing token list.
+    attr("xformOpOrder", Sdf.ValueTypeNames.TokenArray,
+         ["xformOp:translate", "xformOp:orient", "xformOp:scale"], uniform=True)
+
+
+def _assert_not_already_in_scene(base_stage_path: str, claims: dict[str, str]) -> None:
+    """Fail if the scene already authors a prim the YAML wants to spawn."""
+    from pxr import Usd
+
+    # LoadNone: composition without pulling payloads. The check needs the prim to
+    # exist, not its contents, and the 40x20 payloads are hundreds of megabytes.
+    stage = Usd.Stage.Open(base_stage_path, load=Usd.Stage.LoadNone)
+    if stage is None:
+        raise RuntimeError(
+            f"[forklift-overlay] Could not open the base stage to check for "
+            f"conflicting prims: {base_stage_path}"
+        )
+    for prim_path, name in claims.items():
+        if stage.GetPrimAtPath(prim_path):
+            raise RuntimeError(
+                f"[forklift-overlay] '{name}' declares spawn: but {prim_path} is "
+                f"already authored in {base_stage_path}. Two definitions of one "
+                f"truck — delete the prim from the scene USD, or drop the spawn: "
+                f"block to keep using the baked one."
+            )
+
+
+# Set from the sublayer list we build ourselves; copying the scene's would make
+# the overlay sublayer whatever the scene sublayers, not the scene.
+_LAYER_METADATA_NOT_COPIED = {"subLayers", "subLayerOffsets"}
+
+
+def _copy_root_layer_metadata(base_stage_path: str, layer) -> None:
+    """Repeat the scene's layer-level metadata on the overlay.
+
+    Prim composition flows up through sublayers; a good deal of LAYER metadata
+    does not, and is read off the root layer — which is now the overlay rather
+    than the scene. Rather than guess which readers care, everything the scene
+    declares at layer level is repeated verbatim, so the overlay presents the
+    same face to Isaac that the scene did.
+
+    Two of these are load-bearing here, and both fail quietly:
+
+    `customLayerData` holds `navmeshSettings` — the agent radius, step height
+    and slope the navmesh bakes with. Without it IRA burns its whole 100-frame
+    budget on a bake that never starts and reports "check whether the stage has
+    a valid NavmeshVolume" while the volume sits there intact.
+
+    `defaultPrim` is root-layer-only by definition (`UsdStage.GetDefaultPrim`
+    reads the root layer, not the composed stage). Losing it leaves the stage
+    with no nominated root, and the navmesh then bakes to nothing: the volumes
+    and floor are all still there, but characters spawn at the origin and every
+    MoveTo fails, with the navmesh itself reported as present and healthy.
+    """
+    from pxr import Sdf
+
+    base_layer = Sdf.Layer.FindOrOpen(base_stage_path)
+    if base_layer is None:
+        raise RuntimeError(
+            f"[forklift-overlay] Could not open the base stage as a layer: {base_stage_path}"
+        )
+    for key in base_layer.pseudoRoot.ListInfoKeys():
+        if key in _LAYER_METADATA_NOT_COPIED:
+            continue
+        layer.pseudoRoot.SetInfo(key, base_layer.pseudoRoot.GetInfo(key))
+
+
+def generate_overlay(robots_config_path: str, base_stage_path: str) -> str | None:
+    """Write the overlay for every robot with a `spawn:` block.
+
+    Returns the overlay path, or None when no robot declares one — in which case
+    the caller keeps loading the scene directly, which is what makes the migration
+    incremental: a scene with baked trucks needs no overlay and gets none.
+    """
+    from pxr import Sdf
+
+    from action_graphs.forklift_common import load_and_validate_robots_yaml
+
+    robots, _ = load_and_validate_robots_yaml(robots_config_path)
+    spawned = [r for r in robots if r.get("spawn")]
+    if not spawned:
+        return None
+
+    claims: dict[str, str] = {}
+    specs = []
+    for robot in spawned:
+        prim_path, asset_path, position, yaw_deg, scale = _validate_spawn(robot)
+        if prim_path in claims:
+            raise ValueError(
+                f"robots.yaml: {prim_path} is claimed by both {claims[prim_path]} and "
+                f"{robot['name']} — two trucks cannot share one prim"
+            )
+        claims[prim_path] = robot["name"]
+        specs.append((prim_path, asset_path, position, yaw_deg, scale))
+
+    _assert_not_already_in_scene(base_stage_path, claims)
+
+    scene_dir = os.path.dirname(os.path.abspath(base_stage_path))
+    scene_file = os.path.basename(base_stage_path)
+    out_path = os.path.join(
+        scene_dir, os.path.splitext(scene_file)[0] + _OVERLAY_SUFFIX
+    )
+
+    layer = Sdf.Layer.CreateAnonymous(".usda")
+    # Relative, so the pair stays movable and a reader sees which scene this is
+    # an overlay OF without resolving an absolute path from another machine.
+    layer.subLayerPaths.append("./" + scene_file)
+    _copy_root_layer_metadata(base_stage_path, layer)
+    layer.comment = (
+        "GENERATED by forklift_overlay.py from "
+        f"{os.path.basename(robots_config_path)} at "
+        f"{datetime.datetime.now().isoformat(timespec='seconds')} — do not edit, "
+        "every launch overwrites this file. Trucks are declared in the spawn: "
+        "blocks of that config."
+    )
+
+    for prim_path, asset_path, position, yaw_deg, scale in specs:
+        _author_robot(layer, prim_path, asset_path, position, yaw_deg, scale)
+
+    layer.Export(out_path)
+    print(f"[forklift-overlay] {len(specs)} forklift(s) from "
+          f"{os.path.basename(robots_config_path)} -> {out_path}", flush=True)
+    for prim_path, _, position, yaw_deg, _ in specs:
+        print(f"[forklift-overlay]   {prim_path} at {position} yaw={yaw_deg}deg", flush=True)
+    return out_path

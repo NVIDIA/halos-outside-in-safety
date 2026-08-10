@@ -10,6 +10,11 @@ __pycache__/
 **/*.run.env
 deploy/docker/resolved.yml
 
+# Forklift prims generated from the robots.yaml spawn: blocks on every launch,
+# written next to the scene they sublayer. Source of truth is the config.
+# See closed-loop-testing/isaac-sim/sil/scripts/forklift_overlay.py
+**/scenes/*.overlay.usda
+
 # Logs / run data
 *.log
 data_log/

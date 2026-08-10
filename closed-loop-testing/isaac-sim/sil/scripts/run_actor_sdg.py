@@ -57,6 +57,7 @@ class ActorSDGRunner:
         enable_rtsp=True,
         enable_camera_spawn=True,
         enable_indicator_spawn=True,
+        enable_forklift_spawn=True,
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
@@ -105,6 +106,11 @@ class ActorSDGRunner:
         # Config-driven no-op when no robot carries one (scenes with a baked
         # disc). See sil/scripts/indicator_loader.py.
         self.enable_indicator_spawn = enable_indicator_spawn
+        # Forklift prims from robots.yaml `spawn:` blocks, via a generated USD
+        # layer applied BEFORE the stage opens (unlike the two loaders above,
+        # which author into the live stage). Config-driven no-op when no robot
+        # carries a spawn block. See sil/scripts/forklift_overlay.py.
+        self.enable_forklift_spawn = enable_forklift_spawn
 
         # Forklift control/odometry/safety + clock graphs (replace the
         # baked OmniGraphs that used to live in the scene USD). Driven by
@@ -162,6 +168,20 @@ class ActorSDGRunner:
                     f"only in IRA 6.0. Camera placement is now driven by "
                     f"sensor.groups.<g>.aim_at_targets in the YAML config."
                 )
+
+            # Forklifts declared with a `spawn:` block in robots.yaml are added by
+            # a generated layer that sublayers the scene, and the config is pointed
+            # at that layer instead. This is the last moment early enough: the
+            # trucks must exist before setup_simulation() bakes the navmesh, or
+            # characters walk straight through them. Config-driven no-op when no
+            # robot carries a spawn: block. See sil/scripts/forklift_overlay.py.
+            if self.enable_forklift_spawn and self.robots_config_path:
+                from forklift_overlay import generate_overlay
+                overlay = generate_overlay(
+                    self.robots_config_path, config.environment.base_stage_asset_path
+                )
+                if overlay:
+                    config.environment.base_stage_asset_path = overlay
 
             # Set up simulation (async; no callback registration needed in 6.0).
             # IRA 6.0 fires IRAEvents.SET_UP_SIMULATION_DONE_EVENT itself; this coroutine
@@ -650,6 +670,10 @@ Examples:
     parser.add_argument("--no-indicator-spawn", dest="enable_indicator_spawn", action="store_false",
                         default=True,
                         help="Skip indicator_loader (safety-indicator disc geometry from robots.yaml mesh: blocks)")
+    parser.add_argument("--no-forklift-spawn", dest="enable_forklift_spawn", action="store_false",
+                        default=True,
+                        help="Skip forklift_overlay (forklift prims from robots.yaml spawn: blocks); "
+                             "loads the scene USD as-is")
     parser.add_argument("--no-forklift", dest="enable_forklift", action="store_false",
                         default=True,
                         help="Skip build_forklift_graphs (control + odometry + safety indicator)")
@@ -776,7 +800,7 @@ def main():
         robots_config_path = os.path.abspath(args.robots_config)
         if not os.path.isfile(robots_config_path):
             print(f"WARNING: Robots config file not found: {robots_config_path}", file=sys.stderr)
-    elif args.enable_forklift or args.enable_clock:
+    elif args.enable_forklift or args.enable_clock or args.enable_forklift_spawn:
         default_robots_yaml = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "configs", "robots.yaml")
         )
@@ -799,6 +823,7 @@ def main():
         enable_rtsp=args.enable_rtsp,
         enable_camera_spawn=args.enable_camera_spawn,
         enable_indicator_spawn=args.enable_indicator_spawn,
+        enable_forklift_spawn=args.enable_forklift_spawn,
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,

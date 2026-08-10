@@ -2,10 +2,11 @@
 #
 # Same two-robot layout as robots-2fl.yaml, retargeted to the 40x20 scene. To
 # run this variant:
-#   1. Scene must contain /World/forklift_b2 (a clone of /World/forklift_b —
-#      same ForkliftB asset payload). Paired IRA config:
-#      configs/default_config_ros_40x20.yaml points at
-#        /isaac-sim/sil/scenes/warehouse_40x20_two_loading_dock.usd
+#   1. The scene contains NO forklift prims: the `spawn:` blocks below author
+#      both trucks into a generated layer that sublayers the scene, before IRA
+#      opens it. Paired IRA config: configs/default_config_ros_40x20.yaml points
+#      at /isaac-sim/sil/scenes/warehouse_40x20_two_loading_dock.usd, and
+#      forklift_overlay.py retargets it to the generated overlay next to it.
 #      run_actor_sdg fails fast if a listed articulation prim is missing.
 #   2. Launch Isaac with the 40x20 config trio:
 #        -c /isaac-sim/sil/configs/default_config_ros_40x20.yaml \
@@ -26,15 +27,26 @@
 # loader is a no-op for them. Declaring `mesh:` while a baked disc still sits at
 # the same prim path is an error — two sources of truth for one prim.
 #
-# One block per robot. Add a robot = add a block here + a controller service
-# (forklift-controller.yml) + the prim in the scene. The TGS rebalance list in
+# One block per robot. Add a robot = add a block here (including `spawn:`) + a
+# controller service (forklift-controller.yml) + the name in COMM_ROBOT_IDS. The
+# scene USD is no longer touched. The TGS rebalance list in
 # runtime_patches/halos_runtime_patches.py is derived from this file.
 
 robots:
   - name: forklift_b
     # Articulation root prim (was articulation_controller.inputs:targetPrim
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
+    # Also where `spawn:` below authors the truck.
     articulation_prim: /World/forklift_b
+
+    # --- prim (was a `def "forklift_b"` block in the scene USD) ---
+    # forklift_overlay.py turns this into the payload + transform the scene used
+    # to carry. Drop the block to go back to requiring a prim baked in the scene;
+    # declaring it while the scene still has one is an error, not a silent win.
+    spawn:
+      asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+      position: [2.0, -13.35, 0.0]    # metres, world space — faces the left dock door
+      yaw_deg: 180.0                  # rotation about Z; the scene's (6.1e-17, 0, 0, 1)
 
     # --- control (ROS_Forklift_Control_Graph) ---
     control:
@@ -84,11 +96,16 @@ robots:
         segments: 32
         height_offset: 0.0
 
-  # Second forklift: scene-side prim is a clone of /World/forklift_b
-  # (same ForkliftB asset payload -> same joints/params).
+  # Second forklift: same ForkliftB asset as forklift_b, so same joints/params.
+  # It differs from the first truck by one number, its Y position.
   # Contract: name == controller ROBOT_ID == prim leaf name.
   - name: forklift_b2
     articulation_prim: /World/forklift_b2
+
+    spawn:
+      asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+      position: [2.0, -21.63, 0.0]    # faces the right dock door
+      yaw_deg: 180.0
 
     control:
       enabled: true
