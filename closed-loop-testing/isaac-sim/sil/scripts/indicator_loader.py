@@ -71,15 +71,16 @@ _DEFAULT_HEIGHT_OFFSET = 0.0
 
 
 def _load_robots_yaml(yaml_path: str) -> list[dict]:
-    import yaml
+    """The same view of the config every other builder gets.
 
-    if not os.path.isfile(yaml_path):
-        raise FileNotFoundError(f"robots yaml not found: {yaml_path}")
-    with open(yaml_path) as f:
-        cfg = yaml.safe_load(f)
-    robots = (cfg or {}).get("robots")
-    if not isinstance(robots, list) or not robots:
-        raise ValueError(f"{yaml_path}: 'robots' must be a non-empty list")
+    Reading the file here directly would skip the `models:` merge, and the
+    failure is a long way from the cause: a robot whose disc size comes from its
+    model looks like a robot with no disc at all, so nothing is authored, and
+    the graph builder then dies on a prim that was never created.
+    """
+    from action_graphs.forklift_common import load_and_validate_robots_yaml
+
+    robots, _ = load_and_validate_robots_yaml(yaml_path)
     return robots
 
 

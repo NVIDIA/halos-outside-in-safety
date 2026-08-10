@@ -16,37 +16,63 @@
 #   --robots-config /isaac-sim/sil/configs/robots-2fl.yaml
 # and COMPOSE_PROFILES including `multi-robot` for the second controller
 # container.
-# Keep the forklift_b block in both files in sync by hand.
-# Sync check: the `- name: forklift_b` block must be byte-identical in both files.
+# Keep the `models:` block and the forklift_b block in both files in sync by
+# hand: the model is declared per file so each stays launchable on its own.
+# Sync check: both must be byte-identical in the two files.
+
+# What follows from the asset, stated once per file. With a single robot there
+# is nothing to deduplicate here yet; the block exists so this file has the same
+# shape as the others, and so a second truck costs one `model: forklift_b` line
+# instead of a copy of everything below.
+models:
+  forklift_b:
+    # Which control graph gets built — a choice of topology, not a label. The
+    # swivel builder drives one steered wheel and one driven wheel; a
+    # differential-drive robot needs its own builder rather than these numbers
+    # rewritten. An unknown value is refused at load.
+    drive_type: swivel
+    drive_joint: back_wheel_drive     # velocity-controlled wheel joint
+    swivel_joint: back_wheel_swivel   # position-controlled steer joint
+    wheelbase: 1.49                   # constant_double_wheelbase
+    wheel_radius: 0.15                # constant_double_WheelRadius
+    max_steer_deg: 45.0               # SwivelIK MAX_STEER = radians(45)
+    # Frame-convention sign flips (vehicle frame vs ROS frame). The original
+    # baked SwivelIK negated both inputs, so both are true here. Set false
+    # if the robot asset already matches the ROS twist convention.
+    reverse_logic:
+      flip_linear_x: true             # negate cmd_vel linear.x
+      flip_angular_z: true            # negate cmd_vel angular.z
+
+    robot_front: [-1.0, 0.0, 0.0]     # ros2_publish_odometry.inputs:robotFront
+
+    # Where the disc hangs, so `indicator_prim` need not be retyped per truck.
+    # No size next to it, unlike robots-40x20.yaml: this scene's disc is baked
+    # into the USD, and stating a size makes indicator_loader.py author a second
+    # one at the same path, which is an error rather than a duplicate.
+    #
+    # No asset_path either — the truck is baked into this scene too, so nothing
+    # spawns it.
+    indicator:
+      parent_prim_rel: body/body
 
 robots:
   - name: forklift_b
+    model: forklift_b
     # Articulation root prim (was articulation_controller.inputs:targetPrim
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
     articulation_prim: /World/forklift_b
 
     # --- control (ROS_Forklift_Control_Graph) ---
+    # Joints and geometry come from the model; what is left is this truck's own.
     control:
       enabled: true
       cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
-      drive_joint: back_wheel_drive   # velocity-controlled wheel joint
-      swivel_joint: back_wheel_swivel # position-controlled steer joint
-      wheelbase: 1.49                 # constant_double_wheelbase
-      wheel_radius: 0.15              # constant_double_WheelRadius
-      max_steer_deg: 45.0             # SwivelIK MAX_STEER = radians(45)
-      # Frame-convention sign flips (vehicle frame vs ROS frame). The original
-      # baked SwivelIK negated both inputs, so both default to true. Set false
-      # if the robot asset already matches the ROS twist convention.
-      reverse_logic:
-        flip_linear_x: true           # negate cmd_vel linear.x
-        flip_angular_z: true          # negate cmd_vel angular.z
 
     # --- odometry (Odometry_Graph) ---
     odometry:
       enabled: true
       odom_topic: forklift_b/odom     # per-robot namespace
       tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
-      robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
       # TF frame ids default to <name>/odom -> <name>/base_link, so two trucks do
       # not publish the same edge onto one /tf. Override with odom_frame_id /
       # base_frame_id to get the bare ROS names back.
@@ -58,7 +84,7 @@ robots:
       # /<name>/safety/is_muted, which only exists where comm-layer is told to
       # mirror it (COMM_ROBOT_IDS). This scene stays on the global topic.
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
-      indicator_prim: /World/forklift_b/body/body/safety_indicator
+      # indicator_prim comes from the model: /World/forklift_b/body/body/safety_indicator
 
 # Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
 # so it lives in its own builder (action_graphs/clock.py).

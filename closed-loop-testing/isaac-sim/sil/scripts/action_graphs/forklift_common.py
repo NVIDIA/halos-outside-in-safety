@@ -44,9 +44,135 @@ _BAKED_GRAPH_PATHS = (
 )
 
 
+# Which control-graph topology a model needs. A value is not a label but a
+# choice of builder: a differential-drive AMR is not a swivel truck with
+# different numbers, it is a different graph. Registered in forklift_control.py;
+# named here so the loader can reject an unknown value before anything is built.
+KNOWN_DRIVE_TYPES = ("swivel",)
+DEFAULT_DRIVE_TYPE = "swivel"
+
+# Model keys that describe how the truck drives, and therefore land in the
+# robot's `control` block. Everything here follows from the asset: two trucks
+# built from one ForkliftB payload cannot disagree about their wheelbase.
+_MODEL_CONTROL_KEYS = (
+    "drive_type", "drive_joint", "swivel_joint",
+    "wheelbase", "wheel_radius", "max_steer_deg", "reverse_logic",
+)
+_MODEL_INDICATOR_MESH_KEYS = ("radius", "segments", "height_offset")
+
+
+def _merge_under(robot: dict, section: str, defaults: dict) -> None:
+    """Apply model defaults to one robot section, instance keys winning.
+
+    Merged leaf by leaf rather than section by section, so a robot can override
+    a single number — `max_steer_deg` for a truck with a worn steering stop, say
+    — without having to restate the whole model.
+    """
+    if not defaults:
+        return
+    current = dict(robot.get(section) or {})
+    for key, value in defaults.items():
+        if key not in current:
+            current[key] = value
+        elif isinstance(value, dict) and isinstance(current[key], dict):
+            current[key] = {**value, **current[key]}
+    robot[section] = current
+
+
+def _apply_model(robot: dict, model: dict, yaml_path: str) -> None:
+    """Fold a `models:` entry into one robot, in place.
+
+    The robot ends up in exactly the flat shape the builders already read, so
+    the model split is a loader concern and nothing downstream changes. That is
+    also what keeps a config written before `models:` working untouched: it
+    simply arrives already flat.
+    """
+    _merge_under(robot, "control",
+                 {k: model[k] for k in _MODEL_CONTROL_KEYS if k in model})
+
+    if "robot_front" in model:
+        _merge_under(robot, "odometry", {"robot_front": model["robot_front"]})
+
+    indicator = model.get("indicator") or {}
+    if not isinstance(indicator, dict):
+        raise ValueError(f"{yaml_path}: model indicator: must be a mapping, got {indicator!r}")
+
+    mesh = {k: indicator[k] for k in _MODEL_INDICATOR_MESH_KEYS if k in indicator}
+    if mesh:
+        _merge_under(robot, "safety_indicator", {"mesh": mesh})
+
+    # The disc path is the robot's prim plus wherever this model hangs its
+    # bodywork — one string that used to be spelled out per truck and is the
+    # kind of thing that goes wrong by a single typo.
+    parent_rel = indicator.get("parent_prim_rel")
+    if parent_rel:
+        _merge_under(robot, "safety_indicator", {
+            "indicator_prim": f"{robot['articulation_prim']}/{parent_rel.strip('/')}"
+                              f"/safety_indicator",
+        })
+
+    if "asset_path" in model and isinstance(robot.get("spawn"), dict):
+        _merge_under(robot, "spawn", {"asset_path": model["asset_path"]})
+
+
+def _validate_models(cfg: dict, yaml_path: str) -> dict:
+    models = cfg.get("models") or {}
+    if not isinstance(models, dict):
+        raise ValueError(f"{yaml_path}: 'models' must be a mapping of name -> model")
+    for name, model in models.items():
+        if not isinstance(model, dict):
+            raise ValueError(f"{yaml_path}: models['{name}'] must be a mapping")
+        # Required here but merely defaulted for a robot that names no model:
+        # anyone writing the new construct states the topology explicitly, while
+        # configs that predate the key keep the only behaviour they ever had.
+        drive_type = model.get("drive_type")
+        if drive_type is None:
+            raise ValueError(
+                f"{yaml_path}: models['{name}'] must state drive_type "
+                f"(one of {', '.join(KNOWN_DRIVE_TYPES)}) — it selects which control "
+                f"graph is built, and guessing it is how a truck ends up with a "
+                f"steering graph it has no steering joint for"
+            )
+        if drive_type not in KNOWN_DRIVE_TYPES:
+            raise ValueError(
+                f"{yaml_path}: models['{name}'].drive_type is {drive_type!r}; known "
+                f"values are {', '.join(KNOWN_DRIVE_TYPES)}. A new kinematic class "
+                f"needs its own builder registered in forklift_control.py, not a new "
+                f"set of numbers"
+            )
+    return models
+
+
+def resolve_drive_type(robot: dict) -> str:
+    """Which control-graph builder this robot needs.
+
+    Absent means swivel, which is the only topology that has ever been built —
+    so a config written before the key behaves as it always did. A robot that
+    reaches here through a `models:` entry always has one, because the model
+    schema requires it.
+    """
+    drive_type = (robot.get("control") or {}).get("drive_type", DEFAULT_DRIVE_TYPE)
+    if drive_type not in KNOWN_DRIVE_TYPES:
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}' asks for drive_type "
+            f"{drive_type!r}; known values are {', '.join(KNOWN_DRIVE_TYPES)}"
+        )
+    return drive_type
+
+
 def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
     """Parse robots.yaml. Returns (robots_list, clock_cfg). Raises with a
     descriptive error on schema mismatch.
+
+    A robot naming a `model:` is returned with that model already folded in, in
+    the same flat shape a robot that spells everything out arrives in. Both
+    schemas are therefore live at once, and every validation below runs on the
+    merged result rather than on whichever half happened to be written.
+
+    Anything reading robots.yaml for more than a robot's own keys must come
+    through here. A private `yaml.safe_load` sees the unmerged file, and the
+    symptom lands nowhere near the cause: a value that lives on the model reads
+    as absent, and the consumer concludes the robot did not ask for the thing.
     """
     try:
         import yaml
@@ -68,6 +194,8 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
     if not isinstance(robots, list) or not robots:
         raise ValueError(f"{yaml_path}: 'robots' must be a non-empty list")
 
+    models = _validate_models(cfg, yaml_path)
+
     seen_names: set[str] = set()
     for i, r in enumerate(robots):
         for field in ("name", "articulation_prim"):
@@ -81,6 +209,17 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
             raise ValueError(
                 f"{yaml_path}: robots[{i}].articulation_prim must be an absolute prim path"
             )
+
+        model_name = r.get("model")
+        if model_name is not None:
+            if model_name not in models:
+                raise ValueError(
+                    f"{yaml_path}: '{name}' names model {model_name!r}, which is not "
+                    f"declared. Known models: {', '.join(sorted(models)) or '<none>'}"
+                )
+            _apply_model(r, models[model_name], yaml_path)
+
+        resolve_drive_type(r)
 
     clock_cfg = cfg.get("clock", {}) or {}
     return robots, clock_cfg

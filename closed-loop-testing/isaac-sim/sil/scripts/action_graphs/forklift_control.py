@@ -21,6 +21,7 @@ from .forklift_common import (
     clear_existing_graph,
     ensure_extensions_enabled,
     load_and_validate_robots_yaml,
+    resolve_drive_type,
     set_rel_target,
     verify_prim_exists,
 )
@@ -77,7 +78,14 @@ def compute(db):
 '''
 
 
-def _build_one_control_graph(robot: dict) -> None:
+def _build_one_swivel_control_graph(robot: dict) -> None:
+    """cmd_vel -> bicycle IK -> articulation, for a truck that steers one wheel.
+
+    The topology, not just the numbers, is specific to that layout: the graph
+    drives exactly two joints and computes a steer angle for one of them. A
+    differential-drive robot needs a different builder, which is why the choice
+    is made by `drive_type` rather than by leaving these joints unset.
+    """
     import omni.graph.core as og
     import omni.usd
 
@@ -170,6 +178,16 @@ def _build_one_control_graph(robot: dict) -> None:
           flush=True)
 
 
+# One entry per kinematic class. A `drive_type` that is not a key here is an
+# error rather than a fallback to swivel: the fallback would build a steering
+# graph for a robot with no steering joint, and the articulation controller
+# would then quietly drive nothing. The truck stands still, every graph reports
+# healthy, and the config that caused it looks reasonable.
+_CONTROL_BUILDERS = {
+    "swivel": _build_one_swivel_control_graph,
+}
+
+
 def build_control_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     """Build the cmd_vel -> articulation control graph for every robot."""
     robots, _ = load_and_validate_robots_yaml(config_path)
@@ -188,9 +206,26 @@ def build_control_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
             )
         claims[prim] = robot["name"]
 
-    ensure_extensions_enabled()
+    # Resolve every builder up front. The loader has already rejected an
+    # unknown drive_type; what is caught here is a value that is known but has
+    # no builder registered, which is a gap in this file rather than in the
+    # config — and finding it after half the fleet is built leaves a stage that
+    # is neither the old state nor the new one.
+    builders = []
     for robot in robots:
-        _build_one_control_graph(robot)
+        drive_type = resolve_drive_type(robot)
+        builder = _CONTROL_BUILDERS.get(drive_type)
+        if builder is None:
+            raise RuntimeError(
+                f"'{robot['name']}' asks for drive_type {drive_type!r}, which has no "
+                f"builder in _CONTROL_BUILDERS (registered: "
+                f"{', '.join(sorted(_CONTROL_BUILDERS))})"
+            )
+        builders.append((robot, builder))
+
+    ensure_extensions_enabled()
+    for robot, builder in builders:
+        builder(robot)
 
 
 if __name__ == "__main__":
