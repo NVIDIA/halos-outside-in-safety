@@ -1,0 +1,156 @@
+# RTX post-processing presets — in-scenario sensor-anomaly injection
+# ------------------------------------------------------------------
+# Injects visual degradation (low light, colour cast, flicker, sensor grain)
+# into the rendered image. Because RTX runs post-processing before the encoder,
+# a preset shows up in the viewport, in the SDG RGB output and on every RTSP
+# stream at once — no graph rebuild, and data generation never has to start.
+#
+# Switching preset while the sim is running:
+#
+#     edit `active:` below and save          (run_actor_sdg.py polls this file)
+#     ./scripts/postprocessing/set_preset.sh tv_noise
+#
+# Scope. A preset with no `cameras:` key sets carb settings, which affect the
+# viewport and every camera — "the whole site went dark". Adding `cameras:`
+# authors USD attributes on those cameras instead, so only they degrade —
+# "camera 2 is dirty", which is the case an anomaly campaign usually wants.
+#
+# Per-camera caveat: exposure lives on the camera prim and applies at once, but
+# grain / scanlines / vignetting / colour grading live on the RENDER PRODUCT,
+# which the RTSP graph only creates on the first tick after Play. Those settings
+# stay pending until Play and the log says so.
+#
+# Every key below is validated against an allow-list (scripts/postprocessing/
+# effects.py) transcribed from the Kit renderer source, so a typo is rejected
+# with the preset name and key rather than silently creating a dead carb key.
+# A rejected edit keeps the previously applied preset running.
+
+version: 1
+
+# Which preset is live. Quote names that YAML would read as booleans (off, no).
+active: baseline
+
+presets:
+  # Renderer defaults — what the pipeline looks like with no anomaly.
+  baseline:
+    description: No degradation. The reference look for a golden run.
+    settings: {}
+
+  # Sudden low light: lamp failure, dusk, or an under-exposed sensor.
+  # Auto-exposure must go off first, or the histogram claws the image back to
+  # a normal brightness within about a second and the anomaly disappears.
+  low_light:
+    description: Sudden low light — ISO 12 against a nominal 100.
+    settings:
+      auto_exposure.enabled: false
+      exposure.iso: 12.0
+
+  # White-balance drift: a warm cast that shifts every colour-based cue
+  # without changing geometry, so tracking should survive and colour
+  # classification should not.
+  hue_shift:
+    description: Warm colour cast (white-balance drift), R up / B down ~3%.
+    settings:
+      grade.enabled: true
+      grade.gain: [1.03, 1.0, 0.97]
+
+  # Mains flicker / failing luminaire: sensor gain swings around its base.
+  #
+  # Keep frequency_hz below half the rate the renderer actually achieves, or the
+  # anomaly you ship is not the anomaly the consumer sees. The animation is
+  # sampled once per rendered frame, and this warehouse renders at 8-9 fps on
+  # the SIL box (the RTSP stream declares 30 fps but delivers ~8). Measured on a
+  # continuous capture, 1 Hz and 2 Hz requests read back at 1.0 and 1.8 Hz — the
+  # residual is the error in estimating the achieved frame rate — while 6 Hz
+  # folds down to an unambiguous 3.0 Hz. Raise this only after checking the
+  # frame rate the scene actually achieves.
+  #
+  # This animates ISO, not shutter, and that is deliberate. The obvious knob,
+  # exposure.time, does nothing at global scope in a running sim: something in
+  # the render loop rewrites /rtx/post/tonemap/exposureTime every frame, so our
+  # value never survives to the tonemapper. Measured over 8 RTSP frames, a
+  # +/-35% shutter swing left brightness flat (std 1.3) against a scene-motion
+  # noise floor of std 8.1, while this ISO version swings std 22.7 / range 61.
+  # Shutter flicker DOES work when scoped to `cameras:`, because that authors
+  # exposure:time on the camera prim instead of setting carb -- see the note on
+  # exposure.time in effects.py.
+  flicker:
+    description: 2 Hz brightness flicker, +/-35% around ISO 100.
+    settings:
+      auto_exposure.enabled: false
+      exposure.iso: 100.0
+    animation:
+      target: exposure.iso
+      waveform: sine
+      base: 100.0
+      amplitude_fraction: 0.35
+      frequency_hz: 2.0
+
+  # Degraded stream: sensor grain plus scanlines, the classic "bad analog
+  # camera" look. Grain amount tops out at 0.2. Note that scanline severity is
+  # not tunable — the shader always swings +/-25% and `spread` only sets the
+  # band spacing (1.0 is ~86 bands on a 540-line image).
+  tv_noise:
+    description: Sensor grain + scanlines (degraded/noisy stream).
+    settings:
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: true
+      tv_noise.film_grain.amount: 0.12
+      tv_noise.scanlines.enabled: true
+      tv_noise.scanlines.spread: 1.0
+
+  # Soft lens obstruction: a heavy vignette pinches the usable image down to
+  # the centre. Not a true blockage — an opaque occluder prim in front of the
+  # lens is still the only way to model that — but it degrades the frame
+  # border-first the way grime or a misfitted housing does.
+  #
+  # size MUST be 2.0 here, and that is not a typo for the documented default of
+  # 107. The RTX vignette is unnormalised: centre gain is 0.0625 * (size + 14),
+  # so 107 multiplies the middle of the frame by ~7.6 and burns it to pure white
+  # (verified by capture — the pallets disappear entirely). 2.0 gives a centre
+  # gain of exactly 1.0, leaving `strength` as the only knob that matters.
+  #
+  # strength is calibrated by capture, because the real falloff is steeper than
+  # the shader formula predicts per pixel. Ratio of centre brightness to border
+  # brightness on the RTSP frame, which sits at 0.86-0.96 with no vignette:
+  #
+  #     0.2 -> 1.5    0.4 -> 2.2    0.8 -> 4.4    1.6 -> 17.3
+  #
+  # 1.6 is not a vignette, it is a spotlight: the border falls to 1/17 of the
+  # centre and whole-frame brightness drops 70%. 0.8 keeps the centre usable
+  # while the border loses objects, which is the failure this preset is for.
+  vignette_heavy:
+    description: Heavy vignette — soft lens obstruction / grimy housing.
+    settings:
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: false
+      tv_noise.vignetting.enabled: true
+      tv_noise.vignetting.size: 2.0
+      tv_noise.vignetting.strength: 0.8
+
+  # Same grain as tv_noise but with the renderer's time input frozen, the intent
+  # being that two runs of one scenario render identical noise — per-frame
+  # randomness would defeat diffing in a regression campaign. Unlike the other
+  # presets here this one is not verified: proving it takes two runs compared
+  # frame by frame.
+  tv_noise_deterministic:
+    description: tv_noise with a frozen time seed, for seeded re-execution.
+    settings:
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: true
+      tv_noise.film_grain.amount: 0.12
+      tv_noise.scanlines.enabled: true
+      tv_noise.fixed_time.seed: true
+      tv_noise.fixed_time.seed_count: 12.0
+
+  # One camera degrades while the rest stay clean — the shape of a real
+  # anomaly scenario. `cameras:` takes cameras.yaml names or full prim paths.
+  one_camera_degraded:
+    description: Camera_01 alone goes dark and grainy; other cameras unaffected.
+    cameras: [Camera_01]
+    settings:
+      auto_exposure.enabled: false
+      exposure.iso: 20.0
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: true
+      tv_noise.film_grain.amount: 0.15
