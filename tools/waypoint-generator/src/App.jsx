@@ -12,7 +12,8 @@ import {
   updateCurrentPath, 
   loadPaths, 
   persistPaths,
-  openPath 
+  openPath,
+  closePath
 } from './redux/pathsSlice';
 import WaypointCanvas from './components/WaypointCanvas';
 import WaypointList from './components/WaypointList';
@@ -20,10 +21,8 @@ import ExportPanel from './components/ExportPanel';
 import PathManager from './components/PathManager';
 import SavePathModal from './components/SavePathModal';
 import { AiFillFolder, AiOutlineSave } from 'react-icons/ai';
-import { getCalibration } from './utils/coordinates';
+import { loadMapRegistry, loadMapConfig, resolveActiveMapId } from './maps/loadMaps';
 import './App.css';
-
-const calibration = getCalibration();
 
 function App() {
   const dispatch = useAppDispatch();
@@ -53,10 +52,84 @@ function App() {
   // Flag to prevent update loop when loading path from Redux
   const isLoadingFromRedux = useRef(false);
 
+  // The available maps, and the plan view plus calibration of the active one
+  const [registry, setRegistry] = useState([]);
+  const [activeMapId, setActiveMapId] = useState(null);
+  const [mapConfig, setMapConfig] = useState(null);
+  const [mapError, setMapError] = useState(null);
+
   // Load paths from localStorage on mount
   useEffect(() => {
     dispatch(loadPaths());
   }, [dispatch]);
+
+  // Read the map list once and pick the one to open
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const maps = await loadMapRegistry();
+        const initialId = resolveActiveMapId(maps, window.location.search);
+        if (cancelled) return;
+        setRegistry(maps);
+        setActiveMapId(initialId);
+      } catch (error) {
+        if (!cancelled) setMapError(error.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load the active map's calibration before anything converts a click to metres
+  useEffect(() => {
+    if (!activeMapId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const config = await loadMapConfig(activeMapId);
+        if (!cancelled) setMapConfig(config);
+      } catch (error) {
+        if (!cancelled) setMapError(error.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeMapId]);
+
+  // Point the app at another map, and record it in the URL so a reload or a
+  // shared link comes back to the same warehouse.
+  const applyMap = useCallback((nextMapId) => {
+    setActiveMapId(nextMapId);
+    setMapConfig(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('map', nextMapId);
+    window.history.replaceState({}, '', url);
+  }, []);
+
+  // Switching maps from the header discards the drawing: waypoints are metres in
+  // the old scene's frame, so carrying them over would place them at coordinates
+  // the user never chose.
+  const handleSelectMap = useCallback((nextMapId) => {
+    if (!nextMapId || nextMapId === activeMapId) return;
+    if (hasUnsavedChanges &&
+        !confirm('Switching maps discards the unsaved path. Continue?')) {
+      return;
+    }
+    applyMap(nextMapId);
+    setOrigin(null);
+    setWaypoints([]);
+    setSelectedIndex(-1);
+    setMode('origin');
+    dispatch(closePath());
+  }, [activeMapId, applyMap, hasUnsavedChanges, dispatch]);
+
+  // Opening a path from another map brings its map along, so the coordinates are
+  // read against the calibration they were drawn with.
+  const handleOpenPath = useCallback((path) => {
+    if (path.mapId && path.mapId !== activeMapId) {
+      applyMap(path.mapId);
+    }
+    dispatch(openPath(path.id));
+  }, [activeMapId, applyMap, dispatch]);
 
   // Load current path when it changes
   useEffect(() => {
@@ -149,6 +222,24 @@ function App() {
 
   // Import waypoints
   const handleImport = useCallback((data) => {
+    // A file drawn on another warehouse has coordinates that mean something else
+    // here, so say so before loading it rather than after the forklift moves.
+    const fileMapId = data.map?.id;
+    if (fileMapId && fileMapId !== activeMapId) {
+      const known = registry.find(map => map.id === fileMapId);
+      if (known) {
+        if (!confirm(`This path was drawn on "${known.name}". Switch to that map?`)) {
+          return;
+        }
+        applyMap(fileMapId);
+      } else if (!confirm(
+        `This path was drawn on map "${fileMapId}", which is not installed. ` +
+        `Its coordinates may not match the open map. Import anyway?`
+      )) {
+        return;
+      }
+    }
+
     if (data.origin) {
       setOrigin({ x: data.origin.world_x, y: data.origin.world_y });
     }
@@ -163,7 +254,7 @@ function App() {
       })));
     }
     setMode('waypoint');
-  }, []);
+  }, [activeMapId, applyMap, registry]);
 
   // Clear all
   const handleClearAll = useCallback(() => {
@@ -175,12 +266,13 @@ function App() {
 
   // Use default forklift start
   const handleUseDefaultOrigin = useCallback(() => {
-    const defaultStart = calibration.defaultForkliftStart;
+    const defaultStart = mapConfig?.defaultForkliftStart;
+    if (!defaultStart) return;
     setOrigin({ x: defaultStart.world_x, y: defaultStart.world_y });
     setMode('waypoint');
     setWaypoints([]);
     setSelectedIndex(-1);
-  }, []);
+  }, [mapConfig]);
 
   // Handle save
   const handleSave = useCallback(() => {
@@ -197,11 +289,39 @@ function App() {
     dispatch(persistPaths());
   }, [dispatch]);
 
+  if (mapError) {
+    return (
+      <div className="app app-map-error">
+        <h1>Cannot load map</h1>
+        <pre>{mapError}</pre>
+        <p>Check public/maps/maps.json and the map's config.json.</p>
+      </div>
+    );
+  }
+
+  if (!mapConfig) {
+    return (
+      <div className="app app-map-loading">
+        <p>Loading map…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
         <h1>Waypoint Generator</h1>
         <div className="header-info">
+          <select
+            className="map-select"
+            value={activeMapId || ''}
+            onChange={(e) => handleSelectMap(e.target.value)}
+            title={`Scene: ${mapConfig.scene || 'unknown'}`}
+          >
+            {registry.map(map => (
+              <option key={map.id} value={map.id}>{map.name}</option>
+            ))}
+          </select>
           {currentPath && (
             <span className="current-path-name">
               {currentPath.name}
@@ -304,6 +424,7 @@ function App() {
         
         <main className="canvas-container">
           <WaypointCanvas
+            mapConfig={mapConfig}
             waypoints={waypoints}
             origin={origin}
             selectedIndex={selectedIndex}
@@ -320,6 +441,7 @@ function App() {
         
         <aside className="sidebar-right">
           <ExportPanel
+            mapConfig={mapConfig}
             waypoints={waypoints}
             origin={origin}
             onImport={handleImport}
@@ -340,11 +462,17 @@ function App() {
 
       {/* Modals */}
       {showPathManager && (
-        <PathManager onClose={() => setShowPathManager(false)} />
+        <PathManager
+          registry={registry}
+          activeMapId={activeMapId}
+          onOpenPath={handleOpenPath}
+          onClose={() => setShowPathManager(false)}
+        />
       )}
       
       {showSaveModal && (
         <SavePathModal
+          mapConfig={mapConfig}
           origin={origin}
           waypoints={waypoints}
           onClose={() => setShowSaveModal(false)}

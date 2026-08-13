@@ -89,6 +89,43 @@ body {
   font-size: 0.9rem;
 }
 
+.map-select {
+  padding: 4px 10px;
+  border: 1px solid var(--border, #3a3a5a);
+  border-radius: 6px;
+  background: var(--bg-panel, #16213e);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.map-select:hover {
+  border-color: var(--accent-blue, #4a9eff);
+}
+
+.app-map-loading,
+.app-map-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100vh;
+  padding: 32px;
+  text-align: center;
+}
+
+.app-map-error pre {
+  max-width: 720px;
+  padding: 16px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--accent-orange, #f0a020);
+  font-size: 0.9rem;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
 .header-actions {
   display: flex;
   gap: 8px;
