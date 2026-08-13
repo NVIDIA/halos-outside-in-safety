@@ -68,6 +68,10 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 ### JSON (for the forklift controller)
 ```json
 {
+  "map": {
+    "id": "warehouse_40x20",
+    "scene": "sil/scenes/warehouse_40x20_two_loading_dock.usd"
+  },
   "origin": {
     "world_x": 1.0,
     "world_y": -13.39
@@ -100,6 +104,11 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 ```
 
 **Fields:**
+- `map`: Which warehouse the coordinates belong to. The controller ignores it, but
+  it is what lets a person — or the Import button — tell a 20x20 path from a 40x20
+  one. The two scenes place their forklift barely a metre apart, so without this
+  a path from the wrong warehouse reads as perfectly plausible. Importing a file
+  whose `map.id` is not the open map offers to switch first.
 - `origin`: Robot starting position in world coordinates
 - `waypoints`: User-defined waypoints with odom (x, y) and world coordinates
 - `poses`: Intermediate points for smooth curved path (consumed by the forklift controller)
@@ -148,6 +157,18 @@ typo cannot quietly draw on the wrong warehouse.
 Switching maps clears the current drawing. Waypoints are metres in one scene's
 world frame, so carrying them across would silently place them at coordinates
 nobody chose.
+
+### Paths remember their map
+
+Each saved path records the `mapId` it was drawn on, and the Path Manager lists
+the ones belonging to the open map. Opening a path from another map switches to
+that map, so its coordinates are always read with the calibration they were
+drawn with.
+
+Paths saved before this existed are shown as **map not recorded** rather than
+being assigned a guess: the tool was retargeted from the 20x20 scene to the
+40x20 one in place, so an old path could belong to either and nothing stored in
+it says which. Saving such a path labels it with the map that is open.
 
 ### Adding a map
 

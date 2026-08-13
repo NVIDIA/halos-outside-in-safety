@@ -8,7 +8,7 @@ import { createPath, savePath, persistPaths } from '../redux/pathsSlice';
 import { AiOutlineClose } from 'react-icons/ai';
 import './SavePathModal.css';
 
-function SavePathModal({ origin, waypoints, onClose, onSaved }) {
+function SavePathModal({ mapConfig, origin, waypoints, onClose, onSaved }) {
   const dispatch = useAppDispatch();
   const currentPath = useCurrentPath();
   const currentPathId = useCurrentPathId();
@@ -37,12 +37,14 @@ function SavePathModal({ origin, waypoints, onClose, onSaved }) {
       // Create new path
       dispatch(createPath({
         name: pathName.trim(),
+        mapId: mapConfig.mapId,
         origin,
         waypoints,
       }));
     } else {
       // Update existing path
       dispatch(savePath({
+        mapId: mapConfig.mapId,
         origin,
         waypoints,
       }));
@@ -111,6 +113,10 @@ function SavePathModal({ origin, waypoints, onClose, onSaved }) {
 
           <div className="path-summary">
             <h4>Summary</h4>
+            <div className="summary-item">
+              <span>Map:</span>
+              <span>{mapConfig.name}</span>
+            </div>
             <div className="summary-item">
               <span>Origin:</span>
               <span>({origin?.x.toFixed(2)}, {origin?.y.toFixed(2)})</span>
