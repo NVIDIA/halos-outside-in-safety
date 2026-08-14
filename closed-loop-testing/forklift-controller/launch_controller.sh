@@ -8,12 +8,18 @@
 # CONTRACT: robot_id MUST match a robots.yaml `name` (forklift_b | forklift_b2)
 # — the Isaac graphs only subscribe /<robot_id>/cmd_vel and publish
 # /<robot_id>/odom. Example (second forklift):
-#   ./launch_controller.sh forklift_b2 waypoints/forklift_b2.json
+#   ./launch_controller.sh forklift_b2 waypoints/warehouse_40x20/forklift_b2.json
 # Pass --no-namespace for the legacy global-topic mode (/odom, /cmd_vel).
+#
+# Waypoints live under waypoints/<map id>/ because their coordinates are metres in
+# one warehouse's world frame; FORKLIFT_WAYPOINTS_DIR picks the set, the same
+# variable the compose services use, and defaults to the 20x20 scenes to match the
+# default configs/robots.yaml.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_ID="${1:-forklift_b}"
-PATH_FILE="${2:-$SCRIPT_DIR/waypoints/${ROBOT_ID}.json}"
+WAYPOINTS_DIR="${FORKLIFT_WAYPOINTS_DIR:-$SCRIPT_DIR/waypoints/warehouse_20x20}"
+PATH_FILE="${2:-$WAYPOINTS_DIR/${ROBOT_ID}.json}"
 NAMESPACE_ARG="${3:-}"
 
 # Namespaced by default; --no-namespace switches to legacy global topics

@@ -2,7 +2,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Usage: ./docker_run.sh [waypoints_file]
-# Example: ./docker_run.sh waypoints/forklift_b.json
+# Example: ./docker_run.sh waypoints/warehouse_20x20/forklift_b.json
+# Waypoints are per scene (waypoints/<map id>/), because their coordinates are
+# metres in one warehouse's world frame.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

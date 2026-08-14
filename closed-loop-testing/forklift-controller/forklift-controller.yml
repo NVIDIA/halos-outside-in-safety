@@ -23,7 +23,13 @@ services:
       - SPIRAL_TIMEOUT=${FORKLIFT_SPIRAL_TIMEOUT:-10.0}
       - WAYPOINT_FILE=${FORKLIFT_WAYPOINT_FILE:-/app/waypoints/forklift_b.json}   # <ROBOT_ID>.json convention
     volumes:
-      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints}:/app/waypoints:ro
+      # A path is metres in one scene's world frame, so the set is chosen per scene:
+      # waypoints/<map id>/<ROBOT_ID>.json. The default matches the default robots
+      # config (robots.yaml, the 20x20 one dock scene) — point FORKLIFT_WAYPOINTS_DIR
+      # at warehouse_40x20 when launching the 40x20 config trio. Getting this wrong
+      # is silent: the controller subtracts origin from every world pose, so any set
+      # runs, just along a lane that was never validated in that warehouse.
+      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints/warehouse_20x20}:/app/waypoints:ro
       - .:/app:ro
     restart: unless-stopped
 
@@ -52,6 +58,8 @@ services:
       - SPIRAL_TIMEOUT=10.0
       - WAYPOINT_FILE=/app/waypoints/forklift_b2.json
     volumes:
-      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints}:/app/waypoints:ro
+      # Same directory as the primary service by construction: one FORKLIFT_WAYPOINTS_DIR
+      # for the whole fleet, because two trucks in one scene share its world frame.
+      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints/warehouse_20x20}:/app/waypoints:ro
       - .:/app:ro
     restart: unless-stopped

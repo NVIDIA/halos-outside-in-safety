@@ -1,4 +1,8 @@
 {
+  "map": {
+    "id": "warehouse_40x20",
+    "scene": "sil/scenes/warehouse_40x20_two_loading_dock.usd"
+  },
   "origin": {
     "world_x": 2.0,
     "world_y": -21.63

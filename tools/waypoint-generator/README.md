@@ -63,7 +63,7 @@ npm run dev
 
 ## Output Format
 
-The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment, set `FORKLIFT_WAYPOINT_FILE` to your exported file or replace `closed-loop-testing/forklift-controller/waypoints/waypoints.json`.
+The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment the controller reads `<ROBOT_ID>.json` from the set named by `FORKLIFT_WAYPOINTS_DIR`, which is `closed-loop-testing/forklift-controller/waypoints/<map id>/` — so an exported path replaces the file of the same robot name under the map it was drawn on. The `map` block this tool writes records that id, and `deployments/scripts/preflight.py` checks the file's `origin` against where the truck actually stands.
 
 ### JSON (for the forklift controller)
 ```json
