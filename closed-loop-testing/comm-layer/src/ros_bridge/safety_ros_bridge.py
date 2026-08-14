@@ -84,7 +84,10 @@ class SafetyRosBridge:
     Safety ROS2 Bridge
     
     Publishes safety commands to ROS2 topics:
-    - /safety/command (String): JSON with full command details
+    - /safety/command (String): JSON with full command details, including a
+      `robot_id` that addresses the command. It is null while PSF decides per
+      covered zone rather than per truck, and null is what tells every controller
+      the decision is theirs; a name would tell all the others to ignore it.
     - /safety/status (Int32): Safety status code (1=MUTED, 2=ACTIVE)
     - /safety/is_alarm (Bool): True if alarm is active
     - /safety/is_muted (Bool): True if safety is muted
@@ -233,6 +236,19 @@ class SafetyRosBridge:
         
         try:
             # Publish full command as JSON (use tracked state, not command properties)
+            #
+            # robot_id addresses the command; null means every truck. That is what
+            # robot_controller._command_callback already does with it — a command
+            # naming someone else is dropped, one naming nobody is acted on — so
+            # null is the honest value while PSF decides per covered zone rather
+            # than per named truck. It is spelled out rather than omitted to give
+            # per-truck routing one place to be substituted, needing no controller
+            # change. Do not fill it from self.robot_ids: that list is who mirrors
+            # is_muted, not who a decision is about, and naming one truck here
+            # would make every other controller ignore the decision.
+            #
+            # No traffic routes on it yet either way: `command` below is an integer
+            # opcode, and the controller acts only on string keywords.
             cmd_json = json.dumps({
                 'sequence': command.sequence_number,
                 'command': command.command_code,
@@ -241,6 +257,7 @@ class SafetyRosBridge:
                 'status_name': command.status_name,
                 'timestamp': command.timestamp,
                 'source': command.source,
+                'robot_id': None,
                 'is_muted': self._current_is_muted,
                 'is_alarm': self._current_is_alarm,
                 'ros_time': datetime.now().isoformat()
@@ -321,7 +338,20 @@ class SafetyRosBridge:
             # Per-robot mirrors of is_muted. PSF decides for a covered zone, not for a
             # named truck, so every one of these carries the SAME value as the global
             # topic. They exist so subscribers can already bind to a per-robot name;
-            # the day PSF can attribute a decision to a truck, only this loop changes.
+            # when PSF attributes decisions per truck, this loop is where the per-robot
+            # value is substituted.
+            #
+            # It is the last hop, not the only one. Reaching per-truck attribution also
+            # needs PSF to fill the 64-byte ObjectRecords (proximity mode does; ATL
+            # passes nullptr at every sendDecisionCommand call site), this bridge to
+            # expose command.objects (parsed into CmdPacket.objects today and then
+            # dropped — the OPC UA server has no Objects node and SafetyCommand has no
+            # such field), a per-robot ground-truth pose source to match detections
+            # against (srr_ground_truth.py knows one hardcoded /World/forklift_b), and
+            # an empirical frame fit between the packet's VSS world coordinates and
+            # Isaac world. The per-robot routing itself will land on a robot_id in the
+            # /safety/command JSON below, where the controller-side filter already
+            # waits, rather than on these mirrors.
             for robot_id in self.robot_ids:
                 topic = self._robot_muted_topic(robot_id)
                 self._publishers[f"is_muted:{robot_id}"] = self._node.create_publisher(
