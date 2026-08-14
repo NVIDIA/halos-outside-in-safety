@@ -169,6 +169,15 @@ class ActorSDGRunner:
                     f"sensor.groups.<g>.aim_at_targets in the YAML config."
                 )
 
+            # Before the overlay block below, which rewrites base_stage_asset_path to
+            # the generated .overlay.usda — after that the cameras config is compared
+            # against a file name it could not have named.
+            if self.cameras_config_path:
+                from camera_loader import assert_scene_matches
+                assert_scene_matches(
+                    self.cameras_config_path, config.environment.base_stage_asset_path
+                )
+
             # Forklifts declared with a `spawn:` block in robots.yaml are added by
             # a generated layer that sublayers the scene, and the config is pointed
             # at that layer instead — here, because setup_simulation() opens the
@@ -710,12 +719,23 @@ def main():
         print(f"ERROR: Sensor placement file not found: {args.sensor_placement_file}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve cameras config path
+    # Resolve cameras config path, including the default, BEFORE the banner below:
+    # resolving it afterwards made the banner print None on every launch that relied
+    # on the default, so the log did not say which poses the run used — and using the
+    # wrong ones is silent. See camera_loader.assert_scene_matches().
     cameras_config_path = None
     if args.cameras_config:
         cameras_config_path = os.path.abspath(args.cameras_config)
         if not os.path.isfile(cameras_config_path):
             print(f"WARNING: Cameras config file not found: {cameras_config_path}", file=sys.stderr)
+    elif args.enable_rtsp or args.enable_camera_spawn:
+        # Both consumers (RTSP graph build and camera spawn) need it, so either being
+        # enabled resolves the default — mirroring the robots.yaml default below.
+        default_cameras_yaml = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
+        )
+        if os.path.isfile(default_cameras_yaml):
+            cameras_config_path = default_cameras_yaml
 
     print("=" * 60)
     print("Actor SDG Runner (IRA 6.0)")
@@ -727,8 +747,8 @@ def main():
     print(f"Debug print: {args.debug_print}")
     print(f"Save USD: {args.save_usd}")
     print(f"VST Integration: {args.enable_vst}")
+    print(f"Cameras config: {cameras_config_path or '<none>'}")
     if args.enable_vst:
-        print(f"  Cameras config: {cameras_config_path}")
         print(f"  VST URL: {os.environ.get('VST_BASE_URL', 'not set')}")
         print(f"  HOST_IP: {os.environ.get('HOST_IP', 'not set')}")
     print("=" * 60)
@@ -779,17 +799,6 @@ def main():
     print("Starting Isaac Sim...")
     print(f"Asset root override: {isaac_asset_root}")
     sim_app = SimulationApp(launch_config=app_config, experience=BASE_EXP_PATH)
-
-    # Default cameras_config_path to the canonical location when the
-    # operator did not pass --cameras-config. Both consumers (RTSP graph
-    # build and camera spawn) need it, so either being enabled resolves
-    # the default — mirroring the robots.yaml default below.
-    if (args.enable_rtsp or args.enable_camera_spawn) and cameras_config_path is None:
-        default_cameras_yaml = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
-        )
-        if os.path.isfile(default_cameras_yaml):
-            cameras_config_path = default_cameras_yaml
 
     # Resolve robots config path (forklift control/odom/safety + clock).
     # Defaults to the canonical configs/robots.yaml when the operator did

@@ -7,8 +7,6 @@
 # file for the field reference and the RTSP URL build formula. Only the
 # three spawn poses differ.
 #
-# Scene: sil/scenes/warehouse_40x20_two_loading_dock.usd
-#
 # The 12 cameras that shipped baked into that scene (Camera, Camera_01 ..
 # Camera_11) were deleted so this loader owns camera placement. Only the
 # /World/Cameras Xform is kept — it has an explicit identity transform,
@@ -16,14 +14,46 @@
 # but is authored as a local op.
 #
 # spawn: values are the baked poses of the three calibrated cameras, read
-# out of the scene before deletion, so Yuxing's calibration.json stays
+# out of the scene before deletion, so the 40x20 calibration.json stays
 # valid without regeneration. Cross-checked by recovering each camera
 # centre from its extrinsicMatrix as C = -R^T t, which reproduces these
 # positions to four decimals. Intrinsics match the 20x20 production cams
 # exactly (fx = fy = 732.9993 px on 1920x1080), so FOV is unchanged.
 #
+# !! THE 40x20 CALIBRATION DOES NOT SHIP IN THIS REPO !!
+#
+# These poses preserve a calibration.json that lives on the VSS side, and the
+# deploy default is the 20x20 one: vss_2d_overrides.md sets
+# SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic", whose ROIs and
+# tripwires are 20x20 geometry. Running it against this scene produces frames,
+# detections and PSF verdicts with nothing in any log to say they describe the
+# wrong warehouse — the two frames are far apart: scaleFactor 49.50985 vs
+# 26.829178663553755, translation x 19.291915 vs 35.669746.
+#
+# So this config is EXPERIMENTAL / internal-only until a 40x20 dataset is
+# published, as are robots-40x20.yaml and default_config_ros_40x20.yaml.
+#
+# Getting hold of the 40x20 calibration is not enough on its own. The copy these
+# poses were read against carries "rois": [] and "tripwires": [] on all three
+# sensors, while the shipped 20x20 dataset has one of each per sensor. With no
+# tripwire there is nothing for behaviour analytics to trip on, so PSF issues no
+# crossing verdict at all — an SRR run comes back empty rather than wrong, which
+# is a different and quieter failure than the mismatch above. Publishing a 40x20
+# dataset therefore means authoring ROI and tripwire geometry for BOTH docks in
+# 40x20 world metres; it is not a file copy, and it is not derivable from the
+# camera poses.
+#
+# Before trusting any SRR number from this scene, check the calibration in use
+# against tools/waypoint-generator/public/maps/warehouse_40x20/config.json:
+# scaleFactor and translationToGlobalCoordinates.x must agree. Only those two —
+# translationToGlobalCoordinates.y follows a different convention on each side
+# and is expected to disagree, which the shipped 20x20 pair confirms (20.999993
+# in calibration.json against 0.813848 in the map config). Do not "fix" it.
+#
 # The middle rotation component is 0.0 for all three; the USD stores
 # floating-point noise (~-5e-13) that is not worth preserving.
+scene: sil/scenes/warehouse_40x20_two_loading_dock.usd
+
 cameras:
   - name: Camera
     camera_prim: /World/Cameras/Camera
