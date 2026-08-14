@@ -20,6 +20,25 @@
 #      also runs in HIL, where this file does not exist, so it cannot read the
 #      names from here — the list is duplicated on purpose. Verify with:
 #        ros2 topic info /forklift_b2/safety/is_muted   # want Publisher count: 1
+#   5. FORKLIFT_WAYPOINTS_DIR must be ./waypoints/warehouse_40x20. A path is
+#      metres in one scene's world frame and the controller subtracts the file's
+#      origin from every pose, so the 20x20 set runs here without complaint,
+#      along a lane never validated in this warehouse. preflight.py compares the
+#      origins against the spawn.position values below.
+#   6. VSS needs a 40x20 calibration.json, WHICH DOES NOT SHIP. The deploy
+#      default is the 20x20 dataset — vss_2d_overrides.md sets
+#      SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic" — whose ROIs
+#      and tripwires are 20x20 geometry (scaleFactor 49.50985 and translation x
+#      19.291915, against 26.829178663553755 and 35.669746 for this scene). Run
+#      that pairing and perception still produces detections and PSF still issues
+#      verdicts; they are simply about the wrong building, with no log line
+#      anywhere. Until a 40x20 dataset is published this trio is EXPERIMENTAL /
+#      internal-only, and no SRR number from it means anything. Check before
+#      trusting one: scaleFactor and translationToGlobalCoordinates.x in the
+#      calibration must match
+#      tools/waypoint-generator/public/maps/warehouse_40x20/config.json. The
+#      scene<->calibration table is in
+#      skills/hoisa-deploy-profile/references/test_scenario.md.
 #
 # The safety_indicator disc is NOT in this scene's USD: indicator_loader.py
 # authors it from the model's `indicator:` size below, before the graph builder

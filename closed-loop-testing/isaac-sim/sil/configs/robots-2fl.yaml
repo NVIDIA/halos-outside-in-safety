@@ -12,6 +12,12 @@
 #        --robots-config /isaac-sim/sil/configs/robots-2fl.yaml
 #   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
 #      container (forklift-controller-b2) starts.
+#   4. FORKLIFT_WAYPOINTS_DIR must be ./waypoints/warehouse_20x20 (the default).
+#      A path is metres in one scene's world frame and the controller subtracts
+#      the file's origin from every pose, so the 40x20 set runs here without
+#      complaint — forklift_b2 4.63 m off its lane, nothing logged. preflight.py
+#      compares each origin against where the truck stands; pass --scene, since
+#      both trucks here are baked rather than spawned.
 # The shipped 2FL scene intentionally differs from the stock scene beyond the
 # forklift_b2 clone (multi-forklift test scenario): 4 Loading_Zone_Objects
 # prims deactivated, 2 RectLights repositioned toward the second corridor,

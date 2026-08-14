@@ -129,11 +129,14 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 - [ ] 7. Set a unique ROS_DOMAIN_ID (0-232) + verify Publisher count=1
 - [ ] 8. (sil, multi-robot) Cross-check the four robot lists BEFORE booting Isaac:
         deployments/scripts/preflight.py --robots-config <the robots.yaml you will launch with>
+                                        [--scene <the scene USD, for trucks baked into it>]
 - [ ] 9. (sil) Run the Isaac Sim test scenario                   → references/test_scenario.md
 - [ ] 10. Monitor until sim-driven safety transitions appear (the "complete" signal)
 ```
 
 Step 8 exists because a robot has to be listed in four places — `robots.yaml`, a controller service, its waypoint file, and `COMM_ROBOT_IDS` — and **every way of getting it half-right is silent**. Two of the four produce the same symptom, a truck that sits there; the third produces a disc that looks like a working indicator reporting danger. The check takes a second and runs on the host; Isaac takes three minutes to boot before showing you any of it. Pass the config you will actually launch with — it has no default on purpose.
+
+It also compares each waypoint file's `origin` against where its truck stands, which is a different kind of mistake: the names all agree, the truck drives, and only the lane is wrong. Waypoints are per scene (`waypoints/<map id>/<ROBOT_ID>.json`, selected by `FORKLIFT_WAYPOINTS_DIR`) because the coordinates are metres in one warehouse's world frame. The scene<->config<->waypoints<->calibration pairings are tabulated in `references/test_scenario.md`; the 40x20 scene has no published calibration and is experimental.
 
 ---
 
