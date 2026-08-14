@@ -30,6 +30,9 @@ How it works
    inline all geometry and produce an enormous file.
 3. During the merge every asset path is rewritten using a map derived from the
    working 20x20 scene: public S3 first, then sil-data.
+4. The flattened layer is put onto the timeCodesPerSecond the shipped scenes use,
+   because a bundle carries whatever rate its authoring session had and a faithful
+   flatten would keep reintroducing it. See normalize_timecodes().
 """
 import argparse
 import os
@@ -49,6 +52,11 @@ DEFAULT_REFERENCE = (f"{DEFAULT_SCENES}/"
                      "indicator_warehouse_20x20_layout_overflow_test_2fl.usd")
 
 S3_HOST = "omniverse-content-production.s3-us-west-2.amazonaws.com"
+
+# The rate every scene in sil/scenes ships with. tc=60 is the fix for the dup-DTS
+# collision (commit 595534a); a scene left on the bundle's own rate reintroduces it.
+TIMECODES_PER_SECOND = 60
+END_TIME_CODE = 576000
 
 
 def layer_asset_paths(path):
@@ -193,6 +201,34 @@ class Rewriter:
         return asset_path, "UNRESOLVED", reason, used
 
 
+def normalize_timecodes(layer, has_time_samples):
+    """Put the flattened layer on the rate the shipped scenes use.
+
+    FlattenLayerStack preserves the source's timeCodesPerSecond, which is correct for
+    a flattener and is why the 40x20 bundle's tc=30 survived into the committed scene.
+    Doing it here rather than in review makes the tool the thing that guarantees the
+    invariant, so the next Collect As from any workstation cannot reintroduce it.
+
+    Deleting the opinion instead of setting it would be worse: USD then falls back to
+    framesPerSecond, which is 24 by default.
+
+    A layer carrying timeSamples is left alone. There the rate decides when each
+    sample plays, so changing it retimes the animation, and silently retiming is the
+    failure this function exists to prevent.
+    """
+    if layer.timeCodesPerSecond == TIMECODES_PER_SECOND:
+        return
+    print(f"\ntimeCodesPerSecond: source has {layer.timeCodesPerSecond:g}, "
+          f"sil/scenes ships {TIMECODES_PER_SECOND}")
+    if has_time_samples:
+        print("  LEFT ALONE: this layer carries timeSamples, so the rate is "
+              "load-bearing and normalising it would retime them. Resolve by hand.")
+        return
+    layer.timeCodesPerSecond = TIMECODES_PER_SECOND
+    layer.endTimeCode = END_TIME_CODE
+    print(f"  normalised to {TIMECODES_PER_SECOND}, endTimeCode={END_TIME_CODE:g}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--source", default=DEFAULT_SOURCE,
@@ -251,7 +287,10 @@ def main():
         for p in sorted(rw.keep_local)[:12]:
             print(f"     {os.path.relpath(p, bundle_dir)}")
 
-    print(f"\nflattened layer: {len(flat.ExportToString())/1024:.1f} KB as text")
+    flat_text = flat.ExportToString()
+    print(f"\nflattened layer: {len(flat_text)/1024:.1f} KB as text")
+
+    normalize_timecodes(flat, "timeSamples" in flat_text)
 
     if args.out and not args.report:
         flat.Export(args.out)
