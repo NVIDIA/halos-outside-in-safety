@@ -17,8 +17,10 @@ from .forklift_common import (
     DEFAULT_ROBOTS_YAML,
     clear_existing_graph,
     ensure_extensions_enabled,
+    is_section_enabled,
     load_and_validate_robots_yaml,
     resolve_odom_frames,
+    resolve_odom_topic,
     set_rel_target,
     verify_prim_exists,
 )
@@ -29,7 +31,7 @@ def _build_one_odometry_graph(robot: dict) -> None:
     import omni.usd
 
     cfg = robot.get("odometry", {}) or {}
-    if not cfg.get("enabled", True):
+    if not is_section_enabled(robot, "odometry"):
         return
 
     name = robot["name"]
@@ -37,7 +39,7 @@ def _build_one_odometry_graph(robot: dict) -> None:
     graph_path = f"/World/{name}_OdometryGraph"
 
     robot_front = cfg.get("robot_front", [-1.0, 0.0, 0.0])
-    odom_topic = cfg.get("odom_topic")
+    odom_topic = resolve_odom_topic(robot)
     tf_topic = cfg.get("tf_topic")
     odom_frame, base_frame = resolve_odom_frames(robot)
 
@@ -54,9 +56,8 @@ def _build_one_odometry_graph(robot: dict) -> None:
         ("PublishOdometry.inputs:chassisFrameId", base_frame),
         ("PublishRawTF.inputs:parentFrameId", odom_frame),
         ("PublishRawTF.inputs:childFrameId", base_frame),
+        ("PublishOdometry.inputs:topicName", odom_topic),
     ]
-    if odom_topic:
-        set_values.append(("PublishOdometry.inputs:topicName", odom_topic))
     if tf_topic:
         set_values.append(("PublishRawTF.inputs:topicName", tf_topic))
 
@@ -103,21 +104,35 @@ def build_odometry_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     """Build the IsaacComputeOdometry -> ROS2 publishers graph per robot."""
     robots, _ = load_and_validate_robots_yaml(config_path)
 
-    # Two robots on one frame pair is the bug this phase exists to remove, and
-    # it is silent: /tf carries both edges and consumers see the pose flicker
-    # between two trucks. Derived frames cannot collide (robot names are unique
-    # and validated), so this only catches a hand-written pair.
-    claims: dict[tuple[str, str], str] = {}
+    # Two robots on one frame is the bug this phase exists to remove, and it is
+    # silent: /tf carries both edges and consumers see the pose flicker between two
+    # trucks. The claim is on the CHILD frame alone, not on the (parent, child) pair
+    # — a transform tree gives every frame exactly one parent, so `odom_a -> base`
+    # and `odom_b -> base` is already the flicker even though the pairs differ.
+    # Derived frames cannot collide (robot names are unique and validated), so this
+    # only catches a hand-written pair.
+    claims: dict[str, tuple[str, str]] = {}
+    topics: dict[str, str] = {}
     for robot in robots:
-        if not (robot.get("odometry", {}) or {}).get("enabled", True):
+        if not is_section_enabled(robot, "odometry"):
             continue
-        frames = resolve_odom_frames(robot)
-        if frames in claims:
+        odom_frame, base_frame = resolve_odom_frames(robot)
+        if base_frame in claims:
+            owner, owner_parent = claims[base_frame]
             raise RuntimeError(
-                f"TF frames {frames[0]}->{frames[1]} are claimed by both "
-                f"{claims[frames]} and {robot['name']} — each robot needs its own pair"
+                f"TF frame {base_frame} is claimed by both {owner} (under "
+                f"{owner_parent}) and {robot['name']} (under {odom_frame}) — a frame "
+                f"can have only one parent, so each robot needs its own child frame"
             )
-        claims[frames] = robot["name"]
+        claims[base_frame] = (robot["name"], odom_frame)
+
+        topic = resolve_odom_topic(robot)
+        if topic in topics:
+            raise RuntimeError(
+                f"odom topic {topic!r} is claimed by both {topics[topic]} and "
+                f"{robot['name']} — one topic would carry two trucks' poses"
+            )
+        topics[topic] = robot["name"]
 
     ensure_extensions_enabled()
     for robot in robots:

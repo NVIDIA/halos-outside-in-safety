@@ -20,7 +20,9 @@ from .forklift_common import (
     DEFAULT_ROBOTS_YAML,
     clear_existing_graph,
     ensure_extensions_enabled,
+    is_section_enabled,
     load_and_validate_robots_yaml,
+    resolve_cmd_vel_topic,
     resolve_drive_type,
     set_rel_target,
     verify_prim_exists,
@@ -90,7 +92,7 @@ def _build_one_swivel_control_graph(robot: dict) -> None:
     import omni.usd
 
     cfg = robot.get("control", {}) or {}
-    if not cfg.get("enabled", True):
+    if not is_section_enabled(robot, "control"):
         return
 
     name = robot["name"]
@@ -102,7 +104,7 @@ def _build_one_swivel_control_graph(robot: dict) -> None:
     wheelbase = float(cfg.get("wheelbase", 1.49))
     wheel_radius = float(cfg.get("wheel_radius", 0.15))
     max_steer = math.radians(float(cfg.get("max_steer_deg", 45.0)))
-    cmd_vel_topic = cfg.get("cmd_vel_topic", "cmd_vel")
+    cmd_vel_topic = resolve_cmd_vel_topic(robot)
 
     rev = cfg.get("reverse_logic", {}) or {}
     flip_linear_x = bool(rev.get("flip_linear_x", True))
@@ -193,10 +195,13 @@ def build_control_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     robots, _ = load_and_validate_robots_yaml(config_path)
 
     # Two robots on one articulation means one truck is driven by both graphs
-    # while the other never moves — check before building anything.
+    # while the other never moves — check before building anything. Two robots on
+    # one cmd_vel is the same class of silent fault seen from the other end: both
+    # trucks obey every message either controller sends.
     claims: dict[str, str] = {}
+    topics: dict[str, str] = {}
     for robot in robots:
-        if not (robot.get("control", {}) or {}).get("enabled", True):
+        if not is_section_enabled(robot, "control"):
             continue
         prim = robot["articulation_prim"]
         if prim in claims:
@@ -205,6 +210,14 @@ def build_control_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
                 f"{robot['name']} — each robot needs its own articulation"
             )
         claims[prim] = robot["name"]
+
+        topic = resolve_cmd_vel_topic(robot)
+        if topic in topics:
+            raise RuntimeError(
+                f"cmd_vel topic {topic!r} is claimed by both {topics[topic]} and "
+                f"{robot['name']} — both trucks would answer every command sent to it"
+            )
+        topics[topic] = robot["name"]
 
     # Resolve every builder up front. The loader has already rejected an
     # unknown drive_type; what is caught here is a value that is known but has

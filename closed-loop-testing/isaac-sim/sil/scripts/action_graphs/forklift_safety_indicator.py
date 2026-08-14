@@ -20,6 +20,7 @@ from .forklift_common import (
     DEFAULT_ROBOTS_YAML,
     clear_existing_graph,
     ensure_extensions_enabled,
+    is_section_enabled,
     load_and_validate_robots_yaml,
     resolve_indicator_colors,
     resolve_indicator_prim,
@@ -99,7 +100,7 @@ def _build_one_safety_graph(robot: dict) -> None:
     import omni.usd
 
     cfg = robot.get("safety_indicator", {}) or {}
-    if not cfg.get("enabled", True):
+    if not is_section_enabled(robot, "safety_indicator"):
         return
 
     name = robot["name"]
@@ -179,7 +180,7 @@ def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     # building anything so the launch fails with the paths named.
     claims: dict[str, str] = {}
     for robot in robots:
-        if not (robot.get("safety_indicator", {}) or {}).get("enabled", True):
+        if not is_section_enabled(robot, "safety_indicator"):
             continue
         # Parse the colours and the topic here too, so a malformed palette or a
         # relative topic name fails before any graph is built rather than on the

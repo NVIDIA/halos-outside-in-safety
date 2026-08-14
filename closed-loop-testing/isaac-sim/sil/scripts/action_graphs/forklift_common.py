@@ -61,6 +61,17 @@ _MODEL_CONTROL_KEYS = (
 _MODEL_INDICATOR_MESH_KEYS = ("radius", "segments", "height_offset")
 
 
+def is_number(x) -> bool:
+    """A real number from YAML, rejecting bool.
+
+    `bool` is a subclass of `int`, so a bare isinstance check accepts `true` where a
+    length or an angle is wanted and it silently becomes 1. Shared by both loaders
+    that validate numeric config: indicator_loader.py for the disc, and
+    forklift_overlay.py for the spawn pose.
+    """
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
 def _merge_under(robot: dict, section: str, defaults: dict) -> None:
     """Apply model defaults to one robot section, instance keys winning.
 
@@ -225,6 +236,22 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
     return robots, clock_cfg
 
 
+def is_section_enabled(robot: dict, section: str) -> bool:
+    """Whether `robot` asks for `section` — absent means yes.
+
+    Every builder here defaults the flag to True, so a robot that says nothing gets
+    the graph. Anything deciding the same question with a bare `.get("enabled")` reads
+    a missing key as False and reaches the opposite conclusion, which is how
+    deployments/scripts/preflight.py came to pass a config that leaves a truck
+    motionless: it skipped the robot the builders were about to wire up.
+
+    A missing section is also enabled, matching the builders: they read
+    `robot.get(section, {}) or {}` and then default the flag, so a robot with no
+    `control:` block still gets a control graph.
+    """
+    return bool((robot.get(section) or {}).get("enabled", True))
+
+
 # Safety-indicator appearance, shared by the graph builder (which recolours the
 # disk) and indicator_loader.py (which authors it, initialised to the alarm
 # colour so a disk looks the same before the first ROS message as after an
@@ -276,6 +303,41 @@ def resolve_muted_topic(robot: dict) -> str:
             f"must be an absolute topic name starting with '/', got {topic!r}"
         )
     return topic
+
+
+def _resolve_namespaced_topic(robot: dict, section: str, key: str, suffix: str) -> str:
+    """A per-robot topic name, defaulting to `<name>/<suffix>`.
+
+    The bare `cmd_vel` and `odom` the nodes default to are safe only while exactly one
+    robot exists. Two robots that both leave the key out then share one topic: the
+    controllers drive both trucks with whichever message arrives, and both publish
+    odometry onto one name. Neither shows up as an error anywhere, because from each
+    graph's side the wiring is complete.
+
+    Namespacing by default removes the collision for every scene at once instead of
+    only where someone remembered to override it, which is the same trade
+    resolve_odom_frames() already makes. Every config in sil/configs names these
+    topics explicitly, so this default changes nothing that ships today — it decides
+    what the next robot gets.
+    """
+    cfg = robot.get(section, {}) or {}
+    topic = cfg.get(key, f"{robot['name']}/{suffix}")
+    if not isinstance(topic, str) or not topic.strip():
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.{section}.{key} must be a "
+            f"non-empty topic name, got {topic!r}"
+        )
+    return topic
+
+
+def resolve_cmd_vel_topic(robot: dict) -> str:
+    """Which topic this robot takes velocity commands on. See _resolve_namespaced_topic."""
+    return _resolve_namespaced_topic(robot, "control", "cmd_vel_topic", "cmd_vel")
+
+
+def resolve_odom_topic(robot: dict) -> str:
+    """Which topic this robot publishes odometry on. See _resolve_namespaced_topic."""
+    return _resolve_namespaced_topic(robot, "odometry", "odom_topic", "odom")
 
 
 def resolve_odom_frames(robot: dict) -> tuple[str, str]:
@@ -406,6 +468,15 @@ def strip_baked_scene_graphs(extra_paths: tuple[str, ...] = ()) -> list[str]:
     already absent are skipped. Returns the list of paths actually removed.
 
     Call BEFORE the per-robot builders.
+
+    Known limit, no impact on any scene shipped today: `RemovePrim` removes the
+    spec in the current edit target, not wherever the prim was defined. With a
+    forklift overlay as root layer (see forklift_overlay.py) the edit target is
+    the overlay, so a graph defined down in the scene sublayer would keep
+    composing while the line above says it was stripped. None of the three
+    scenes in sil/scenes carries a prim at any of these paths, so nothing relies
+    on it. Anything that starts to should deactivate the prim, or set the edit
+    target to the layer that defines it, instead of trusting this.
     """
     import omni.usd
 
