@@ -18,7 +18,7 @@ Per-robot `safety_indicator.mesh:` block, every field optional:
           mesh:
             radius: 1.5          # metres, final world-space size
             segments: 32         # triangle-fan segments
-            height_offset: 0.0   # metres above the parent origin
+            height_offset: 0.0   # world metres above the parent origin
 
 The disc is created at the path `forklift_common.resolve_indicator_prim()`
 reports, the same resolver the Action Graph builder uses, so the geometry
@@ -33,6 +33,11 @@ scene expressed it. A uniform parent scale is divided out so the number in
 the config is what you measure in the viewport; a NON-uniform parent scale is
 rejected, because it would draw an ellipse and look like a rendering fault
 rather than a config one.
+
+`height_offset` is divided by that same scale, so both numbers in a `mesh:`
+block are world metres. Leaving it in parent-local units would make
+`radius: 1.5` mean 1.5 m in the viewport while `height_offset: 0.5` meant
+0.5 x parent_scale, and the block would be measuring in two units at once.
 
 Colours are configured one level up, as `safety_indicator.color_muted` /
 `color_alarm`, not inside `mesh:`: they are read by the Action Graph on every
@@ -84,12 +89,9 @@ def _load_robots_yaml(yaml_path: str) -> list[dict]:
     return robots
 
 
-def _is_number(x) -> bool:
-    # bool is a subclass of int; reject it so `true`/`false` don't pass.
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
-
-
 def _validate_mesh_block(name: str, mesh: dict) -> None:
+    from action_graphs.forklift_common import is_number
+
     if not isinstance(mesh, dict):
         raise ValueError(f"robots.yaml: '{name}'.safety_indicator.mesh must be a mapping")
     unknown = set(mesh) - {"radius", "segments", "height_offset"}
@@ -102,7 +104,7 @@ def _validate_mesh_block(name: str, mesh: dict) -> None:
             f"{sorted(unknown)}{hint}"
         )
     for field in ("radius", "height_offset"):
-        if field in mesh and not _is_number(mesh[field]):
+        if field in mesh and not is_number(mesh[field]):
             raise ValueError(
                 f"robots.yaml: '{name}'.safety_indicator.mesh.{field} must be a number, "
                 f"got {mesh[field]!r}"
@@ -190,14 +192,17 @@ def _create_one(stage, robot: dict) -> str:
     segments = int(mesh_cfg.get("segments", _DEFAULT_SEGMENTS))
     height = float(mesh_cfg.get("height_offset", _DEFAULT_HEIGHT_OFFSET))
 
-    # radius is world-space, so cancel the parent chain's uniform scale to keep
-    # the config number and the measured disc the same thing.
+    # radius and height_offset are both world-space, so cancel the parent chain's
+    # uniform scale to keep the config numbers and the measured disc the same thing.
+    # Dividing one and not the other would make two numbers in the same mesh: block
+    # mean different units under a scaled parent.
     parent_scale = _parent_uniform_scale(stage, path)
     local_radius = radius / parent_scale
+    local_height = height / parent_scale
     if not Gf.IsClose(parent_scale, 1.0, 1e-6):
         print(f"[indicator-loader] {path}: parent scale {parent_scale:.4f}, authoring "
-              f"local radius {local_radius:.4f} for a world radius of {radius}",
-              flush=True)
+              f"local radius {local_radius:.4f} and height {local_height:.4f} for a "
+              f"world radius of {radius} at {height} m", flush=True)
 
     points, face_counts, face_indices = _disc_topology(segments, local_radius)
 
@@ -221,7 +226,7 @@ def _create_one(stage, robot: dict) -> str:
 
     xformable = UsdGeom.Xformable(prim)
     xformable.ClearXformOpOrder()
-    xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, height))
+    xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, local_height))
 
     prim.CreateAttribute(_MARKER_ATTR, Sdf.ValueTypeNames.String).Set(_MARKER_VALUE)
     # Closest travels-with-scene guard against an accidental GUI delete
@@ -239,12 +244,14 @@ def spawn_indicators(config_path: str = DEFAULT_ROBOTS_YAML) -> list[str]:
     """
     import omni.usd
 
+    from action_graphs.forklift_common import is_section_enabled
+
     robots = _load_robots_yaml(config_path)
 
     to_create = []
     for robot in robots:
         cfg = robot.get("safety_indicator", {}) or {}
-        if not cfg.get("enabled", True) or "mesh" not in cfg:
+        if not is_section_enabled(robot, "safety_indicator") or "mesh" not in cfg:
             continue
         _validate_mesh_block(robot.get("name", "?"), cfg["mesh"] or {})
         to_create.append(robot)

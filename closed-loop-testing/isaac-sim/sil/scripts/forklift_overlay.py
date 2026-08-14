@@ -49,14 +49,32 @@ import os
 
 _OVERLAY_SUFFIX = ".overlay.usda"
 
+_SPAWN_KEYS = ("asset_path", "position", "yaw_deg", "scale")
+
 
 def _validate_spawn(robot: dict) -> tuple[str, str, tuple[float, float, float], float,
                                           tuple[float, float, float]]:
-    """(prim_path, asset_path, position, yaw_deg, scale) for one robot, validated."""
+    """(prim_path, asset_path, position, yaw_deg, scale) for one robot, validated.
+
+    Unknown keys are rejected, not ignored. A pose is all defaults and no required
+    fields beyond the asset, so a misspelled key does not fail — it silently takes
+    the default: `yaw:` instead of `yaw_deg:` spawns the truck facing 0 deg, which
+    for these scenes is 180 deg wrong, and nothing anywhere says so.
+    """
+    from action_graphs.forklift_common import is_number
+
     name = robot.get("name", "?")
     cfg = robot["spawn"]
     if not isinstance(cfg, dict):
         raise ValueError(f"robots.yaml: '{name}'.spawn must be a mapping, got {cfg!r}")
+
+    unknown = set(cfg) - set(_SPAWN_KEYS)
+    if unknown:
+        raise ValueError(
+            f"robots.yaml: '{name}'.spawn has unknown keys: {sorted(unknown)} — "
+            f"valid keys are {list(_SPAWN_KEYS)}. The prim path comes from "
+            f"articulation_prim, one level up."
+        )
 
     prim_path = robot.get("articulation_prim")
     if not isinstance(prim_path, str) or not prim_path.startswith("/"):
@@ -75,25 +93,37 @@ def _validate_spawn(robot: dict) -> tuple[str, str, tuple[float, float, float], 
             f"robots.yaml: '{name}'.spawn.position must be [x, y, z], got {position!r}"
         )
     for component in position:
-        if isinstance(component, bool) or not isinstance(component, (int, float)):
+        if not is_number(component):
             raise ValueError(
                 f"robots.yaml: '{name}'.spawn.position components must be numbers, "
                 f"got {position!r}"
             )
 
     yaw_deg = cfg.get("yaw_deg", 0.0)
-    if isinstance(yaw_deg, bool) or not isinstance(yaw_deg, (int, float)):
+    if not is_number(yaw_deg):
         raise ValueError(f"robots.yaml: '{name}'.spawn.yaw_deg must be a number, got {yaw_deg!r}")
 
+    # Every component is checked, and checked before float() so a string names the
+    # robot instead of raising a bare "could not convert string to float". A zero or
+    # negative scale is rejected here because the symptom lands elsewhere: the disc
+    # loader reports "Parent ... has zero scale", pointing at the indicator rather
+    # than at the truck it was collapsed with.
     scale = cfg.get("scale", 1.0)
-    if isinstance(scale, (int, float)) and not isinstance(scale, bool):
-        scale = (float(scale),) * 3
-    elif isinstance(scale, (list, tuple)) and len(scale) == 3:
-        scale = tuple(float(s) for s in scale)
+    if is_number(scale):
+        components = (scale,) * 3
+    elif isinstance(scale, (list, tuple)) and len(scale) == 3 and all(
+            is_number(s) for s in scale):
+        components = tuple(scale)
     else:
         raise ValueError(
-            f"robots.yaml: '{name}'.spawn.scale must be a number or [x, y, z], got {scale!r}"
+            f"robots.yaml: '{name}'.spawn.scale must be a number or [x, y, z] of "
+            f"numbers, got {scale!r}"
         )
+    if any(s <= 0.0 for s in components):
+        raise ValueError(
+            f"robots.yaml: '{name}'.spawn.scale must be > 0 in every axis, got {scale!r}"
+        )
+    scale = tuple(float(s) for s in components)
 
     return (prim_path, asset_path,
             tuple(float(c) for c in position), float(yaw_deg), scale)
@@ -211,7 +241,12 @@ def generate_overlay(robots_config_path: str, base_stage_path: str) -> str | Non
     from action_graphs.forklift_common import load_and_validate_robots_yaml
 
     robots, _ = load_and_validate_robots_yaml(robots_config_path)
-    spawned = [r for r in robots if r.get("spawn")]
+    # Key presence, not truthiness: `spawn:` with an empty body parses as None, and a
+    # truthiness test would drop that robot here and load the scene without it. The
+    # launch then dies three minutes later in verify_prim_exists, whose message names
+    # the scene — sending the reader to the wrong file. Presence routes it into
+    # _validate_spawn, which says what is actually wrong.
+    spawned = [r for r in robots if "spawn" in r]
     if not spawned:
         return None
 
@@ -254,6 +289,7 @@ def generate_overlay(robots_config_path: str, base_stage_path: str) -> str | Non
     layer.Export(out_path)
     print(f"[forklift-overlay] {len(specs)} forklift(s) from "
           f"{os.path.basename(robots_config_path)} -> {out_path}", flush=True)
-    for prim_path, _, position, yaw_deg, _ in specs:
-        print(f"[forklift-overlay]   {prim_path} at {position} yaw={yaw_deg}deg", flush=True)
+    for prim_path, _, position, yaw_deg, scale in specs:
+        print(f"[forklift-overlay]   {prim_path} at {position} yaw={yaw_deg}deg "
+              f"scale={scale}", flush=True)
     return out_path
