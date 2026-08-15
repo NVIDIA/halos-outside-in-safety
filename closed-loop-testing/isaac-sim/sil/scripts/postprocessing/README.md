@@ -91,7 +91,16 @@ the timeline is playing.
 - **A rejected edit keeps the last good preset.** Hot reload means the config is
   edited while a scenario is mid-flight; a half-saved file must not blank the
   degradation being tested. The bad digest is remembered so the warning prints
-  once instead of at poll rate.
+  once instead of at poll rate. That covers every config error — a parse error,
+  an unknown key, a camera not on the stage — because all of them are caught
+  before anything is written.
+- **A failure *inside* the apply falls back to the baseline instead.** Applying a
+  preset starts by reverting the previous one, so once that has begun the last
+  good preset no longer exists to keep; what is on screen is half of a preset
+  that was just rejected. That case reverts to the pre-controller state, drops
+  the animation and the pending render-product writes, and forgets the last good
+  digest so putting the file back re-applies it rather than reading as
+  "unchanged".
 - **All USD authoring goes to the session layer.** A preset never dirties the
   scene `.usd` on disk and never survives a restart, so a degraded run cannot
   leak into the next one through version control.

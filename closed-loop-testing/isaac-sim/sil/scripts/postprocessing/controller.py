@@ -155,29 +155,70 @@ class PostProcessingController:
         if digest in (self._digest, self._rejected_digest):
             return
 
+        # Set immediately BEFORE the call, not inside it: _apply() starts by
+        # reverting, so a raise anywhere in it means the renderer is already
+        # dirty. Everything above it is pure config work that touches nothing.
+        entered_apply = False
         try:
             import yaml
 
             config = yaml.safe_load(raw) or {}
             name, preset = _select_preset(config)
             _validate_preset(name, preset)
-            # Resolved here, before anything is reverted: a bad camera name has
-            # to be rejected like any other config error, leaving the preset
-            # that is currently degrading the scene untouched.
+            # Resolved before anything is reverted: a bad camera name has to be
+            # rejected like any other config error, leaving the preset that is
+            # currently degrading the scene untouched.
             camera_prim_paths = self._resolve_scope(preset)
+            # Inside the try as well, because the apply layer raises too (a
+            # KIND_COLOR3 value carb refuses, a closed stage, a USD authoring
+            # error).
+            entered_apply = True
+            self._apply(name, preset, camera_prim_paths)
         except Exception as exc:
             # Remember the bad digest so a broken edit is reported once instead
-            # of every poll, and keep serving the last good preset.
+            # of every poll — which also keeps a failing apply from retrying at
+            # render rate.
             self._rejected_digest = digest
+
+            if not entered_apply:
+                # Config error: nothing was touched, so the anomaly under test
+                # keeps running. _digest still describes what is live, which is
+                # what makes restoring the file early-return correctly.
+                _say(f"WARNING: rejected {self.config_path}: {exc}; active preset is {self._active_name!r}")
+                return
+
+            # A failure part-way through _apply cannot leave the last good preset
+            # standing, because applying starts by reverting: what is on screen is
+            # half of a preset that was just rejected, a look nothing in the file
+            # describes. Go back to the baseline instead. This also drops the
+            # _pending_rp_settings the failed apply queued, which would otherwise
+            # be authored onto the render products on the first tick after Play —
+            # silently installing the very preset rejected here.
+            try:
+                self._revert()
+            except Exception as revert_exc:
+                _say(f"WARNING: could not fully restore renderer state: {revert_exc}")
+            # The rejected preset's animation would keep driving a value every
+            # frame, and a stale name would make active_preset lie about it.
+            self._animation = None
+            self._active_name = None
+            # Forget the last good digest too. The usual recovery is to put the
+            # file back the way it was, and that content still matches _digest —
+            # it would early-return as "unchanged" and strand the scene on the
+            # baseline for the rest of the run. _rejected_digest still absorbs
+            # every re-read of the broken file, so this cannot become a retry
+            # storm.
+            self._digest = None
             _say(
                 f"WARNING: rejected {self.config_path}: {exc}; "
-                f"keeping preset {self._active_name!r}"
+                "reverted the renderer to its pre-preset state"
             )
             return
 
+        # Committed only once the preset is actually live, so a rejected edit
+        # cannot make the controller believe it applied something it did not.
         self._digest = digest
         self._rejected_digest = None
-        self._apply(name, preset, camera_prim_paths)
 
     # -- apply / revert ----------------------------------------------------
 
