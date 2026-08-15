@@ -668,6 +668,24 @@ def _preset_groups(preset):
     ]
 
 
+def _fold_camera_key(entry):
+    """Fold the spellings of one camera entry that are equal without a stage.
+
+    Returns `(folded, is_prim_path)`. Surrounding whitespace goes, and a prim
+    path loses its repeated and trailing slashes, so `/World/Cameras/Camera_01`,
+    `/World/Cameras/Camera_01/` and `//World//Cameras/Camera_01` fold together.
+    A bare name is only stripped: turning it into a path needs cameras.yaml.
+
+    Only used for duplicate detection, never for resolution — Kit resolves the
+    entry as written, and a folded form that differed from it would quietly
+    mean something else.
+    """
+    entry = entry.strip()
+    if not entry.startswith("/"):
+        return entry, False
+    return "/" + "/".join(part for part in entry.split("/") if part), True
+
+
 def _validate_preset(name, preset):
     unknown = set(preset) - {"description", "settings", "cameras", "animation", "per_camera"}
     if unknown:
@@ -707,10 +725,28 @@ def _validate_per_camera(name, preset, per_camera):
             f"camera name or prim path to {{settings: ...}}"
         )
 
+    # Two keys naming one camera means one of the two blocks is silently
+    # discarded — the second `_apply` write wins and nothing says so. Kit
+    # catches every spelling of it in `_resolve_groups`, but only once a stage
+    # is open, which is too late to be a lint. Fold what can be folded without
+    # a stage here, and say plainly below what is left over.
+    seen = {}
+    by_basename = {}
+
     for camera, body in per_camera.items():
         where = f"{name}.per_camera.{camera}"
         if not isinstance(camera, str) or not camera:
             raise ValueError(f"preset {name!r}: per_camera keys must be names or prim paths")
+
+        folded, is_path = _fold_camera_key(camera)
+        if folded in seen:
+            raise ValueError(
+                f"preset {name!r}: per_camera entries {seen[folded]!r} and {camera!r} "
+                f"name the same camera"
+            )
+        seen[folded] = camera
+        by_basename.setdefault(folded.rsplit("/", 1)[-1], []).append((camera, is_path))
+
         if body is None:
             body = {}
         if not isinstance(body, dict):
@@ -724,6 +760,25 @@ def _validate_per_camera(name, preset, per_camera):
         # block has to accept and reject exactly what the top-level block does.
         # `scoped=True` because a per_camera entry always names a camera.
         _validate_animation(where, body.get("animation"), scoped=True)
+
+    # The case this layer cannot decide: a bare name resolves through
+    # cameras.yaml, which is not read here, so `Camera_01` and
+    # `/World/Cameras/Camera_01` MIGHT be the same prim or might not. Rejecting
+    # on the matching last path component would refuse presets Kit accepts,
+    # which is worse than the miss — an offline check that is stricter than the
+    # runtime stops being usable as a lint. Warn and name both keys instead;
+    # `_resolve_groups` still rejects it for certain, on a stage.
+    for basename, entries in by_basename.items():
+        forms = {is_path for _camera, is_path in entries}
+        if len(forms) > 1:
+            spellings = ", ".join(repr(camera) for camera, _is_path in entries)
+            _say(
+                f"WARNING: preset {name!r}: per_camera entries {spellings} both end in "
+                f"{basename!r}. If cameras.yaml maps that name to that prim path they are "
+                f"one camera with two blocks, and only one of them will apply — this check "
+                f"cannot tell without a stage, so the run rejects the preset at apply time. "
+                f"Spell every entry the same way."
+            )
 
 
 def _validate_settings(where, settings):

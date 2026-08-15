@@ -249,6 +249,48 @@ def check_phase_validation():
     print("  phase_deg: default/0/359.9 accepted; 360, -1, '90', true rejected")
 
 
+def check_duplicate_camera_keys():
+    """Two per_camera keys naming one camera: rejected when that is decidable."""
+    def preset(*cameras):
+        return {"per_camera": {camera: {"settings": {"exposure.iso": 50.0}} for camera in cameras}}
+
+    decidable = [
+        ("trailing slash", "/World/Cameras/Camera_01", "/World/Cameras/Camera_01/"),
+        ("doubled slash", "/World/Cameras/Camera_01", "//World//Cameras/Camera_01"),
+        ("padded name", "Camera_01", " Camera_01"),
+    ]
+    for label, first, second in decidable:
+        try:
+            _validate_preset("dup", preset(first, second))
+        except ValueError as exc:
+            assert "name the same camera" in str(exc), f"{label}: wrong error {exc}"
+            continue
+        raise AssertionError(f"{label}: {first!r} + {second!r} should have been rejected")
+    print(f"  rejected {len(decidable)} decidable duplicate spelling(s): "
+          f"{', '.join(label for label, _f, _s in decidable)}")
+
+    # Not decidable without cameras.yaml: warn, do not reject. Rejecting would
+    # make the offline layer refuse presets Kit accepts.
+    import io
+    import contextlib
+
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        _validate_preset("maybe_dup", preset("Camera_01", "/World/Cameras/Camera_01"))
+    warnings = [line for line in captured.getvalue().splitlines() if "WARNING" in line]
+    assert len(warnings) == 1, f"expected one warning, got {warnings}"
+    assert "Camera_01" in warnings[0], warnings[0]
+    print("  name-vs-prim-path pair: accepted with 1 warning (Kit decides), not rejected")
+
+    # Two genuinely different cameras that share a last path component must
+    # stay silent, or the warning is noise.
+    quiet = io.StringIO()
+    with contextlib.redirect_stdout(quiet):
+        _validate_preset("distinct", preset("/World/A/Camera_01", "/World/B/Camera_01"))
+    assert "WARNING" not in quiet.getvalue(), quiet.getvalue()
+    print("  two prim paths sharing a leaf name: no warning (correct — different prims)")
+
+
 def check_every_preset(config):
     """Every preset in the shipped config must validate."""
     ok, bad = [], []
@@ -278,6 +320,7 @@ def main():
         ("no cross-term onto a static camera", lambda: check_cross_term(presets)),
         ("render-product cost warning", lambda: check_rp_warning(presets)),
         ("phase_deg validation", check_phase_validation),
+        ("duplicate per_camera keys", check_duplicate_camera_keys),
     )
     failed = 0
     for title, run in checks:
