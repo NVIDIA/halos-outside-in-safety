@@ -18,7 +18,10 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_ID="${1:-forklift_b}"
-WAYPOINTS_DIR="${FORKLIFT_WAYPOINTS_DIR:-$SCRIPT_DIR/waypoints/warehouse_20x20}"
+# Relative override resolves against this script, not the caller's cwd, so the
+# default and an override behave the same wherever it is run from.
+WAYPOINTS_DIR="${FORKLIFT_WAYPOINTS_DIR:-./waypoints/warehouse_20x20}"
+case "$WAYPOINTS_DIR" in /*) ;; *) WAYPOINTS_DIR="$SCRIPT_DIR/${WAYPOINTS_DIR#./}" ;; esac
 PATH_FILE="${2:-$WAYPOINTS_DIR/${ROBOT_ID}.json}"
 NAMESPACE_ARG="${3:-}"
 

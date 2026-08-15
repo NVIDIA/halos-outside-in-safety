@@ -19,6 +19,7 @@ YAML schema: see sil/configs/robots.yaml.
 
 from __future__ import annotations
 
+import math
 import os
 
 DEFAULT_ROBOTS_YAML = "/isaac-sim/sil/configs/robots.yaml"
@@ -62,14 +63,19 @@ _MODEL_INDICATOR_MESH_KEYS = ("radius", "segments", "height_offset")
 
 
 def is_number(x) -> bool:
-    """A real number from YAML, rejecting bool.
+    """A real number from YAML, rejecting bool, NaN and infinity.
 
     `bool` is a subclass of `int`, so a bare isinstance check accepts `true` where a
     length or an angle is wanted and it silently becomes 1. Shared by both loaders
     that validate numeric config: indicator_loader.py for the disc, and
     forklift_overlay.py for the spawn pose.
+
+    YAML spells `.nan` and `.inf` as floats, and every range test written against
+    them is False, so they pass a `> 0` check and reach USD as a pose no renderer
+    can place.
     """
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and math.isfinite(x))
 
 
 def _merge_under(robot: dict, section: str, defaults: dict) -> None:
@@ -249,7 +255,13 @@ def is_section_enabled(robot: dict, section: str) -> bool:
     `robot.get(section, {}) or {}` and then default the flag, so a robot with no
     `control:` block still gets a control graph.
     """
-    return bool((robot.get(section) or {}).get("enabled", True))
+    cfg = robot.get(section) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.{section} must be a mapping, "
+            f"got {cfg!r}"
+        )
+    return bool(cfg.get("enabled", True))
 
 
 # Safety-indicator appearance, shared by the graph builder (which recolours the
