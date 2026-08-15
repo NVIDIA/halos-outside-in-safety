@@ -13,7 +13,8 @@ real and Kit is replaced at the module boundary instead: fake `pxr` and
 `omni.usd` modules are installed in `sys.modules`, so `_stage`, `_author`,
 `_clear_authored_usd` and `_render_products` are the shipped implementations
 running against a fake stage. That matters for the bookkeeping they own — the
-`_authored_attrs` dedupe under animation, and the pending store's size — which a
+`_authored_attrs` dedupe under animation, the order that ledger is written in
+relative to the write it describes, and the pending store's size — which a
 hand-written stub would have to re-implement to test, and would then be testing
 itself.
 
@@ -45,6 +46,9 @@ class _FakeAttribute:
         self._name = name
 
     def Set(self, value):
+        error = self._prim.set_errors.get(self._name)
+        if error is not None:
+            raise error
         self._prim.attributes[self._name] = value
 
 
@@ -68,6 +72,10 @@ class _FakePrim:
         self.removed_properties = []
         self.removed_schemas = []
         self.remove_property_error = None
+        # attr name -> exception, raised from Set(). The attribute is still
+        # created first, because CreateAttribute is what authors it in USD and
+        # that is what a failed write leaves behind.
+        self.set_errors = {}
         self._camera_target = camera_target
 
     # -- read
@@ -574,6 +582,54 @@ def check_reject_mid_apply_reverts():
         harness.close()
 
 
+def check_failed_usd_write_is_recorded_before_it_runs():
+    """A USD write that raises must already be in the ledger when it does.
+
+    `CreateAttribute` is what authors the attribute, not `Set()`, so a `Set()`
+    that raises leaves the attribute on the prim. Bookkeeping that runs after
+    the write therefore misses exactly the attribute the failure left behind:
+    `_clear_authored_usd()` never sees it, and it outlives every `_revert()`
+    and `close()` for the life of the process while `active_preset` reports
+    None -- one camera quietly degraded, nothing in the logs naming it.
+
+    The check above drives its mid-apply failure through carb at global scope,
+    which never enters `_author()` at all, so it holds whichever order the two
+    lines are in. This one fails if they are swapped back.
+    """
+    harness = _Harness(config_text=MIXED_CONFIG, with_render_products=True)
+    try:
+        controller = harness.controller
+        cam1 = harness.stage.prims[CAM1]
+        iso_attr = EFFECTS["exposure.iso"].usd_attr
+        # The second write on this camera, so one attribute is already recorded
+        # and what is measured is the failing write rather than an empty ledger.
+        cam1.set_errors[iso_attr] = RuntimeError("USD refused the value")
+
+        log = harness.start()
+
+        assert "reverted the renderer" in log, log
+        assert controller.active_preset is None, controller.active_preset
+        # What the revert removed is what the ledger held: _clear_authored_usd()
+        # walks _authored_attrs and nothing else.
+        assert iso_attr in cam1.removed_properties, (
+            f"the failed write was never recorded: the revert removed "
+            f"{cam1.removed_properties} and left {iso_attr} behind"
+        )
+        orphans = sorted(cam1.attributes)
+        assert not orphans, (
+            f"{orphans} survived the revert: CreateAttribute authored {iso_attr} "
+            f"before Set() raised, so recording it only after Set() returns puts "
+            f"it out of reach of every later cleanup"
+        )
+        assert not cam1.schemas, f"applied API schemas survived: {cam1.schemas}"
+        print(
+            f"  Set() raised on {iso_attr}: recorded before the write, "
+            f"removed by the revert, prim clean"
+        )
+    finally:
+        harness.close()
+
+
 def check_config_error_keeps_running_preset():
     """A config error before the apply must leave the live preset alone."""
     harness = _Harness(config_text=MIXED_CONFIG, with_render_products=True)
@@ -628,6 +684,7 @@ def main():
         ("revert clears carb, USD, pending and animations", check_revert_clears_everything),
         ("pending cleared when the USD cleanup raises", check_pending_cleared_when_usd_cleanup_raises),
         ("mid-apply failure reverts to the baseline", check_reject_mid_apply_reverts),
+        ("a failed USD write is recorded before it runs", check_failed_usd_write_is_recorded_before_it_runs),
         ("config error keeps the running preset", check_config_error_keeps_running_preset),
     )
     failed = 0
