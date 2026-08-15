@@ -268,12 +268,21 @@ class PostProcessingController:
                 else:
                     self._settings.set(path, value)
         finally:
-            if self._authored_attrs or self._authored_apis:
-                self._clear_authored_usd()
-
-            self._pending_rp_settings = []
-            self._pending_warned = False
-            self._camera_prim_paths = []
+            # Three phases, not two, and for the same reason: the state resets
+            # below must not be hostage to the USD cleanup either. A raise from
+            # _clear_authored_usd() used to skip them, leaving the reverted
+            # preset's DEFERRED render-product writes queued -- and update()
+            # authors those onto the render products on the first tick after
+            # Play, installing a preset that active_preset reports as gone. The
+            # raise still propagates once the resets have run, so close() and
+            # _reload_if_changed() still log the cleanup failure.
+            try:
+                if self._authored_attrs or self._authored_apis:
+                    self._clear_authored_usd()
+            finally:
+                self._pending_rp_settings = []
+                self._pending_warned = False
+                self._camera_prim_paths = []
 
     def _snapshot_carb(self):
         for key, effect in EFFECTS.items():
