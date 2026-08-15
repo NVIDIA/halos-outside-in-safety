@@ -16,11 +16,17 @@ Two scopes, chosen per preset:
     alone. Use it for "camera 2 is degraded", the case an anomaly campaign
     actually cares about.
   * per camera, one look each (`per_camera:` in the preset) — the same USD
-    authoring, but every camera carries its own `settings` block. Use it for
-    "camera 1 went dark WHILE camera 2 went grainy", which `cameras:` cannot
-    express: one `settings` block means every listed camera gets the same
-    degradation, and only one preset is active at a time, so applying two
-    single-camera presets in turn reverts the first.
+    authoring, but every camera carries its own `settings` block and, if it
+    wants one, its own `animation` block. Use it for "camera 1 went dark WHILE
+    camera 2 went grainy", which `cameras:` cannot express: one `settings`
+    block means every listed camera gets the same degradation, and only one
+    preset is active at a time, so applying two single-camera presets in turn
+    reverts the first.
+
+Animated groups share one clock origin, latched when the preset is applied, and
+offset against each other with `animation.phase_deg`. Two cameras flickering at
+1 Hz 180 degrees apart is then a property of the preset file rather than of when
+each group happened to start.
 
 Per-camera scoping has one timing quirk worth knowing: the RTSP graph creates
 render products through `IsaacCreateRenderProduct`, which only runs on the
@@ -113,12 +119,20 @@ class PostProcessingController:
         self._authored_attrs = []   # (prim_path, attr_name)
         self._authored_apis = []    # (prim_path, api_name)
 
-        # (camera_prim_paths, key, value) — carries its own scope, because two
-        # cameras in the same preset can now be waiting on different settings.
-        self._pending_rp_settings = []
+        # (camera_prim_paths, key) -> value. Keyed rather than appended for two
+        # reasons: two cameras in the same preset can be waiting on different
+        # settings, and an ANIMATED render-product effect re-writes the same key
+        # every frame — as a list that grew one entry per frame before Play, and
+        # the flush traverses the stage once per entry, so the cost was
+        # quadratic in the number of pre-Play frames.
+        self._pending_rp_settings = {}
         self._pending_warned = False
 
         self._animations = []       # (camera_prim_paths, animation)
+        # One clock origin for every group. All groups are applied in the same
+        # _apply call, so per-group origins would be identical by construction
+        # and add nothing; `animation.phase_deg` is how a preset offsets one
+        # camera against another, explicitly and measurably.
         self._animation_t0 = 0.0
 
     @property
@@ -222,7 +236,7 @@ class PostProcessingController:
             # branch exists: update() flushes them on the first tick after Play,
             # which would install the very preset just rejected.
             self._animations = []
-            self._pending_rp_settings = []
+            self._pending_rp_settings = {}
             self._active_name = None
             # Forget the last good digest too. The usual recovery is to put the
             # file back the way it was, and that content still matches _digest —
@@ -269,7 +283,15 @@ class PostProcessingController:
         # are separated by "; " so the log distinguishes "these cameras share a
         # look" from "each camera has its own".
         detail = f"{total} setting(s), scope={'; '.join(scopes)}"
-        animating = ", ".join(anim["target"] for _, anim in self._animations)
+        if len(self._animations) > 1:
+            # Several scopes can animate the same target at different phases or
+            # frequencies, so the bare target name would read as a duplicate.
+            animating = ", ".join(
+                f"{anim['target']} on {', '.join(paths) or 'global'}"
+                for paths, anim in self._animations
+            )
+        else:
+            animating = ", ".join(anim["target"] for _, anim in self._animations)
         if animating:
             detail += f", animating {animating}"
         _say(f"Applied preset {name!r} ({detail})")
@@ -304,7 +326,7 @@ class PostProcessingController:
                 if self._authored_attrs or self._authored_apis:
                     self._clear_authored_usd()
             finally:
-                self._pending_rp_settings = []
+                self._pending_rp_settings = {}
                 self._pending_warned = False
                 # Must be cleared here, not only in _apply: the animation list is
                 # appended to, so a preset switch would otherwise keep driving the
@@ -412,7 +434,9 @@ class PostProcessingController:
         # defer instead of failing and let update() pick them up.
         products = self._render_products(prim_paths)
         if not products:
-            self._pending_rp_settings.append((tuple(prim_paths), key, value))
+            # Keyed, so an animated effect overwrites its own pending value
+            # every frame instead of queueing a new one.
+            self._pending_rp_settings[(tuple(prim_paths), key)] = value
             return
         for prim in products:
             self._author(prim, effect, value)
@@ -420,13 +444,13 @@ class PostProcessingController:
     def _flush_pending_render_product_settings(self):
         # Each entry keeps its own scope, so a preset where camera 1 needs a
         # render product and camera 2 does not cannot flush one onto the other.
-        still_pending = []
+        still_pending = {}
         flushed = 0
         touched = set()
-        for prim_paths, key, value in self._pending_rp_settings:
+        for (prim_paths, key), value in self._pending_rp_settings.items():
             products = self._render_products(prim_paths)
             if not products:
-                still_pending.append((prim_paths, key, value))
+                still_pending[(prim_paths, key)] = value
                 continue
             for prim in products:
                 self._author(prim, EFFECTS[key], value)
@@ -438,7 +462,7 @@ class PostProcessingController:
             _say(f"Applied {flushed} deferred setting(s) to {len(touched)} render product(s)")
         if still_pending and not self._pending_warned:
             self._pending_warned = True
-            keys = ", ".join(key for _, key, _ in still_pending)
+            keys = ", ".join(key for _, key in still_pending)
             _say(
                 f"{len(still_pending)} setting(s) waiting for render "
                 f"products (created on the first tick after Play): {keys}"
@@ -527,12 +551,20 @@ class PostProcessingController:
     # -- animation ---------------------------------------------------------
 
     def _advance_animation(self, now):
-        """Drive one float effect per frame, for flicker-style anomalies."""
+        """Drive one float effect per frame per scope, for flicker anomalies.
+
+        Every group reads the same `_animation_t0`, so two cameras asked for the
+        same frequency stay locked together; `phase_deg` is what pulls them
+        apart. 180 degrees gives the antiphase case — camera 1 at its brightest
+        exactly when camera 2 is at its dimmest — which a shared-t0-only design
+        could not express at all.
+        """
         for prim_paths, animation in self._animations:
             base = float(animation["base"])
             amplitude = float(animation["amplitude_fraction"])
             frequency = float(animation["frequency_hz"])
-            phase = 2.0 * math.pi * frequency * (now - self._animation_t0)
+            offset = math.radians(float(animation.get("phase_deg", 0.0)))
+            phase = 2.0 * math.pi * frequency * (now - self._animation_t0) + offset
             value = base * (1.0 + amplitude * math.sin(phase))
 
             key = animation["target"]
@@ -655,11 +687,11 @@ def _validate_preset(name, preset):
         if not all(isinstance(entry, str) and entry for entry in cameras):
             raise ValueError(f"preset {name!r}: 'cameras' entries must be names or prim paths")
 
-    _validate_animation(name, preset.get("animation"))
+    _validate_animation(name, preset.get("animation"), scoped=bool(cameras))
 
 
 def _validate_per_camera(name, preset, per_camera):
-    """Check a `per_camera:` preset — one settings block per camera."""
+    """Check a `per_camera:` preset — one settings/animation block per camera."""
     # Refusing the mixture is not pedantry: `cameras:`/`settings:` name a scope
     # too, and silently ignoring them would apply a preset the file does not
     # describe.
@@ -686,15 +718,12 @@ def _validate_per_camera(name, preset, per_camera):
         unknown = set(body) - {"description", "settings", "animation"}
         if unknown:
             raise ValueError(f"preset {where!r} has unsupported keys: {sorted(unknown)}")
-        if body.get("animation") is not None:
-            # Deliberately unsupported rather than half-supported: the phase
-            # clock and the flush path are shared, and an animated per_camera
-            # block has no test coverage. See README.
-            raise ValueError(
-                f"preset {where!r}: 'animation' inside per_camera is not supported yet; "
-                f"use a single-camera preset with 'cameras:' to animate"
-            )
         _validate_settings(where, body.get("settings"))
+        # The same rule as a classic preset's `animation:`, deliberately not a
+        # second one — a per_camera entry is just a scope, so its animation
+        # block has to accept and reject exactly what the top-level block does.
+        # `scoped=True` because a per_camera entry always names a camera.
+        _validate_animation(where, body.get("animation"), scoped=True)
 
 
 def _validate_settings(where, settings):
@@ -716,13 +745,26 @@ def _validate_settings(where, settings):
             raise ValueError(f"preset {where!r}: {key} must be three numbers")
 
 
-def _validate_animation(name, animation):
+def _validate_animation(name, animation, *, scoped=False):
+    """Check one `animation:` block, wherever it sits.
+
+    `scoped` says the block belongs to a group that names cameras — either
+    `cameras:` at preset level or a `per_camera:` entry — which is what makes
+    the render-product cost warning below apply.
+    """
     if animation is None:
         return
     if not isinstance(animation, dict):
         raise ValueError(f"preset {name!r}: 'animation' must be a mapping")
 
-    unknown = set(animation) - {"target", "waveform", "base", "amplitude_fraction", "frequency_hz"}
+    unknown = set(animation) - {
+        "target",
+        "waveform",
+        "base",
+        "amplitude_fraction",
+        "frequency_hz",
+        "phase_deg",
+    }
     if unknown:
         raise ValueError(f"preset {name!r}: animation has unsupported keys: {sorted(unknown)}")
 
@@ -742,3 +784,25 @@ def _validate_animation(name, animation):
         raise ValueError(f"preset {name!r}: animation.amplitude_fraction must be in [0, 1)")
     if animation["frequency_hz"] <= 0:
         raise ValueError(f"preset {name!r}: animation.frequency_hz must be > 0")
+
+    # Optional, default 0. Kept to one turn so two presets cannot describe the
+    # same offset two ways (350 and -10), which would make captures harder to
+    # compare than the field is worth.
+    phase_deg = animation.get("phase_deg", 0.0)
+    if not _is_number(phase_deg):
+        raise ValueError(f"preset {name!r}: animation.phase_deg must be a number")
+    if not 0 <= phase_deg < 360:
+        raise ValueError(f"preset {name!r}: animation.phase_deg must be in [0, 360)")
+
+    # A warning, not a rejection: it is a legal preset and someone will want a
+    # grain level that breathes on one camera. But it is the expensive corner of
+    # the design, so it should not be chosen by accident.
+    if scoped and EFFECTS[target].target == TARGET_RENDER_PRODUCT:
+        _say(
+            f"WARNING: preset {name!r}: animating {target} at per-camera scope costs a "
+            f"full stage traversal per animated scope PER FRAME, because render products "
+            f"are found by traversal rather than by name. A preset of this shape "
+            f"previously measured -7.0% FPS with the robot driving. Animate a "
+            f"camera-prim effect (exposure.iso) instead, or animate this one globally "
+            f"(drop cameras:/per_camera:), unless the per-camera scope is the point."
+        )

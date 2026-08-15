@@ -21,6 +21,7 @@ and the IRA visual-noise example.
 | `effects.py` | `EFFECTS` | Allow-list mapping a stable logical key (`tv_noise.film_grain.amount`) to its carb setting, its USD attribute, and which prim carries it. |
 | `controller.py` | `PostProcessingController` | Loads the active preset, applies it globally or per camera, polls the config for live edits, drives animated effects, and restores the renderer on shutdown. |
 | `set_preset.sh` | — | Switches the live preset by rewriting `active:` atomically. Run it from the host while the sim is running. |
+| `test_animation.py` | `python3 -m postprocessing.test_animation` | Validates every shipped preset and checks the animator math on a synthetic clock. Stdlib only — no Kit, no numpy, no pytest; run it from `sil/scripts/` on any machine. |
 
 Presets live in [`../../configs/postprocessing.yaml`](../../configs/postprocessing.yaml).
 
@@ -75,8 +76,8 @@ anomaly campaign actually cares about: one camera degrades while the others stay
 clean, so you can assert the monitor still covers the zone.
 
 A preset with `per_camera:` authors the same USD attributes, but takes **one
-settings block per camera**, so different cameras can carry different faults in
-the same apply:
+settings block per camera** — and, optionally, one `animation` block per camera
+— so different cameras can carry different faults in the same apply:
 
 ```yaml
 mixed_faults:
@@ -95,12 +96,61 @@ gets an identical look; and exactly one preset is active at a time, with
 `huy-rtx-5070`: after step two, Camera_01 was mean 125.1 / hf 17.4 against a
 baseline of 120.0 / 17.0 — fully reverted, by design rather than by leak.
 
-`per_camera:` is mutually exclusive with `cameras:`, `settings:` and
-`animation:`; declaring both is rejected rather than silently resolved. Every
-camera is resolved to a prim path *before* the revert, so one unknown name
-rejects the whole edit and leaves the running preset in place. Animation inside
-a `per_camera` entry is **not supported yet** and is rejected explicitly —
-`animation:` at preset top level, with `cameras:`, still works.
+`per_camera:` is mutually exclusive with the **top-level** `cameras:`,
+`settings:` and `animation:` keys; declaring both is rejected rather than
+silently resolved, because those name a scope too and quietly ignoring them
+would apply a preset the file does not describe. `settings:` and `animation:`
+move *inside* each `per_camera` entry. Every camera is resolved to a prim path
+*before* the revert, so one unknown name rejects the whole edit and leaves the
+running preset in place.
+
+### Animation, and animation per camera
+
+`animation:` drives one float effect on a sine, sampled once per rendered frame:
+
+```
+value = base * (1 + amplitude_fraction * sin(2*pi*frequency_hz*(t - t0) + radians(phase_deg)))
+```
+
+It can sit at preset top level (global, or scoped by `cameras:`) or inside a
+`per_camera` entry — the same block, validated by the same rule, so what one
+accepts the other accepts. `phase_deg` is optional, defaults to `0.0`, and must
+be in `[0, 360)`.
+
+**All animated groups share one clock origin**, latched when the preset is
+applied. That is deliberate rather than a limitation: every group of a preset is
+applied in the same call, so per-group origins would be identical by
+construction and would add bookkeeping without adding expressiveness. `phase_deg`
+is what pulls two cameras apart, and unlike a start-time race it is explicit in
+the file and reproducible across runs:
+
+```yaml
+anim_antiphase:
+  per_camera:
+    Camera_01:
+      settings: {auto_exposure.enabled: false, exposure.iso: 100.0}
+      animation: {target: exposure.iso, base: 100.0, amplitude_fraction: 0.35, frequency_hz: 1.0, phase_deg: 0}
+    Camera_02:
+      settings: {auto_exposure.enabled: false, exposure.iso: 100.0}
+      animation: {target: exposure.iso, base: 100.0, amplitude_fraction: 0.35, frequency_hz: 1.0, phase_deg: 180}
+```
+
+Camera_01 peaks exactly when Camera_02 troughs. `anim_two_freq` does the same
+with 1 Hz against 3 Hz, and `anim_mixed` animates one camera while the other
+holds a static fault.
+
+Repeat `auto_exposure.enabled: false` in **every** entry that animates exposure.
+There is no top-level `settings:` in a `per_camera` preset to put it in once, and
+with auto-exposure left on the histogram claws the image back inside a second.
+
+> **Cost warning.** Animating a **render-product** effect (grain, scanlines,
+> vignetting, colour grading) at per-camera scope makes the controller traverse
+> the whole stage once per animated scope **per frame**, because render products
+> are located by traversal rather than by name. A preset of that shape measured
+> **−7.0% FPS** with the robot driving. The controller logs a WARNING naming the
+> preset when it loads one; it does **not** reject it, because breathing grain on
+> one camera is a real anomaly. Camera-prim effects (`exposure.*`) are free —
+> the prim path is already known. See `anim_rp_target`.
 
 The USD attribute names are not a rename of the carb paths, and the split is
 easy to get wrong:
@@ -159,9 +209,22 @@ the timeline is playing.
 - **Auto-exposure is switched off in every exposure preset.** Left on, the
   histogram adapts and claws a darkened image back to normal brightness within
   about a second, so the anomaly quietly disappears.
-- **One animated float, sine only.** Enough for mains flicker, which is the
-  time-varying anomaly that comes up; anything richer belongs in a scenario
-  script rather than a preset file.
+- **One animated float, sine only — but one per scope.** Enough for mains
+  flicker, which is the time-varying anomaly that comes up; anything richer
+  belongs in a scenario script rather than a preset file. Each `per_camera`
+  entry gets its own sine, so "one flickering camera among steady ones" and
+  "two cameras out of step" are both preset-level facts.
+- **One shared clock origin plus `phase_deg`, not one origin per camera.** All
+  groups are applied in the same call, so per-group origins would be equal by
+  construction — they would express nothing a single origin cannot. An explicit
+  phase offset does add something, and it is reproducible: the same file gives
+  the same relative timing on every run, where a per-group origin would inherit
+  whatever the apply order happened to be.
+- **Deferred render-product writes are keyed, not queued.** An animated
+  render-product effect re-writes the same key every frame; before Play those
+  writes are deferred, and as an append-only list they grew one entry per frame
+  while the flush traversed the stage once per entry. Keying on
+  `(cameras, setting)` keeps the pending set bounded by the preset's size.
 - **Animate ISO for flicker, not shutter.** `/rtx/post/tonemap/exposureTime` is
   rewritten by the render loop on every frame — it mirrors `cameraShutter`, the
   same quantity expressed as 1/s — so a global write never reaches the
