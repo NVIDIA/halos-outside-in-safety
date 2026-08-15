@@ -413,14 +413,19 @@ class PostProcessingController:
                 self._authored_apis.append((prim_path, effect.usd_api))
 
             attr = prim.CreateAttribute(effect.usd_attr, _sdf_type(Sdf, effect.kind))
-            attr.Set(_usd_value(effect.kind, value))
 
-        # An animated per-camera preset re-authors the same attribute on every
-        # frame, so this has to record it once rather than append 60 times a
-        # second for as long as the scenario runs.
-        entry = (prim_path, effect.usd_attr)
-        if entry not in self._authored_attrs:
-            self._authored_attrs.append(entry)
+            # Record before writing, not after. CreateAttribute is what puts the
+            # attribute on the prim, so a Set() that raises would otherwise leave
+            # it on the stage and out of the ledger -- surviving every _revert()
+            # and close() for the rest of the process, while active_preset
+            # reports None. An animated preset re-authors the same attribute
+            # every frame, so record it once rather than append 60 times a
+            # second for as long as the scenario runs.
+            entry = (prim_path, effect.usd_attr)
+            if entry not in self._authored_attrs:
+                self._authored_attrs.append(entry)
+
+            attr.Set(_usd_value(effect.kind, value))
 
     def _clear_authored_usd(self):
         """Remove every attribute and API schema this controller authored.
