@@ -220,9 +220,9 @@ class RobotController(Node):
         try:
             data = json.loads(msg.data)
             
-            # Check if command is for this robot
+            # Only null broadcasts; "" or 0 is a malformed address, not everyone.
             target_robot = data.get('robot_id', None)
-            if target_robot and target_robot != self.robot_id:
+            if target_robot is not None and target_robot != self.robot_id:
                 return  # Not for us
             
             raw_cmd = data.get('command', '')

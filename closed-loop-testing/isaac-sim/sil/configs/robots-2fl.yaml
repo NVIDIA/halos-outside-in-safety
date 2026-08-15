@@ -24,12 +24,11 @@
 # and 8 decorative camera meshes hidden — expect a different perception
 # baseline than the single-forklift scene.
 # One block per robot. Add a robot = add a block here + a controller service
-# (forklift-controller.yml) + the prim in the scene; also list the prim in
-# runtime_patches/halos_runtime_patches.py _HALOS_FORKLIFT_ARTICULATIONS
-# (TGS rebalance).
+# (forklift-controller.yml) + the prim in the scene. The TGS rebalance list in
+# runtime_patches/halos_runtime_patches.py is derived from this file.
 # Keep the `models:` block and the forklift_b block in sync by hand with
 # configs/robots.yaml: the model is declared per file so each stays launchable
-# on its own. Sync check: both must be byte-identical in the two files.
+# on its own. The parsed values must agree, not the bytes: the comments differ.
 
 # What follows from the asset, stated once. Both trucks here are the same
 # ForkliftB payload and so cannot disagree about their wheelbase — before this

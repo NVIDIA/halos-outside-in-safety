@@ -18,7 +18,7 @@
 # container.
 # Keep the `models:` block and the forklift_b block in both files in sync by
 # hand: the model is declared per file so each stays launchable on its own.
-# Sync check: both must be byte-identical in the two files.
+# The parsed values must agree, not the bytes: the comments around them differ.
 
 # What follows from the asset, stated once per file. With a single robot there
 # is nothing to deduplicate here yet; the block exists so this file has the same

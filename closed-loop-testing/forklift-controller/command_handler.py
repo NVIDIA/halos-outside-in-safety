@@ -60,9 +60,9 @@ class CommandHandler(Node):
             # Parse JSON command
             data = json.loads(msg.data)
             
-            # Check if command is for this robot (or all robots if no robot_id specified)
+            # Only null broadcasts (same rule as robot_controller).
             target_robot = data.get('robot_id', None)
-            if target_robot and target_robot != self.robot_id:
+            if target_robot is not None and target_robot != self.robot_id:
                 # Command is for a different robot, ignore
                 return
             

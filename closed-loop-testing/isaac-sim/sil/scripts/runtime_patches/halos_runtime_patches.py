@@ -103,16 +103,16 @@ def _articulations_from_robots_config(robots_config_path):
     (required=False): the graph builders that run right after this patch
     are the authoritative missing-prim fail-fast, so the patch just skips
     absent prims with an info line. Falls back to the built-in list on any
-    read/parse problem.
+    read/parse problem. Goes through the shared loader so `models:` entries are
+    folded in, as `load_and_validate_robots_yaml` asks.
     """
-    import yaml
+    from action_graphs.forklift_common import load_and_validate_robots_yaml
 
     try:
-        with open(robots_config_path) as f:
-            cfg = yaml.safe_load(f)
+        robots, _ = load_and_validate_robots_yaml(robots_config_path)
         roots = [
             (robot["articulation_prim"], False)
-            for robot in (cfg or {}).get("robots", [])
+            for robot in robots
             if robot.get("articulation_prim")
         ]
         if roots:
