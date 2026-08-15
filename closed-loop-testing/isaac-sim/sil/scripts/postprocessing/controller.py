@@ -207,20 +207,25 @@ class PostProcessingController:
         _say(f"Applied preset {name!r} ({detail})")
 
     def _revert(self):
-        for path, value in self._carb_snapshot.items():
-            if value is _MISSING:
-                destroy = getattr(self._settings, "destroy_item", None)
-                if destroy is not None:
-                    destroy(path)
-            else:
-                self._settings.set(path, value)
+        # Two phases, and the USD one must not be hostage to the carb one: a
+        # single failing settings path would otherwise leave the previous
+        # preset's per-camera attributes authored on the stage, which both
+        # close() and the _apply() preset switch promise to clear.
+        try:
+            for path, value in self._carb_snapshot.items():
+                if value is _MISSING:
+                    destroy = getattr(self._settings, "destroy_item", None)
+                    if destroy is not None:
+                        destroy(path)
+                else:
+                    self._settings.set(path, value)
+        finally:
+            if self._authored_attrs or self._authored_apis:
+                self._clear_authored_usd()
 
-        if self._authored_attrs or self._authored_apis:
-            self._clear_authored_usd()
-
-        self._pending_rp_settings = []
-        self._pending_warned = False
-        self._camera_prim_paths = []
+            self._pending_rp_settings = []
+            self._pending_warned = False
+            self._camera_prim_paths = []
 
     def _snapshot_carb(self):
         for key, effect in EFFECTS.items():

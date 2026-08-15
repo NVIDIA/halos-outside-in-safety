@@ -237,7 +237,11 @@ class ActorSDGRunner:
                     self._postprocessing.start()
                 except Exception as e:
                     print(f"WARNING: post-processing disabled ({e})")
-                    self._postprocessing = None
+                    # start() can fail with settings already written, and the
+                    # controller holds the only snapshot that undoes them.
+                    # Dropping the handle without closing it would strand the
+                    # renderer degraded for the rest of the process.
+                    self._close_postprocessing()
 
             # VST Integration: registration is DEFERRED to after Play + render-warm
             # (see the run loop below). Registering here — before the RTSP encoder is
@@ -287,9 +291,7 @@ class ActorSDGRunner:
             # Put the renderer back as it was: a preset lives in carb settings
             # and the session layer, both of which outlive this coroutine when
             # Kit stays up (UI mode, setup re-entry).
-            if self._postprocessing is not None:
-                self._postprocessing.close()
-                self._postprocessing = None
+            self._close_postprocessing()
 
             # VST Integration: Cleanup cameras on exit (fallback for UI / abnormal exit)
             if self.enable_vst and self._vst_manager:
@@ -314,6 +316,24 @@ class ActorSDGRunner:
             self._postprocessing.update()
         except Exception as e:
             print(f"WARNING: post-processing update failed, disabling: {e}")
+            # Retiring the controller means restoring the renderer first: the
+            # settings and session-layer edits an update had already made
+            # outlive the handle, and the handle is what knows how to undo them.
+            self._close_postprocessing()
+
+    def _close_postprocessing(self):
+        """Restore the renderer and drop the controller. Never raises.
+
+        The shutdown path runs it from `finally`, where an escaping exception
+        would skip the VST cleanup that follows.
+        """
+        if self._postprocessing is None:
+            return
+        try:
+            self._postprocessing.close()
+        except Exception as e:
+            print(f"WARNING: post-processing cleanup failed: {e}")
+        finally:
             self._postprocessing = None
 
     def _extract_output_path(self, config):
