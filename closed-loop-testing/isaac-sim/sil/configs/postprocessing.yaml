@@ -164,6 +164,19 @@ presets:
       tv_noise.film_grain.enabled: true
       tv_noise.film_grain.amount: 0.15
 
+  # Several cameras, one shared fault. The `cameras:` list takes as many names
+  # as you like and they all read the same `settings` block, so this is the
+  # preset shape for "the whole fleet is grainy" without reaching for the carb
+  # scope and dragging the viewport along with it. Compare with mixed_faults
+  # below: same three-camera idea, opposite meaning.
+  all_cameras_grainy:
+    description: Every listed camera carries the same sensor grain.
+    cameras: [Camera, Camera_01, Camera_02]
+    settings:
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: true
+      tv_noise.film_grain.amount: 0.15
+
   # Two cameras, two different faults, at the same time. `cameras:` cannot do
   # this: it has one `settings` block, so every camera it lists gets the same
   # degradation — and because only one preset is active, applying a Camera_01

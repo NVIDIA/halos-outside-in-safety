@@ -97,6 +97,19 @@ gets an identical look; and exactly one preset is active at a time, with
 `huy-rtx-5070`: after step two, Camera_01 was mean 125.1 / hf 17.4 against a
 baseline of 120.0 / 17.0 — fully reverted, by design rather than by leak.
 
+The shipped presets cover each shape, so the difference can be run rather than
+only read:
+
+| Shape | Preset | What it does |
+|---|---|---|
+| global | `low_light`, `tv_noise` | viewport and every camera |
+| `cameras:`, one name | `one_camera_degraded` | that camera degrades, the rest stay clean |
+| `cameras:`, several names | `all_cameras_grainy` | every listed camera, **the same** fault |
+| `per_camera:` | `mixed_faults` | every listed camera, **a different** fault |
+
+The last two are the pair worth running back to back: they name the same three
+cameras and mean opposite things.
+
 `per_camera:` is mutually exclusive with the **top-level** `cameras:`,
 `settings:` and `animation:` keys; declaring both is rejected rather than
 silently resolved, because those name a scope too and quietly ignoring them
