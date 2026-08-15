@@ -60,14 +60,19 @@ presets:
 
   # Mains flicker / failing luminaire: sensor gain swings around its base.
   #
-  # Keep frequency_hz below half the rate the renderer actually achieves, or the
-  # anomaly you ship is not the anomaly the consumer sees. The animation is
-  # sampled once per rendered frame, and this warehouse renders at 8-9 fps on
-  # the SIL box (the RTSP stream declares 30 fps but delivers ~8). Measured on a
-  # continuous capture, 1 Hz and 2 Hz requests read back at 1.0 and 1.8 Hz — the
-  # residual is the error in estimating the achieved frame rate — while 6 Hz
-  # folds down to an unambiguous 3.0 Hz. Raise this only after checking the
-  # frame rate the scene actually achieves.
+  # Keep frequency_hz below half the rate that is actually achieved, or the
+  # anomaly you ship is not the anomaly the consumer sees. TWO rates are in play
+  # and they are not the same number.
+  #
+  # The animation is sampled once per RENDERED frame. This warehouse measured
+  # 17.8 fps on both SIL boxes, so the injected sine itself holds up to ~8.9 Hz.
+  # What a consumer can reconstruct is bounded by what its capture DELIVERS,
+  # which is lower: the RTSP stream declares 30 fps and delivered ~8 when this
+  # was captured. On that capture 1 Hz and 2 Hz requests read back at 1.0 and
+  # 1.8 Hz — the residual is the error in estimating the delivered rate — while
+  # 6 Hz folded to an unambiguous 3.0 Hz. A 6 Hz signal folding to 3.0 Hz is the
+  # signature of sampling near 9 Hz, which is the DELIVERY ceiling, not the
+  # render one. Check both before raising this.
   #
   # This animates ISO, not shutter, and that is deliberate. The obvious knob,
   # exposure.time, does nothing at global scope in a running sim: something in
@@ -213,10 +218,15 @@ presets:
           tv_noise.film_grain.enabled: true
           tv_noise.film_grain.amount: 0.18
 
-  # Two independent frequencies on the same target. Note 3 Hz is at the edge of
-  # what this scene can carry: the sine is sampled once per rendered frame and
-  # the SIL warehouse renders at 8-9 fps, so 3 Hz has only ~3 samples per cycle.
-  # It is measurable but coarse; above this it aliases (6 Hz folds to 3 Hz).
+  # Two independent frequencies on the same target. The sine is sampled once per
+  # rendered frame, so the achieved frame rate sets the ceiling: this warehouse
+  # measured 17.8 fps on both SIL boxes, putting the alias threshold near 8.9 Hz
+  # and giving this preset's 3 Hz about 5.9 samples per cycle -- comfortably
+  # resolved. Samples per cycle is just achieved_fps / frequency_hz: below 2 the
+  # signal folds to a different frequency, and only a little above 2 it is
+  # coarse. The ceiling belongs to the host, not the scene, so check the rate
+  # yours achieves. See the note on `flicker` above: what a CONSUMER can
+  # reconstruct is bounded by the delivered rate instead, which is lower.
   anim_two_freq:
     description: Camera_01 flickers at 1 Hz, Camera_02 at 3 Hz, same target.
     per_camera:

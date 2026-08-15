@@ -125,6 +125,16 @@ class PostProcessingController:
         # every frame — as a list that grew one entry per frame before Play, and
         # the flush traverses the stage once per entry, so the cost was
         # quadratic in the number of pre-Play frames.
+        #
+        # Keyed, the size is the preset's, not the frame count's. Measured on
+        # the shipped `anim_rp_target` by test_controller.py: 3 pending entries
+        # and 4 stage traversals per pre-Play frame (3 flush + 1 animate), flat
+        # for as long as Play is delayed. Not 1 and 2 — that pair describes a
+        # preset that animates the grain amount WITHOUT switching the grain pass
+        # on, which renders no grain at all; every usable one carries
+        # tv_noise.enabled and film_grain.enabled alongside it, and those defer
+        # too. After Play the queue is empty and only the animator traverses,
+        # which is the 1-per-animated-scope figure the load-time WARNING quotes.
         self._pending_rp_settings = {}
         self._pending_warned = False
 

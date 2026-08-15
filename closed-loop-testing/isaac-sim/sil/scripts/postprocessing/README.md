@@ -226,15 +226,33 @@ the timeline is playing.
   writes are deferred, and as an append-only list they grew one entry per frame
   while the flush traversed the stage once per entry. Keying on
   `(cameras, setting)` keeps the pending set bounded by the preset's size.
+  Measured on the shipped `anim_rp_target` (`test_controller.py`): **3 pending
+  entries and 4 stage traversals per pre-Play frame** — 3 flush plus 1 animate —
+  flat however long Play is delayed. A grain preset always carries
+  `tv_noise.enabled` and `film_grain.enabled` next to the animated amount, and
+  those defer too; the smaller figure of 1 entry / 2 traversals quoted in the
+  original commit describes a preset with the grain pass switched off, which
+  renders no grain at all. **After** Play the queue is empty and only the
+  animator traverses, which is the one-per-animated-scope cost the load-time
+  WARNING quotes.
 - **Animate ISO for flicker, not shutter.** `/rtx/post/tonemap/exposureTime` is
   rewritten by the render loop on every frame — it mirrors `cameraShutter`, the
   same quantity expressed as 1/s — so a global write never reaches the
   tonemapper and the flicker silently does nothing. `exposure:time` on a camera
   prim does work, so shutter flicker is available at per-camera scope.
 - **Animation frequency is bounded by the frame rate, not by the config.** The
-  sine is sampled once per rendered frame, so a request above half the achieved
-  rate aliases: on the SIL box (8–9 fps for this warehouse) 6 Hz comes back as
-  3 Hz. Check the achieved rate before raising `frequency_hz`.
+  sine is sampled once per rendered frame, so the achieved rate sets the
+  ceiling — and it belongs to the machine, not to the scene. This warehouse
+  measured **17.8 fps** on both SIL boxes, which puts the alias threshold at
+  **~8.9 Hz**. Use samples per cycle rather than a verdict on any one
+  frequency: it is `achieved_fps / frequency_hz`, below 2 the signal folds to a
+  different frequency entirely, and a little above 2 it is recoverable but
+  coarse (6 Hz at 17.8 fps is 3.0 samples per cycle — the frequency you asked
+  for, sampled about as thinly as is still meaningful). Two rates matter and
+  they are not the same number: the render loop's, which is what the sine is
+  sampled at, and the rate a consumer's capture *delivers*, which is what
+  bounds the frequency that consumer can reconstruct. The RTSP side has
+  measured well below the render side. Read both on the box you are on.
 - **`tv_noise_deterministic` exists for regression runs.** `fixed_time.seed`
   freezes the renderer's time input, the intent being that two runs of one
   scenario produce identical noise; per-frame randomness would otherwise defeat
