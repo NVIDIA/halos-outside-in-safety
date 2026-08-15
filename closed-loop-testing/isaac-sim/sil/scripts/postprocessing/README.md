@@ -63,7 +63,7 @@ ignored — a mistyped anomaly would otherwise score a clean run as a fault run.
 Turn the whole thing off with `--no-postprocessing`, or point it at a different
 preset file with `--postprocessing-config`.
 
-## Two scopes, and why the difference matters
+## Three scopes, and why the difference matters
 
 A preset with no `cameras:` key writes **carb settings**, which the renderer
 applies to the viewport and every camera. That models an environment-wide event
@@ -73,6 +73,34 @@ A preset **with** `cameras:` authors **USD attributes** on those cameras
 instead, which override the carb value for them alone. That models the case an
 anomaly campaign actually cares about: one camera degrades while the others stay
 clean, so you can assert the monitor still covers the zone.
+
+A preset with `per_camera:` authors the same USD attributes, but takes **one
+settings block per camera**, so different cameras can carry different faults in
+the same apply:
+
+```yaml
+mixed_faults:
+  per_camera:
+    Camera_01:
+      settings: {auto_exposure.enabled: false, exposure.iso: 12.0}
+    Camera_02:
+      settings: {tv_noise.enabled: true, tv_noise.film_grain.enabled: true, tv_noise.film_grain.amount: 0.18}
+```
+
+`cameras:` cannot express that, and neither can applying two presets in
+sequence. `cameras:` has a single `settings` block, so every camera it lists
+gets an identical look; and exactly one preset is active at a time, with
+`_apply` reverting before it applies, so `set_preset.sh cam1_dark` followed by
+`set_preset.sh cam2_noise` leaves Camera_01 back at baseline. Measured on
+`huy-rtx-5070`: after step two, Camera_01 was mean 125.1 / hf 17.4 against a
+baseline of 120.0 / 17.0 — fully reverted, by design rather than by leak.
+
+`per_camera:` is mutually exclusive with `cameras:`, `settings:` and
+`animation:`; declaring both is rejected rather than silently resolved. Every
+camera is resolved to a prim path *before* the revert, so one unknown name
+rejects the whole edit and leaves the running preset in place. Animation inside
+a `per_camera` entry is **not supported yet** and is rejected explicitly —
+`animation:` at preset top level, with `cameras:`, still works.
 
 The USD attribute names are not a rename of the carb paths, and the split is
 easy to get wrong:
@@ -118,7 +146,7 @@ the timeline is playing.
   preset starts by reverting the previous one, so once that has begun the last
   good preset no longer exists to keep; what is on screen is half of a preset
   that was just rejected. That case reverts to the pre-controller state, drops
-  the animation and the pending render-product writes, and forgets the last good
+  the animations and the pending render-product writes, and forgets the last good
   digest so putting the file back re-applies it rather than reading as
   "unchanged".
 - **All USD authoring goes to the session layer.** A preset never dirties the

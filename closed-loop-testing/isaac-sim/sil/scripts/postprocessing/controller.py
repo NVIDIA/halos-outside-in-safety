@@ -15,6 +15,12 @@ Two scopes, chosen per preset:
     prim and render product, which override the carb value for that camera
     alone. Use it for "camera 2 is degraded", the case an anomaly campaign
     actually cares about.
+  * per camera, one look each (`per_camera:` in the preset) — the same USD
+    authoring, but every camera carries its own `settings` block. Use it for
+    "camera 1 went dark WHILE camera 2 went grainy", which `cameras:` cannot
+    express: one `settings` block means every listed camera gets the same
+    degradation, and only one preset is active at a time, so applying two
+    single-camera presets in turn reverts the first.
 
 Per-camera scoping has one timing quirk worth knowing: the RTSP graph creates
 render products through `IsaacCreateRenderProduct`, which only runs on the
@@ -107,11 +113,12 @@ class PostProcessingController:
         self._authored_attrs = []   # (prim_path, attr_name)
         self._authored_apis = []    # (prim_path, api_name)
 
-        self._camera_prim_paths = []
+        # (camera_prim_paths, key, value) — carries its own scope, because two
+        # cameras in the same preset can now be waiting on different settings.
         self._pending_rp_settings = []
         self._pending_warned = False
 
-        self._animation = None
+        self._animations = []       # (camera_prim_paths, animation)
         self._animation_t0 = 0.0
 
     @property
@@ -145,7 +152,7 @@ class PostProcessingController:
             self._revert()
         except Exception as exc:
             _say(f"WARNING: could not fully restore renderer state: {exc}")
-        self._animation = None
+        self._animations = []
         self._active_name = None
 
     # -- config ------------------------------------------------------------
@@ -174,13 +181,15 @@ class PostProcessingController:
             _validate_preset(name, preset)
             # Resolved before anything is reverted: a bad camera name has to be
             # rejected like any other config error, leaving the preset that is
-            # currently degrading the scene untouched.
-            camera_prim_paths = self._resolve_scope(preset)
+            # currently degrading the scene untouched. Every group is resolved,
+            # not just the first, so one bad name in a `per_camera:` preset
+            # cannot strip the running preset off the other cameras.
+            groups = self._resolve_groups(preset)
             # Inside the try as well, because the apply layer raises too (a
             # KIND_COLOR3 value carb refuses, a closed stage, a USD authoring
             # error).
             entered_apply = True
-            self._apply(name, preset, camera_prim_paths)
+            self._apply(name, groups)
         except Exception as exc:
             # Remember the bad digest so a broken edit is reported once instead
             # of every poll — which also keeps a failing apply from retrying at
@@ -205,9 +214,15 @@ class PostProcessingController:
                 self._revert()
             except Exception as revert_exc:
                 _say(f"WARNING: could not fully restore renderer state: {revert_exc}")
-            # The rejected preset's animation would keep driving a value every
+            # The rejected preset's animations would keep driving a value every
             # frame, and a stale name would make active_preset lie about it.
-            self._animation = None
+            # Cleared here as well as in _revert(), because _clear_authored_usd()
+            # runs first in that finally and can raise before the resets below
+            # it — and the queued render-product writes are the reason this
+            # branch exists: update() flushes them on the first tick after Play,
+            # which would install the very preset just rejected.
+            self._animations = []
+            self._pending_rp_settings = []
             self._active_name = None
             # Forget the last good digest too. The usual recovery is to put the
             # file back the way it was, and that content still matches _digest —
@@ -229,30 +244,39 @@ class PostProcessingController:
 
     # -- apply / revert ----------------------------------------------------
 
-    def _apply(self, name, preset, camera_prim_paths):
+    def _apply(self, name, groups):
         # Revert first: switching presets must not leak the previous one's ISO,
         # gain or noise toggles into the new look.
         self._revert()
 
-        settings = preset.get("settings") or {}
-        self._camera_prim_paths = camera_prim_paths
-
-        if self._camera_prim_paths:
+        total = 0
+        scopes = []
+        for prim_paths, settings, animation in groups:
+            total += len(settings)
             for key, value in settings.items():
-                self._write_scoped(key, value)
-        else:
-            for key, value in settings.items():
-                self._settings.set(EFFECTS[key].carb_path, value)
+                if prim_paths:
+                    self._write_scoped(key, value, prim_paths)
+                else:
+                    self._settings.set(EFFECTS[key].carb_path, value)
+            if animation:
+                self._animations.append((prim_paths, animation))
+            scopes.append(", ".join(prim_paths) if prim_paths else "global")
 
-        self._animation = preset.get("animation")
         self._animation_t0 = self._clock()
         self._active_name = name
 
-        scope = ", ".join(self._camera_prim_paths) if self._camera_prim_paths else "global"
-        detail = f"{len(settings)} setting(s), scope={scope}"
-        if self._animation:
-            detail += f", animating {self._animation['target']}"
+        # One group keeps the historical wording byte for byte; several groups
+        # are separated by "; " so the log distinguishes "these cameras share a
+        # look" from "each camera has its own".
+        detail = f"{total} setting(s), scope={'; '.join(scopes)}"
+        animating = ", ".join(anim["target"] for _, anim in self._animations)
+        if animating:
+            detail += f", animating {animating}"
         _say(f"Applied preset {name!r} ({detail})")
+        if len(groups) > 1:
+            for prim_paths, settings, _ in groups:
+                keys = ", ".join(sorted(settings)) or "nothing"
+                _say(f"  {', '.join(prim_paths) or 'global'}: {keys}")
 
     def _revert(self):
         # Two phases, and the USD one must not be hostage to the carb one: a
@@ -282,7 +306,10 @@ class PostProcessingController:
             finally:
                 self._pending_rp_settings = []
                 self._pending_warned = False
-                self._camera_prim_paths = []
+                # Must be cleared here, not only in _apply: the animation list is
+                # appended to, so a preset switch would otherwise keep driving the
+                # previous preset's target on top of the new one.
+                self._animations = []
 
     def _snapshot_carb(self):
         for key, effect in EFFECTS.items():
@@ -291,37 +318,60 @@ class PostProcessingController:
 
     # -- per-camera authoring ---------------------------------------------
 
-    def _resolve_scope(self, preset):
-        """Camera prim paths for a per-camera preset; empty list means global.
+    def _resolve_groups(self, preset):
+        """Resolve every scope of a preset to (prim_paths, settings, animation).
 
-        Also proves the prims exist, so `_apply` cannot fail halfway through
-        and leave the scene wearing half a preset.
+        `prim_paths` is empty for a global group. Resolving all of them up
+        front proves the prims exist, so `_apply` cannot fail halfway through
+        and leave the scene wearing half a preset — and, for `per_camera:`, so
+        one unknown camera name rejects the whole edit instead of degrading
+        some cameras and not others.
         """
-        cameras = preset.get("cameras") or []
-        if not cameras:
-            return []
-        paths = self._resolve_camera_prims(cameras)
-        stage = self._stage()
-        missing = [p for p in paths if not stage.GetPrimAtPath(p).IsValid()]
-        if missing:
-            raise ValueError(f"camera prim(s) not on stage: {', '.join(missing)}")
-        return paths
+        by_name = {}
+        resolved = []
+        seen = {}
+        groups = _preset_groups(preset)
+        for cameras, settings, animation in groups:
+            if not cameras:
+                resolved.append(([], settings, animation))
+                continue
+            paths = self._resolve_camera_prims(cameras, by_name)
+            stage = self._stage()
+            missing = [p for p in paths if not stage.GetPrimAtPath(p).IsValid()]
+            if missing:
+                raise ValueError(f"camera prim(s) not on stage: {', '.join(missing)}")
+            if len(groups) > 1:
+                # Two per_camera keys can name the same camera (a name and its
+                # prim path), and the loser would be silently overwritten.
+                for path, entry in zip(paths, cameras):
+                    if path in seen:
+                        raise ValueError(
+                            f"per_camera entries {seen[path]!r} and {entry!r} "
+                            f"both resolve to {path}"
+                        )
+                    seen[path] = entry
+            resolved.append((paths, settings, animation))
+        return resolved
 
-    def _resolve_camera_prims(self, cameras):
+    def _resolve_camera_prims(self, cameras, by_name=None):
         """Map preset `cameras:` entries to camera prim paths.
 
         An entry starting with "/" is taken as a prim path; anything else is
         looked up as a camera `name` in cameras.yaml, so a preset can say
         `Camera_01` instead of repeating the full prim path.
+
+        `by_name` is a cache shared across the groups of one preset, so a
+        `per_camera:` block does not re-read cameras.yaml once per camera.
         """
         paths = []
-        by_name = None
+        if by_name is None:
+            by_name = {}
         for entry in cameras:
             if entry.startswith("/"):
                 paths.append(entry)
                 continue
-            if by_name is None:
-                by_name = self._load_camera_name_map()
+            if not by_name:
+                by_name.update(self._load_camera_name_map())
             prim_path = by_name.get(entry)
             if prim_path is None:
                 known = ", ".join(sorted(by_name)) or "none"
@@ -347,11 +397,11 @@ class PostProcessingController:
             if "name" in cam and "camera_prim" in cam
         }
 
-    def _write_scoped(self, key, value):
+    def _write_scoped(self, key, value, prim_paths):
         effect = EFFECTS[key]
         if effect.target == TARGET_CAMERA:
             stage = self._stage()
-            for prim_path in self._camera_prim_paths:
+            for prim_path in prim_paths:
                 prim = stage.GetPrimAtPath(prim_path)
                 if not prim or not prim.IsValid():
                     raise RuntimeError(f"camera prim missing on stage: {prim_path}")
@@ -360,35 +410,44 @@ class PostProcessingController:
 
         # Render products do not exist until the first tick after Play, so
         # defer instead of failing and let update() pick them up.
-        products = self._render_products()
+        products = self._render_products(prim_paths)
         if not products:
-            self._pending_rp_settings.append((key, value))
+            self._pending_rp_settings.append((tuple(prim_paths), key, value))
             return
         for prim in products:
             self._author(prim, effect, value)
 
     def _flush_pending_render_product_settings(self):
-        products = self._render_products()
-        if not products:
-            if not self._pending_warned:
-                self._pending_warned = True
-                keys = ", ".join(key for key, _ in self._pending_rp_settings)
-                _say(
-                    f"{len(self._pending_rp_settings)} setting(s) waiting for render "
-                    f"products (created on the first tick after Play): {keys}"
-                )
-            return
-
-        pending, self._pending_rp_settings = self._pending_rp_settings, []
-        for key, value in pending:
+        # Each entry keeps its own scope, so a preset where camera 1 needs a
+        # render product and camera 2 does not cannot flush one onto the other.
+        still_pending = []
+        flushed = 0
+        touched = set()
+        for prim_paths, key, value in self._pending_rp_settings:
+            products = self._render_products(prim_paths)
+            if not products:
+                still_pending.append((prim_paths, key, value))
+                continue
             for prim in products:
                 self._author(prim, EFFECTS[key], value)
-        _say(f"Applied {len(pending)} deferred setting(s) to {len(products)} render product(s)")
+                touched.add(str(prim.GetPath()))
+            flushed += 1
+        self._pending_rp_settings = still_pending
 
-    def _render_products(self):
-        """Render product prims bound to the preset's cameras."""
+        if flushed:
+            _say(f"Applied {flushed} deferred setting(s) to {len(touched)} render product(s)")
+        if still_pending and not self._pending_warned:
+            self._pending_warned = True
+            keys = ", ".join(key for _, key, _ in still_pending)
+            _say(
+                f"{len(still_pending)} setting(s) waiting for render "
+                f"products (created on the first tick after Play): {keys}"
+            )
+
+    def _render_products(self, prim_paths):
+        """Render product prims bound to the given cameras."""
         stage = self._stage()
-        wanted = set(self._camera_prim_paths)
+        wanted = set(prim_paths)
         found = []
         for prim in stage.Traverse():
             if prim.GetTypeName() != "RenderProduct":
@@ -469,19 +528,18 @@ class PostProcessingController:
 
     def _advance_animation(self, now):
         """Drive one float effect per frame, for flicker-style anomalies."""
-        if not self._animation:
-            return
-        base = float(self._animation["base"])
-        amplitude = float(self._animation["amplitude_fraction"])
-        frequency = float(self._animation["frequency_hz"])
-        phase = 2.0 * math.pi * frequency * (now - self._animation_t0)
-        value = base * (1.0 + amplitude * math.sin(phase))
+        for prim_paths, animation in self._animations:
+            base = float(animation["base"])
+            amplitude = float(animation["amplitude_fraction"])
+            frequency = float(animation["frequency_hz"])
+            phase = 2.0 * math.pi * frequency * (now - self._animation_t0)
+            value = base * (1.0 + amplitude * math.sin(phase))
 
-        key = self._animation["target"]
-        if self._camera_prim_paths:
-            self._write_scoped(key, value)
-        else:
-            self._settings.set(EFFECTS[key].carb_path, value)
+            key = animation["target"]
+            if prim_paths:
+                self._write_scoped(key, value, prim_paths)
+            else:
+                self._settings.set(EFFECTS[key].carb_path, value)
 
 
 # -- helpers ---------------------------------------------------------------
@@ -554,26 +612,41 @@ def _select_preset(config, override=None):
     return active, preset
 
 
+def _preset_groups(preset):
+    """Split a preset into its scopes: [(cameras, settings, animation)].
+
+    A classic preset is one group — global when `cameras:` is absent, one
+    shared per-camera group when it is present. A `per_camera:` preset is one
+    group per camera, which is what lets camera 1 go dark while camera 2 goes
+    grainy in the same apply. Pure data, no Kit: the caller resolves the camera
+    entries to prim paths.
+    """
+    per_camera = preset.get("per_camera")
+    if per_camera:
+        return [
+            ([camera], (body or {}).get("settings") or {}, (body or {}).get("animation"))
+            for camera, body in per_camera.items()
+        ]
+    return [
+        (
+            list(preset.get("cameras") or []),
+            preset.get("settings") or {},
+            preset.get("animation"),
+        )
+    ]
+
+
 def _validate_preset(name, preset):
-    unknown = set(preset) - {"description", "settings", "cameras", "animation"}
+    unknown = set(preset) - {"description", "settings", "cameras", "animation", "per_camera"}
     if unknown:
         raise ValueError(f"preset {name!r} has unsupported keys: {sorted(unknown)}")
 
-    settings = preset.get("settings") or {}
-    if not isinstance(settings, dict):
-        raise ValueError(f"preset {name!r}: 'settings' must be a mapping")
-    for key, value in settings.items():
-        effect = EFFECTS.get(key)
-        if effect is None:
-            raise ValueError(f"preset {name!r}: unknown setting {key!r}")
-        if effect.kind == KIND_BOOL and not isinstance(value, bool):
-            raise ValueError(f"preset {name!r}: {key} must be true or false")
-        if effect.kind == KIND_FLOAT and not _is_number(value):
-            raise ValueError(f"preset {name!r}: {key} must be a number")
-        if effect.kind == KIND_COLOR3 and not (
-            isinstance(value, (list, tuple)) and len(value) == 3 and all(_is_number(v) for v in value)
-        ):
-            raise ValueError(f"preset {name!r}: {key} must be three numbers")
+    per_camera = preset.get("per_camera")
+    if per_camera is not None:
+        _validate_per_camera(name, preset, per_camera)
+        return
+
+    _validate_settings(name, preset.get("settings"))
 
     cameras = preset.get("cameras")
     if cameras is not None:
@@ -582,7 +655,68 @@ def _validate_preset(name, preset):
         if not all(isinstance(entry, str) and entry for entry in cameras):
             raise ValueError(f"preset {name!r}: 'cameras' entries must be names or prim paths")
 
-    animation = preset.get("animation")
+    _validate_animation(name, preset.get("animation"))
+
+
+def _validate_per_camera(name, preset, per_camera):
+    """Check a `per_camera:` preset — one settings block per camera."""
+    # Refusing the mixture is not pedantry: `cameras:`/`settings:` name a scope
+    # too, and silently ignoring them would apply a preset the file does not
+    # describe.
+    conflicting = sorted(k for k in ("cameras", "settings", "animation") if k in preset)
+    if conflicting:
+        raise ValueError(
+            f"preset {name!r}: 'per_camera' cannot be combined with {conflicting}; "
+            f"move each of those under a per_camera entry"
+        )
+    if not isinstance(per_camera, dict) or not per_camera:
+        raise ValueError(
+            f"preset {name!r}: 'per_camera' must be a non-empty mapping of "
+            f"camera name or prim path to {{settings: ...}}"
+        )
+
+    for camera, body in per_camera.items():
+        where = f"{name}.per_camera.{camera}"
+        if not isinstance(camera, str) or not camera:
+            raise ValueError(f"preset {name!r}: per_camera keys must be names or prim paths")
+        if body is None:
+            body = {}
+        if not isinstance(body, dict):
+            raise ValueError(f"preset {where!r}: must be a mapping")
+        unknown = set(body) - {"description", "settings", "animation"}
+        if unknown:
+            raise ValueError(f"preset {where!r} has unsupported keys: {sorted(unknown)}")
+        if body.get("animation") is not None:
+            # Deliberately unsupported rather than half-supported: the phase
+            # clock and the flush path are shared, and an animated per_camera
+            # block has no test coverage. See README.
+            raise ValueError(
+                f"preset {where!r}: 'animation' inside per_camera is not supported yet; "
+                f"use a single-camera preset with 'cameras:' to animate"
+            )
+        _validate_settings(where, body.get("settings"))
+
+
+def _validate_settings(where, settings):
+    if settings is None:
+        settings = {}
+    if not isinstance(settings, dict):
+        raise ValueError(f"preset {where!r}: 'settings' must be a mapping")
+    for key, value in settings.items():
+        effect = EFFECTS.get(key)
+        if effect is None:
+            raise ValueError(f"preset {where!r}: unknown setting {key!r}")
+        if effect.kind == KIND_BOOL and not isinstance(value, bool):
+            raise ValueError(f"preset {where!r}: {key} must be true or false")
+        if effect.kind == KIND_FLOAT and not _is_number(value):
+            raise ValueError(f"preset {where!r}: {key} must be a number")
+        if effect.kind == KIND_COLOR3 and not (
+            isinstance(value, (list, tuple)) and len(value) == 3 and all(_is_number(v) for v in value)
+        ):
+            raise ValueError(f"preset {where!r}: {key} must be three numbers")
+
+
+def _validate_animation(name, animation):
     if animation is None:
         return
     if not isinstance(animation, dict):

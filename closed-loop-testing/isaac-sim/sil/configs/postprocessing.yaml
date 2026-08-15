@@ -14,6 +14,8 @@
 # viewport and every camera — "the whole site went dark". Adding `cameras:`
 # authors USD attributes on those cameras instead, so only they degrade —
 # "camera 2 is dirty", which is the case an anomaly campaign usually wants.
+# `per_camera:` goes one step further and gives every camera its own settings
+# block, for "camera 1 went dark WHILE camera 2 went grainy" — see mixed_faults.
 #
 # Per-camera caveat: exposure lives on the camera prim and applies at once, but
 # grain / scanlines / vignetting / colour grading live on the RENDER PRODUCT,
@@ -154,3 +156,22 @@ presets:
       tv_noise.enabled: true
       tv_noise.film_grain.enabled: true
       tv_noise.film_grain.amount: 0.15
+
+  # Two cameras, two different faults, at the same time. `cameras:` cannot do
+  # this: it has one `settings` block, so every camera it lists gets the same
+  # degradation — and because only one preset is active, applying a Camera_01
+  # preset and then a Camera_02 preset reverts the first. `per_camera:` gives
+  # each camera its own block and applies them in one pass. It cannot be
+  # combined with `cameras:`/`settings:`/`animation:`.
+  mixed_faults:
+    description: Camera_01 goes dark while Camera_02 goes grainy, together.
+    per_camera:
+      Camera_01:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 12.0
+      Camera_02:
+        settings:
+          tv_noise.enabled: true
+          tv_noise.film_grain.enabled: true
+          tv_noise.film_grain.amount: 0.18
