@@ -240,11 +240,13 @@ class PostProcessingController:
                 _say(f"WARNING: could not fully restore renderer state: {revert_exc}")
             # The rejected preset's animations would keep driving a value every
             # frame, and a stale name would make active_preset lie about it.
-            # Cleared here as well as in _revert(), because _clear_authored_usd()
-            # runs first in that finally and can raise before the resets below
-            # it — and the queued render-product writes are the reason this
-            # branch exists: update() flushes them on the first tick after Play,
-            # which would install the very preset just rejected.
+            # _revert() already clears both, and its state resets now run in
+            # their own finally, so they hold even when _clear_authored_usd()
+            # raises — this is belt and braces, not the guarantee it once was.
+            # Kept so the branch does not silently depend on that finally
+            # staying nested the way it is: what the queue holds is what
+            # update() would flush onto the render products on the first tick
+            # after Play, installing the very preset just rejected.
             self._animations = []
             self._pending_rp_settings = {}
             self._active_name = None
