@@ -22,6 +22,7 @@ and the IRA visual-noise example.
 | `controller.py` | `PostProcessingController` | Loads the active preset, applies it globally or per camera, polls the config for live edits, drives animated effects, and restores the renderer on shutdown. |
 | `set_preset.sh` | — | Switches the live preset by rewriting `active:` atomically. Run it from the host while the sim is running. |
 | `test_animation.py` | `python3 -m postprocessing.test_animation` | Validates every shipped preset and checks the animator math on a synthetic clock. Stdlib only — no Kit, no numpy, no pytest; run it from `sil/scripts/` on any machine. |
+| `test_controller.py` | `python3 -m postprocessing.test_controller` | The state the animation suite cannot reach: `_apply`, `_revert`, `_resolve_groups` and the deferred render-product store, all running for real against fake `pxr` / `omni.usd` modules and a fake stage that counts traversals. Covers what is authored versus deferred, flush scoping, cleanup after a *failing* revert, and the reject paths. Stdlib only; same machine requirements. |
 
 Presets live in [`../../configs/postprocessing.yaml`](../../configs/postprocessing.yaml).
 
