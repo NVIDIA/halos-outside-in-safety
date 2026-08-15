@@ -756,18 +756,17 @@ def _validate_postprocessing_preset(preset, config_path):
 
     "Wrong" is not only a mistyped name. `version: 2`, a setting key that does
     not exist, a string where a float belongs, an `animation` block missing
-    `frequency_hz`, a `per_camera` entry that also carries a top-level
-    `cameras:` — every one of those names a preset that IS in the file and
+    `frequency_hz` — every one of those names a preset that IS in the file and
     still produces a clean run. So this runs the controller's own
     `_select_preset` and `_validate_preset`, which is why those two are kept
     free of carb and pxr imports: they are the contract, and a second
     reimplementation here would drift from it.
 
-    What it still cannot check is camera resolution: `cameras:`/`per_camera:`
-    entries are matched against cameras.yaml and then against the prims on the
-    stage, and neither exists before Kit boots. An unknown camera name is
-    caught by the controller at apply time, where it is rejected without
-    disturbing the running preset.
+    What it still cannot check is camera resolution: `cameras:` entries are
+    matched against cameras.yaml and then against the prims on the stage, and
+    neither exists before Kit boots. An unknown camera name is caught by the
+    controller at apply time, where it is rejected without disturbing the
+    running preset.
     """
     if not preset.strip():
         # `--postprocessing-preset "$PRESET"` with PRESET unset. Not "no pin":
