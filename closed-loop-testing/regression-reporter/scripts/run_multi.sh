@@ -229,12 +229,19 @@ phase_start_scene() {
   # builder block (action_graphs/srr_ground_truth.py), AFTER IRA has spawned the
   # SRR char groups + runtime_patches repositioned them, then pump live Fabric
   # transforms. The flag defaults OFF, so a normal Halos run is unaffected.
+  #
+  # --postprocessing-preset pins the RTX look to the undegraded baseline.
+  # postprocessing.yaml is git-tracked but set_preset.sh rewrites it in place,
+  # so without the pin a campaign inherits whatever sensor anomaly the last
+  # interactive session left active, and every scene scores against a degraded
+  # image with nothing in the report saying so.
   docker exec -d isaac-sim bash -c "
     ./python.sh /isaac-sim/sil/scripts/run_actor_sdg.py \
       -c /isaac-sim/sil/configs/default_config_ros.yaml \
       --start --headless --enable-vst \
       --cameras-config /isaac-sim/sil/configs/cameras.yaml \
       --srr-gt \
+      --postprocessing-preset baseline \
       > $log_path 2>&1
   "
 }

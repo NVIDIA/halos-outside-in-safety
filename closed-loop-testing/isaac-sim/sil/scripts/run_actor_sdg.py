@@ -60,6 +60,9 @@ class ActorSDGRunner:
         enable_forklift=True,
         enable_clock=True,
         enable_srr_gt=False,
+        postprocessing_config_path=None,
+        enable_postprocessing=True,
+        postprocessing_preset=None,
         vst_register_warmup_sec=1.0,
         vst_register_timeout_sec=1200.0,
     ):
@@ -111,6 +114,21 @@ class ActorSDGRunner:
         # SRR regression-harness ground-truth /gt/*/tf publisher (opt-in via
         # --srr-gt; default OFF). See action_graphs/srr_ground_truth.py.
         self.enable_srr_gt = enable_srr_gt
+
+        # In-scenario sensor-anomaly injection (low light, colour cast, flicker,
+        # sensor grain). Not an OmniGraph: RTX consumes post-processing itself,
+        # so a preset lands on the next rendered frame in the viewport, the SDG
+        # RGB output and the RTSP streams alike. Driven by configs/
+        # postprocessing.yaml and hot-reloaded from the run loop.
+        # See sil/scripts/postprocessing/README.md.
+        self.postprocessing_config_path = postprocessing_config_path
+        self.enable_postprocessing = enable_postprocessing
+        # Pins the preset regardless of what `active:` currently says. The
+        # config file is git-tracked but set_preset.sh rewrites it live, so an
+        # unpinned run inherits whatever anomaly the previous operator left
+        # behind — reproduced on two machines. Campaign launchers pass this.
+        self.postprocessing_preset = postprocessing_preset
+        self._postprocessing = None
 
         self.output_path = None
         # NOTE(IRA 6.0): camera_placements_json, _setup_sim_sub, _setup_sim_succeed removed —
@@ -208,6 +226,29 @@ class ActorSDGRunner:
             if self.enable_srr_gt:
                 from action_graphs import build_srr_gt_graph
                 build_srr_gt_graph()
+            #   6. postprocessing applies the active RTX preset and then polls
+            #      its config, so an operator can inject or lift a sensor
+            #      anomaly mid-run. Runs after the RTSP graph so a per-camera
+            #      preset can bind to the render products that graph declares.
+            #      A bad preset must not take the SIL loop down with it, so
+            #      failures here are warnings — the run continues undegraded.
+            if self.enable_postprocessing and self.postprocessing_config_path:
+                try:
+                    from postprocessing import PostProcessingController
+
+                    self._postprocessing = PostProcessingController(
+                        self.postprocessing_config_path,
+                        cameras_config_path=self.cameras_config_path,
+                        preset_override=self.postprocessing_preset,
+                    )
+                    self._postprocessing.start()
+                except Exception as e:
+                    print(f"WARNING: post-processing disabled ({e})")
+                    # start() can fail with settings already written, and the
+                    # controller holds the only snapshot that undoes them.
+                    # Dropping the handle without closing it would strand the
+                    # renderer degraded for the rest of the process.
+                    self._close_postprocessing()
 
             # VST Integration: registration is DEFERRED to after Play + render-warm
             # (see the run loop below). Registering here — before the RTSP encoder is
@@ -219,6 +260,7 @@ class ActorSDGRunner:
                 print("Setup complete. Waiting for manual data generation start...")
                 while not self._sim_app.is_exiting():
                     await self._sim_app.app.next_update_async()
+                    self._update_postprocessing()
                 return True
 
             # If auto-start, press Play on the timeline (RTSP + BT start ticking).
@@ -237,6 +279,7 @@ class ActorSDGRunner:
             vst_registered = False
             while not self._sim_app.is_exiting():
                 await self._sim_app.app.next_update_async()
+                self._update_postprocessing()
                 if self.enable_vst and not vst_registered and self._render_is_warm():
                     self._vst_register_cameras()
                     vst_registered = True
@@ -252,6 +295,11 @@ class ActorSDGRunner:
             return False
 
         finally:
+            # Put the renderer back as it was: a preset lives in carb settings
+            # and the session layer, both of which outlive this coroutine when
+            # Kit stays up (UI mode, setup re-entry).
+            self._close_postprocessing()
+
             # VST Integration: Cleanup cameras on exit (fallback for UI / abnormal exit)
             if self.enable_vst and self._vst_manager:
                 try:
@@ -261,6 +309,39 @@ class ActorSDGRunner:
                         self._vst_cleanup_cameras()
                 except Exception as e:
                     print(f"WARNING: Finally VST cleanup failed: {e}")
+
+    def _update_postprocessing(self):
+        """Re-read the preset config when due and advance any animated effect.
+
+        Runs once per rendered frame, so an exception here would otherwise spam
+        the log at render rate; the first failure retires the controller and the
+        run continues without post-processing.
+        """
+        if self._postprocessing is None:
+            return
+        try:
+            self._postprocessing.update()
+        except Exception as e:
+            print(f"WARNING: post-processing update failed, disabling: {e}")
+            # Retiring the controller means restoring the renderer first: the
+            # settings and session-layer edits an update had already made
+            # outlive the handle, and the handle is what knows how to undo them.
+            self._close_postprocessing()
+
+    def _close_postprocessing(self):
+        """Restore the renderer and drop the controller. Never raises.
+
+        The shutdown path runs it from `finally`, where an escaping exception
+        would skip the VST cleanup that follows.
+        """
+        if self._postprocessing is None:
+            return
+        try:
+            self._postprocessing.close()
+        except Exception as e:
+            print(f"WARNING: post-processing cleanup failed: {e}")
+        finally:
+            self._postprocessing = None
 
     def _extract_output_path(self, config):
         """Extract IRABasicWriter output_dir from typed RootConfig, tolerant of missing keys.
@@ -592,6 +673,9 @@ Examples:
 
   # With VST integration:
   ./python.sh run_actor_sdg.py -c config.yaml --start --enable-vst --cameras-config cameras.yaml
+
+  # Inject a sensor anomaly while the run is live (no restart):
+  ./scripts/postprocessing/set_preset.sh tv_noise
         """,
     )
     parser.add_argument("-c", "--config_file", required=True, help="Path to IRA config file (yaml)")
@@ -643,9 +727,86 @@ Examples:
                         default=False,
                         help="Build the SRR ground-truth /gt/*/tf publisher graph "
                              "(default OFF; SRR regression harness only)")
+    parser.add_argument("--postprocessing-config",
+                        help="Path to postprocessing.yaml (RTX sensor-anomaly presets). "
+                             "Defaults to configs/postprocessing.yaml when present")
+    parser.add_argument("--postprocessing-preset",
+                        help="Pin the RTX preset for this run, ignoring `active:` in the config. "
+                             "Campaign launchers should pass 'baseline' so a preset left behind "
+                             "by set_preset.sh cannot degrade the next run. An unknown name is "
+                             "an error, not a fallback")
+    parser.add_argument("--no-postprocessing", dest="enable_postprocessing",
+                        action="store_false", default=True,
+                        help="Skip the RTX post-processing controller (no anomaly injection, "
+                             "no config polling)")
 
     args, _ = parser.parse_known_args()
     return args
+
+
+def _validate_postprocessing_preset(preset, config_path):
+    """Fail the run on a --postprocessing-preset the config cannot honour.
+
+    The controller rejects a bad preset too, but only as a WARNING from its
+    poll loop: the run then streams, finishes and exits 0 with perfectly clean
+    images. A campaign that pinned an anomaly preset and got it wrong would
+    score the clean run as if the fault had been injected, with nothing in the
+    report saying otherwise. Refusing to boot is the only outcome an automated
+    campaign can notice.
+
+    "Wrong" is not only a mistyped name. `version: 2`, a setting key that does
+    not exist, a string where a float belongs, an `animation` block missing
+    `frequency_hz` — every one of those names a preset that IS in the file and
+    still produces a clean run. So this runs the controller's own
+    `_select_preset` and `_validate_preset`, which is why those two are kept
+    free of carb and pxr imports: they are the contract, and a second
+    reimplementation here would drift from it.
+
+    What it still cannot check is camera resolution: `cameras:` entries are
+    matched against cameras.yaml and then against the prims on the stage, and
+    neither exists before Kit boots. An unknown camera name is caught by the
+    controller at apply time, where it is rejected without disturbing the
+    running preset.
+    """
+    if not preset.strip():
+        # `--postprocessing-preset "$PRESET"` with PRESET unset. Not "no pin":
+        # falling through to `active:` would hand the run whatever preset
+        # set_preset.sh last committed to the file.
+        print("ERROR: --postprocessing-preset was given an empty value", file=sys.stderr)
+        sys.exit(1)
+
+    if not config_path:
+        # No file to check the name against, and no controller either — say so,
+        # because the pin the operator asked for will not be applied.
+        print(f"WARNING: --postprocessing-preset {preset!r} ignored: no post-processing "
+              "config found", file=sys.stderr)
+        return
+
+    # Both imports are deliberately unguarded. PyYAML is present in the Isaac
+    # image before Kit boots (the SIL launcher and set_preset.sh both use it),
+    # and `postprocessing` sits next to this file, so neither can fail on a
+    # working install. The `except ImportError` that used to wrap the yaml
+    # import degraded this check to a WARNING — turning the hard, campaign-
+    # visible failure the function exists to produce back into exactly the soft
+    # one it exists to replace, and doing so silently.
+    import yaml
+
+    from postprocessing.controller import _select_preset, _validate_preset
+
+    try:
+        with open(config_path) as stream:
+            config = yaml.safe_load(stream) or {}
+    except Exception as exc:
+        print(f"ERROR: Cannot read post-processing config {config_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        name, selected = _select_preset(config, preset)
+        _validate_preset(name, selected)
+    except Exception as exc:
+        print(f"ERROR: --postprocessing-preset {preset!r} cannot be honoured by "
+              f"{config_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -669,6 +830,30 @@ def main():
     if args.sensor_placement_file and not os.path.isfile(args.sensor_placement_file):
         print(f"ERROR: Sensor placement file not found: {args.sensor_placement_file}", file=sys.stderr)
         sys.exit(1)
+
+    # Checked before SimulationApp boots: an explicitly requested preset file
+    # that does not exist is an operator error worth failing on, and failing here
+    # avoids tearing down a started Kit app.
+    if args.postprocessing_config and not os.path.isfile(args.postprocessing_config):
+        print(f"ERROR: Post-processing config not found: {args.postprocessing_config}", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolved here rather than next to the other config paths further down,
+    # because --postprocessing-preset can only be checked against the file that
+    # will actually be loaded, and that check has to happen before Kit boots.
+    postprocessing_config_path = None
+    if args.enable_postprocessing:
+        if args.postprocessing_config:
+            postprocessing_config_path = os.path.abspath(args.postprocessing_config)
+        else:
+            default_pp_yaml = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "configs", "postprocessing.yaml")
+            )
+            if os.path.isfile(default_pp_yaml):
+                postprocessing_config_path = default_pp_yaml
+
+    if args.enable_postprocessing and args.postprocessing_preset is not None:
+        _validate_postprocessing_preset(args.postprocessing_preset, postprocessing_config_path)
 
     # Resolve cameras config path
     cameras_config_path = None
@@ -785,6 +970,9 @@ def main():
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,
         enable_srr_gt=args.enable_srr_gt,
+        postprocessing_config_path=postprocessing_config_path,
+        enable_postprocessing=args.enable_postprocessing,
+        postprocessing_preset=args.postprocessing_preset,
         vst_register_warmup_sec=args.vst_register_warmup_sec,
         vst_register_timeout_sec=args.vst_register_timeout_sec,
     )
