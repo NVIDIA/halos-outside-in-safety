@@ -14,6 +14,10 @@
 # viewport and every camera — "the whole site went dark". Adding `cameras:`
 # authors USD attributes on those cameras instead, so only they degrade —
 # "camera 2 is dirty", which is the case an anomaly campaign usually wants.
+# `per_camera:` goes one step further and gives every camera its own settings
+# block, for "camera 1 went dark WHILE camera 2 went grainy" — see mixed_faults.
+# Each `per_camera:` entry can also carry its own `animation:` block, so cameras
+# can flicker at different rates or out of phase — see anim_* below.
 #
 # Per-camera caveat: exposure lives on the camera prim and applies at once, but
 # grain / scanlines / vignetting / colour grading live on the RENDER PRODUCT,
@@ -56,14 +60,19 @@ presets:
 
   # Mains flicker / failing luminaire: sensor gain swings around its base.
   #
-  # Keep frequency_hz below half the rate the renderer actually achieves, or the
-  # anomaly you ship is not the anomaly the consumer sees. The animation is
-  # sampled once per rendered frame, and this warehouse renders at 8-9 fps on
-  # the SIL box (the RTSP stream declares 30 fps but delivers ~8). Measured on a
-  # continuous capture, 1 Hz and 2 Hz requests read back at 1.0 and 1.8 Hz — the
-  # residual is the error in estimating the achieved frame rate — while 6 Hz
-  # folds down to an unambiguous 3.0 Hz. Raise this only after checking the
-  # frame rate the scene actually achieves.
+  # Keep frequency_hz below half the rate that is actually achieved, or the
+  # anomaly you ship is not the anomaly the consumer sees. TWO rates are in play
+  # and they are not the same number.
+  #
+  # The animation is sampled once per RENDERED frame. This warehouse measured
+  # 17.8 fps on both SIL boxes, so the injected sine itself holds up to ~8.9 Hz.
+  # What a consumer can reconstruct is bounded by what its capture DELIVERS,
+  # which is lower: the RTSP stream declares 30 fps and delivered ~8 when this
+  # was captured. On that capture 1 Hz and 2 Hz requests read back at 1.0 and
+  # 1.8 Hz — the residual is the error in estimating the delivered rate — while
+  # 6 Hz folded to an unambiguous 3.0 Hz. A 6 Hz signal folding to 3.0 Hz is the
+  # signature of sampling near 9 Hz, which is the DELIVERY ceiling, not the
+  # render one. Check both before raising this.
   #
   # This animates ISO, not shutter, and that is deliberate. The obvious knob,
   # exposure.time, does nothing at global scope in a running sim: something in
@@ -154,3 +163,156 @@ presets:
       tv_noise.enabled: true
       tv_noise.film_grain.enabled: true
       tv_noise.film_grain.amount: 0.15
+
+  # Several cameras, one shared fault. The `cameras:` list takes as many names
+  # as you like and they all read the same `settings` block, so this is the
+  # preset shape for "the whole fleet is grainy" without reaching for the carb
+  # scope and dragging the viewport along with it. Compare with mixed_faults
+  # below: same three-camera idea, opposite meaning.
+  all_cameras_grainy:
+    description: Every listed camera carries the same sensor grain.
+    cameras: [Camera, Camera_01, Camera_02]
+    settings:
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: true
+      tv_noise.film_grain.amount: 0.15
+
+  # Two cameras, two different faults, at the same time. `cameras:` cannot do
+  # this: it has one `settings` block, so every camera it lists gets the same
+  # degradation — and because only one preset is active, applying a Camera_01
+  # preset and then a Camera_02 preset reverts the first. `per_camera:` gives
+  # each camera its own block and applies them in one pass. It cannot be
+  # combined with the TOP-LEVEL `cameras:`/`settings:`/`animation:` keys —
+  # `settings:` and `animation:` go inside each per_camera entry instead.
+  mixed_faults:
+    description: Camera_01 goes dark while Camera_02 goes grainy, together.
+    per_camera:
+      Camera_01:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 12.0
+      Camera_02:
+        settings:
+          tv_noise.enabled: true
+          tv_noise.film_grain.enabled: true
+          tv_noise.film_grain.amount: 0.18
+
+  # --- Animated per-camera presets -------------------------------------------
+  # Every per_camera entry can carry its own `animation:` block, so one camera
+  # can flicker while another sits still, or two can flicker out of step. All
+  # groups share one clock origin, latched at apply, and `phase_deg` (optional,
+  # default 0, range [0, 360)) offsets one against another:
+  #
+  #     value = base * (1 + amplitude_fraction * sin(2*pi*f*(t - t0) + phase_deg))
+  #
+  # `auto_exposure.enabled: false` has to be repeated in EVERY entry that
+  # animates exposure — there is no top-level `settings:` in a per_camera preset
+  # to put it in, and with auto-exposure left on the histogram pulls the image
+  # back to normal brightness in about a second and the flicker vanishes.
+
+  # Cross-term check: does an animated group leak onto a static one? Camera_01
+  # flickers, Camera_02 holds a fixed grain level and must not move with it.
+  anim_mixed:
+    description: Camera_01 flickers at 1 Hz while Camera_02 sits at static grain.
+    per_camera:
+      Camera_01:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 100.0
+        animation:
+          target: exposure.iso
+          waveform: sine
+          base: 100.0
+          amplitude_fraction: 0.35
+          frequency_hz: 1.0
+      Camera_02:
+        settings:
+          tv_noise.enabled: true
+          tv_noise.film_grain.enabled: true
+          tv_noise.film_grain.amount: 0.18
+
+  # Two independent frequencies on the same target. The sine is sampled once per
+  # rendered frame, so the achieved frame rate sets the ceiling: this warehouse
+  # measured 17.8 fps on both SIL boxes, putting the alias threshold near 8.9 Hz
+  # and giving this preset's 3 Hz about 5.9 samples per cycle -- comfortably
+  # resolved. Samples per cycle is just achieved_fps / frequency_hz: below 2 the
+  # signal folds to a different frequency, and only a little above 2 it is
+  # coarse. The ceiling belongs to the host, not the scene, so check the rate
+  # yours achieves. See the note on `flicker` above: what a CONSUMER can
+  # reconstruct is bounded by the delivered rate instead, which is lower.
+  anim_two_freq:
+    description: Camera_01 flickers at 1 Hz, Camera_02 at 3 Hz, same target.
+    per_camera:
+      Camera_01:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 100.0
+        animation:
+          target: exposure.iso
+          waveform: sine
+          base: 100.0
+          amplitude_fraction: 0.35
+          frequency_hz: 1.0
+      Camera_02:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 100.0
+        animation:
+          target: exposure.iso
+          waveform: sine
+          base: 100.0
+          amplitude_fraction: 0.35
+          frequency_hz: 3.0
+
+  # Antiphase: same frequency, half a cycle apart, so Camera_01 is at its
+  # brightest exactly when Camera_02 is at its dimmest. This is the case a
+  # shared clock origin alone cannot produce — both groups are applied in the
+  # same tick, so without `phase_deg` they would be locked in step.
+  anim_antiphase:
+    description: Both cameras flicker at 1 Hz, 180 degrees apart.
+    per_camera:
+      Camera_01:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 100.0
+        animation:
+          target: exposure.iso
+          waveform: sine
+          base: 100.0
+          amplitude_fraction: 0.35
+          frequency_hz: 1.0
+          phase_deg: 0
+      Camera_02:
+        settings:
+          auto_exposure.enabled: false
+          exposure.iso: 100.0
+        animation:
+          target: exposure.iso
+          waveform: sine
+          base: 100.0
+          amplitude_fraction: 0.35
+          frequency_hz: 1.0
+          phase_deg: 180
+
+  # Breathing grain rather than breathing brightness. This is the EXPENSIVE
+  # shape and the controller says so on load: grain lives on the render product,
+  # which is found by traversing the stage, so an animated render-product target
+  # at per-camera scope traverses once per animated scope per frame. A preset of
+  # this shape previously measured -7.0% FPS with the robot driving. It is a
+  # warning, not a rejection — animating grain on one camera is a real anomaly.
+  # tv_noise.enabled and film_grain.enabled must both be on, or animating the
+  # amount drives a pass that is switched off.
+  anim_rp_target:
+    description: Camera_01 grain breathes at 0.5 Hz (render-product target — costly).
+    per_camera:
+      Camera_01:
+        settings:
+          tv_noise.enabled: true
+          tv_noise.film_grain.enabled: true
+          tv_noise.film_grain.amount: 0.12
+        animation:
+          target: tv_noise.film_grain.amount
+          waveform: sine
+          base: 0.12
+          amplitude_fraction: 0.6
+          frequency_hz: 0.5
