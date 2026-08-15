@@ -747,12 +747,27 @@ Examples:
 def _validate_postprocessing_preset(preset, config_path):
     """Fail the run on a --postprocessing-preset the config cannot honour.
 
-    The controller rejects an unknown name too, but only as a WARNING from its
+    The controller rejects a bad preset too, but only as a WARNING from its
     poll loop: the run then streams, finishes and exits 0 with perfectly clean
-    images. A campaign that pinned an anomaly preset and mistyped the name would
+    images. A campaign that pinned an anomaly preset and got it wrong would
     score the clean run as if the fault had been injected, with nothing in the
     report saying otherwise. Refusing to boot is the only outcome an automated
     campaign can notice.
+
+    "Wrong" is not only a mistyped name. `version: 2`, a setting key that does
+    not exist, a string where a float belongs, an `animation` block missing
+    `frequency_hz`, a `per_camera` entry that also carries a top-level
+    `cameras:` — every one of those names a preset that IS in the file and
+    still produces a clean run. So this runs the controller's own
+    `_select_preset` and `_validate_preset`, which is why those two are kept
+    free of carb and pxr imports: they are the contract, and a second
+    reimplementation here would drift from it.
+
+    What it still cannot check is camera resolution: `cameras:`/`per_camera:`
+    entries are matched against cameras.yaml and then against the prims on the
+    stage, and neither exists before Kit boots. An unknown camera name is
+    caught by the controller at apply time, where it is rejected without
+    disturbing the running preset.
     """
     if not preset.strip():
         # `--postprocessing-preset "$PRESET"` with PRESET unset. Not "no pin":
@@ -768,30 +783,30 @@ def _validate_postprocessing_preset(preset, config_path):
               "config found", file=sys.stderr)
         return
 
-    try:
-        import yaml
-    except ImportError:
-        # Every other check in main() is stdlib-only, so this is the one that
-        # could depend on Kit having booted. Degrade to the controller's own
-        # (mid-run, non-fatal) rejection rather than tracebacking on a name that
-        # is probably fine.
-        print(f"WARNING: cannot validate --postprocessing-preset {preset!r} before boot "
-              "(PyYAML unavailable); an unknown name will be reported by the controller "
-              "instead", file=sys.stderr)
-        return
+    # Both imports are deliberately unguarded. PyYAML is present in the Isaac
+    # image before Kit boots (the SIL launcher and set_preset.sh both use it),
+    # and `postprocessing` sits next to this file, so neither can fail on a
+    # working install. The `except ImportError` that used to wrap the yaml
+    # import degraded this check to a WARNING — turning the hard, campaign-
+    # visible failure the function exists to produce back into exactly the soft
+    # one it exists to replace, and doing so silently.
+    import yaml
+
+    from postprocessing.controller import _select_preset, _validate_preset
 
     try:
         with open(config_path) as stream:
             config = yaml.safe_load(stream) or {}
-        presets = config.get("presets")
     except Exception as exc:
         print(f"ERROR: Cannot read post-processing config {config_path}: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    if not isinstance(presets, dict) or preset not in presets:
-        known = ", ".join(sorted(presets)) if isinstance(presets, dict) else "none"
-        print(f"ERROR: Unknown post-processing preset {preset!r} in {config_path} "
-              f"(available: {known})", file=sys.stderr)
+    try:
+        name, selected = _select_preset(config, preset)
+        _validate_preset(name, selected)
+    except Exception as exc:
+        print(f"ERROR: --postprocessing-preset {preset!r} cannot be honoured by "
+              f"{config_path}: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
