@@ -62,6 +62,7 @@ class ActorSDGRunner:
         enable_srr_gt=False,
         postprocessing_config_path=None,
         enable_postprocessing=True,
+        postprocessing_preset=None,
         vst_register_warmup_sec=1.0,
         vst_register_timeout_sec=1200.0,
     ):
@@ -122,6 +123,11 @@ class ActorSDGRunner:
         # See sil/scripts/postprocessing/README.md.
         self.postprocessing_config_path = postprocessing_config_path
         self.enable_postprocessing = enable_postprocessing
+        # Pins the preset regardless of what `active:` currently says. The
+        # config file is git-tracked but set_preset.sh rewrites it live, so an
+        # unpinned run inherits whatever anomaly the previous operator left
+        # behind — reproduced on two machines. Campaign launchers pass this.
+        self.postprocessing_preset = postprocessing_preset
         self._postprocessing = None
 
         self.output_path = None
@@ -233,6 +239,7 @@ class ActorSDGRunner:
                     self._postprocessing = PostProcessingController(
                         self.postprocessing_config_path,
                         cameras_config_path=self.cameras_config_path,
+                        preset_override=self.postprocessing_preset,
                     )
                     self._postprocessing.start()
                 except Exception as e:
@@ -723,6 +730,11 @@ Examples:
     parser.add_argument("--postprocessing-config",
                         help="Path to postprocessing.yaml (RTX sensor-anomaly presets). "
                              "Defaults to configs/postprocessing.yaml when present")
+    parser.add_argument("--postprocessing-preset",
+                        help="Pin the RTX preset for this run, ignoring `active:` in the config. "
+                             "Campaign launchers should pass 'baseline' so a preset left behind "
+                             "by set_preset.sh cannot degrade the next run. An unknown name is "
+                             "an error, not a fallback")
     parser.add_argument("--no-postprocessing", dest="enable_postprocessing",
                         action="store_false", default=True,
                         help="Skip the RTX post-processing controller (no anomaly injection, "
@@ -730,6 +742,57 @@ Examples:
 
     args, _ = parser.parse_known_args()
     return args
+
+
+def _validate_postprocessing_preset(preset, config_path):
+    """Fail the run on a --postprocessing-preset the config cannot honour.
+
+    The controller rejects an unknown name too, but only as a WARNING from its
+    poll loop: the run then streams, finishes and exits 0 with perfectly clean
+    images. A campaign that pinned an anomaly preset and mistyped the name would
+    score the clean run as if the fault had been injected, with nothing in the
+    report saying otherwise. Refusing to boot is the only outcome an automated
+    campaign can notice.
+    """
+    if not preset.strip():
+        # `--postprocessing-preset "$PRESET"` with PRESET unset. Not "no pin":
+        # falling through to `active:` would hand the run whatever preset
+        # set_preset.sh last committed to the file.
+        print("ERROR: --postprocessing-preset was given an empty value", file=sys.stderr)
+        sys.exit(1)
+
+    if not config_path:
+        # No file to check the name against, and no controller either — say so,
+        # because the pin the operator asked for will not be applied.
+        print(f"WARNING: --postprocessing-preset {preset!r} ignored: no post-processing "
+              "config found", file=sys.stderr)
+        return
+
+    try:
+        import yaml
+    except ImportError:
+        # Every other check in main() is stdlib-only, so this is the one that
+        # could depend on Kit having booted. Degrade to the controller's own
+        # (mid-run, non-fatal) rejection rather than tracebacking on a name that
+        # is probably fine.
+        print(f"WARNING: cannot validate --postprocessing-preset {preset!r} before boot "
+              "(PyYAML unavailable); an unknown name will be reported by the controller "
+              "instead", file=sys.stderr)
+        return
+
+    try:
+        with open(config_path) as stream:
+            config = yaml.safe_load(stream) or {}
+        presets = config.get("presets")
+    except Exception as exc:
+        print(f"ERROR: Cannot read post-processing config {config_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(presets, dict) or preset not in presets:
+        known = ", ".join(sorted(presets)) if isinstance(presets, dict) else "none"
+        print(f"ERROR: Unknown post-processing preset {preset!r} in {config_path} "
+              f"(available: {known})", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -760,6 +823,23 @@ def main():
     if args.postprocessing_config and not os.path.isfile(args.postprocessing_config):
         print(f"ERROR: Post-processing config not found: {args.postprocessing_config}", file=sys.stderr)
         sys.exit(1)
+
+    # Resolved here rather than next to the other config paths further down,
+    # because --postprocessing-preset can only be checked against the file that
+    # will actually be loaded, and that check has to happen before Kit boots.
+    postprocessing_config_path = None
+    if args.enable_postprocessing:
+        if args.postprocessing_config:
+            postprocessing_config_path = os.path.abspath(args.postprocessing_config)
+        else:
+            default_pp_yaml = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "configs", "postprocessing.yaml")
+            )
+            if os.path.isfile(default_pp_yaml):
+                postprocessing_config_path = default_pp_yaml
+
+    if args.enable_postprocessing and args.postprocessing_preset is not None:
+        _validate_postprocessing_preset(args.postprocessing_preset, postprocessing_config_path)
 
     # Resolve cameras config path
     cameras_config_path = None
@@ -857,20 +937,6 @@ def main():
         if os.path.isfile(default_robots_yaml):
             robots_config_path = default_robots_yaml
 
-    # Resolve the post-processing preset config, same defaulting as above.
-    # Existence of an explicitly passed path was checked before Kit booted; a
-    # missing default simply leaves anomaly injection off.
-    postprocessing_config_path = None
-    if args.enable_postprocessing:
-        if args.postprocessing_config:
-            postprocessing_config_path = os.path.abspath(args.postprocessing_config)
-        else:
-            default_pp_yaml = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "..", "configs", "postprocessing.yaml")
-            )
-            if os.path.isfile(default_pp_yaml):
-                postprocessing_config_path = default_pp_yaml
-
     # Create and run SDG
     sdg = ActorSDGRunner(
         sim_app=sim_app,
@@ -892,6 +958,7 @@ def main():
         enable_srr_gt=args.enable_srr_gt,
         postprocessing_config_path=postprocessing_config_path,
         enable_postprocessing=args.enable_postprocessing,
+        postprocessing_preset=args.postprocessing_preset,
         vst_register_warmup_sec=args.vst_register_warmup_sec,
         vst_register_timeout_sec=args.vst_register_timeout_sec,
     )

@@ -38,7 +38,27 @@ cd closed-loop-testing/isaac-sim/sil/scripts/postprocessing
 ```
 
 Editing `active:` in the YAML by hand does the same thing — the script only
-exists so a campaign runner does not have to do string surgery.
+exists so a campaign runner does not have to do string surgery. Both are inert
+against a run launched with `--postprocessing-preset`: that run pins its preset
+for its whole lifetime and never consults `active:` again.
+
+`postprocessing.yaml` is git-tracked, and `set_preset.sh` rewrites it in place:
+the preset is state that outlives the run that set it. Anything scripted has to
+put it back, or the next run — which nobody thinks of as an anomaly run — starts
+degraded:
+
+```bash
+PP=closed-loop-testing/isaac-sim/sil/scripts/postprocessing/set_preset.sh
+trap '"$PP" baseline' EXIT
+"$PP" low_light
+```
+
+A campaign should not depend on that discipline at all. Pass
+`--postprocessing-preset baseline` to `run_actor_sdg.py` and the run pins its
+own preset, ignoring `active:` entirely — `run_multi.sh` does this. A pinned run
+chooses its anomaly at launch (pass the preset you want instead of `baseline`)
+rather than mid-run; an unknown name is rejected before Kit boots, not silently
+ignored — a mistyped anomaly would otherwise score a clean run as a fault run.
 
 Turn the whole thing off with `--no-postprocessing`, or point it at a different
 preset file with `--postprocessing-config`.

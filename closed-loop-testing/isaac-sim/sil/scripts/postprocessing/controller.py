@@ -78,12 +78,19 @@ class PostProcessingController:
         config_path=DEFAULT_CONFIG,
         *,
         cameras_config_path=None,
+        preset_override=None,
         poll_interval_sec=0.5,
         settings=None,
         clock=None,
     ):
         self.config_path = os.path.abspath(config_path)
         self.cameras_config_path = cameras_config_path
+        # Pins the preset for the whole run, ignoring `active:` in the file.
+        # postprocessing.yaml is git-tracked but set_preset.sh rewrites it in
+        # place, so without a pin the last anomaly an operator injected is what
+        # the NEXT run starts in. Polling stays on: an unrelated edit to the
+        # file still re-applies this preset, which is a no-op look-wise.
+        self.preset_override = preset_override
         # Sub-100ms polling would stat the file several times per rendered
         # frame for no operator-visible benefit.
         self.poll_interval_sec = max(float(poll_interval_sec), 0.1)
@@ -163,7 +170,7 @@ class PostProcessingController:
             import yaml
 
             config = yaml.safe_load(raw) or {}
-            name, preset = _select_preset(config)
+            name, preset = _select_preset(config, self.preset_override)
             _validate_preset(name, preset)
             # Resolved before anything is reverted: a bad camera name has to be
             # rejected like any other config error, leaving the preset that is
@@ -489,7 +496,7 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _select_preset(config):
+def _select_preset(config, override=None):
     if not isinstance(config, dict):
         raise ValueError("top level must be a mapping")
     if config.get("version") != 1:
@@ -499,7 +506,21 @@ def _select_preset(config):
     if not isinstance(presets, dict) or not presets:
         raise ValueError("'presets' must be a non-empty mapping")
 
-    active = config.get("active")
+    if override is not None and not str(override).strip():
+        # `--postprocessing-preset "$PRESET"` with PRESET unset arrives as an
+        # empty string. Falling back to `active:` there would hand the run
+        # whatever preset set_preset.sh last wrote — the exact leak the pin
+        # exists to prevent — so treat it as the launcher bug it is.
+        raise ValueError("--postprocessing-preset was given an empty value")
+
+    active = override or config.get("active")
+    if override and override not in presets:
+        # Named against the flag, not the file: a launcher pinning a preset that
+        # the config does not define is a launcher bug, and pointing the
+        # operator at `active:` would send them editing the wrong thing.
+        raise ValueError(
+            f"--postprocessing-preset {override!r} not in presets ({', '.join(sorted(presets))})"
+        )
     if isinstance(active, bool):
         # YAML 1.1 reads off/no/false as booleans, so `active: off` silently
         # becomes False and no preset matches. Name presets in words instead.
