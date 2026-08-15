@@ -38,7 +38,27 @@ cd closed-loop-testing/isaac-sim/sil/scripts/postprocessing
 ```
 
 Editing `active:` in the YAML by hand does the same thing — the script only
-exists so a campaign runner does not have to do string surgery.
+exists so a campaign runner does not have to do string surgery. Both are inert
+against a run launched with `--postprocessing-preset`: that run pins its preset
+for its whole lifetime and never consults `active:` again.
+
+`postprocessing.yaml` is git-tracked, and `set_preset.sh` rewrites it in place:
+the preset is state that outlives the run that set it. Anything scripted has to
+put it back, or the next run — which nobody thinks of as an anomaly run — starts
+degraded:
+
+```bash
+PP=closed-loop-testing/isaac-sim/sil/scripts/postprocessing/set_preset.sh
+trap '"$PP" baseline' EXIT
+"$PP" low_light
+```
+
+A campaign should not depend on that discipline at all. Pass
+`--postprocessing-preset baseline` to `run_actor_sdg.py` and the run pins its
+own preset, ignoring `active:` entirely — `run_multi.sh` does this. A pinned run
+chooses its anomaly at launch (pass the preset you want instead of `baseline`)
+rather than mid-run; an unknown name is rejected before Kit boots, not silently
+ignored — a mistyped anomaly would otherwise score a clean run as a fault run.
 
 Turn the whole thing off with `--no-postprocessing`, or point it at a different
 preset file with `--postprocessing-config`.
@@ -91,7 +111,16 @@ the timeline is playing.
 - **A rejected edit keeps the last good preset.** Hot reload means the config is
   edited while a scenario is mid-flight; a half-saved file must not blank the
   degradation being tested. The bad digest is remembered so the warning prints
-  once instead of at poll rate.
+  once instead of at poll rate. That covers every config error — a parse error,
+  an unknown key, a camera not on the stage — because all of them are caught
+  before anything is written.
+- **A failure *inside* the apply falls back to the baseline instead.** Applying a
+  preset starts by reverting the previous one, so once that has begun the last
+  good preset no longer exists to keep; what is on screen is half of a preset
+  that was just rejected. That case reverts to the pre-controller state, drops
+  the animation and the pending render-product writes, and forgets the last good
+  digest so putting the file back re-applies it rather than reading as
+  "unchanged".
 - **All USD authoring goes to the session layer.** A preset never dirties the
   scene `.usd` on disk and never survives a restart, so a degraded run cannot
   leak into the next one through version control.

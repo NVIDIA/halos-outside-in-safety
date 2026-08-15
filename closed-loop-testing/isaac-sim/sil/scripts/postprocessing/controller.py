@@ -78,12 +78,19 @@ class PostProcessingController:
         config_path=DEFAULT_CONFIG,
         *,
         cameras_config_path=None,
+        preset_override=None,
         poll_interval_sec=0.5,
         settings=None,
         clock=None,
     ):
         self.config_path = os.path.abspath(config_path)
         self.cameras_config_path = cameras_config_path
+        # Pins the preset for the whole run, ignoring `active:` in the file.
+        # postprocessing.yaml is git-tracked but set_preset.sh rewrites it in
+        # place, so without a pin the last anomaly an operator injected is what
+        # the NEXT run starts in. Polling stays on: an unrelated edit to the
+        # file still re-applies this preset, which is a no-op look-wise.
+        self.preset_override = preset_override
         # Sub-100ms polling would stat the file several times per rendered
         # frame for no operator-visible benefit.
         self.poll_interval_sec = max(float(poll_interval_sec), 0.1)
@@ -155,29 +162,70 @@ class PostProcessingController:
         if digest in (self._digest, self._rejected_digest):
             return
 
+        # Set immediately BEFORE the call, not inside it: _apply() starts by
+        # reverting, so a raise anywhere in it means the renderer is already
+        # dirty. Everything above it is pure config work that touches nothing.
+        entered_apply = False
         try:
             import yaml
 
             config = yaml.safe_load(raw) or {}
-            name, preset = _select_preset(config)
+            name, preset = _select_preset(config, self.preset_override)
             _validate_preset(name, preset)
-            # Resolved here, before anything is reverted: a bad camera name has
-            # to be rejected like any other config error, leaving the preset
-            # that is currently degrading the scene untouched.
+            # Resolved before anything is reverted: a bad camera name has to be
+            # rejected like any other config error, leaving the preset that is
+            # currently degrading the scene untouched.
             camera_prim_paths = self._resolve_scope(preset)
+            # Inside the try as well, because the apply layer raises too (a
+            # KIND_COLOR3 value carb refuses, a closed stage, a USD authoring
+            # error).
+            entered_apply = True
+            self._apply(name, preset, camera_prim_paths)
         except Exception as exc:
             # Remember the bad digest so a broken edit is reported once instead
-            # of every poll, and keep serving the last good preset.
+            # of every poll — which also keeps a failing apply from retrying at
+            # render rate.
             self._rejected_digest = digest
+
+            if not entered_apply:
+                # Config error: nothing was touched, so the anomaly under test
+                # keeps running. _digest still describes what is live, which is
+                # what makes restoring the file early-return correctly.
+                _say(f"WARNING: rejected {self.config_path}: {exc}; active preset is {self._active_name!r}")
+                return
+
+            # A failure part-way through _apply cannot leave the last good preset
+            # standing, because applying starts by reverting: what is on screen is
+            # half of a preset that was just rejected, a look nothing in the file
+            # describes. Go back to the baseline instead. This also drops the
+            # _pending_rp_settings the failed apply queued, which would otherwise
+            # be authored onto the render products on the first tick after Play —
+            # silently installing the very preset rejected here.
+            try:
+                self._revert()
+            except Exception as revert_exc:
+                _say(f"WARNING: could not fully restore renderer state: {revert_exc}")
+            # The rejected preset's animation would keep driving a value every
+            # frame, and a stale name would make active_preset lie about it.
+            self._animation = None
+            self._active_name = None
+            # Forget the last good digest too. The usual recovery is to put the
+            # file back the way it was, and that content still matches _digest —
+            # it would early-return as "unchanged" and strand the scene on the
+            # baseline for the rest of the run. _rejected_digest still absorbs
+            # every re-read of the broken file, so this cannot become a retry
+            # storm.
+            self._digest = None
             _say(
                 f"WARNING: rejected {self.config_path}: {exc}; "
-                f"keeping preset {self._active_name!r}"
+                "reverted the renderer to its pre-preset state"
             )
             return
 
+        # Committed only once the preset is actually live, so a rejected edit
+        # cannot make the controller believe it applied something it did not.
         self._digest = digest
         self._rejected_digest = None
-        self._apply(name, preset, camera_prim_paths)
 
     # -- apply / revert ----------------------------------------------------
 
@@ -207,20 +255,34 @@ class PostProcessingController:
         _say(f"Applied preset {name!r} ({detail})")
 
     def _revert(self):
-        for path, value in self._carb_snapshot.items():
-            if value is _MISSING:
-                destroy = getattr(self._settings, "destroy_item", None)
-                if destroy is not None:
-                    destroy(path)
-            else:
-                self._settings.set(path, value)
-
-        if self._authored_attrs or self._authored_apis:
-            self._clear_authored_usd()
-
-        self._pending_rp_settings = []
-        self._pending_warned = False
-        self._camera_prim_paths = []
+        # Two phases, and the USD one must not be hostage to the carb one: a
+        # single failing settings path would otherwise leave the previous
+        # preset's per-camera attributes authored on the stage, which both
+        # close() and the _apply() preset switch promise to clear.
+        try:
+            for path, value in self._carb_snapshot.items():
+                if value is _MISSING:
+                    destroy = getattr(self._settings, "destroy_item", None)
+                    if destroy is not None:
+                        destroy(path)
+                else:
+                    self._settings.set(path, value)
+        finally:
+            # Three phases, not two, and for the same reason: the state resets
+            # below must not be hostage to the USD cleanup either. A raise from
+            # _clear_authored_usd() used to skip them, leaving the reverted
+            # preset's DEFERRED render-product writes queued -- and update()
+            # authors those onto the render products on the first tick after
+            # Play, installing a preset that active_preset reports as gone. The
+            # raise still propagates once the resets have run, so close() and
+            # _reload_if_changed() still log the cleanup failure.
+            try:
+                if self._authored_attrs or self._authored_apis:
+                    self._clear_authored_usd()
+            finally:
+                self._pending_rp_settings = []
+                self._pending_warned = False
+                self._camera_prim_paths = []
 
     def _snapshot_carb(self):
         for key, effect in EFFECTS.items():
@@ -351,14 +413,19 @@ class PostProcessingController:
                 self._authored_apis.append((prim_path, effect.usd_api))
 
             attr = prim.CreateAttribute(effect.usd_attr, _sdf_type(Sdf, effect.kind))
-            attr.Set(_usd_value(effect.kind, value))
 
-        # An animated per-camera preset re-authors the same attribute on every
-        # frame, so this has to record it once rather than append 60 times a
-        # second for as long as the scenario runs.
-        entry = (prim_path, effect.usd_attr)
-        if entry not in self._authored_attrs:
-            self._authored_attrs.append(entry)
+            # Record before writing, not after. CreateAttribute is what puts the
+            # attribute on the prim, so a Set() that raises would otherwise leave
+            # it on the stage and out of the ledger -- surviving every _revert()
+            # and close() for the rest of the process, while active_preset
+            # reports None. An animated preset re-authors the same attribute
+            # every frame, so record it once rather than append 60 times a
+            # second for as long as the scenario runs.
+            entry = (prim_path, effect.usd_attr)
+            if entry not in self._authored_attrs:
+                self._authored_attrs.append(entry)
+
+            attr.Set(_usd_value(effect.kind, value))
 
     def _clear_authored_usd(self):
         """Remove every attribute and API schema this controller authored.
@@ -443,7 +510,7 @@ def _is_number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _select_preset(config):
+def _select_preset(config, override=None):
     if not isinstance(config, dict):
         raise ValueError("top level must be a mapping")
     if config.get("version") != 1:
@@ -453,7 +520,21 @@ def _select_preset(config):
     if not isinstance(presets, dict) or not presets:
         raise ValueError("'presets' must be a non-empty mapping")
 
-    active = config.get("active")
+    if override is not None and not str(override).strip():
+        # `--postprocessing-preset "$PRESET"` with PRESET unset arrives as an
+        # empty string. Falling back to `active:` there would hand the run
+        # whatever preset set_preset.sh last wrote — the exact leak the pin
+        # exists to prevent — so treat it as the launcher bug it is.
+        raise ValueError("--postprocessing-preset was given an empty value")
+
+    active = override or config.get("active")
+    if override and override not in presets:
+        # Named against the flag, not the file: a launcher pinning a preset that
+        # the config does not define is a launcher bug, and pointing the
+        # operator at `active:` would send them editing the wrong thing.
+        raise ValueError(
+            f"--postprocessing-preset {override!r} not in presets ({', '.join(sorted(presets))})"
+        )
     if isinstance(active, bool):
         # YAML 1.1 reads off/no/false as booleans, so `active: off` silently
         # becomes False and no preset matches. Name presets in words instead.
