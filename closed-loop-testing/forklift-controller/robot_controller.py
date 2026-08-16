@@ -5,8 +5,8 @@
 Robot Controller - Integrates Command Handler, State Machine, and Waypoint Follower
 
 Based on VSS Warehouse Blueprint architecture:
-- RobotController(forklift_1)
-- RobotController(forklift_2)
+- RobotController(forklift_b)
+- RobotController(forklift_b2)
 - etc.
 
 This is the main controller that:
@@ -43,7 +43,7 @@ class RobotController(Node):
     """
     
     def __init__(self,
-                 robot_id: str = "forklift_1",
+                 robot_id: str = "forklift_b",
                  path_file: Optional[str] = None,
                  base_linear_speed: float = 0.5,
                  base_angular_speed: float = 0.4,
@@ -689,7 +689,7 @@ class RobotController(Node):
 
 def main():
     parser = argparse.ArgumentParser(description='Robot Controller with State Machine')
-    parser.add_argument('--robot-id', type=str, default='forklift_1',
+    parser.add_argument('--robot-id', type=str, default='forklift_b',
                        help='Robot ID for namespacing')
     parser.add_argument('--path', type=str, default=None,
                        help='JSON file with waypoints/poses')

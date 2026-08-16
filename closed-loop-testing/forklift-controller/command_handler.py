@@ -10,7 +10,7 @@ Based on VSS Warehouse Blueprint architecture:
 
 Command JSON format:
 {
-    "robot_id": "forklift_1",  // Optional: target specific robot
+    "robot_id": "forklift_b",  // Optional: null targets every robot
     "command": "proceed",       // proceed, stop, slow, idle
     "speed_factor": 0.5,       // Optional: 0.0 to 1.0
     "timestamp": 1234567890    // Optional: for ordering
@@ -31,7 +31,7 @@ class CommandHandler(Node):
     """
     
     def __init__(self, 
-                 robot_id: str = "forklift_1",
+                 robot_id: str = "forklift_b",
                  command_topic: str = "/safety/command",
                  on_command: Optional[Callable] = None):
         super().__init__('command_handler')
