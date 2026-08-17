@@ -29,18 +29,22 @@ break different things:
 Since the frame is convex and a straight world segment projects to a straight image
 segment, testing the two endpoints settles the whole segment.
 
-The tripwire push-out D does not belong here
---------------------------------------------
-Measured, not assumed: sweeping `--tripwire-pushout` and screening the result leaves every
-number below bit-identical, as long as the ROI is held fixed. It has to — a tripwire is
-virtual geometry, so moving it changes nothing about what a camera can see. (Sweeping D with
-`--roi-follow edge` *does* appear to improve the scores, but only because shrinking the ROI
-away from the gate discards the cells nearest the cameras, which are the blind ones. That is
-an artefact of measuring a smaller region, not a real gain.)
+What the tripwire push-out D does, and does not, change here
+------------------------------------------------------------
+The ROI coverage block cannot respond to D at all, and that is not an opinion: a tripwire is
+virtual geometry, so moving it changes nothing about what a camera can see, and the cells
+sampled are the ROI's, not the wire's. Sweeping `--tripwire-pushout` leaves that block
+bit-identical while the ROI is held fixed. (With `--roi-follow edge` the scores *appear* to
+improve, but only because shrinking the ROI away from the gate discards the cells nearest
+the cameras, which are the blind ones — an artefact of measuring a smaller region.)
 
-So this screens the camera setting only. Choosing D needs the effect of viewing geometry on
-back-projection and detection, which lives in behaviour analytics and the detector, and has
-to be measured by running SRR. The two halves of the test plan split exactly here.
+The wire stations do move with the wire, so the approach run and the view angle are reported
+per D. The view angle is the one that responds usefully: pushing the wire out from under a
+gate-mounted camera is precisely a trade of proximity for a shallower look at the crossing.
+
+That still does not choose D. Where a shallow-enough angle becomes a detection that
+behaviour analytics places correctly is a property of code outside this repo, and only an
+SRR run measures it. What this narrows is which D values are worth a run.
 
 What it does not model
 ----------------------
@@ -178,6 +182,33 @@ def approach_run(sensors: list[Sensor], station: tuple[float, float],
     return APPROACH_LIMIT_M
 
 
+def wire_view_angles(sensors: list[Sensor], station: tuple[float, float]) -> list[float]:
+    """Depression angle of the shallowest camera that can see the floor point here.
+
+    Being in frame is not the whole story at a gate mount. The 2D profile recovers world
+    position by back-projecting the floor contact point through the ground homography, and
+    the steeper the view, the less that point behaves: at 90 degrees the target stands on
+    its own contact point and occludes it, so the recovered position walks by however tall
+    the target is. That is the mechanism behind Shuo's "blind spot on one side of the
+    tripwire" and the reason D exists as a knob at all.
+
+    Sorted shallowest first, because one camera with a usable angle is enough to place the
+    target. The second entry matters as much as the first though, and on a gate mount it is
+    the entry that tells the truth: a station directly under one camera gets its shallow
+    view from the camera at the *far* post, whose line of sight crosses the whole ROI and is
+    therefore the one a forklift is most likely to block. Nothing here models occlusion, so
+    read the second angle as "what is left when the comfortable view is taken away".
+
+    This is the geometric *input* to that mechanism, not a prediction of it. Where the
+    angle stops being usable is a property of behaviour analytics and the detector, and
+    only an SRR run measures it. Read this as which D values are worth spending a run on.
+    """
+    x, y = station
+    return sorted(math.degrees(math.atan2(s.centre[2], math.hypot(s.centre[0] - x,
+                                                                  s.centre[1] - y)))
+                  for s in sensors if s.sees_foot(x, y))
+
+
 def ascii_map(sensors: list[Sensor], bounds: tuple[float, float, float, float],
               step: float, height: float, roi: list[dict[str, Any]],
               wire: dict[str, Any]) -> str:
@@ -313,14 +344,29 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nTarget standing on the tripwire, and its approach run outward "
           f"({outward[0]:+.2f},{outward[1]:+.2f})")
     runs = []
+    angles = []
     for x, y in stations:
         run = approach_run(sensors, (x, y), outward, args.target_height)
         runs.append(run)
         on_wire = any(s.sees_body(x, y, args.target_height) for s in sensors)
         capped = "+" if run >= APPROACH_LIMIT_M else " "
+        seen_at = wire_view_angles(sensors, (x, y))
+        if seen_at:
+            angles.append(seen_at)
+        best = f"{seen_at[0]:5.1f}" if seen_at else "  n/a"
+        fallback = f"{seen_at[1]:5.1f}" if len(seen_at) > 1 else "  n/a"
         print(f"  station ({x:6.2f},{y:7.2f})  on wire {'yes' if on_wire else 'NO ':>3}   "
-              f"approach run {run:5.2f}{capped} m")
+              f"approach run {run:5.2f}{capped} m   view {best} deg, "
+              f"fallback {fallback} deg")
     print(f"  worst approach run over {len(runs)} stations: {min(runs):.2f} m")
+    if angles:
+        steepest_best = max(a[0] for a in angles)
+        steepest_fallback = max((a[1] for a in angles if len(a) > 1), default=None)
+        print(f"  steepest station is viewed at {steepest_best:.1f} deg below horizontal "
+              "(90 = straight down, where the target hides its own contact point)")
+        if steepest_fallback is not None:
+            print(f"  with the shallowest camera occluded, the steepest station falls back "
+                  f"to {steepest_fallback:.1f} deg")
     if min(runs) == 0.0:
         print("  -> at least one station is blind at the wire itself: no frames in which a "
               "crossing there could be established. Push the tripwire out further, widen "
