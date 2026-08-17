@@ -20,62 +20,79 @@ from .forklift_common import (
     DEFAULT_ROBOTS_YAML,
     clear_existing_graph,
     ensure_extensions_enabled,
+    is_section_enabled,
     load_and_validate_robots_yaml,
+    resolve_cmd_vel_topic,
+    resolve_drive_type,
     set_rel_target,
     verify_prim_exists,
 )
 
-# ScriptNode body for the swivel-drive IK. Build-time constants
-# (joint names, wheelbase, wheel radius, max steer) are prepended by the
-# builder as module-level names so this body stays brace-free and static.
-# Mirrors the original ROS_Forklift_Control_Graph/script_node_SwivelIK
-# math exactly, then folds in the divide-by-wheel-radius and the
-# ConstructArray plumbing that followed it.
+# ScriptNode body for the swivel-drive IK.
+#
+# Every per-robot value arrives on `db.inputs`, never as a name defined at
+# script level. OgnScriptNode runs `exec(code_object)` without a globals dict
+# and then does `compute_fn.__globals__.update(script_context)`, so script-level
+# names are shared by every ScriptNode in the process: the kinematics of the
+# graph built last would overwrite every earlier robot's. That stayed invisible
+# only while all robots were the same ForkliftB with identical values.
+#
+# Mirrors the original ROS_Forklift_Control_Graph/script_node_SwivelIK math
+# exactly, then folds in the divide-by-wheel-radius and the ConstructArray
+# plumbing that followed it.
 _CONTROL_SCRIPT_BODY = '''
 import math
 
-MIN_COS = 1e-3
-MIN_SPEED = 1e-4
-
 
 def compute(db):
+    min_cos = 1e-3
+    min_speed = 1e-4
+
     lin = db.inputs.linearVelocity
     ang = db.inputs.angularVelocity
 
     # Frame-convention sign flips (vehicle frame vs ROS frame), driven by
     # control.reverse_logic.* in robots.yaml. The original SwivelIK negated
     # both inputs (both flags default true).
-    linear_x = -lin[0] if FLIP_LINEAR_X else lin[0]
-    angular_z = -ang[2] if FLIP_ANGULAR_Z else ang[2]
+    linear_x = -lin[0] if db.inputs.flipLinearX else lin[0]
+    angular_z = -ang[2] if db.inputs.flipAngularZ else ang[2]
 
-    heading_speed = max(abs(linear_x), MIN_SPEED)
-    steer = math.atan2(angular_z * WHEELBASE, heading_speed)
-    steer = max(min(steer, MAX_STEER), -MAX_STEER)
+    max_steer = db.inputs.maxSteer
+    heading_speed = max(abs(linear_x), min_speed)
+    steer = math.atan2(angular_z * db.inputs.wheelbase, heading_speed)
+    steer = max(min(steer, max_steer), -max_steer)
 
     if linear_x < 0.0:
         # Reverse: optionally flip steer; drive negative.
-        steer = 0.0 if abs(angular_z) < MIN_SPEED else -steer
-        drive = -heading_speed / max(math.cos(steer), MIN_COS)
+        steer = 0.0 if abs(angular_z) < min_speed else -steer
+        drive = -heading_speed / max(math.cos(steer), min_cos)
     else:
-        drive = heading_speed / max(math.cos(steer), MIN_COS)
+        drive = heading_speed / max(math.cos(steer), min_cos)
 
     # divide node: linear wheel speed -> wheel angular velocity.
-    wheel_ang = drive / WHEEL_RADIUS
+    wheel_ang = drive / db.inputs.wheelRadius
 
     # ConstructArray plumbing: joint[0]=drive (velocity), joint[1]=swivel (position).
-    db.outputs.jointNames = [DRIVE_JOINT, SWIVEL_JOINT]
+    db.outputs.jointNames = [db.inputs.driveJoint, db.inputs.swivelJoint]
     db.outputs.positionCommand = [0.0, steer]
     db.outputs.velocityCommand = [wheel_ang, 0.0]
     return True
 '''
 
 
-def _build_one_control_graph(robot: dict) -> None:
+def _build_one_swivel_control_graph(robot: dict) -> None:
+    """cmd_vel -> bicycle IK -> articulation, for a truck that steers one wheel.
+
+    The topology, not just the numbers, is specific to that layout: the graph
+    drives exactly two joints and computes a steer angle for one of them. A
+    differential-drive robot needs a different builder, which is why the choice
+    is made by `drive_type` rather than by leaving these joints unset.
+    """
     import omni.graph.core as og
     import omni.usd
 
     cfg = robot.get("control", {}) or {}
-    if not cfg.get("enabled", True):
+    if not is_section_enabled(robot, "control"):
         return
 
     name = robot["name"]
@@ -87,7 +104,7 @@ def _build_one_control_graph(robot: dict) -> None:
     wheelbase = float(cfg.get("wheelbase", 1.49))
     wheel_radius = float(cfg.get("wheel_radius", 0.15))
     max_steer = math.radians(float(cfg.get("max_steer_deg", 45.0)))
-    cmd_vel_topic = cfg.get("cmd_vel_topic", "cmd_vel")
+    cmd_vel_topic = resolve_cmd_vel_topic(robot)
 
     rev = cfg.get("reverse_logic", {}) or {}
     flip_linear_x = bool(rev.get("flip_linear_x", True))
@@ -96,18 +113,6 @@ def _build_one_control_graph(robot: dict) -> None:
     stage = omni.usd.get_context().get_stage()
     verify_prim_exists(stage, robot_prim, "articulation")
     clear_existing_graph(stage, graph_path)
-
-    # Prepend build-time constants so the static body can use them.
-    script = (
-        f"DRIVE_JOINT = {drive_joint!r}\n"
-        f"SWIVEL_JOINT = {swivel_joint!r}\n"
-        f"WHEELBASE = {wheelbase!r}\n"
-        f"WHEEL_RADIUS = {wheel_radius!r}\n"
-        f"MAX_STEER = {max_steer!r}\n"
-        f"FLIP_LINEAR_X = {flip_linear_x!r}\n"
-        f"FLIP_ANGULAR_Z = {flip_angular_z!r}\n"
-        + _CONTROL_SCRIPT_BODY
-    )
 
     keys = og.Controller.Keys
     og.Controller.edit(
@@ -123,14 +128,29 @@ def _build_one_control_graph(robot: dict) -> None:
             keys.CREATE_ATTRIBUTES: [
                 ("SwivelIK.inputs:linearVelocity", "vectord[3]"),
                 ("SwivelIK.inputs:angularVelocity", "vectord[3]"),
+                # Per-robot kinematics as node inputs, one set per graph.
+                ("SwivelIK.inputs:driveJoint", "string"),
+                ("SwivelIK.inputs:swivelJoint", "string"),
+                ("SwivelIK.inputs:wheelbase", "double"),
+                ("SwivelIK.inputs:wheelRadius", "double"),
+                ("SwivelIK.inputs:maxSteer", "double"),
+                ("SwivelIK.inputs:flipLinearX", "bool"),
+                ("SwivelIK.inputs:flipAngularZ", "bool"),
                 ("SwivelIK.outputs:jointNames", "token[]"),
                 ("SwivelIK.outputs:positionCommand", "double[]"),
                 ("SwivelIK.outputs:velocityCommand", "double[]"),
             ],
             keys.SET_VALUES: [
                 ("SubscribeTwist.inputs:topicName", cmd_vel_topic),
-                ("SwivelIK.inputs:script", script),
+                ("SwivelIK.inputs:script", _CONTROL_SCRIPT_BODY),
                 ("SwivelIK.inputs:usePath", False),
+                ("SwivelIK.inputs:driveJoint", drive_joint),
+                ("SwivelIK.inputs:swivelJoint", swivel_joint),
+                ("SwivelIK.inputs:wheelbase", wheelbase),
+                ("SwivelIK.inputs:wheelRadius", wheel_radius),
+                ("SwivelIK.inputs:maxSteer", max_steer),
+                ("SwivelIK.inputs:flipLinearX", flip_linear_x),
+                ("SwivelIK.inputs:flipAngularZ", flip_angular_z),
             ],
             keys.CONNECT: [
                 ("OnPlaybackTick.outputs:tick", "SubscribeTwist.inputs:execIn"),
@@ -151,15 +171,74 @@ def _build_one_control_graph(robot: dict) -> None:
         stage, f"{graph_path}/ArticulationController", "inputs:targetPrim", robot_prim
     )
 
-    print(f"[forklift-control] Control graph built at {graph_path} (robot={robot_prim})")
+    # Kinematics are logged per graph on purpose: a swapped parameter set is
+    # otherwise silent, since a robot driving with another robot's wheelbase
+    # still reports every node healthy.
+    print(f"[forklift-control] Control graph built at {graph_path} (robot={robot_prim}, "
+          f"joints={drive_joint}/{swivel_joint}, wheelbase={wheelbase}, "
+          f"wheel_radius={wheel_radius}, max_steer={math.degrees(max_steer):.1f}deg)",
+          flush=True)
+
+
+# One entry per kinematic class. A `drive_type` that is not a key here is an
+# error rather than a fallback to swivel: the fallback would build a steering
+# graph for a robot with no steering joint, and the articulation controller
+# would then quietly drive nothing. The truck stands still, every graph reports
+# healthy, and the config that caused it looks reasonable.
+_CONTROL_BUILDERS = {
+    "swivel": _build_one_swivel_control_graph,
+}
 
 
 def build_control_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     """Build the cmd_vel -> articulation control graph for every robot."""
     robots, _ = load_and_validate_robots_yaml(config_path)
-    ensure_extensions_enabled()
+
+    # Two robots on one articulation means one truck is driven by both graphs
+    # while the other never moves — check before building anything. Two robots on
+    # one cmd_vel is the same class of silent fault seen from the other end: both
+    # trucks obey every message either controller sends.
+    claims: dict[str, str] = {}
+    topics: dict[str, str] = {}
     for robot in robots:
-        _build_one_control_graph(robot)
+        if not is_section_enabled(robot, "control"):
+            continue
+        prim = robot["articulation_prim"]
+        if prim in claims:
+            raise RuntimeError(
+                f"articulation prim {prim} is claimed by both {claims[prim]} and "
+                f"{robot['name']} — each robot needs its own articulation"
+            )
+        claims[prim] = robot["name"]
+
+        topic = resolve_cmd_vel_topic(robot)
+        if topic in topics:
+            raise RuntimeError(
+                f"cmd_vel topic {topic!r} is claimed by both {topics[topic]} and "
+                f"{robot['name']} — both trucks would answer every command sent to it"
+            )
+        topics[topic] = robot["name"]
+
+    # Resolve every builder up front. The loader has already rejected an
+    # unknown drive_type; what is caught here is a value that is known but has
+    # no builder registered, which is a gap in this file rather than in the
+    # config — and finding it after half the fleet is built leaves a stage that
+    # is neither the old state nor the new one.
+    builders = []
+    for robot in robots:
+        drive_type = resolve_drive_type(robot)
+        builder = _CONTROL_BUILDERS.get(drive_type)
+        if builder is None:
+            raise RuntimeError(
+                f"'{robot['name']}' asks for drive_type {drive_type!r}, which has no "
+                f"builder in _CONTROL_BUILDERS (registered: "
+                f"{', '.join(sorted(_CONTROL_BUILDERS))})"
+            )
+        builders.append((robot, builder))
+
+    ensure_extensions_enabled()
+    for robot, builder in builders:
+        builder(robot)
 
 
 if __name__ == "__main__":

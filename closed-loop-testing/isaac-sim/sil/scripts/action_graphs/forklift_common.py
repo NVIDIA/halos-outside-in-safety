@@ -19,6 +19,7 @@ YAML schema: see sil/configs/robots.yaml.
 
 from __future__ import annotations
 
+import math
 import os
 
 DEFAULT_ROBOTS_YAML = "/isaac-sim/sil/configs/robots.yaml"
@@ -44,9 +45,151 @@ _BAKED_GRAPH_PATHS = (
 )
 
 
+# Which control-graph topology a model needs. A value is not a label but a
+# choice of builder: a differential-drive AMR is not a swivel truck with
+# different numbers, it is a different graph. Registered in forklift_control.py;
+# named here so the loader can reject an unknown value before anything is built.
+KNOWN_DRIVE_TYPES = ("swivel",)
+DEFAULT_DRIVE_TYPE = "swivel"
+
+# Model keys that describe how the truck drives, and therefore land in the
+# robot's `control` block. Everything here follows from the asset: two trucks
+# built from one ForkliftB payload cannot disagree about their wheelbase.
+_MODEL_CONTROL_KEYS = (
+    "drive_type", "drive_joint", "swivel_joint",
+    "wheelbase", "wheel_radius", "max_steer_deg", "reverse_logic",
+)
+_MODEL_INDICATOR_MESH_KEYS = ("radius", "segments", "height_offset")
+
+
+def is_number(x) -> bool:
+    """A real number from YAML, rejecting bool, NaN and infinity.
+
+    `bool` is a subclass of `int`, so a bare isinstance check accepts `true` where a
+    length or an angle is wanted and it silently becomes 1. Shared by both loaders
+    that validate numeric config: indicator_loader.py for the disc, and
+    forklift_overlay.py for the spawn pose.
+
+    YAML spells `.nan` and `.inf` as floats, and every range test written against
+    them is False, so they pass a `> 0` check and reach USD as a pose no renderer
+    can place.
+    """
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and math.isfinite(x))
+
+
+def _merge_under(robot: dict, section: str, defaults: dict) -> None:
+    """Apply model defaults to one robot section, instance keys winning.
+
+    Merged leaf by leaf rather than section by section, so a robot can override
+    a single number — `max_steer_deg` for a truck with a worn steering stop, say
+    — without having to restate the whole model.
+    """
+    if not defaults:
+        return
+    current = dict(robot.get(section) or {})
+    for key, value in defaults.items():
+        if key not in current:
+            current[key] = value
+        elif isinstance(value, dict) and isinstance(current[key], dict):
+            current[key] = {**value, **current[key]}
+    robot[section] = current
+
+
+def _apply_model(robot: dict, model: dict, yaml_path: str) -> None:
+    """Fold a `models:` entry into one robot, in place.
+
+    The robot ends up in exactly the flat shape the builders already read, so
+    the model split is a loader concern and nothing downstream changes. That is
+    also what keeps a config written before `models:` working untouched: it
+    simply arrives already flat.
+    """
+    _merge_under(robot, "control",
+                 {k: model[k] for k in _MODEL_CONTROL_KEYS if k in model})
+
+    if "robot_front" in model:
+        _merge_under(robot, "odometry", {"robot_front": model["robot_front"]})
+
+    indicator = model.get("indicator") or {}
+    if not isinstance(indicator, dict):
+        raise ValueError(f"{yaml_path}: model indicator: must be a mapping, got {indicator!r}")
+
+    mesh = {k: indicator[k] for k in _MODEL_INDICATOR_MESH_KEYS if k in indicator}
+    if mesh:
+        _merge_under(robot, "safety_indicator", {"mesh": mesh})
+
+    # The disc path is the robot's prim plus wherever this model hangs its
+    # bodywork — one string that used to be spelled out per truck and is the
+    # kind of thing that goes wrong by a single typo.
+    parent_rel = indicator.get("parent_prim_rel")
+    if parent_rel:
+        _merge_under(robot, "safety_indicator", {
+            "indicator_prim": f"{robot['articulation_prim']}/{parent_rel.strip('/')}"
+                              f"/safety_indicator",
+        })
+
+    if "asset_path" in model and isinstance(robot.get("spawn"), dict):
+        _merge_under(robot, "spawn", {"asset_path": model["asset_path"]})
+
+
+def _validate_models(cfg: dict, yaml_path: str) -> dict:
+    models = cfg.get("models") or {}
+    if not isinstance(models, dict):
+        raise ValueError(f"{yaml_path}: 'models' must be a mapping of name -> model")
+    for name, model in models.items():
+        if not isinstance(model, dict):
+            raise ValueError(f"{yaml_path}: models['{name}'] must be a mapping")
+        # Required here but merely defaulted for a robot that names no model:
+        # anyone writing the new construct states the topology explicitly, while
+        # configs that predate the key keep the only behaviour they ever had.
+        drive_type = model.get("drive_type")
+        if drive_type is None:
+            raise ValueError(
+                f"{yaml_path}: models['{name}'] must state drive_type "
+                f"(one of {', '.join(KNOWN_DRIVE_TYPES)}) — it selects which control "
+                f"graph is built, and guessing it is how a truck ends up with a "
+                f"steering graph it has no steering joint for"
+            )
+        if drive_type not in KNOWN_DRIVE_TYPES:
+            raise ValueError(
+                f"{yaml_path}: models['{name}'].drive_type is {drive_type!r}; known "
+                f"values are {', '.join(KNOWN_DRIVE_TYPES)}. A new kinematic class "
+                f"needs its own builder registered in forklift_control.py, not a new "
+                f"set of numbers"
+            )
+    return models
+
+
+def resolve_drive_type(robot: dict) -> str:
+    """Which control-graph builder this robot needs.
+
+    Absent means swivel, which is the only topology that has ever been built —
+    so a config written before the key behaves as it always did. A robot that
+    reaches here through a `models:` entry always has one, because the model
+    schema requires it.
+    """
+    drive_type = (robot.get("control") or {}).get("drive_type", DEFAULT_DRIVE_TYPE)
+    if drive_type not in KNOWN_DRIVE_TYPES:
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}' asks for drive_type "
+            f"{drive_type!r}; known values are {', '.join(KNOWN_DRIVE_TYPES)}"
+        )
+    return drive_type
+
+
 def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
     """Parse robots.yaml. Returns (robots_list, clock_cfg). Raises with a
     descriptive error on schema mismatch.
+
+    A robot naming a `model:` is returned with that model already folded in, in
+    the same flat shape a robot that spells everything out arrives in. Both
+    schemas are therefore live at once, and every validation below runs on the
+    merged result rather than on whichever half happened to be written.
+
+    Anything reading robots.yaml for more than a robot's own keys must come
+    through here. A private `yaml.safe_load` sees the unmerged file, and the
+    symptom lands nowhere near the cause: a value that lives on the model reads
+    as absent, and the consumer concludes the robot did not ask for the thing.
     """
     try:
         import yaml
@@ -68,6 +211,8 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
     if not isinstance(robots, list) or not robots:
         raise ValueError(f"{yaml_path}: 'robots' must be a non-empty list")
 
+    models = _validate_models(cfg, yaml_path)
+
     seen_names: set[str] = set()
     for i, r in enumerate(robots):
         for field in ("name", "articulation_prim"):
@@ -82,8 +227,205 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
                 f"{yaml_path}: robots[{i}].articulation_prim must be an absolute prim path"
             )
 
+        model_name = r.get("model")
+        if model_name is not None:
+            if model_name not in models:
+                raise ValueError(
+                    f"{yaml_path}: '{name}' names model {model_name!r}, which is not "
+                    f"declared. Known models: {', '.join(sorted(models)) or '<none>'}"
+                )
+            _apply_model(r, models[model_name], yaml_path)
+
+        resolve_drive_type(r)
+
     clock_cfg = cfg.get("clock", {}) or {}
     return robots, clock_cfg
+
+
+def is_section_enabled(robot: dict, section: str) -> bool:
+    """Whether `robot` asks for `section` — absent means yes.
+
+    Every builder here defaults the flag to True, so a robot that says nothing gets
+    the graph. Anything deciding the same question with a bare `.get("enabled")` reads
+    a missing key as False and reaches the opposite conclusion, which is how
+    deployments/scripts/preflight.py came to pass a config that leaves a truck
+    motionless: it skipped the robot the builders were about to wire up.
+
+    A missing section is also enabled, matching the builders: they read
+    `robot.get(section, {}) or {}` and then default the flag, so a robot with no
+    `control:` block still gets a control graph.
+    """
+    cfg = robot.get(section) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.{section} must be a mapping, "
+            f"got {cfg!r}"
+        )
+    return bool(cfg.get("enabled", True))
+
+
+# Safety-indicator appearance, shared by the graph builder (which recolours the
+# disk) and indicator_loader.py (which authors it, initialised to the alarm
+# colour so a disk looks the same before the first ROS message as after an
+# unmute). Both read them from here, because a builder and a loader disagreeing
+# about the palette shows up as a disk that changes colour at startup for no
+# reason.
+DEFAULT_COLOR_MUTED = (0.0, 1.0, 0.0)
+DEFAULT_COLOR_ALARM = (1.0, 0.3, 0.0)
+
+
+def resolve_indicator_prim(robot: dict) -> str:
+    """Where this robot's indicator disk lives.
+
+    The fallback appends ForkliftB's internal hierarchy, which is right only
+    for that model — spell `indicator_prim` out in robots.yaml for anything
+    else. Shared so the loader authors the disk at exactly the path the graph
+    builder later verifies.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    return cfg.get(
+        "indicator_prim", f"{robot['articulation_prim']}/body/body/safety_indicator"
+    )
+
+
+# Must stay in step with SafetyRosBridge._robot_muted_topic() in comm-layer, which
+# builds the same name from the same robot name. The two systems agree by
+# convention rather than by sharing a file: comm-layer also runs in HIL, where
+# robots.yaml does not exist. Deriving it on both sides means the string is
+# written once per system and never typed into a config file, so the halves
+# cannot drift through a typo — only through someone changing one of these two
+# functions.
+DEFAULT_SAFETY_TOPIC_PREFIX = "/safety"
+
+
+def resolve_muted_topic(robot: dict) -> str:
+    """Which topic this robot's indicator listens on.
+
+    Defaults to `/<name>/safety/is_muted`, the per-robot mirror comm-layer
+    publishes when its ROS_ROBOT_IDS lists this robot. Scenes that predate the
+    mirrors keep working by naming the global `/safety/is_muted` explicitly.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    topic = cfg.get(
+        "muted_topic", f"/{robot['name']}{DEFAULT_SAFETY_TOPIC_PREFIX}/is_muted"
+    )
+    if not isinstance(topic, str) or not topic.startswith("/"):
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.muted_topic "
+            f"must be an absolute topic name starting with '/', got {topic!r}"
+        )
+    return topic
+
+
+def _resolve_namespaced_topic(robot: dict, section: str, key: str, suffix: str) -> str:
+    """A per-robot topic name, defaulting to `<name>/<suffix>`.
+
+    The bare `cmd_vel` and `odom` the nodes default to are safe only while exactly one
+    robot exists. Two robots that both leave the key out then share one topic: the
+    controllers drive both trucks with whichever message arrives, and both publish
+    odometry onto one name. Neither shows up as an error anywhere, because from each
+    graph's side the wiring is complete.
+
+    Namespacing by default removes the collision for every scene at once instead of
+    only where someone remembered to override it, which is the same trade
+    resolve_odom_frames() already makes. Every config in sil/configs names these
+    topics explicitly, so this default changes nothing that ships today — it decides
+    what the next robot gets.
+    """
+    cfg = robot.get(section, {}) or {}
+    topic = cfg.get(key, f"{robot['name']}/{suffix}")
+    if not isinstance(topic, str) or not topic.strip():
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.{section}.{key} must be a "
+            f"non-empty topic name, got {topic!r}"
+        )
+    return topic
+
+
+def resolve_cmd_vel_topic(robot: dict) -> str:
+    """Which topic this robot takes velocity commands on. See _resolve_namespaced_topic."""
+    return _resolve_namespaced_topic(robot, "control", "cmd_vel_topic", "cmd_vel")
+
+
+def resolve_odom_topic(robot: dict) -> str:
+    """Which topic this robot publishes odometry on. See _resolve_namespaced_topic."""
+    return _resolve_namespaced_topic(robot, "odometry", "odom_topic", "odom")
+
+
+def resolve_odom_frames(robot: dict) -> tuple[str, str]:
+    """(odom_frame_id, base_frame_id) for this robot's TF edge.
+
+    Defaults are namespaced with the robot name, matching what `odom_topic`
+    already does. The node defaults are the bare `odom` -> `base_link`, so
+    every robot published the same edge onto one /tf and a consumer saw the
+    pose flick between trucks. Namespacing by default fixes that for every
+    scene at once rather than only where someone remembered to override it;
+    the cost is that a single-robot scene also gets `forklift_b/odom` instead
+    of the conventional bare `odom`, which explicit keys can restore.
+    """
+    cfg = robot.get("odometry", {}) or {}
+    name = robot["name"]
+    out = []
+    for key, default in (("odom_frame_id", f"{name}/odom"),
+                         ("base_frame_id", f"{name}/base_link")):
+        value = cfg.get(key, default)
+        if not isinstance(value, str) or not value:
+            raise ValueError(
+                f"robots.yaml: '{name}'.odometry.{key} must be a non-empty string, "
+                f"got {value!r}"
+            )
+        if value.startswith("/"):
+            # tf2 rejects leading slashes outright, and it fails at publish time
+            # inside the bridge where the message is easy to miss.
+            raise ValueError(
+                f"robots.yaml: '{name}'.odometry.{key} must not start with '/' "
+                f"(tf2 rejects it), got {value!r}"
+            )
+        out.append(value)
+    if out[0] == out[1]:
+        raise ValueError(
+            f"robots.yaml: '{name}'.odometry frame ids are identical ({out[0]}); "
+            f"a TF edge needs two distinct frames"
+        )
+    return out[0], out[1]
+
+
+def resolve_indicator_colors(robot: dict) -> tuple[tuple[float, float, float],
+                                                   tuple[float, float, float]]:
+    """(muted, alarm) RGB for this robot's disk, defaults applied.
+
+    Lives under `safety_indicator`, not under its `mesh:` block: a scene whose
+    disk is still baked into the USD has no `mesh:` block and would otherwise
+    be unable to change the colours.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    name = robot.get("name", "?")
+    out = []
+    for key, default in (("color_muted", DEFAULT_COLOR_MUTED),
+                         ("color_alarm", DEFAULT_COLOR_ALARM)):
+        value = cfg.get(key)
+        if value is None:
+            out.append(default)
+            continue
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            raise ValueError(
+                f"robots.yaml: '{name}'.safety_indicator.{key} must be [r, g, b], "
+                f"got {value!r}"
+            )
+        for component in value:
+            # bool is an int subclass; `true` in YAML must not read as 1.0.
+            if isinstance(component, bool) or not isinstance(component, (int, float)):
+                raise ValueError(
+                    f"robots.yaml: '{name}'.safety_indicator.{key} components must be "
+                    f"numbers, got {value!r}"
+                )
+            if not 0.0 <= float(component) <= 1.0:
+                raise ValueError(
+                    f"robots.yaml: '{name}'.safety_indicator.{key} components are "
+                    f"0..1, not 0..255, got {value!r}"
+                )
+        out.append(tuple(float(c) for c in value))
+    return out[0], out[1]
 
 
 def ensure_extensions_enabled() -> None:
@@ -138,6 +480,15 @@ def strip_baked_scene_graphs(extra_paths: tuple[str, ...] = ()) -> list[str]:
     already absent are skipped. Returns the list of paths actually removed.
 
     Call BEFORE the per-robot builders.
+
+    Known limit, no impact on any scene shipped today: `RemovePrim` removes the
+    spec in the current edit target, not wherever the prim was defined. With a
+    forklift overlay as root layer (see forklift_overlay.py) the edit target is
+    the overlay, so a graph defined down in the scene sublayer would keep
+    composing while the line above says it was stripped. None of the three
+    scenes in sil/scenes carries a prim at any of these paths, so nothing relies
+    on it. Anything that starts to should deactivate the prim, or set the edit
+    target to the layer that defines it, instead of trusting this.
     """
     import omni.usd
 

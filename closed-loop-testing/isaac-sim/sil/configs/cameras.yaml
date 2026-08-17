@@ -29,6 +29,20 @@
 #     rtsp://${HOST_IP}:8555/camera_01
 #     rtsp://${HOST_IP}:8556/camera_02
 #
+# `scene:` names the warehouses these world-space poses are measured in, checked
+# against the launch's base_stage_asset_path by camera_loader.assert_scene_matches().
+# Both 20x20 scenes are listed because they differ only in their forklifts and
+# share all three cameras. Without this key, launching with the wrong
+# --cameras-config puts the cameras metres from where calibration.json says they
+# are and every downstream component still reports healthy.
+#
+# Perception pairing: VSS SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"
+# (the calibration these poses were measured against; see the scene<->calibration
+# table in skills/hoisa-deploy-profile/references/test_scenario.md).
+scene:
+  - sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+  - sil/scenes/indicator_warehouse_20x20_layout_overflow_test_2fl.usd
+#
 # Diff vs Isaac Sim 5.1 schema:
 #   - REMOVE field `rtsp_path` (string `RTSPWriter_World_Cameras_*_rgb`)
 #   - REMOVE top-level `rtsp.port: 8553` (mediamtx broker)

@@ -197,6 +197,26 @@
   color: #6b7280;
 }
 
+.map-unknown {
+  color: #b45309;
+  cursor: help;
+  border-bottom: 1px dotted #b45309;
+}
+
+.map-foreign {
+  color: #3b82f6;
+}
+
+.show-other-maps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px 12px;
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+}
+
 .rename-input {
   width: 100%;
   padding: 6px 10px;

@@ -6,7 +6,9 @@ A web-based tool to visually create waypoints for forklift navigation on the war
 
 ## Features
 
-- **Visual waypoint editing** on Top.png warehouse image
+- **Visual waypoint editing** on a plan-view render of the warehouse
+- **Multiple maps**, one per Isaac scene, picked from a dropdown; adding one needs
+  no code change
 - **Pan/Zoom** navigation (Alt+Drag or Middle Mouse to pan, Scroll to zoom)
 - **Origin point selection** for odom frame reference
 - **Heading control** via Shift+Scroll or slider
@@ -55,17 +57,21 @@ npm run dev
 
 ## Coordinate Systems
 
-- **Pixel**: Image coordinates (Top.png is 1920x1080)
+- **Pixel**: Image coordinates (each map's plan view is 1920x1080)
 - **World**: Isaac Sim global coordinates (meters)
 - **Odom**: Relative to origin point
 
 ## Output Format
 
-The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment, set `FORKLIFT_WAYPOINT_FILE` to your exported file or replace `closed-loop-testing/forklift-controller/waypoints/waypoints.json`.
+The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment the controller reads `<ROBOT_ID>.json` from the set named by `FORKLIFT_WAYPOINTS_DIR`, which is `closed-loop-testing/forklift-controller/waypoints/<map id>/` — so an exported path replaces the file of the same robot name under the map it was drawn on. The `map` block this tool writes records that id, and `deployments/scripts/preflight.py` checks the file's `origin` against where the truck actually stands.
 
 ### JSON (for the forklift controller)
 ```json
 {
+  "map": {
+    "id": "warehouse_40x20",
+    "scene": "sil/scenes/warehouse_40x20_two_loading_dock.usd"
+  },
   "origin": {
     "world_x": 1.0,
     "world_y": -13.39
@@ -98,6 +104,11 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 ```
 
 **Fields:**
+- `map`: Which warehouse the coordinates belong to. The controller ignores it, but
+  it is what lets a person — or the Import button — tell a 20x20 path from a 40x20
+  one. The two scenes place their forklift barely a metre apart, so without this
+  a path from the wrong warehouse reads as perfectly plausible. Importing a file
+  whose `map.id` is not the open map offers to switch first.
 - `origin`: Robot starting position in world coordinates
 - `waypoints`: User-defined waypoints with odom (x, y) and world coordinates
 - `poses`: Intermediate points for smooth curved path (consumed by the forklift controller)
@@ -114,12 +125,78 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 | Select waypoint | Click on waypoint |
 | Move waypoint | Drag waypoint |
 
-## Calibration
+## Maps
 
-The bundled `public/Top.png` and the calibration values come from the [VSS blueprint sample data](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic) for the same warehouse scene that ships with `closed-loop-testing`:
-- Scale factor: 49.51 pixels/meter
-- Default forklift start: (1.0, -13.39) in world coordinates
+A map is a plan-view render of one Isaac scene plus the calibration that turns
+its pixels into that scene's world metres. Each one is a folder:
 
-The blueprint calibration measures pixel Y from the image bottom; `src/config/calibration.json` stores the equivalent values for this tool's top-anchored formula.
+```
+public/maps/maps.json               the list, in the order the UI shows
+public/maps/<id>/map.png            the plan view, 1920x1080
+public/maps/<id>/config.json        scale, translation, forklift start
+```
 
-To adapt the tool to a different scene, replace `public/Top.png` and update `src/config/calibration.json` with that scene's calibration (converting the pixel Y convention as noted above), then set `defaultForkliftStart` from the forklift prim's transform in Isaac Sim.
+Two ship with the tool:
+
+| Map id | Isaac scene | Scale |
+|---|---|---|
+| `warehouse_40x20` | `warehouse_40x20_two_loading_dock.usd` | 26.83 px/m |
+| `warehouse_20x20` | `indicator_warehouse_20x20_layout_overflow_test.usd` | 49.51 px/m |
+
+Pick one from the dropdown in the header. `warehouse_40x20` opens by default
+(`"default": true` in `maps.json`), and the choice is written into the URL so a
+reload or a shared link comes back to the same warehouse:
+
+```
+http://localhost:5173/?map=warehouse_20x20
+```
+
+An unknown id fails with the list of known ids rather than falling back, so a
+typo cannot quietly draw on the wrong warehouse.
+
+Switching maps clears the current drawing. Waypoints are metres in one scene's
+world frame, so carrying them across would silently place them at coordinates
+nobody chose.
+
+### Paths remember their map
+
+Each saved path records the `mapId` it was drawn on, and the Path Manager lists
+the ones belonging to the open map. Opening a path from another map switches to
+that map, so its coordinates are always read with the calibration they were
+drawn with.
+
+Paths saved before this existed are shown as **map not recorded** rather than
+being assigned a guess: the tool was retargeted from the 20x20 scene to the
+40x20 one in place, so an old path could belong to either and nothing stored in
+it says which. Saving such a path labels it with the map that is open.
+
+### Adding a map
+
+Create `public/maps/<id>/` with the plan view and a `config.json`, then add the
+id to `maps.json`. No code changes and no rebuild — `npm run dev` picks it up on
+reload. Nothing is overwritten, so existing maps keep working.
+
+The calibration fields:
+
+| Field | Meaning |
+|---|---|
+| `scaleFactor` | Pixels per metre |
+| `translationToGlobalCoordinates` | World origin offset, in metres |
+| `defaultForkliftStart` | Where "Use Default Forklift Start" puts the origin |
+| `forkliftDimensions` | Body drawn on the canvas, in metres |
+| `scene` | The scene USD this plan view was rendered from |
+
+The formula is `pixelX = (worldX + transX) * scale` and
+`pixelY = (-worldY + transY) * scale`. Take `defaultForkliftStart` from the
+forklift prim's transform in the scene, or from its `spawn:` block in
+`sil/configs/robots-*.yaml`.
+
+The 20x20 values come from the [VSS blueprint sample data](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic).
+That calibration measures pixel Y from the image *bottom*, so `transY` has to be
+converted for this tool's top-anchored formula; each `config.json` records the
+conversion it used in its `note`.
+
+This tool deliberately does not use ROS occupancy maps
+(`resolution`/`origin`/`imageHeight` from `map_server`). Plan-view renders read
+better for hand-placing waypoints, and the scale calibration above is what goes
+with them.

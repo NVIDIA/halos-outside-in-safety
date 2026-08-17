@@ -1,0 +1,178 @@
+# Halos SIL forklift / robot Action Graph config (6.0) — 40x20 TWO-DOCK variant.
+#
+# Same two-robot layout as robots-2fl.yaml, retargeted to the 40x20 scene. To
+# run this variant:
+#   1. The scene contains NO forklift prims: the `spawn:` blocks below author
+#      both trucks into a generated layer that sublayers the scene, before IRA
+#      opens it. Paired IRA config: configs/default_config_ros_40x20.yaml points
+#      at /isaac-sim/sil/scenes/warehouse_40x20_two_loading_dock.usd, and
+#      forklift_overlay.py retargets it to the generated overlay next to it.
+#      run_actor_sdg fails fast if a listed articulation prim is missing.
+#   2. Launch Isaac with the 40x20 config trio:
+#        -c /isaac-sim/sil/configs/default_config_ros_40x20.yaml \
+#        --robots-config /isaac-sim/sil/configs/robots-40x20.yaml \
+#        --cameras-config /isaac-sim/sil/configs/cameras-40x20.yaml
+#   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
+#      container (forklift-controller-b2) starts.
+#   4. COMM_ROBOT_IDS (sil.env) must list the same names, or comm-layer never
+#      publishes the /<name>/safety/is_muted the indicators here listen to and
+#      the discs sit on their alarm colour with nothing in the log. comm-layer
+#      also runs in HIL, where this file does not exist, so it cannot read the
+#      names from here — the list is duplicated on purpose. Verify with:
+#        ros2 topic info /forklift_b2/safety/is_muted   # want Publisher count: 1
+#   5. FORKLIFT_WAYPOINTS_DIR must be ./waypoints/warehouse_40x20. A path is
+#      metres in one scene's world frame and the controller subtracts the file's
+#      origin from every pose, so the 20x20 set runs here without complaint,
+#      along a lane never validated in this warehouse. preflight.py compares the
+#      origins against the spawn.position values below.
+#   6. VSS needs a 40x20 calibration.json, WHICH DOES NOT SHIP. The deploy
+#      default is the 20x20 dataset — vss_2d_overrides.md sets
+#      SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic" — whose ROIs
+#      and tripwires are 20x20 geometry (scaleFactor 49.50985 and translation x
+#      19.291915, against 26.829178663553755 and 35.669746 for this scene). Run
+#      that pairing and perception still produces detections and PSF still issues
+#      verdicts; they are simply about the wrong building, with no log line
+#      anywhere. Until a 40x20 dataset is published this trio is EXPERIMENTAL /
+#      internal-only, and no SRR number from it means anything. Check before
+#      trusting one: scaleFactor and translationToGlobalCoordinates.x in the
+#      calibration must match
+#      tools/waypoint-generator/public/maps/warehouse_40x20/config.json. The
+#      scene<->calibration table is in
+#      skills/hoisa-deploy-profile/references/test_scenario.md.
+#
+# The safety_indicator disc is NOT in this scene's USD: indicator_loader.py
+# authors it from the model's `indicator:` size below, before the graph builder
+# runs. The 20x20 scenes still carry a baked disc and so their model states no
+# size, which makes the loader a no-op for them. Declaring a size while a baked
+# disc still sits at the same prim path is an error — two sources of truth for
+# one prim.
+#
+# One block per robot. Add a robot = add a block here (including `spawn:`) + a
+# controller service (forklift-controller.yml) + the name in COMM_ROBOT_IDS. The
+# scene USD is no longer touched. The TGS rebalance list in
+# runtime_patches/halos_runtime_patches.py is derived from this file.
+
+# What follows from the asset, stated once. Two trucks built from one ForkliftB
+# payload cannot disagree about their wheelbase, so these belong to the model
+# rather than to each truck — before this block they were copied per robot, and
+# copies that must stay identical hide the day one of them stops being.
+#
+# A second kind of truck is a second entry here, not a longer robot block. Note
+# that this list is per file on purpose: each robots*.yaml stays launchable on
+# its own, at the price of repeating the model across the three of them.
+models:
+  forklift_b:
+    # Where the truck comes from. Used by `spawn:` below; a scene with the prim
+    # already baked in ignores it.
+    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+
+    # Which control graph gets built — a choice of topology, not a label. The
+    # swivel builder drives one steered wheel and one driven wheel; a
+    # differential-drive robot needs its own builder rather than these numbers
+    # rewritten. An unknown value is refused at load.
+    drive_type: swivel
+    drive_joint: back_wheel_drive     # velocity-controlled wheel joint
+    swivel_joint: back_wheel_swivel   # position-controlled steer joint
+    wheelbase: 1.49                   # constant_double_wheelbase
+    wheel_radius: 0.15                # constant_double_WheelRadius
+    max_steer_deg: 45.0               # SwivelIK MAX_STEER = radians(45)
+    # Frame-convention sign flips (vehicle frame vs ROS frame). The original
+    # baked SwivelIK negated both inputs, so both are true here. Set false
+    # if the robot asset already matches the ROS twist convention.
+    reverse_logic:
+      flip_linear_x: true             # negate cmd_vel linear.x
+      flip_angular_z: true            # negate cmd_vel angular.z
+
+    robot_front: [-1.0, 0.0, 0.0]     # ros2_publish_odometry.inputs:robotFront
+
+    # Safety disc: where it hangs on this model's bodywork, and how big it is.
+    # `indicator_prim` is derived from it as <articulation_prim>/<rel>/safety_indicator,
+    # so the long path is no longer retyped per truck. Declaring size here is
+    # what makes indicator_loader.py author the disc — a scene whose disc is
+    # baked into the USD must leave these out, or two things claim one prim.
+    indicator:
+      parent_prim_rel: body/body
+      radius: 1.5                     # metres, final world-space size
+      segments: 32
+      height_offset: 0.0
+
+robots:
+  - name: forklift_b
+    model: forklift_b
+    # Articulation root prim (was articulation_controller.inputs:targetPrim
+    # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
+    # Also where `spawn:` below authors the truck, and what the disc hangs off.
+    articulation_prim: /World/forklift_b
+
+    # --- prim (was a `def "forklift_b"` block in the scene USD) ---
+    # forklift_overlay.py turns this into the payload + transform the scene used
+    # to carry. Drop the block to go back to requiring a prim baked in the scene;
+    # declaring it while the scene still has one is an error, not a silent win.
+    spawn:
+      position: [2.0, -13.35, 0.0]    # metres, world space — faces the left dock door
+      yaw_deg: 180.0                  # rotation about Z; the scene's (6.1e-17, 0, 0, 1)
+
+    # --- control (ROS_Forklift_Control_Graph) ---
+    # Joints and geometry come from the model; what is left is this truck's own.
+    control:
+      enabled: true
+      cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
+
+    # --- odometry (Odometry_Graph) ---
+    odometry:
+      enabled: true
+      odom_topic: forklift_b/odom     # per-robot namespace
+      tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
+      # TF frame ids default to <name>/odom -> <name>/base_link, so the trucks do
+      # not publish the same edge onto one /tf. Override with odom_frame_id /
+      # base_frame_id to get the bare ROS names back.
+
+    # --- safety indicator (Safety_indicator_Graph) ---
+    safety_indicator:
+      enabled: true
+      # No muted_topic here: it defaults to /<name>/safety/is_muted, which is what
+      # comm-layer publishes for every robot listed in COMM_ROBOT_IDS (sil.env).
+      # Both halves derive the name from the robot name, so it is never typed
+      # twice. Name it explicitly to point a robot at the global /safety/is_muted.
+      #
+      # No indicator_prim either: the model's parent_prim_rel puts the disc at
+      # /World/forklift_b/body/body/safety_indicator, which is what this said.
+      #
+      # RGB 0..1, read by the Action Graph on every state change. Per robot
+      # rather than per model: the palette is a signalling convention, not a
+      # property of the truck. These two values are also the code defaults.
+      color_muted: [0.0, 1.0, 0.0]    # loading allowed
+      color_alarm: [1.0, 0.3, 0.0]    # resting state, also the disc's initial colour
+
+  # Second forklift: same model, so it differs only in where it stands and which
+  # topics carry its traffic.
+  # Contract: name == controller ROBOT_ID == prim leaf name.
+  - name: forklift_b2
+    model: forklift_b
+    articulation_prim: /World/forklift_b2
+
+    spawn:
+      position: [2.0, -21.63, 0.0]    # faces the right dock door
+      yaw_deg: 180.0
+
+    control:
+      enabled: true
+      cmd_vel_topic: forklift_b2/cmd_vel
+
+    odometry:
+      enabled: true
+      odom_topic: forklift_b2/odom
+      tf_topic: tf                    # frame ids default to forklift_b2/odom -> .../base_link
+
+    safety_indicator:
+      enabled: true
+      # topic defaults to /forklift_b2/safety/is_muted, disc to
+      # /World/forklift_b2/body/body/safety_indicator — see forklift_b above
+      color_muted: [0.0, 1.0, 0.0]
+      color_alarm: [1.0, 0.3, 0.0]
+
+# Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
+# so it lives in its own builder (action_graphs/clock.py).
+clock:
+  enabled: true
+  clock_topic: clock                  # ROS2PublishClock.topicName (USD: default)

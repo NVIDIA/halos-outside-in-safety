@@ -84,6 +84,15 @@ if [ -n "$NEED_ISAAC" ]; then
         sudo mkdir -p "$ISAAC_CACHE_DIR/$d"
     done
     sudo chown -R 1234:1234 "$ISAAC_CACHE_DIR"
+
+    # forklift_overlay.py writes here on every launch that uses robots.yaml
+    # spawn: blocks. Only this subdir is handed over: write on a directory is
+    # permission to unlink what is in it, and scenes/ holds the tracked USDs.
+    OVERLAY_DIR="${ISAAC_SIL_DIR:-$MDX_SAMPLE_APPS_DIR/closed-loop-testing/isaac-sim/sil}/scenes/generated"
+    echo "forklift overlay: $OVERLAY_DIR (chown 1234:1234)"
+    sudo mkdir -p "$OVERLAY_DIR"
+    sudo chown 1234:1234 "$OVERLAY_DIR"
+
     echo "  NOTE: sil also needs NGC sil-data (Isaac scenes/collected-assets) — pull separately:"
     echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.3.0"
 

@@ -56,6 +56,8 @@ class ActorSDGRunner:
         enable_runtime_patches=True,
         enable_rtsp=True,
         enable_camera_spawn=True,
+        enable_indicator_spawn=True,
+        enable_forklift_spawn=True,
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
@@ -103,6 +105,15 @@ class ActorSDGRunner:
         # Config-driven no-op when no camera carries a spawn block.
         # See sil/scripts/camera_loader.py.
         self.enable_camera_spawn = enable_camera_spawn
+        # Safety-indicator disc geometry from robots.yaml `mesh:` blocks.
+        # Config-driven no-op when no robot carries one (scenes with a baked
+        # disc). See sil/scripts/indicator_loader.py.
+        self.enable_indicator_spawn = enable_indicator_spawn
+        # Forklift prims from robots.yaml `spawn:` blocks, via a generated USD
+        # layer applied BEFORE the stage opens (unlike the two loaders above,
+        # which author into the live stage). Config-driven no-op when no robot
+        # carries a spawn block. See sil/scripts/forklift_overlay.py.
+        self.enable_forklift_spawn = enable_forklift_spawn
 
         # Forklift control/odometry/safety + clock graphs (replace the
         # baked OmniGraphs that used to live in the scene USD). Driven by
@@ -176,6 +187,28 @@ class ActorSDGRunner:
                     f"sensor.groups.<g>.aim_at_targets in the YAML config."
                 )
 
+            # Before the overlay block below, which rewrites base_stage_asset_path to
+            # the generated .overlay.usda — after that the cameras config is compared
+            # against a file name it could not have named.
+            if self.cameras_config_path:
+                from camera_loader import assert_scene_matches
+                assert_scene_matches(
+                    self.cameras_config_path, config.environment.base_stage_asset_path
+                )
+
+            # Forklifts declared with a `spawn:` block in robots.yaml are added by
+            # a generated layer that sublayers the scene, and the config is pointed
+            # at that layer instead — here, because setup_simulation() opens the
+            # stage and there is no seam inside it. Config-driven no-op when no
+            # robot carries a spawn: block. See sil/scripts/forklift_overlay.py.
+            if self.enable_forklift_spawn and self.robots_config_path:
+                from forklift_overlay import generate_overlay
+                overlay = generate_overlay(
+                    self.robots_config_path, config.environment.base_stage_asset_path
+                )
+                if overlay:
+                    config.environment.base_stage_asset_path = overlay
+
             # Set up simulation (async; no callback registration needed in 6.0).
             # IRA 6.0 fires IRAEvents.SET_UP_SIMULATION_DONE_EVENT itself; this coroutine
             # returns after setup completes.
@@ -196,7 +229,9 @@ class ActorSDGRunner:
             # Both packages are idempotent.
             if self.enable_runtime_patches:
                 from runtime_patches import apply_halos_runtime_patches
-                apply_halos_runtime_patches()
+                # Pass the robots config so the TGS solver rebalance covers
+                # exactly the robots this launch drives (yaml-only contract).
+                apply_halos_runtime_patches(self.robots_config_path)
             #   2a. camera_loader spawns Camera prims declared with a
             #      `spawn:` block in cameras.yaml. Must run BEFORE
             #      build_rtsp_graph (the RTSP builder fail-fasts on
@@ -207,6 +242,13 @@ class ActorSDGRunner:
             if self.enable_rtsp and self.cameras_config_path:
                 from action_graphs import build_rtsp_graph
                 build_rtsp_graph(self.cameras_config_path)
+            #   2b. indicator_loader authors the safety-indicator discs
+            #      declared with a `mesh:` block in robots.yaml. Must run
+            #      BEFORE build_forklift_graphs (the safety builder
+            #      fail-fasts on a missing disc prim).
+            if self.enable_indicator_spawn and self.robots_config_path:
+                from indicator_loader import spawn_indicators
+                spawn_indicators(self.robots_config_path)
             #   3. action_graphs.build_forklift_graphs wires the per-robot
             #      control + odometry + safety indicator graphs, replacing
             #      ROS_Forklift_Control_Graph / Odometry_Graph /
@@ -717,6 +759,13 @@ Examples:
                         default=True,
                         help="Skip camera_loader (dynamic Camera prim spawn from cameras.yaml spawn: blocks)")
     parser.add_argument("--robots-config", help="Path to robots.yaml for forklift control/odom/safety + clock graphs")
+    parser.add_argument("--no-indicator-spawn", dest="enable_indicator_spawn", action="store_false",
+                        default=True,
+                        help="Skip indicator_loader (safety-indicator disc geometry from robots.yaml mesh: blocks)")
+    parser.add_argument("--no-forklift-spawn", dest="enable_forklift_spawn", action="store_false",
+                        default=True,
+                        help="Skip forklift_overlay (forklift prims from robots.yaml spawn: blocks); "
+                             "loads the scene USD as-is")
     parser.add_argument("--no-forklift", dest="enable_forklift", action="store_false",
                         default=True,
                         help="Skip build_forklift_graphs (control + odometry + safety indicator)")
@@ -856,12 +905,23 @@ def main():
     if args.enable_postprocessing and args.postprocessing_preset is not None:
         _validate_postprocessing_preset(args.postprocessing_preset, postprocessing_config_path)
 
-    # Resolve cameras config path
+    # Resolve cameras config path, including the default, BEFORE the banner below:
+    # resolving it afterwards made the banner print None on every launch that relied
+    # on the default, so the log did not say which poses the run used — and using the
+    # wrong ones is silent. See camera_loader.assert_scene_matches().
     cameras_config_path = None
     if args.cameras_config:
         cameras_config_path = os.path.abspath(args.cameras_config)
         if not os.path.isfile(cameras_config_path):
             print(f"WARNING: Cameras config file not found: {cameras_config_path}", file=sys.stderr)
+    elif args.enable_rtsp or args.enable_camera_spawn:
+        # Both consumers (RTSP graph build and camera spawn) need it, so either being
+        # enabled resolves the default — mirroring the robots.yaml default below.
+        default_cameras_yaml = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
+        )
+        if os.path.isfile(default_cameras_yaml):
+            cameras_config_path = default_cameras_yaml
 
     print("=" * 60)
     print("Actor SDG Runner (IRA 6.0)")
@@ -873,8 +933,8 @@ def main():
     print(f"Debug print: {args.debug_print}")
     print(f"Save USD: {args.save_usd}")
     print(f"VST Integration: {args.enable_vst}")
+    print(f"Cameras config: {cameras_config_path or '<none>'}")
     if args.enable_vst:
-        print(f"  Cameras config: {cameras_config_path}")
         print(f"  VST URL: {os.environ.get('VST_BASE_URL', 'not set')}")
         print(f"  HOST_IP: {os.environ.get('HOST_IP', 'not set')}")
     print("=" * 60)
@@ -926,17 +986,6 @@ def main():
     print(f"Asset root override: {isaac_asset_root}")
     sim_app = SimulationApp(launch_config=app_config, experience=BASE_EXP_PATH)
 
-    # Default cameras_config_path to the canonical location when the
-    # operator did not pass --cameras-config. Both consumers (RTSP graph
-    # build and camera spawn) need it, so either being enabled resolves
-    # the default — mirroring the robots.yaml default below.
-    if (args.enable_rtsp or args.enable_camera_spawn) and cameras_config_path is None:
-        default_cameras_yaml = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
-        )
-        if os.path.isfile(default_cameras_yaml):
-            cameras_config_path = default_cameras_yaml
-
     # Resolve robots config path (forklift control/odom/safety + clock).
     # Defaults to the canonical configs/robots.yaml when the operator did
     # not pass --robots-config, mirroring the cameras.yaml default above.
@@ -945,7 +994,7 @@ def main():
         robots_config_path = os.path.abspath(args.robots_config)
         if not os.path.isfile(robots_config_path):
             print(f"WARNING: Robots config file not found: {robots_config_path}", file=sys.stderr)
-    elif args.enable_forklift or args.enable_clock:
+    elif args.enable_forklift or args.enable_clock or args.enable_forklift_spawn:
         default_robots_yaml = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "configs", "robots.yaml")
         )
@@ -967,6 +1016,8 @@ def main():
         enable_runtime_patches=args.enable_runtime_patches,
         enable_rtsp=args.enable_rtsp,
         enable_camera_spawn=args.enable_camera_spawn,
+        enable_indicator_spawn=args.enable_indicator_spawn,
+        enable_forklift_spawn=args.enable_forklift_spawn,
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,

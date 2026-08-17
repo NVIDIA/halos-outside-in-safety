@@ -54,6 +54,8 @@ ENV UDP_PORT=12346
 ENV OPCUA_ENDPOINT=opc.tcp://0.0.0.0:4840/safety/
 ENV ROS_TOPIC_PREFIX=/safety
 ENV ROS_DOMAIN_ID=0
+# Empty on purpose: no per-robot is_muted mirrors unless a deployment asks for them.
+ENV ROS_ROBOT_IDS=
 
 # Python path for local modules
 ENV PYTHONPATH=/app/comm_layer:/app/ros_bridge

@@ -31,7 +31,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 | Profile | Services | Use |
 |---------|----------|-----|
 | `base` | safety-core | Safety on an existing VSS feed; MUTE/UNMUTE rendered as the VST `halo_safety` overlay ("Standard"/"Efficient Mode" + proximity bubble). No Isaac Sim. |
-| `sil` | safety-core, comm-layer, isaac-sim, forklift-controller | Full single-host closed loop: Isaac Sim stimulus → VSS perception → PSF → ROS → Isaac forklift. |
+| `sil` | safety-core, comm-layer, isaac-sim, forklift-controller (+ forklift-controller-b2 with the opt-in `multi-robot` profile — two-forklift toggle in `sil.env`/`robots.yaml`) | Full single-host closed loop: Isaac Sim stimulus → VSS perception → PSF → ROS → Isaac forklift(s). |
 | `hil` | comm-layer, isaac-sim, forklift-controller | Two-host closed loop: this x86 stimulus stack + an IGX Thor safety host running VSS perception and the Thor Safety Core — `references/halos_hil.md`. |
 
 > **The `sil` profile runs against either a 2D or a 3D perception backend.** 2D
@@ -39,7 +39,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 > (Sparse4D multi-view + BEV tracking)** — better small / occluded object detection —
 > apply the 3D references instead: `references/vss_3d_overrides.md`,
 > `references/model_r101.md`, `references/calibration_3d.md`.
-> The Halos stack (safety-core, comm-layer, isaac-sim, forklift-controller) is **identical**
+> The Halos stack (safety-core, comm-layer, isaac-sim, forklift-controller, forklift-controller-b2) is **identical**
 > for 2D and 3D — including the Isaac Sim launch (`--enable-vst`, see `references/test_scenario.md`);
 > only the VSS perception side, the model, and the calibration change.
 
@@ -102,11 +102,11 @@ Each phase ends when its ready signal becomes true. Poll, don't wait by time.
 | NGC artifacts | sil-data extracted (`collected-assets/` present) + `PSF_IMAGE` pulled + VSS images present |
 | VSS perception | DeepStream shows **3 distinct cameras at current FPS > 0** (use the FPS-based poll in `test_scenario.md`; a plain `grep -c "stream_name Camera"` count **accumulates** across the log and false-passes on a 0-FPS zombie) |
 | VSS Kafka | `docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic mdx-events --max-messages 1 --timeout-ms 30000` exits 0 |
-| Halos services | The profile's services are all Up (`sil` = 4: safety-core, comm-layer, isaac-sim, forklift-controller; `base` = 1) |
+| Halos services | The profile's services are all Up (`sil` = 4: safety-core, comm-layer, isaac-sim, forklift-controller — 5 with the opt-in `multi-robot` profile [+ forklift-controller-b2]; `base` = 1) |
 | PSF wired | `<sil-data>/comm-layer/opc_server.log` exists and is non-empty |
 | **ROS isolation** | `docker exec comm-layer bash -c "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v"` shows **`Publisher count: 1`** (if 2+, multi-machine `ROS_DOMAIN_ID` collision — see `troubleshooting.md`) |
 | Isaac Sim streaming | Isaac's 3 self-hosted RTSP streams live **and** DeepStream ingested them (the Isaac→VSS handoff). Gate on the handoff, **not** a shader-log string; a bare "3 active streams" can false-positive on VSS bootstrap — bootstrap-immune poll commands in `test_scenario.md`. |
-| Isaac Sim wired | `ros2 topic info /safety/is_muted -v` shows **`Subscription count: 1`** (Isaac forklift Action Graph connected) |
+| Isaac Sim wired | `ros2 topic info /safety/is_muted -v` shows **`Subscription count:`** = the number of robots with `safety_indicator.enabled` in the robots config — **1** with the default `robots.yaml`; **2** with the two-forklift variant `robots-2fl.yaml`. `0` = Isaac not wired yet. **`robots-40x20.yaml` is the exception**: its indicators subscribe to per-robot `/<name>/safety/is_muted` topics, so the global topic correctly shows `0` there — check `ros2 topic info /forklift_b/safety/is_muted` instead (one publisher, one subscriber each) |
 | Sim-driven safety | forklift/trailer transitions in `<sil-data>/psf-log/pss.log` **after** Isaac streams came up (not sample-video bootstrap traffic) |
 
 The exact poll command for each signal is in the corresponding reference doc.
@@ -127,9 +127,16 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 - [ ] 6. Configure deployments/profiles/<profile>.env, then
         deploy Halos (setup.sh + cleanup + compose up --build)   → references/halos_deploy.md
 - [ ] 7. Set a unique ROS_DOMAIN_ID (0-232) + verify Publisher count=1
-- [ ] 8. (sil) Run the Isaac Sim test scenario                   → references/test_scenario.md
-- [ ] 9. Monitor until sim-driven safety transitions appear (the "complete" signal)
+- [ ] 8. (sil, multi-robot) Cross-check the four robot lists BEFORE booting Isaac:
+        deployments/scripts/preflight.py --robots-config <the robots.yaml you will launch with>
+                                        [--scene <the scene USD, for trucks baked into it>]
+- [ ] 9. (sil) Run the Isaac Sim test scenario                   → references/test_scenario.md
+- [ ] 10. Monitor until sim-driven safety transitions appear (the "complete" signal)
 ```
+
+Step 8 exists because a robot has to be listed in four places — `robots.yaml`, a controller service, its waypoint file, and `COMM_ROBOT_IDS` — and **every way of getting it half-right is silent**. Two of the four produce the same symptom, a truck that sits there; the third produces a disc that looks like a working indicator reporting danger. The check takes a second and runs on the host; Isaac takes three minutes to boot before showing you any of it. Pass the config you will actually launch with — it has no default on purpose.
+
+It also compares each waypoint file's `origin` against where its truck stands, which is a different kind of mistake: the names all agree, the truck drives, and only the lane is wrong. Waypoints are per scene (`waypoints/<map id>/<ROBOT_ID>.json`, selected by `FORKLIFT_WAYPOINTS_DIR`) because the coordinates are metres in one warehouse's world frame. The scene<->config<->waypoints<->calibration pairings are tabulated in `references/test_scenario.md`; the 40x20 scene has no published calibration and is experimental.
 
 ---
 

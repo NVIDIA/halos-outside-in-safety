@@ -10,21 +10,37 @@
  * - Odom: Odometry frame relative to robot start position (meters)
  */
 
-import calibration from '../config/calibration.json';
+/**
+ * Every conversion below takes the map's calibration as an argument rather than
+ * importing one. A module-level active map would let a component convert a
+ * click before the map it belongs to was loaded, and the result — a waypoint
+ * placed with another scene's scale — looks like a plausible number rather than
+ * an error. Passing it makes that impossible to write.
+ *
+ * mapConfig comes from `src/maps/loadMaps.js` and carries `scaleFactor` and
+ * `translationToGlobalCoordinates`.
+ */
 
-const { scaleFactor, translationToGlobalCoordinates, imageSize } = calibration;
+function calibrationOf(mapConfig) {
+  if (!mapConfig) {
+    throw new Error('coordinates: mapConfig is required (did the map finish loading?)');
+  }
+  return mapConfig;
+}
 
 /**
  * Convert pixel coordinates to world coordinates
  * @param {number} pixelX - X position in image pixels
  * @param {number} pixelY - Y position in image pixels
+ * @param {object} mapConfig - The active map's calibration
  * @returns {{x: number, y: number}} World coordinates in meters
  */
-export function pixelToWorld(pixelX, pixelY) {
+export function pixelToWorld(pixelX, pixelY, mapConfig) {
+  const { scaleFactor, translationToGlobalCoordinates } = calibrationOf(mapConfig);
   // Image Y is inverted (0 at top), and world Y axis is flipped
   const worldX = (pixelX / scaleFactor) - translationToGlobalCoordinates.x;
   const worldY = -((pixelY / scaleFactor) - translationToGlobalCoordinates.y);
-  
+
   return { x: worldX, y: worldY };
 }
 
@@ -32,12 +48,14 @@ export function pixelToWorld(pixelX, pixelY) {
  * Convert world coordinates to pixel coordinates
  * @param {number} worldX - X position in meters
  * @param {number} worldY - Y position in meters
+ * @param {object} mapConfig - The active map's calibration
  * @returns {{x: number, y: number}} Pixel coordinates
  */
-export function worldToPixel(worldX, worldY) {
+export function worldToPixel(worldX, worldY, mapConfig) {
+  const { scaleFactor, translationToGlobalCoordinates } = calibrationOf(mapConfig);
   const pixelX = (worldX + translationToGlobalCoordinates.x) * scaleFactor;
   const pixelY = (-worldY + translationToGlobalCoordinates.y) * scaleFactor;
-  
+
   return { x: pixelX, y: pixelY };
 }
 
@@ -76,8 +94,8 @@ export function odomToWorld(odomX, odomY, origin) {
  * @param {{x: number, y: number}} origin - Origin point in world coordinates
  * @returns {{x: number, y: number}} Odom coordinates in meters
  */
-export function pixelToOdom(pixelX, pixelY, origin) {
-  const world = pixelToWorld(pixelX, pixelY);
+export function pixelToOdom(pixelX, pixelY, origin, mapConfig) {
+  const world = pixelToWorld(pixelX, pixelY, mapConfig);
   return worldToOdom(world.x, world.y, origin);
 }
 
@@ -88,9 +106,9 @@ export function pixelToOdom(pixelX, pixelY, origin) {
  * @param {{x: number, y: number}} origin - Origin point in world coordinates
  * @returns {{x: number, y: number}} Pixel coordinates
  */
-export function odomToPixel(odomX, odomY, origin) {
+export function odomToPixel(odomX, odomY, origin, mapConfig) {
   const world = odomToWorld(odomX, odomY, origin);
-  return worldToPixel(world.x, world.y);
+  return worldToPixel(world.x, world.y, mapConfig);
 }
 
 /**
@@ -102,14 +120,6 @@ export function normalizeAngle(angleDeg) {
   while (angleDeg > 180) angleDeg -= 360;
   while (angleDeg < -180) angleDeg += 360;
   return angleDeg;
-}
-
-/**
- * Get calibration data
- * @returns {object} Calibration configuration
- */
-export function getCalibration() {
-  return calibration;
 }
 
 /**
@@ -126,19 +136,21 @@ export function distance(x1, y1, x2, y2) {
 
 /**
  * Convert pixels to meters
- * @param {number} pixels 
+ * @param {number} pixels
+ * @param {object} mapConfig - The active map's calibration
  * @returns {number} meters
  */
-export function pixelsToMeters(pixels) {
-  return pixels / scaleFactor;
+export function pixelsToMeters(pixels, mapConfig) {
+  return pixels / calibrationOf(mapConfig).scaleFactor;
 }
 
 /**
  * Convert meters to pixels
- * @param {number} meters 
+ * @param {number} meters
+ * @param {object} mapConfig - The active map's calibration
  * @returns {number} pixels
  */
-export function metersToPixels(meters) {
-  return meters * scaleFactor;
+export function metersToPixels(meters, mapConfig) {
+  return meters * calibrationOf(mapConfig).scaleFactor;
 }
 

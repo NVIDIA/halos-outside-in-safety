@@ -2,23 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { worldToPixel, pixelToWorld, metersToPixels } from '../utils/coordinates';
+import * as coords from '../utils/coordinates';
 import { generateCurvedPath, generatePathArrows } from '../utils/bezier';
-import calibration from '../config/calibration.json';
 
 const WAYPOINT_RADIUS = 12;
 const ORIGIN_RADIUS = 16;
 const ARROW_LENGTH = 30;
 
-// Forklift dimensions in meters (from calibration.json)
-const FORKLIFT_LENGTH = calibration.forkliftDimensions?.length || 2.8;
-const FORKLIFT_WIDTH = calibration.forkliftDimensions?.width || 1.0;
-const FORK_LENGTH = calibration.forkliftDimensions?.forkLength || 1.0;
+const DEFAULT_FORKLIFT = { length: 2.8, width: 1.0, forkLength: 1.0 };
 
 /**
  * WaypointCanvas - 2D canvas for drawing waypoints on warehouse map
  */
 export default function WaypointCanvas({
+  mapConfig,
   waypoints,
   origin,
   selectedIndex,
@@ -40,7 +37,7 @@ export default function WaypointCanvas({
   const [zoom, setZoom] = useState(0.6);
   const [isPanning, setIsPanning] = useState(false);
   const [lastMouse, setLastMouse] = useState({ x: 0, y: 0 });
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [loadedImagePath, setLoadedImagePath] = useState(null);
   
   // Dragging waypoint state
   const [draggingIndex, setDraggingIndex] = useState(null);
@@ -53,16 +50,43 @@ export default function WaypointCanvas({
   const arrowTextureRef = useRef(null);
   const [texturesLoaded, setTexturesLoaded] = useState(0); // Counter to trigger re-render
 
-  // Load background image and textures
+  // Bound to the active map so the drawing code below reads the same as before,
+  // while the conversions themselves stay explicit about which map they mean.
+  const worldToPixel = useCallback(
+    (worldX, worldY) => coords.worldToPixel(worldX, worldY, mapConfig), [mapConfig]);
+  const pixelToWorld = useCallback(
+    (pixelX, pixelY) => coords.pixelToWorld(pixelX, pixelY, mapConfig), [mapConfig]);
+  const metersToPixels = useCallback(
+    (meters) => coords.metersToPixels(meters, mapConfig), [mapConfig]);
+
+  const forklift = mapConfig.forkliftDimensions || DEFAULT_FORKLIFT;
+  const FORKLIFT_LENGTH = forklift.length ?? DEFAULT_FORKLIFT.length;
+  const FORKLIFT_WIDTH = forklift.width ?? DEFAULT_FORKLIFT.width;
+  const FORK_LENGTH = forklift.forkLength ?? DEFAULT_FORKLIFT.forkLength;
+
+  // Ready only once the image on screen is the one the active map asked for.
+  // Derived rather than a flag, so switching maps blanks the canvas by itself
+  // instead of drawing the new scene's waypoints over the old scene's picture.
+  const imageLoaded = loadedImagePath === mapConfig.imagePath;
+
+  // Load the active map's plan view, reloading when the map changes
   useEffect(() => {
+    let cancelled = false;
     const img = new Image();
-    img.src = '/Top.png';
+    img.src = mapConfig.imagePath;
     img.onload = () => {
+      if (cancelled) return;
       imageRef.current = img;
-      setImageLoaded(true);
+      setLoadedImagePath(mapConfig.imagePath);
     };
-    
-    // Load waypoint spot texture
+    img.onerror = () => {
+      console.error(`Cannot load map image: ${mapConfig.imagePath}`);
+    };
+    return () => { cancelled = true; };
+  }, [mapConfig.imagePath]);
+
+  // Waypoint and arrow textures are the same for every map, so load them once
+  useEffect(() => {
     const spotImg = new Image();
     spotImg.src = '/spot.png';
     spotImg.onload = () => {
@@ -112,7 +136,7 @@ export default function WaypointCanvas({
       }
     }
     return -1;
-  }, [waypoints, origin, zoom]);
+  }, [waypoints, origin, zoom, worldToPixel]);
 
   // Draw everything
   useEffect(() => {
@@ -568,7 +592,8 @@ export default function WaypointCanvas({
       ctx.fillText(`θ: ${previewHeading}°`, 18, origin ? 69 : 52);
     }
     
-  }, [waypoints, origin, selectedIndex, pan, zoom, imageLoaded, texturesLoaded, mode, mousePos, previewHeading, draggingIndex]);
+  }, [waypoints, origin, selectedIndex, pan, zoom, imageLoaded, texturesLoaded, mode, mousePos, previewHeading, draggingIndex,
+      worldToPixel, pixelToWorld, metersToPixels, FORKLIFT_LENGTH, FORKLIFT_WIDTH, FORK_LENGTH]);
 
   // Handle mouse down
   const handleMouseDown = (e) => {

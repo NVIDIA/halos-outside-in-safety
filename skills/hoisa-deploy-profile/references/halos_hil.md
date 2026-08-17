@@ -40,7 +40,7 @@ docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && ./run_sdg.sh \
   --cameras-config /isaac-sim/sil/configs/cameras.yaml'
 ```
 
-Do NOT pass `--enable-vst`: the Thor-side configurator owns sensor registration (one owner only, see `vss_hil_overrides.md` §2). Forklift and clock graphs read `configs/robots.yaml` automatically; the forklift-controller then drives the forklift in a continuous loop.
+Do NOT pass `--enable-vst`: the Thor-side configurator owns sensor registration (one owner only, see `vss_hil_overrides.md` §2). The default `configs/robots.yaml` is single-robot (forklift_b) and matches the stock scene — no `--robots-config` needed. (Two-forklift variant exists for hil too: launch with `-c /isaac-sim/sil/configs/default_config_ros_2fl.yaml --robots-config /isaac-sim/sil/configs/robots-2fl.yaml` + `COMPOSE_PROFILES=hil,multi-robot` — see the toggle notes in `robots.yaml`/`hil.env`. Both 20x20 scenes take `FORKLIFT_WAYPOINTS_DIR=./waypoints/warehouse_20x20`, which is the hil.env default; the waypoint sets are per scene because their coordinates are metres in one warehouse's world frame.) The forklift-controller then drives the forklift in a continuous loop.
 
 Scenario behavior is shared with `sil`: the first run goes quiet for ~5-10 min (scene load + shader compile, cached afterwards), and `--start` runs until externally stopped - details in `test_scenario.md`. Take only the behavior notes from that file; its launch command carries `--enable-vst`, which must not be used in this flow.
 
@@ -126,7 +126,7 @@ Thor and redo §3's Isaac-warm-before-VSS bring-up order.
 |---|---|
 | `no caps` / `could not create SDP` on the Isaac streams | Sensors were registered against a cold Isaac (deploy order, §3) - probe and recovery in `troubleshooting.md`, RTSP Streams "no caps" |
 | VST sensors `online` but perception 0 fps, no errors | RTSP-over-UDP delivering no media (`vss_2d_overrides.md` VST Config); after an Isaac restart, follow "Restart the scenario (hil)" above - if it recurs after every restart it is stale sensor history on a previously-used Thor (`troubleshooting.md`, Stale Sensor History Replay) |
-| Forklift never moves | ROS discovery: all three x86 containers must see each other (`ros2 topic info -v /odom` from the forklift-controller must show a publisher; on multi-interface hosts LOCALHOST discovery scoping can isolate the containers - use SUBNET). Also confirm `configs/robots.yaml` exists |
+| Forklift never moves | ROS discovery: all three x86 containers must see each other (`ros2 topic info -v /forklift_b/odom` from the forklift-controller must show a publisher — odom/cmd_vel topics are namespaced per `FORKLIFT_ROBOT_ID` in `hil.env`, i.e. `/<FORKLIFT_ROBOT_ID>/odom`; plain `/odom` only exists if `FORKLIFT_USE_NAMESPACE=false`. On multi-interface hosts LOCALHOST discovery scoping can isolate the containers - use SUBNET). Also confirm `configs/robots.yaml` exists |
 | Decisions flow but MUTE never fires | The forklift tripwire events need the forklift actually crossing the trailer tripwire; confirm the forklift moves on camera, then check the Safety Core was started on a clear scene (§4) - restart it at a clear moment otherwise |
 | comm-layer receives nothing | UDP path x86:`COMM_UDP_PORT` unreachable from the Thor, or `PSF_CMD_RX_IP/PORT` wrong in `hil-thor.env` |
 | Safety Core dies when the ssh session drops | Launch under `tmux`/`setsid` (§5) |

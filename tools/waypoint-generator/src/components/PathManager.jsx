@@ -9,7 +9,6 @@ import {
   useHasUnsavedChanges 
 } from '../redux/hooks';
 import { 
-  openPath, 
   deletePath, 
   renamePath, 
   newPath 
@@ -18,7 +17,7 @@ import PathPreview from './PathPreview';
 import { AiFillFolderOpen, AiOutlineEdit, AiOutlineDelete, AiOutlinePlus, AiOutlineClose } from 'react-icons/ai';
 import './PathManager.css';
 
-function PathManager({ onClose }) {
+function PathManager({ registry = [], activeMapId, onOpenPath, onClose }) {
   const dispatch = useAppDispatch();
   const paths = usePaths();
   const currentPathId = useCurrentPathId();
@@ -27,14 +26,18 @@ function PathManager({ onClose }) {
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showOtherMaps, setShowOtherMaps] = useState(false);
 
-  const handleOpenPath = (pathId) => {
+  const mapNameOf = (mapId) =>
+    registry.find(map => map.id === mapId)?.name || mapId;
+
+  const handleOpenPath = (path) => {
     if (hasUnsavedChanges) {
       if (!confirm('You have unsaved changes. Do you want to discard them?')) {
         return;
       }
     }
-    dispatch(openPath(pathId));
+    onOpenPath?.(path);
     onClose?.();
   };
 
@@ -72,8 +75,15 @@ function PathManager({ onClose }) {
     onClose?.();
   };
 
-  const filteredPaths = paths.filter(path => 
-    path.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // A path belongs to the map it was drawn on. Paths with no recorded map are
+  // always listed: they predate map tracking, so they may well belong here, and
+  // hiding them would look like they had been lost.
+  const belongsHere = (path) => !path.mapId || path.mapId === activeMapId;
+  const otherMapCount = paths.filter(path => !belongsHere(path)).length;
+
+  const filteredPaths = paths.filter(path =>
+    path.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    (showOtherMaps || belongsHere(path))
   );
 
   const sortedPaths = [...filteredPaths].sort((a, b) => 
@@ -102,6 +112,17 @@ function PathManager({ onClose }) {
             <AiOutlinePlus /> New Path
           </button>
         </div>
+
+        {otherMapCount > 0 && (
+          <label className="show-other-maps">
+            <input
+              type="checkbox"
+              checked={showOtherMaps}
+              onChange={(e) => setShowOtherMaps(e.target.checked)}
+            />
+            Show {otherMapCount} path(s) from other maps
+          </label>
+        )}
 
         <div className="paths-list">
           {sortedPaths.length === 0 ? (
@@ -149,6 +170,22 @@ function PathManager({ onClose }) {
                         <span>{path.waypoints?.length || 0} waypoints</span>
                         <span>•</span>
                         <span>Updated: {new Date(path.updatedAt).toLocaleDateString()}</span>
+                        {!path.mapId ? (
+                          <>
+                            <span>•</span>
+                            <span
+                              className="map-unknown"
+                              title="Saved before the tool tracked maps, so which warehouse it was drawn on is unknown. Save it again to label it."
+                            >
+                              map not recorded
+                            </span>
+                          </>
+                        ) : path.mapId !== activeMapId && (
+                          <>
+                            <span>•</span>
+                            <span className="map-foreign">{mapNameOf(path.mapId)}</span>
+                          </>
+                        )}
                       </div>
                     </>
                   )}
@@ -159,8 +196,10 @@ function PathManager({ onClose }) {
                     <>
                       <button 
                         className="action-btn open-btn"
-                        onClick={() => handleOpenPath(path.id)}
-                        title="Open path"
+                        onClick={() => handleOpenPath(path)}
+                        title={path.mapId && path.mapId !== activeMapId
+                          ? `Open, switching to ${mapNameOf(path.mapId)}`
+                          : 'Open path'}
                       >
                         <AiFillFolderOpen /> Open
                       </button>

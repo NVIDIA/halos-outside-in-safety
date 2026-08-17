@@ -13,6 +13,37 @@ docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
   --cameras-config /isaac-sim/sil/configs/cameras.yaml'
 ```
 
+Two-forklift variant: swap in the 2FL config pair — `-c /isaac-sim/sil/configs/default_config_ros_2fl.yaml
+--robots-config /isaac-sim/sil/configs/robots-2fl.yaml` (plus `COMPOSE_PROFILES=sil,multi-robot` — notes in `robots.yaml`/`sil.env`).
+
+### Which artifacts go with which scene
+
+Everything below is metres in one warehouse's world frame, and **every mismatch
+here is silent**. Cameras still stream, perception still detects, the controller
+still drives, PSF still issues verdicts — about the wrong building. Pick one row
+and use it whole.
+
+| Scene | IRA config | robots | cameras | `FORKLIFT_WAYPOINTS_DIR` | VSS `SAMPLE_VIDEO_DATASET` |
+|---|---|---|---|---|---|
+| `indicator_warehouse_20x20_layout_overflow_test.usd` | `default_config_ros.yaml` | `robots.yaml` (1 FL) | `cameras.yaml` | `./waypoints/warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
+| `indicator_warehouse_20x20_layout_overflow_test_2fl.usd` | `default_config_ros_2fl.yaml` | `robots-2fl.yaml` (2 FL) | `cameras.yaml` | `./waypoints/warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
+| `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `./waypoints/warehouse_40x20` | **none published — see below** |
+
+**The 40x20 row has no calibration and is EXPERIMENTAL / internal-only.** The
+dataset above is 20x20 geometry: its ROIs and tripwires sit at
+`scaleFactor` 49.50985 and translation x 19.291915, while the 40x20 world is
+26.829178663553755 and 35.669746. Pointing VSS at it while Isaac loads the 40x20
+scene yields SRR numbers that do not mean anything, and nothing logs a warning.
+Cheap check before trusting any result: `scaleFactor` and
+`translationToGlobalCoordinates.x` in the `calibration.json` VSS actually loaded
+must match `tools/waypoint-generator/public/maps/<map id>/config.json`.
+
+Two of these pairings are now checked automatically rather than by reading this
+table: `camera_loader.assert_scene_matches()` refuses a cameras config whose
+`scene:` key does not name the scene being loaded, and `preflight.py` compares
+each waypoint file's `origin` against where its truck actually stands. The
+scene<->calibration pair is the one still asserted by hand.
+
 The container already has `VST_BASE_URL`, `HOST_IP`, and `ROS_DOMAIN_ID` from the
 profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 
@@ -269,6 +300,11 @@ docker exec comm-layer bash -c \
 - **`Publisher count: 1`** — exactly one (comm-layer). If `2+`, another machine on the
   network shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety Indicator
   Flickering (Multi-Machine)".
-- **`Subscription count: 1`** — the Isaac Sim forklift Action Graph has connected and
-  is receiving safety state. `0` means Isaac isn't subscribed yet (scene not fully up,
-  or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`).
+- **`Subscription count: 1`** — one SafetyGraph subscriber per robot with
+  `safety_indicator.enabled` in the robots config (expected = the number of such
+  robot blocks; **1** with the default `robots.yaml`, **2** with the two-forklift
+  variant `robots-2fl.yaml` — the count follows the robots config passed to Isaac,
+  not `COMPOSE_PROFILES`). `0` means Isaac isn't subscribed yet (scene
+  not fully up, or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`);
+  a count *below* the expected number means one robot's graph didn't build (check
+  the `run_actor_sdg` log).

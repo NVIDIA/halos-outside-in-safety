@@ -108,7 +108,7 @@ Poll until the profile's services are Up (first run builds local images — take
 
 ```bash
 docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E "safety-core|comm-layer|isaac-sim|forklift-controller"
-# base = safety-core ; sil = + comm-layer + isaac-sim + forklift-controller (4 total)
+# base = safety-core ; sil = + comm-layer + isaac-sim + forklift-controller (4 total; 5 with the opt-in multi-robot profile: + forklift-controller-b2)
 ```
 
 ### Safety overlay (`base`) — enable on the VSS side

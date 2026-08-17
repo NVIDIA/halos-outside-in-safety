@@ -8,7 +8,7 @@ import { generateCurvedPath } from '../utils/bezier';
 /**
  * ExportPanel - Export waypoints to JSON (with interpolated poses); import JSON or YAML
  */
-export default function ExportPanel({ waypoints, origin, onImport }) {
+export default function ExportPanel({ mapConfig, waypoints, origin, onImport }) {
   const [fileName, setFileName] = useState('waypoints');
   const [showImport, setShowImport] = useState(false);
 
@@ -38,6 +38,14 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
       : { poses: [], segments: [] };
 
     const data = {
+      // Which warehouse these metres belong to. The controller ignores unknown
+      // keys, but a person reading two exported files cannot otherwise tell them
+      // apart — the two scenes' origins are only a metre away from each other,
+      // so a path from the wrong warehouse looks entirely plausible.
+      map: {
+        id: mapConfig.mapId,
+        scene: mapConfig.scene || null,
+      },
       origin: origin ? {
         world_x: parseFloat(origin.x.toFixed(3)),
         world_y: parseFloat(origin.y.toFixed(3)),

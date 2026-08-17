@@ -1,0 +1,61 @@
+# TWO-FORKLIFT variant of default_config_ros.yaml — identical except
+# base_stage_asset_path points at the 2FL scene. Launch the 2FL mode with
+# BOTH flags (plus COMPOSE_PROFILES including `multi-robot`):
+#   ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros_2fl.yaml \
+#     --robots-config /isaac-sim/sil/configs/robots-2fl.yaml ...
+# Keep everything below in sync by hand with default_config_ros.yaml.
+isaacsim.replicator.agent:
+  version: 1.6.0
+  seed: 42
+  simulation_duration: 20.0
+  environment:
+    base_stage_asset_path: /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test_2fl.usd
+  character:
+    groups:
+      inspect_workers:
+        num: 1
+        asset_path: Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/inspect_loop.bt.json
+      gather_workers:
+        num: 1
+        asset_path: Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/gather_bend_loop.bt.json
+      pickup_workers:
+        num: 1
+        asset_path: Isaac/People/Characters/
+        behavior_tree: /isaac-sim/sil/configs/pickup_loop.bt.json
+    motion_library_path: Isaac/People/MotionLibrary/HumanMotionLibrary.usd
+  sensor:
+    groups:
+      ceiling_cameras:
+        num: 3
+        aim_at_targets:
+          height_range:
+          - 2.0
+          - 3.0
+          look_down_angle_range:
+          - 0.0
+          - 60.0
+          focal_length_range:
+          - 10.0
+          - 15.0
+          distance_range:
+          - 6.5
+          - 14.5
+  replicator:
+    writers:
+      IRABasicWriter:
+        output_dir: ''
+        rgb: false
+        bounding_box_2d_tight: false
+        bounding_box_2d_loose: false
+        bounding_box_3d: false
+        normals: false
+        semantic_segmentation: false
+        instance_id_segmentation: false
+        instance_segmentation: false
+        camera_params: false
+        start_frame: 0
+        end_frame: 1800
+        sensor_prim_list:
+        - /World/Cameras/ceiling_cameras

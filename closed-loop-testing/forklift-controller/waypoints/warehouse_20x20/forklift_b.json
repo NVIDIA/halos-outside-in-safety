@@ -1,4 +1,8 @@
 {
+  "map": {
+    "id": "warehouse_20x20",
+    "scene": "sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd"
+  },
   "origin": {
     "world_x": 1,
     "world_y": -13.39
