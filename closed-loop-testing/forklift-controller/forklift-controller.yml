@@ -11,6 +11,10 @@ x-forklift-env: &forklift-env
   SCENARIO: ${SCENARIO:-}
   ROBOTS_CONFIG: ${ROBOTS_CONFIG:-}
   WAYPOINTS_MAP: ${WAYPOINTS_MAP:-}
+  # Passed through only so entrypoint.sh can refuse it. A profile carrying the
+  # old variable is the case the refusal exists for, and a guard compose never
+  # hands the variable to is a guard that cannot fire.
+  FORKLIFT_WAYPOINTS_DIR: ${FORKLIFT_WAYPOINTS_DIR:-}
 
 x-forklift-volumes: &forklift-volumes
   # The robots config and the loader that reads it. Shared rather than copied:
@@ -19,7 +23,10 @@ x-forklift-volumes: &forklift-volumes
   - ${ISAAC_SIL_DIR:-../isaac-sim/sil}/scripts:/app/isaac:ro
   # The whole tree, not one warehouse: the map is chosen inside the container.
   - ./waypoints:/app/waypoints:ro
-  - .:/app:ro
+  # The controller source itself is NOT mounted: it comes from the image, so
+  # `docker run forklift-controller:latest` behaves like the compose stack and a
+  # module missing from the Dockerfile fails here instead of hiding behind the
+  # host tree. Source edits need `up -d --build`.
 
 services:
   forklift-controller:

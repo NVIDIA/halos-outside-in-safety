@@ -26,10 +26,13 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
-# Copy controller source
+# Copy controller source. Everything the container runs must be here: /app is
+# no longer bind-mounted from the host, so a module missing from this list is a
+# container that dies at import instead of one that quietly runs host code.
 COPY robot_controller.py /app/
 COPY state_machine.py /app/
 COPY command_handler.py /app/
+COPY fleet_config.py /app/
 
 # Copy test utilities
 COPY test/ /app/test/
@@ -40,6 +43,11 @@ COPY waypoints/ /app/waypoints/
 # Copy entrypoint
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
+
+# Bind-mount targets, created here so the mount does not depend on the daemon
+# creating them. The fleet file and its loader are shared with Isaac rather than
+# copied, so both sides read one definition of the `models:` merge.
+RUN mkdir -p /app/robots /app/isaac
 
 # Environment defaults. The drive knobs (speed, heading, tolerances, …) are
 # deliberately NOT set here: an image-level value is indistinguishable from one

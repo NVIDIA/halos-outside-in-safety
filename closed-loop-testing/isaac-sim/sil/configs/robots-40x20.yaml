@@ -93,6 +93,8 @@ models:
     indicator:
       parent_prim_rel: body/body
       radius: 1.5                     # metres, final world-space size
+      segments: 32                    # triangle-fan segments
+      height_offset: 0.0              # world metres above the parent origin
 
     # --- how the forklift-controller drives this asset ---
     # Read by the controller, not by any graph builder. What lives here follows
@@ -102,8 +104,6 @@ models:
       heading_offset: 180.0   # degrees — ForkliftB faces -X in its own frame
       no_invert: false        # true skips the reverse leg
       angular_speed: 0.4      # rad/s while turning
-      segments: 32
-      height_offset: 0.0
 
 robots:
   - name: forklift_b
@@ -114,7 +114,8 @@ robots:
     articulation_prim: /World/forklift_b
 
     # --- how this truck drives (forklift-controller) ---
-    # Overrides the model's drive: block leaf by leaf; an env var outranks both.
+    # Overrides the model's drive: block leaf by leaf. A launch flag outranks
+    # both; no environment variable is read — see fleet_config.py for the order.
     drive:
       speed: 1.5              # m/s along the path
       loop: true
@@ -167,7 +168,8 @@ robots:
     articulation_prim: /World/forklift_b2
 
     # --- how this truck drives (forklift-controller) ---
-    # Overrides the model's drive: block leaf by leaf; an env var outranks both.
+    # Overrides the model's drive: block leaf by leaf. A launch flag outranks
+    # both; no environment variable is read — see fleet_config.py for the order.
     drive:
       speed: 1.0              # m/s along the path  — slower on purpose
       loop: true

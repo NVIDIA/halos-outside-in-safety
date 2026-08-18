@@ -7,10 +7,14 @@
 # Wrapper script to run Actor SDG from Isaac Sim
 #
 # Usage:
+#   ./run_sdg.sh --scenario <id> [options]
 #   ./run_sdg.sh -c /path/to/config.yaml [options]
 #
 # Options:
-#   -c, --config     Path to IRA config file (required)
+#   --scenario       Scenario id from configs/scenarios.yaml; supplies the IRA
+#                    config, the fleet file and the cameras config together
+#   -c, --config     Path to IRA config file (required unless --scenario, or
+#                    SCENARIO in the environment, names one)
 #   --start          Auto start data generation
 #   --setup-only     Only setup, don't start generation
 #   --headless       Run in headless mode

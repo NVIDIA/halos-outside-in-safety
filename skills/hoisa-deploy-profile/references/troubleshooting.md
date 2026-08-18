@@ -102,9 +102,7 @@ GPU crash dump is successfully written
    docker restart isaac-sim
    # Re-run the test scenario
    docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-     ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-     --start --headless --enable-vst \
-     --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+     ./run_sdg.sh --start --headless --enable-vst'
    ```
 
 ---
@@ -349,9 +347,7 @@ docker ps | grep vst
 
 # Rerun Isaac Sim with --enable-vst
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+  ./run_sdg.sh --start --headless --enable-vst'
 ```
 
 ---

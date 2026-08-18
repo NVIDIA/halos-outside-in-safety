@@ -52,6 +52,15 @@ def load_fleet(robots_config_path: str) -> list[dict]:
             f"The forklift-controller service mounts the Isaac script tree; check "
             f"that mount, or set ISAAC_SCRIPTS_DIR."
         ) from exc
+    # The loader names the knobs, this file gives them values. Two lists that
+    # must agree are worth one assertion rather than a knob that reads as
+    # unknown on one side and as a default on the other.
+    from action_graphs.forklift_common import KNOWN_DRIVE_KEYS
+    if set(KNOWN_DRIVE_KEYS) != set(DRIVE_DEFAULTS):
+        raise RuntimeError(
+            f"drive knobs disagree: forklift_common knows {sorted(KNOWN_DRIVE_KEYS)}, "
+            f"fleet_config defaults {sorted(DRIVE_DEFAULTS)}"
+        )
     robots, _ = load_and_validate_robots_yaml(robots_config_path)
     return robots
 

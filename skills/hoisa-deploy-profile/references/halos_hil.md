@@ -35,14 +35,14 @@ Ready when all three services are up (`isaac-sim`, `comm-layer` healthy, `forkli
 ## 2. x86: start the scenario
 
 ```bash
-docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && ./run_sdg.sh \
-  -c /isaac-sim/sil/configs/default_config_ros.yaml --start --headless \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && ./run_sdg.sh --start --headless'
 ```
 
-Do NOT pass `--enable-vst`: the Thor-side configurator owns sensor registration (one owner only, see `vss_hil_overrides.md` §2). The default `configs/robots.yaml` is single-robot (forklift_b) and matches the stock scene — no `--robots-config` needed. (Two-forklift variant exists for hil too: launch with `-c /isaac-sim/sil/configs/default_config_ros_2fl.yaml --robots-config /isaac-sim/sil/configs/robots-2fl.yaml` + `COMPOSE_PROFILES=hil,multi-robot` — see the toggle notes in `robots.yaml`/`hil.env`. Both 20x20 scenes take `FORKLIFT_WAYPOINTS_DIR=./waypoints/warehouse_20x20`, which is the hil.env default; the waypoint sets are per scene because their coordinates are metres in one warehouse's world frame.) The forklift-controller then drives the forklift in a continuous loop.
+Do NOT pass `--enable-vst`: the Thor-side configurator owns sensor registration (one owner only, see `vss_hil_overrides.md` §2). That is the only thing this flow does differently. Everything else about the run — scene, fleet file, cameras config and waypoint set — is the `SCENARIO` in `hil.env`; the ids and what each one pairs with are tabulated in `test_scenario.md`.
 
-Scenario behavior is shared with `sil`: the first run goes quiet for ~5-10 min (scene load + shader compile, cached afterwards), and `--start` runs until externally stopped - details in `test_scenario.md`. Take only the behavior notes from that file; its launch command carries `--enable-vst`, which must not be used in this flow.
+A second truck needs two lines, not one: `multi-robot` added to `COMPOSE_PROFILES` (so the container exists) and a two-forklift `SCENARIO` (so it has something to drive). Both default to the single-truck run. Setting one without the other does not fail silently — the extra controller refuses to start naming the robots its fleet file does declare, and `preflight.py` reports a robot with control enabled and no controller service. The forklift-controller then drives the forklift in a continuous loop.
+
+Scenario behavior is shared with `sil`: the first run goes quiet for ~5-10 min (scene load + shader compile, cached afterwards), and `--start` runs until externally stopped - details in `test_scenario.md`. The one line not to copy from that file is its launch command, which carries `--enable-vst`.
 
 Ready when the forklift-controller log advances (`pose=` lines with changing coordinates) and all three streams DELIVER FRAMES - a listening port is not enough, since a cold Isaac accepts RTSP clients before the encoder produces its first frame:
 
@@ -126,7 +126,7 @@ Thor and redo §3's Isaac-warm-before-VSS bring-up order.
 |---|---|
 | `no caps` / `could not create SDP` on the Isaac streams | Sensors were registered against a cold Isaac (deploy order, §3) - probe and recovery in `troubleshooting.md`, RTSP Streams "no caps" |
 | VST sensors `online` but perception 0 fps, no errors | RTSP-over-UDP delivering no media (`vss_2d_overrides.md` VST Config); after an Isaac restart, follow "Restart the scenario (hil)" above - if it recurs after every restart it is stale sensor history on a previously-used Thor (`troubleshooting.md`, Stale Sensor History Replay) |
-| Forklift never moves | ROS discovery: all three x86 containers must see each other (`ros2 topic info -v /forklift_b/odom` from the forklift-controller must show a publisher — Isaac publishes `<ROBOT_ID>/odom` and subscribes `<ROBOT_ID>/cmd_vel`, per `configs/robots.yaml`, so keep `FORKLIFT_USE_NAMESPACE=true`; `false` points the controller at bare `/odom`, which nothing publishes. On multi-interface hosts LOCALHOST discovery scoping can isolate the containers - use SUBNET). Also confirm `configs/robots.yaml` exists |
+| Forklift never moves | ROS discovery: all three x86 containers must see each other (`ros2 topic info -v /forklift_b/odom` from the forklift-controller must show a publisher). Both sides take the topic names from one place — the robot's `control.cmd_vel_topic` and `odometry.odom_topic` in the fleet file — so they cannot disagree; the controller prints them as `[topics] cmd_vel=… odom=…` in its first lines. On multi-interface hosts LOCALHOST discovery scoping can isolate the containers - use SUBNET. Also confirm the fleet file the `SCENARIO` names exists |
 | Decisions flow but MUTE never fires | The forklift tripwire events need the forklift actually crossing the trailer tripwire; confirm the forklift moves on camera, then check the Safety Core was started on a clear scene (§4) - restart it at a clear moment otherwise |
 | comm-layer receives nothing | UDP path x86:`COMM_UDP_PORT` unreachable from the Thor, or `PSF_CMD_RX_IP/PORT` wrong in `hil-thor.env` |
 | Safety Core dies when the ssh session drops | Launch under `tmux`/`setsid` (§5) |

@@ -4,16 +4,21 @@
 # Launch robot controller with common options
 # Usage: ./launch_controller.sh [robot_id] [path_file]
 #
-# Namespaced topics by default: /{robot_id}/odom, /{robot_id}/cmd_vel.
-# CONTRACT: robot_id MUST match a robots.yaml `name` (forklift_b | forklift_b2)
-# — the Isaac graphs only subscribe /<robot_id>/cmd_vel and publish
-# /<robot_id>/odom. Example (second forklift):
-#   ./launch_controller.sh forklift_b2 waypoints/warehouse_40x20/forklift_b2.json
+# CONTRACT: robot_id MUST be a block name in the fleet file this reads — the
+# Isaac graphs only subscribe /<robot_id>/cmd_vel and publish /<robot_id>/odom,
+# and speed, heading and loop all come from that block. ROBOTS_CONFIG picks the
+# file and defaults to configs/robots.yaml, which declares forklift_b alone, so
+# a second truck names its file too. A robot_id the file does not declare is
+# refused by name rather than driven with defaults.
+#
+# Example (second forklift, 40x20):
+#   ROBOTS_CONFIG=robots-40x20.yaml WAYPOINTS_MAP=warehouse_40x20 \
+#     ./launch_controller.sh forklift_b2
 #
 # Waypoints live under waypoints/<map id>/ because their coordinates are metres in
 # one warehouse's world frame; WAYPOINTS_MAP picks the warehouse, the same
 # variable the compose services use, and defaults to the 20x20 scenes to match the
-# default configs/robots.yaml.
+# default fleet file. CONFIGS_DIR overrides where both are looked up.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_ID="${1:-forklift_b}"
@@ -41,16 +46,21 @@ echo "════════════════════════�
 echo ""
 
 cd "$SCRIPT_DIR"
-# python3 robot_controller.py \
-#     --robot-id "$ROBOT_ID" \
-#     --path "$PATH_FILE" \
-#     --speed 0.7
+
+# No drive knob is passed as a flag. A flag outranks the fleet file, so a speed
+# hardcoded here would quietly override robots.yaml and this script would drive
+# the truck differently from the deployment it exists to mimic — which is what it
+# used to do: --speed 1 against a fleet file that says 1.5. It reads the same
+# fleet file Isaac reads instead.
+CONFIGS_DIR="${CONFIGS_DIR:-$SCRIPT_DIR/../isaac-sim/sil/configs}"
+ROBOTS_CONFIG="${ROBOTS_CONFIG:-robots.yaml}"
+case "$ROBOTS_CONFIG" in /*) ;; *) ROBOTS_CONFIG="$CONFIGS_DIR/$ROBOTS_CONFIG" ;; esac
+# Where fleet_config imports the shared loader from: a mount in the container,
+# the checkout here.
+export ISAAC_SCRIPTS_DIR="${ISAAC_SCRIPTS_DIR:-$SCRIPT_DIR/../isaac-sim/sil/scripts}"
 
 exec python3 robot_controller.py \
     --robot-id "$ROBOT_ID" \
     --path "$PATH_FILE" \
-    --speed 1 \
-    --end-tolerance 1.0 \
-    --end-pose-count 5 \
-    --spiral-timeout 10.0 \
-    --loop
+    --configs-dir "$CONFIGS_DIR" \
+    --robots-config "$ROBOTS_CONFIG"

@@ -15,12 +15,11 @@ Multi-forklift support renamed the topics, TF frames and node name of the **defa
 | TF `odom` → `base_link` | TF `forklift_b/odom` → `forklift_b/base_link` |
 | node `robot_controller` | node `forklift_b_controller` |
 
-`forklift_b` is `FORKLIFT_ROBOT_ID`; a differently-named robot namespaces under its own name.
+`forklift_b` is the robot's `name` in the fleet file, which the controller service names as its `ROBOT_ID`; a differently-named robot namespaces under its own name.
 
 **Migrating from 1.3**
 
 - Scripts, RViz configs and dashboards that name any topic above: add the `<robot>/` prefix. RViz users also set the fixed frame to `forklift_b/odom`.
-- `FORKLIFT_USE_NAMESPACE=false` does **not** restore the old names. It points the controller at the bare topics while Isaac keeps publishing the namespaced ones, so the truck stops moving with nothing in any log. Leave it `true`.
 - Waypoints moved to a per-scene directory: `waypoints/waypoints.json` → `waypoints/<map id>/<ROBOT_ID>.json`. Coordinates are metres in one scene's world frame, so the wrong map drives a lane that was never validated in that warehouse — silently. `deployments/scripts/preflight.py` checks the pairing before Isaac boots.
 
 ### Breaking — one scenario id replaces four hand-kept choices
@@ -59,13 +58,20 @@ optional when a scenario names one; a flag still wins over the scenario.
   not `forklift_b` sets `ROBOT_ID` on the service. Nothing fails silently: the
   controller refuses to start when its `ROBOT_ID` is not in the fleet file, and
   says which names that file does declare.
+- **`FORKLIFT_WAYPOINT_FILE` no longer reaches the compose services.** It named
+  one file for the whole fleet, which is only ever right with one truck. The
+  scenario's waypoint directory plus each container's `ROBOT_ID` names the file
+  instead. `WAYPOINT_FILE` still works for `docker_run.sh`, where an environment
+  is per container by construction.
 - Drive knobs (`FORKLIFT_BASE_SPEED`, `FORKLIFT_HEADING_OFFSET`,
   `FORKLIFT_LOOP_PATH`, `FORKLIFT_ANGULAR_SPEED`, `FORKLIFT_NO_INVERT`,
   `FORKLIFT_END_TOLERANCE`, `FORKLIFT_END_POSE_COUNT`,
   `FORKLIFT_SPIRAL_TIMEOUT`) are no longer read from the environment. They were
   documented nowhere and set in no shipped profile, and one env var would have
   set every truck in the fleet at once. Per-truck values live in the robots
-  config; `docker_run.sh` and `launch_controller.sh` still pass them as flags.
+  config. `launch_controller.sh` still passes them as flags; `docker_run.sh`
+  mounts no fleet file and so runs on `fleet_config.DRIVE_DEFAULTS`, which hold
+  the same values `robots.yaml` states for `forklift_b`.
 
 ### Added
 
@@ -89,8 +95,55 @@ optional when a scenario names one; a flag still wins over the scenario.
 - `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.0 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
+- `robots*.yaml` `drive:` was the only block in this config family that accepted
+  unknown keys. `robots-40x20.yaml` had already lost the disc's `segments:` and
+  `height_offset:` to it, one indentation level too far — merged, never read,
+  and identical on screen because both values matched the loader's defaults.
+  The loader now names the drive knobs and refuses the rest, saying to check the
+  indentation; `fleet_config` asserts its defaults cover the same list, so the
+  two halves cannot drift.
+- `preflight.py` checked whichever fleet file was named on the command line
+  without asking whether the run would read that one. A wrong `--robots-config`
+  produced a green exit code describing a fleet nobody was launching; it is now
+  an error naming the file the scenario actually selects.
+- `entrypoint.sh` refuses a leftover `FORKLIFT_WAYPOINTS_DIR`, but compose never
+  passed the variable through, so the refusal could not fire on the one path the
+  docs teach. The env anchor now forwards it.
+- Isaac reported the fleet file as coming `from ROBOTS_CONFIG` even when the
+  scenario supplied it and that variable was empty — sending anyone debugging it
+  after the fact to look for a variable no profile sets.
+- `launch_controller.sh` passed `--speed 1` and four other drive knobs as flags.
+  A flag outranks the fleet file, so the repo's own launcher drove the truck at
+  1.0 m/s while `robots.yaml` said 1.5 — the fragmentation this release exists
+  to remove, in the one script a developer runs by hand. It now reads the same
+  fleet file Isaac does; `CONFIGS_DIR` / `ROBOTS_CONFIG` override it.
+- `--no-namespace` was deleted from the parser but `parse_known_args` handed it
+  to `rclpy`, which ignores it: a 1.3 caller's flag did nothing and said
+  nothing. Removed flags are now refused by name, the way `entrypoint.sh`
+  already refuses `FORKLIFT_WAYPOINTS_DIR`. Genuine ROS arguments still pass
+  through untouched.
+- `preflight.py` caught a robot with `control:` enabled and no controller
+  service, but not the reverse: a controller service driving a robot whose
+  `control:` is disabled publishes into a topic Isaac never subscribes, and the
+  truck stands still with neither side logging anything. Both directions are
+  errors now. No shipped config sets `enabled: false`, so this closes a hole
+  rather than fixing an observed failure.
+- `run_sdg.sh` still documented `-c` as required after `--scenario` began
+  supplying the IRA config. The wrapper is a pure passthrough, so only the usage
+  text was wrong; the launch itself already worked without it.
 
 ### Changed
 
-- The second controller's knobs are `FORKLIFT_B2_*` env vars instead of literals in `forklift-controller.yml`; defaults are unchanged, so a deployment that sets nothing behaves exactly as before.
-- `sil.env` and `hil.env` now list the forklift driving knobs (speed, heading, loop, tolerances) that were previously settable but documented nowhere.
+- The second controller is no longer a copy of the first: both services share
+  one env anchor and one volume anchor, and differ only by `ROBOT_ID`. Its
+  speed and route come from `robots-2fl.yaml` like every other truck's.
+- **The controller image is again the only source of the code it runs.** The
+  `.:/app:ro` bind that mounted the host checkout over `/app` is gone, so
+  `docker run forklift-controller:latest` behaves like the compose stack.
+  Editing controller source now needs `up -d --build`. Two defects came out of
+  that bind and are fixed with it: `fleet_config.py` was missing from the
+  Dockerfile (the image alone died at import, which only `docker_run.sh` ever
+  hit), and the new `/app/robots` and `/app/isaac` mounts had nowhere to attach
+  under a read-only `/app` — on a fresh clone the container never started at
+  all. Neither was visible to a static check: git does not track empty
+  directories, and the bind hid the missing file.

@@ -723,7 +723,7 @@ Examples:
     parser.add_argument("-c", "--config_file",
                         help="Path to IRA config file (yaml); optional when SCENARIO names one")
     parser.add_argument("--scenario",
-                        help="Scenario id under configs/scenarios/; fills the ira/robots/cameras trio")
+                        help="Scenario id from configs/scenarios.yaml; fills the ira/robots/cameras trio")
     parser.add_argument("--start", action="store_true", help="Automatically start data generation")
     parser.add_argument("--setup-only", action="store_true", help="Only setup simulation, don't wait for data generation")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode (no GUI window)")
@@ -896,7 +896,7 @@ def main():
         args.config_file = os.path.join(_configs_dir, scenario["ira"])
     if not args.config_file:
         print("ERROR: no IRA config. Pass -c, or set SCENARIO to a scenario that "
-              "names one (configs/scenarios/).", file=sys.stderr)
+              "names one (configs/scenarios.yaml).", file=sys.stderr)
         sys.exit(2)
     config_file_path = os.path.abspath(args.config_file)
     if not os.path.isfile(config_file_path):
@@ -1021,8 +1021,12 @@ def main():
     # forklift-controller containers, so the two cannot be launched against
     # different fleets. A bare name is resolved per container against its own
     # mount; the flag still wins for a one-off run.
-    env_robots = (os.environ.get("ROBOTS_CONFIG", "").strip()
-                  or scenario.get("robots", ""))
+    env_robots = os.environ.get("ROBOTS_CONFIG", "").strip()
+    robots_source = "ROBOTS_CONFIG"
+    if not env_robots:
+        env_robots = scenario.get("robots", "")
+        robots_source = f"SCENARIO={args.scenario or os.environ.get('SCENARIO', '')}"
+
     wants_robots = args.enable_forklift or args.enable_clock or args.enable_forklift_spawn
     if args.robots_config:
         robots_config_path = os.path.abspath(args.robots_config)
@@ -1032,10 +1036,10 @@ def main():
         robots_config_path = (env_robots if os.path.isabs(env_robots)
                               else os.path.join(configs_dir, env_robots))
         if not os.path.isfile(robots_config_path):
-            print(f"WARNING: ROBOTS_CONFIG={env_robots} resolves to a missing file: "
-                  f"{robots_config_path}", file=sys.stderr)
+            print(f"WARNING: {robots_source} -> {env_robots} resolves to a missing "
+                  f"file: {robots_config_path}", file=sys.stderr)
         else:
-            print(f"Robots config from ROBOTS_CONFIG: {robots_config_path}")
+            print(f"Robots config from {robots_source}: {robots_config_path}")
     elif wants_robots:
         default_robots_yaml = os.path.join(configs_dir, "robots.yaml")
         if os.path.isfile(default_robots_yaml):

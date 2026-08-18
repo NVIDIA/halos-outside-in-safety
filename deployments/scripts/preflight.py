@@ -276,10 +276,31 @@ def _check_origin(service_name, robot, waypoint, host_path, baked, baked_reason)
     ))]
 
 
-def check(common, robots, controllers, comm_ids, scene_path=None) -> list[tuple[str, str]]:
+def check(common, robots, controllers, comm_ids, scene_path=None,
+          robots_yaml=None) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     robot_names = [r["name"] for r in robots]
     by_name = {r["name"]: r for r in robots}
+
+    # Everything below reads the file named on the command line. If the run will
+    # read a different one, every finding is about a fleet that is not the one
+    # being launched — a green exit code for the wrong config, which is worse
+    # than no check at all. Reported once, not once per controller.
+    if robots_yaml:
+        checked = os.path.basename(robots_yaml)
+        mismatched = {}
+        for service_name, svc in sorted(controllers.items()):
+            effective = ((svc["environment"].get("ROBOTS_CONFIG") or "").strip()
+                         or _scenario_value(svc, "robots") or "")
+            if effective and os.path.basename(effective) != checked:
+                mismatched[os.path.basename(effective)] = service_name
+        for effective, service_name in sorted(mismatched.items()):
+            findings.append((ERROR, (
+                f"preflight was given {checked}, but {service_name} will read "
+                f"{effective} (from its SCENARIO, or ROBOTS_CONFIG overriding it). "
+                f"Everything below is about the wrong fleet — re-run with "
+                f"--robots-config .../{effective}."
+            )))
 
     # One stage open for the whole fleet, and only when a robot is actually baked.
     baked: dict[str, tuple[float, float]] = {}
@@ -312,6 +333,14 @@ def check(common, robots, controllers, comm_ids, scene_path=None) -> list[tuple[
                 f"controller {service_names[0]} drives '{robot_id}', which is not in "
                 f"the robots config. Isaac builds no graph for it, so its cmd_vel goes "
                 f"nowhere — rename it, or add the robot."
+            )))
+        elif not common.is_section_enabled(by_name[robot_id], "control"):
+            findings.append((ERROR, (
+                f"controller {service_names[0]} drives '{robot_id}', whose control: "
+                f"block is disabled. Isaac builds no cmd_vel subscriber, so the "
+                f"controller publishes into nothing and the truck stands still with "
+                f"neither side logging anything. Enable control: for '{robot_id}', or "
+                f"drop the service from COMPOSE_PROFILES."
             )))
 
     for robot in robots:
@@ -417,7 +446,7 @@ def main() -> int:
     print(f"COMM_ROBOT_IDS: {', '.join(comm_ids) or '<empty>'}")
     print()
 
-    findings = check(common, robots, controllers, comm_ids, scene_path)
+    findings = check(common, robots, controllers, comm_ids, scene_path, robots_yaml)
     if not findings:
         print("OK — all four lists agree, and every waypoint origin matches its truck.")
         return 0

@@ -26,18 +26,11 @@ DOCKER_ARGS=(
     docker run --rm --name "$NAME" --network host
     -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    # Defaults mirror the compose forklift-controller service (forklift-controller.yml)
-    # so a standalone run behaves like the tested stack: robots.yaml uses namespaced
-    # topics (/forklift_b/{odom,cmd_vel}) and the forklift_b prim is 180-deg Z oriented.
+    # No fleet file is mounted here, so the drive knobs come from
+    # fleet_config.DRIVE_DEFAULTS — which hold the same values robots.yaml
+    # states for forklift_b. Naming a truck other than the default therefore
+    # gets the default's speed and heading; use compose for a real fleet.
     -e ROBOT_ID="${ROBOT_ID:-forklift_b}"
-    -e BASE_SPEED="${BASE_SPEED:-1.5}"
-    -e ANGULAR_SPEED="${ANGULAR_SPEED:-0.4}"
-    -e HEADING_OFFSET="${HEADING_OFFSET:-180}"
-    -e LOOP_PATH="${LOOP_PATH:-true}"
-    -e NO_INVERT="${NO_INVERT:-false}"
-    -e END_TOLERANCE="${END_TOLERANCE:-1.0}"
-    -e END_POSE_COUNT="${END_POSE_COUNT:-5}"
-    -e SPIRAL_TIMEOUT="${SPIRAL_TIMEOUT:-10.0}"
 )
 
 # Mount waypoints if provided
