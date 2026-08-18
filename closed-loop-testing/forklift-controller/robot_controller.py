@@ -726,15 +726,11 @@ def main():
     # flag this release removed would therefore do nothing and say nothing, and
     # the caller would go on believing it still works. Refuse instead — the same
     # choice entrypoint.sh makes for the waypoints variable this release removed.
-    removed_flags = {
-        '--no-namespace': "topic names come from the robot's block in the fleet "
-                          "file (control.cmd_vel_topic / odometry.odom_topic), so "
-                          "there is no namespace toggle left to switch off",
-    }
-    for token in unknown:
-        flag = token.split('=', 1)[0]
-        if flag in removed_flags:
-            parser.error(f"{flag} was removed: {removed_flags[flag]}")
+    if any(token.split('=', 1)[0] == '--no-namespace' for token in unknown):
+        parser.error(
+            "--no-namespace was removed: topic names come from the robot's block "
+            "in the fleet file (control.cmd_vel_topic / odometry.odom_topic), so "
+            "there is no namespace toggle left to switch off")
 
     # A scenario names the fleet file and the map; an explicit flag still wins.
     robots_config, waypoints_map = args.robots_config, args.map
