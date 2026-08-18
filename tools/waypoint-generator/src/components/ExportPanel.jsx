@@ -20,7 +20,7 @@ export default function ExportPanel({ mapConfig, waypoints, origin, onImport }) 
       {
         x: origin.x,
         y: origin.y,
-        theta_deg: origin.theta_deg || 0,
+        theta_deg: origin.theta_deg ?? 0,
         reverse: false,  // Origin is never reverse
       },
       // Then all user waypoints
@@ -49,6 +49,10 @@ export default function ExportPanel({ mapConfig, waypoints, origin, onImport }) 
       origin: origin ? {
         world_x: parseFloat(origin.x.toFixed(3)),
         world_y: parseFloat(origin.y.toFixed(3)),
+        // The heading the truck starts at. The controller reads only world_x
+        // and world_y, but this is what shaped the first segment's poses, so
+        // without it re-importing the file would silently redraw them from 0.
+        theta_deg: Math.round(origin.theta_deg ?? 0),
       } : null,
       waypoints: waypoints.map((wp, index) => ({
         // Odom coordinates (relative to origin)

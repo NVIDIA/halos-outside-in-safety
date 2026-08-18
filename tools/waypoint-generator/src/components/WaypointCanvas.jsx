@@ -205,7 +205,10 @@ export default function WaypointCanvas({
       ctx.stroke();
       
       // Draw forklift footprint at origin (showing starting position) - NVIDIA green
-      drawForkliftFootprint(ctx, originPixel.x, originPixel.y, 0, zoom, 'rgba(118, 185, 0, 0.25)', '#76b900');
+      drawForkliftFootprint(
+        ctx, originPixel.x, originPixel.y, origin.theta_deg ?? 0, zoom,
+        'rgba(118, 185, 0, 0.25)', '#76b900'
+      );
     }
     
     // Helper function to draw forklift footprint (simple clean design)
@@ -269,7 +272,10 @@ export default function WaypointCanvas({
       const originWaypoint = {
         x: origin.x,
         y: origin.y,
-        theta_deg: 0, // Origin heading (forklift starts pointing right)
+        // The heading the truck starts at. It aims the first Bezier control
+        // point, so a wrong value bends the opening segment out of the truck's
+        // actual facing.
+        theta_deg: origin.theta_deg ?? 0,
         reverse: false,
       };
       
@@ -533,8 +539,15 @@ export default function WaypointCanvas({
       ctx.stroke();
     }
     
-    // Draw origin preview (when in origin mode)
+    // Draw origin preview (when in origin mode). The body and arrow show the
+    // heading the click is about to commit, so the start pose is not placed
+    // blind and then only discovered in the exported poses.
     if (mode === 'origin' && mousePos.x > 0 && mousePos.y > 0) {
+      drawForkliftFootprint(
+        ctx, mousePos.x, mousePos.y, previewHeading, zoom,
+        'rgba(0, 170, 255, 0.15)', 'rgba(0, 170, 255, 0.6)'
+      );
+
       ctx.strokeStyle = 'rgba(0, 170, 255, 0.6)';
       ctx.lineWidth = 2 / zoom;
       ctx.setLineDash([4 / zoom, 4 / zoom]);
@@ -545,6 +558,18 @@ export default function WaypointCanvas({
         ORIGIN_RADIUS * 2
       );
       ctx.setLineDash([]);
+
+      const originHeadingRad = (previewHeading * Math.PI) / 180;
+      const originArrowLen = ARROW_LENGTH / zoom;
+      ctx.beginPath();
+      ctx.moveTo(mousePos.x, mousePos.y);
+      ctx.lineTo(
+        mousePos.x + Math.cos(originHeadingRad) * originArrowLen,
+        mousePos.y - Math.sin(originHeadingRad) * originArrowLen
+      );
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 2 / zoom;
+      ctx.stroke();
     }
     
     ctx.restore();
@@ -607,7 +632,7 @@ export default function WaypointCanvas({
       
       if (mode === 'origin') {
         const world = pixelToWorld(imagePos.x, imagePos.y);
-        onSetOrigin?.({ x: world.x, y: world.y });
+        onSetOrigin?.({ x: world.x, y: world.y, theta_deg: previewHeading });
       } else if (mode === 'waypoint' && origin) {
         // Check if clicking on existing waypoint
         const wpIndex = findWaypointAt(imagePos.x, imagePos.y);
@@ -687,15 +712,11 @@ export default function WaypointCanvas({
   const handleWheel = (e) => {
     e.preventDefault();
     
-    if (e.shiftKey && mode === 'waypoint') {
-      // Shift + scroll = adjust preview heading
+    if (e.shiftKey && (mode === 'waypoint' || mode === 'origin')) {
+      // Shift + scroll = adjust preview heading (the origin's own start heading
+      // while in origin mode)
       const delta = e.deltaY > 0 ? -10 : 10;
-      onUpdatePreviewHeading?.(prev => {
-        let newHeading = prev + delta;
-        while (newHeading > 180) newHeading -= 360;
-        while (newHeading < -180) newHeading += 360;
-        return newHeading;
-      });
+      onUpdatePreviewHeading?.(coords.normalizeAngle(previewHeading + delta));
     } else {
       // Normal scroll = zoom
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
