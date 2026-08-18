@@ -10,8 +10,8 @@ A web-based tool to visually create waypoints for forklift navigation on the war
 - **Multiple maps**, one per Isaac scene, picked from a dropdown; adding one needs
   no code change
 - **Pan/Zoom** navigation (Alt+Drag or Middle Mouse to pan, Scroll to zoom)
-- **Origin point selection** for odom frame reference
-- **Heading control** via Shift+Scroll or slider
+- **Origin pose selection** for odom frame reference — position and start heading
+- **Heading control** via Shift+Scroll or slider, for waypoints and the origin alike
 - **Drag-and-drop** waypoint reordering
 - **Export** to JSON (waypoints plus interpolated poses for curve following)
 - **Import** existing waypoint files (JSON or YAML)
@@ -36,7 +36,7 @@ npm run dev
 
 ### Basic Workflow
 
-1. **Set Origin**: Click "Set Origin" mode and click on the map where the forklift starts (or use "Use Default Forklift Start")
+1. **Set Origin**: Click "Set Origin" mode and click on the map where the forklift starts (or use "Use Default Forklift Start"). Set the start heading the same way as for a waypoint — Shift+Scroll or the sidebar slider — before clicking; the preview body shows what the click will commit. Turning the slider while in this mode re-aims an origin already placed, without discarding the waypoints drawn from it. Leave the heading at 0 unless you know otherwise — see [Which way the truck faces](#which-way-the-truck-faces).
 
 2. **Add Waypoints**: Switch to "Add Waypoint" mode, then click on the map to add waypoints. Use Shift+Scroll to adjust heading before clicking.
 
@@ -61,6 +61,28 @@ npm run dev
 - **World**: Isaac Sim global coordinates (meters)
 - **Odom**: Relative to origin point
 
+### Which way the truck faces
+
+The forklift controller runs with pose inversion on — `invert_poses` defaults to
+true and the compose file sets `NO_INVERT=false` explicitly — so it mirrors the
+whole path 180 degrees about the origin before driving it, and adds
+`HEADING_OFFSET=180` to the truck's measured heading. **A path drawn heading
+east here is driven heading west.** That is not a bug to fix in this tool; it is
+how the forklift asset's forward axis is reconciled with the odom frame, and the
+paths under `forklift-controller/waypoints/` are all drawn that way.
+
+The consequence is that the origin's heading here is **not** the truck's yaw in
+the scene. The maps' `defaultForkliftStart.theta_deg` is 180 because that is
+where the prim points, but the origin heading that makes a path drivable is 0.
+"Use Default Forklift Start" therefore takes only the position from the map
+config and leaves the heading at 0. Setting it to 180 to "match the scene" puts
+the opening pose 180 degrees away from the spawned truck, and it spins on the
+spot instead of pulling away.
+
+Turn the origin off 0 only for a truck that genuinely starts at an angle to the
+aisle, and check the first exported pose against where the truck stands before
+running it.
+
 ## Output Format
 
 The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment the controller reads `<ROBOT_ID>.json` from the set named by `FORKLIFT_WAYPOINTS_DIR`, which is `closed-loop-testing/forklift-controller/waypoints/<map id>/` — so an exported path replaces the file of the same robot name under the map it was drawn on. The `map` block this tool writes records that id, and `deployments/scripts/preflight.py` checks the file's `origin` against where the truck actually stands.
@@ -74,7 +96,8 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
   },
   "origin": {
     "world_x": 1.0,
-    "world_y": -13.39
+    "world_y": -13.39,
+    "theta_deg": 0
   },
   "waypoints": [
     {
@@ -109,7 +132,11 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
   one. The two scenes place their forklift barely a metre apart, so without this
   a path from the wrong warehouse reads as perfectly plausible. Importing a file
   whose `map.id` is not the open map offers to switch first.
-- `origin`: Robot starting position in world coordinates
+- `origin`: Robot starting pose in world coordinates. The controller and
+  `preflight.py` read only `world_x`/`world_y`, but `theta_deg` is what aimed the
+  first Bezier control point, so the opening segment's `poses` cannot be
+  reproduced without it. A file whose `origin` has no `theta_deg` predates the
+  field and is read back as 0, which is how it was written.
 - `waypoints`: User-defined waypoints with odom (x, y) and world coordinates
 - `poses`: Intermediate points for smooth curved path (consumed by the forklift controller)
 - `segments`: Path segment info with reverse flag for each waypoint pair
@@ -121,7 +148,8 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 | Pan view | Alt+Drag or Middle Mouse |
 | Zoom | Scroll |
 | Add waypoint | Left Click (in Add mode) |
-| Adjust heading | Shift+Scroll |
+| Set origin | Left Click (in Set Origin mode) |
+| Adjust heading | Shift+Scroll (in Add or Set Origin mode) |
 | Select waypoint | Click on waypoint |
 | Move waypoint | Drag waypoint |
 
@@ -182,7 +210,7 @@ The calibration fields:
 |---|---|
 | `scaleFactor` | Pixels per metre |
 | `translationToGlobalCoordinates` | World origin offset, in metres |
-| `defaultForkliftStart` | Where "Use Default Forklift Start" puts the origin |
+| `defaultForkliftStart` | Where "Use Default Forklift Start" puts the origin. Its `theta_deg` records the prim's yaw for reference only — the button does not apply it, see [Which way the truck faces](#which-way-the-truck-faces) |
 | `forkliftDimensions` | Body drawn on the canvas, in metres |
 | `scene` | The scene USD this plan view was rendered from |
 

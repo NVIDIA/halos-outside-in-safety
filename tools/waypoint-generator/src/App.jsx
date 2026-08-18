@@ -170,6 +170,27 @@ function App() {
     setSelectedIndex(-1);
   }, []);
 
+  // Entering Set Origin picks up the heading the origin already has, so the
+  // knob starts where the truck is pointing instead of snapping it to whatever
+  // the last waypoint used.
+  const handleEnterOriginMode = useCallback(() => {
+    if (origin && typeof origin.theta_deg === 'number') {
+      setPreviewHeading(origin.theta_deg);
+    }
+    setMode('origin');
+  }, [origin]);
+
+  // One knob serves both modes: it aims the next waypoint, and in Set Origin it
+  // turns the origin itself. Re-placing the origin is the only other way to
+  // change the start heading, and that clears every waypoint — they are
+  // measured from the origin, so nudging the truck's facing must not bin them.
+  const handleUpdateHeading = useCallback((heading) => {
+    setPreviewHeading(heading);
+    if (mode === 'origin') {
+      setOrigin(prev => (prev ? { ...prev, theta_deg: heading } : prev));
+    }
+  }, [mode]);
+
   // Add waypoint (normal forward)
   const handleAddWaypoint = useCallback((wp) => {
     setWaypoints(prev => [...prev, { ...wp, note: '', reverse: false }]);
@@ -241,7 +262,12 @@ function App() {
     }
 
     if (data.origin) {
-      setOrigin({ x: data.origin.world_x, y: data.origin.world_y });
+      // Files written before the origin carried a heading were exported with it
+      // fixed at 0, so defaulting to 0 reproduces them rather than re-aiming a
+      // path whose poses were already baked that way.
+      const theta = data.origin.theta_deg ?? 0;
+      setOrigin({ x: data.origin.world_x, y: data.origin.world_y, theta_deg: theta });
+      setPreviewHeading(theta);
     }
     if (data.waypoints) {
       setWaypoints(data.waypoints.map(wp => ({
@@ -268,7 +294,13 @@ function App() {
   const handleUseDefaultOrigin = useCallback(() => {
     const defaultStart = mapConfig?.defaultForkliftStart;
     if (!defaultStart) return;
-    setOrigin({ x: defaultStart.world_x, y: defaultStart.world_y });
+    // Only the position comes from the map config. Its theta_deg is the scene
+    // prim's yaw (180 on every map here), which is NOT the heading this file
+    // wants: the controller runs with invert_poses, mirroring the whole path
+    // 180 degrees about the origin, so a truck facing west is driven by a path
+    // drawn heading east. Seeding 180 here puts the opening pose 180 degrees
+    // off the spawned truck and it spins on the spot. See the README.
+    setOrigin({ x: defaultStart.world_x, y: defaultStart.world_y, theta_deg: 0 });
     setMode('waypoint');
     setWaypoints([]);
     setSelectedIndex(-1);
@@ -360,7 +392,7 @@ function App() {
             <div className="mode-buttons">
               <button
                 className={`mode-btn ${mode === 'origin' ? 'active' : ''}`}
-                onClick={() => setMode('origin')}
+                onClick={handleEnterOriginMode}
               >
                 Set Origin
               </button>
@@ -388,19 +420,25 @@ function App() {
               </div>
             )}
             
-            {mode === 'waypoint' && origin && (
+            {(mode === 'origin' || (mode === 'waypoint' && origin)) && (
               <div className="heading-control">
-                <label>Preview Heading: {previewHeading}°</label>
+                <label>
+                  {mode === 'origin' ? 'Start Heading' : 'Preview Heading'}: {previewHeading}°
+                </label>
                 <input
                   type="range"
                   min="-180"
                   max="180"
                   step="5"
                   value={previewHeading}
-                  onChange={(e) => setPreviewHeading(parseInt(e.target.value))}
+                  onChange={(e) => handleUpdateHeading(parseInt(e.target.value))}
                 />
                 <p className="hint">Shift+Scroll to adjust on canvas</p>
-                <p className="hint">Right-click: Add reverse waypoint</p>
+                {mode === 'origin' ? (
+                  <p className="hint">The direction the forklift starts facing</p>
+                ) : (
+                  <p className="hint">Right-click: Add reverse waypoint</p>
+                )}
               </div>
             )}
           </div>
@@ -434,7 +472,7 @@ function App() {
             onAddReverseWaypoint={handleAddReverseWaypoint}
             onSelectWaypoint={handleSelectWaypoint}
             onSetOrigin={handleSetOrigin}
-            onUpdatePreviewHeading={setPreviewHeading}
+            onUpdatePreviewHeading={handleUpdateHeading}
             onMoveWaypoint={handleMoveWaypoint}
           />
         </main>
