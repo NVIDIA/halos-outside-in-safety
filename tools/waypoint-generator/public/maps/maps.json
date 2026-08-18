@@ -1,11 +1,11 @@
 [
   {
     "id": "warehouse_40x20",
-    "name": "Warehouse 40x20 — two docks",
-    "default": true
+    "name": "Warehouse 40x20 — two docks"
   },
   {
     "id": "warehouse_20x20",
-    "name": "Warehouse 20x20 — one dock"
+    "name": "Warehouse 20x20 — one dock",
+    "default": true
   }
 ]

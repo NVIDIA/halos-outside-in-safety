@@ -1,3 +1,26 @@
+# Everything every forklift controller shares. A truck differs only in its
+# ROBOT_ID — speed, heading and route all come from its block in the robots
+# config. One container drives one truck, so which truck it is has to be said
+# here; everything else about it is said once, in the fleet file.
+x-forklift-env: &forklift-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  ROS_AUTOMATIC_DISCOVERY_RANGE: ${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  # Isaac reads the same SCENARIO, so the two cannot run different halves of one
+  # run. It names the fleet file and the map; the two below override it per run.
+  SCENARIO: ${SCENARIO:-}
+  ROBOTS_CONFIG: ${ROBOTS_CONFIG:-}
+  WAYPOINTS_MAP: ${WAYPOINTS_MAP:-}
+
+x-forklift-volumes: &forklift-volumes
+  # The robots config and the loader that reads it. Shared rather than copied:
+  # two implementations of the `models:` merge would be two things to keep agreeing.
+  - ${ISAAC_SIL_DIR:-../isaac-sim/sil}/configs:/app/robots:ro
+  - ${ISAAC_SIL_DIR:-../isaac-sim/sil}/scripts:/app/isaac:ro
+  # The whole tree, not one warehouse: the map is chosen inside the container.
+  - ./waypoints:/app/waypoints:ro
+  - .:/app:ro
+
 services:
   forklift-controller:
     build:
@@ -8,34 +31,12 @@ services:
     profiles: ["sil", "hil"]
     network_mode: host
     environment:
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      - ROBOT_ID=${FORKLIFT_ROBOT_ID:-forklift_b}   # fallback matches robots.yaml block name (contract: ROBOT_ID == robots.yaml name == prim leaf)
-      - BASE_SPEED=${FORKLIFT_BASE_SPEED:-1.5}
-      - ANGULAR_SPEED=${FORKLIFT_ANGULAR_SPEED:-0.4}
-      - HEADING_OFFSET=${FORKLIFT_HEADING_OFFSET:-180.0}
-      - USE_NAMESPACE=${FORKLIFT_USE_NAMESPACE:-true}   # robots.yaml topics are namespaced (forklift_b/cmd_vel, forklift_b/odom) — false = silent no-op
-      - LOOP_PATH=${FORKLIFT_LOOP_PATH:-true}
-      - NO_INVERT=${FORKLIFT_NO_INVERT:-false}
-      - END_TOLERANCE=${FORKLIFT_END_TOLERANCE:-1.0}
-      - END_POSE_COUNT=${FORKLIFT_END_POSE_COUNT:-5}
-      - SPIRAL_TIMEOUT=${FORKLIFT_SPIRAL_TIMEOUT:-10.0}
-      - WAYPOINT_FILE=${FORKLIFT_WAYPOINT_FILE:-/app/waypoints/forklift_b.json}   # <ROBOT_ID>.json convention
-    volumes:
-      # A path is metres in one scene's world frame, so the set is chosen per scene:
-      # waypoints/<map id>/<ROBOT_ID>.json. The default matches the default robots
-      # config (robots.yaml, the 20x20 one dock scene) — point FORKLIFT_WAYPOINTS_DIR
-      # at warehouse_40x20 when launching the 40x20 config trio. Getting this wrong
-      # is silent: the controller subtracts origin from every world pose, so any set
-      # runs, just along a lane that was never validated in that warehouse.
-      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints/warehouse_20x20}:/app/waypoints:ro
-      - .:/app:ro
+      <<: *forklift-env
+      ROBOT_ID: forklift_b   # contract: ROBOT_ID == robots config block name == prim leaf
+    volumes: *forklift-volumes
     restart: unless-stopped
 
-  # Second forklift controller (multi-robot). Same image, literal env values
-  # (the FORKLIFT_* interpolation vars above belong to the primary service).
-  # Enable via COMPOSE_PROFILES=sil,multi-robot in the env file.
+  # Second forklift controller. Enable via COMPOSE_PROFILES=sil,multi-robot.
   forklift-controller-b2:
     image: forklift-controller:latest
     pull_policy: never   # image is built by the primary service; never try a registry pull
@@ -43,23 +44,7 @@ services:
     profiles: ["multi-robot"]
     network_mode: host
     environment:
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-      - ROBOT_ID=forklift_b2
-      - BASE_SPEED=1.0                # per-robot static speed (m/s) — tune freely
-      - ANGULAR_SPEED=0.4
-      - HEADING_OFFSET=180.0          # same asset/orientation as forklift_b
-      - USE_NAMESPACE=true            # required: without it both robots share /odom and /cmd_vel
-      - LOOP_PATH=true
-      - NO_INVERT=false               # clone keeps forklift_b's 180-deg Z orientation
-      - END_TOLERANCE=1.0
-      - END_POSE_COUNT=5
-      - SPIRAL_TIMEOUT=10.0
-      - WAYPOINT_FILE=/app/waypoints/forklift_b2.json
-    volumes:
-      # Same directory as the primary service by construction: one FORKLIFT_WAYPOINTS_DIR
-      # for the whole fleet, because two trucks in one scene share its world frame.
-      - ${FORKLIFT_WAYPOINTS_DIR:-./waypoints/warehouse_20x20}:/app/waypoints:ro
-      - .:/app:ro
+      <<: *forklift-env
+      ROBOT_ID: forklift_b2
+    volumes: *forklift-volumes
     restart: unless-stopped

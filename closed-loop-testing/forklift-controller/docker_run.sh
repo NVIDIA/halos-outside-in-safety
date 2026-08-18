@@ -33,7 +33,6 @@ DOCKER_ARGS=(
     -e BASE_SPEED="${BASE_SPEED:-1.5}"
     -e ANGULAR_SPEED="${ANGULAR_SPEED:-0.4}"
     -e HEADING_OFFSET="${HEADING_OFFSET:-180}"
-    -e USE_NAMESPACE="${USE_NAMESPACE:-true}"
     -e LOOP_PATH="${LOOP_PATH:-true}"
     -e NO_INVERT="${NO_INVERT:-false}"
     -e END_TOLERANCE="${END_TOLERANCE:-1.0}"
@@ -49,5 +48,5 @@ if [ -n "$1" ]; then
 fi
 
 echo "Starting $NAME (ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}) ..."
-echo "Note: robots.yaml uses namespaced topics (/\${ROBOT_ID}/cmd_vel, /\${ROBOT_ID}/odom) — override ROBOT_ID/USE_NAMESPACE only for the legacy global-topic mode."
+echo "Note: topic names come from the robot's block in the robots config; without one, they default to /\${ROBOT_ID}/cmd_vel and /\${ROBOT_ID}/odom."
 exec "${DOCKER_ARGS[@]}" "$IMAGE"

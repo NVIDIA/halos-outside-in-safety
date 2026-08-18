@@ -43,7 +43,10 @@ done
 [ "${HOST_IP:-}" = "${PEER_HOST_IP:-}" ] && fail "HOST_IP equals PEER_HOST_IP - hil is a two-host profile (use the sil profile for single-host)"
 
 # --- 2. Cross-file invariants ---
-[ "${COMPOSE_PROFILES:-}" = "hil" ] || warn "COMPOSE_PROFILES is '${COMPOSE_PROFILES:-}' (expected hil)"
+case "${COMPOSE_PROFILES:-}" in
+    hil|hil,multi-robot|multi-robot,hil) ok "COMPOSE_PROFILES=${COMPOSE_PROFILES}" ;;
+    *) warn "COMPOSE_PROFILES is '${COMPOSE_PROFILES:-}' (expected hil, or hil,multi-robot for two forklifts)" ;;
+esac
 [ -n "${COMM_UDP_PORT:-}" ] || fail "COMM_UDP_PORT not set (the Thor's PSF_CMD_RX_PORT must match it)"
 [ -d "${MDX_SAMPLE_APPS_DIR:-/nonexistent}/closed-loop-testing" ] || fail "MDX_SAMPLE_APPS_DIR does not look like the repo root"
 [ -d "${MDX_DATA_DIR:-/nonexistent}/collected-assets" ] || warn "MDX_DATA_DIR has no collected-assets/ yet (ngc_artifacts.md §1)"

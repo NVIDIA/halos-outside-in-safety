@@ -18,6 +18,7 @@ LABEL version="1.0.0"
 # Install system dependencies and CycloneDDS for Isaac Sim compatibility
 RUN apt-get update && apt-get install -y \
     python3-pip \
+    python3-yaml \
     python3-dev \
     ros-jazzy-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
@@ -40,20 +41,13 @@ COPY waypoints/ /app/waypoints/
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Environment defaults
+# Environment defaults. The drive knobs (speed, heading, tolerances, …) are
+# deliberately NOT set here: an image-level value is indistinguishable from one
+# the operator asked for, and would outrank the robot's own drive: block in
+# robots.yaml every time. Their defaults live in fleet_config.DRIVE_DEFAULTS.
 ENV ROS_DOMAIN_ID=0
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV ROBOT_ID=forklift_b
-ENV BASE_SPEED=1.5
-ENV ANGULAR_SPEED=0.4
-ENV HEADING_OFFSET=180
-ENV USE_NAMESPACE=true
-ENV LOOP_PATH=true
-ENV NO_INVERT=false
-ENV END_TOLERANCE=1.0
-ENV END_POSE_COUNT=5
-ENV SPIRAL_TIMEOUT=10.0
-ENV WAYPOINT_FILE=""
 
 # Disable Python output buffering for real-time logs
 ENV PYTHONUNBUFFERED=1

@@ -16,6 +16,7 @@ This is the main controller that:
 4. Publishes cmd_vel with applied speed_factor
 """
 
+import fleet_config
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -27,6 +28,7 @@ from std_msgs.msg import ColorRGBA
 from rosgraph_msgs.msg import Clock
 
 import json
+import os
 import math
 import time
 import argparse
@@ -50,7 +52,7 @@ class RobotController(Node):
                  loop: bool = False,
                  invert_poses: bool = True,
                  heading_offset: float = math.pi,
-                 use_namespace: bool = True,
+                 topics: Optional[dict] = None,
                  end_tolerance: float = 1.5,
                  end_pose_count: int = 3,
                  spiral_timeout: float = 15.0):
@@ -65,7 +67,6 @@ class RobotController(Node):
         self.loop = loop
         self.invert_poses = invert_poses
         self.heading_offset = heading_offset
-        self.use_namespace = use_namespace
         
         # State machine
         self.state_machine = StateMachine(logger=self.get_logger())
@@ -117,19 +118,16 @@ class RobotController(Node):
         )
         
         # ===== Topic names =====
-        # Use namespace if enabled, otherwise use global topics (like curve_follower.py)
-        if use_namespace:
-            odom_topic = f'/{robot_id}/odom'
-            cmd_vel_topic = f'/{robot_id}/cmd_vel'
-            state_topic = f'/{robot_id}/state'
-            path_topic = f'/{robot_id}/planned_path'
-            marker_topic = f'/{robot_id}/markers'
-        else:
-            odom_topic = '/odom'
-            cmd_vel_topic = '/cmd_vel'
-            state_topic = f'/{robot_id}/state'  # Keep state namespaced for monitoring
-            path_topic = '/planned_path'
-            marker_topic = '/curve_follower/markers'
+        # From the robot's own block in the fleet file, which is also where Isaac
+        # reads them: one declaration, so the two sides cannot disagree about
+        # what this truck listens on. Falls back to the namespaced convention
+        # when there is no fleet file (a run started by hand).
+        topics = topics or {}
+        cmd_vel_topic = topics.get('cmd_vel') or f'/{robot_id}/cmd_vel'
+        odom_topic = topics.get('odom') or f'/{robot_id}/odom'
+        state_topic = f'/{robot_id}/state'
+        path_topic = f'/{robot_id}/planned_path'
+        marker_topic = f'/{robot_id}/markers'
         
         # ===== Publishers =====
         self.cmd_pub = self.create_publisher(Twist, cmd_vel_topic, qos)
@@ -165,7 +163,6 @@ class RobotController(Node):
         self.get_logger().info(f'RobotController initialized: {robot_id}')
         self.get_logger().info(f'  State: {self.state_machine.state.value}')
         self.get_logger().info(f'  Base speed: {base_linear_speed} m/s')
-        self.get_logger().info(f'  Namespace: {"ON" if use_namespace else "OFF (global topics)"}')
         self.get_logger().info(f'  Command topic: /safety/command')
         self.get_logger().info(f'  Odom topic: {odom_topic}')
         self.get_logger().info(f'  Cmd_vel topic: {cmd_vel_topic}')
@@ -692,28 +689,76 @@ def main():
     parser.add_argument('--robot-id', type=str, default='forklift_b',
                        help='Robot ID for namespacing')
     parser.add_argument('--path', type=str, default=None,
-                       help='JSON file with waypoints/poses')
-    parser.add_argument('--speed', type=float, default=0.5,
+                       help='JSON file with waypoints/poses (overrides --map)')
+    parser.add_argument('--scenario', type=str, default=None,
+                       help='Scenario id; supplies the robots config and map when those are not given')
+    parser.add_argument('--configs-dir', type=str, default='/app/robots',
+                       help='Directory holding scenarios.yaml and the robots configs')
+    parser.add_argument('--robots-config', type=str, default=None,
+                       help='robots.yaml Isaac was launched with; supplies this robot\'s drive: block')
+    parser.add_argument('--waypoints-root', type=str, default='/app/waypoints',
+                       help='Directory holding <map id>/ waypoint sets')
+    parser.add_argument('--map', type=str, default=None,
+                       help='Map id under --waypoints-root, e.g. warehouse_20x20')
+    # Drive knobs default to None so an absent flag is distinguishable from an
+    # explicit one: entrypoint.sh passes a flag only when its env var is set,
+    # which is what lets robots.yaml fill the rest. See fleet_config.py.
+    parser.add_argument('--speed', type=float, default=None,
                        help='Base linear speed (m/s)')
-    parser.add_argument('--angular-speed', type=float, default=0.4,
+    parser.add_argument('--angular-speed', type=float, default=None,
                        help='Base angular speed (rad/s)')
-    parser.add_argument('--loop', action='store_true',
+    parser.add_argument('--loop', action='store_true', default=None,
                        help='Loop the path')
-    parser.add_argument('--no-invert', action='store_true',
+    parser.add_argument('--no-invert', action='store_true', default=None,
                        help='Disable pose inversion')
-    parser.add_argument('--heading-offset', type=float, default=180.0,
+    parser.add_argument('--heading-offset', type=float, default=None,
                        help='Heading offset in degrees')
-    parser.add_argument('--no-namespace', action='store_true',
-                       help='Use global topics (/odom, /cmd_vel) instead of namespaced')
-    parser.add_argument('--end-tolerance', type=float, default=1.5,
-                       help='Position tolerance for last few poses (meters, default: 1.5)')
-    parser.add_argument('--end-pose-count', type=int, default=3,
-                       help='Number of poses from end to use larger tolerance (default: 3)')
-    parser.add_argument('--spiral-timeout', type=float, default=15.0,
-                       help='Timeout (seconds) for spiral auto-complete at final pose (default: 15)')
-    
+    parser.add_argument('--end-tolerance', type=float, default=None,
+                       help='Position tolerance for last few poses (meters)')
+    parser.add_argument('--end-pose-count', type=int, default=None,
+                       help='Number of poses from end to use larger tolerance')
+    parser.add_argument('--spiral-timeout', type=float, default=None,
+                       help='Timeout (seconds) for spiral auto-complete at final pose')
+
     args, unknown = parser.parse_known_args()
-    
+
+    # A scenario names the fleet file and the map; an explicit flag still wins.
+    robots_config, waypoints_map = args.robots_config, args.map
+    if args.scenario:
+        scenario = fleet_config.load_scenario(args.configs_dir, args.scenario)
+        if not robots_config and scenario.get('robots'):
+            robots_config = os.path.join(args.configs_dir, scenario['robots'])
+        waypoints_map = waypoints_map or scenario.get('waypoints')
+        print(f"[scenario] {args.scenario}: robots={scenario.get('robots')} "
+              f"waypoints={scenario.get('waypoints')}"
+              f"{' EXPERIMENTAL' if scenario.get('experimental') else ''}", flush=True)
+
+    # env (flag) > robots.yaml > built-in default, per knob.
+    robot_block = None
+    if robots_config:
+        fleet = fleet_config.load_fleet(robots_config)
+        robot_block = fleet_config.find_robot(fleet, args.robot_id, robots_config)
+    drive, drive_sources = fleet_config.resolve_drive({
+        'speed': args.speed,
+        'angular_speed': args.angular_speed,
+        'heading_offset': args.heading_offset,
+        'loop': args.loop,
+        'no_invert': args.no_invert,
+        'end_tolerance': args.end_tolerance,
+        'end_pose_count': args.end_pose_count,
+        'spiral_timeout': args.spiral_timeout,
+    }, robot_block)
+    print(f"[drive] {fleet_config.format_sources(drive, drive_sources)}", flush=True)
+
+    topics = fleet_config.resolve_topics(robot_block, args.robot_id)
+    print(f"[topics] cmd_vel={topics['cmd_vel']} odom={topics['odom']}", flush=True)
+
+    path_file = args.path
+    if not path_file and waypoints_map:
+        path_file = fleet_config.resolve_waypoint_file(
+            args.waypoints_root, waypoints_map, args.robot_id)
+        print(f"[waypoints] {path_file}", flush=True)
+
     rclpy.init(args=unknown)
 
     # Translate SIGTERM (e.g. `docker stop`) into KeyboardInterrupt so the
@@ -728,16 +773,16 @@ def main():
     try:
         node = RobotController(
             robot_id=args.robot_id,
-            path_file=args.path,
-            base_linear_speed=args.speed,
-            base_angular_speed=args.angular_speed,
-            loop=args.loop,
-            invert_poses=not args.no_invert,
-            heading_offset=math.radians(args.heading_offset),
-            use_namespace=not args.no_namespace,
-            end_tolerance=args.end_tolerance,
-            end_pose_count=args.end_pose_count,
-            spiral_timeout=args.spiral_timeout
+            path_file=path_file,
+            base_linear_speed=drive['speed'],
+            base_angular_speed=drive['angular_speed'],
+            loop=drive['loop'],
+            invert_poses=not drive['no_invert'],
+            heading_offset=math.radians(drive['heading_offset']),
+            topics=topics,
+            end_tolerance=drive['end_tolerance'],
+            end_pose_count=drive['end_pose_count'],
+            spiral_timeout=drive['spiral_timeout']
         )
         
         # Auto-start moving

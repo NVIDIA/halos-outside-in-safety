@@ -131,6 +131,15 @@ def _apply_model(robot: dict, model: dict, yaml_path: str) -> None:
     if "asset_path" in model and isinstance(robot.get("spawn"), dict):
         _merge_under(robot, "spawn", {"asset_path": model["asset_path"]})
 
+    # How the truck is driven along its path. Read by the forklift-controller,
+    # not by any graph builder here — the model carries what follows from the
+    # asset (which way it faces), the robot carries what is its own (how fast).
+    drive = model.get("drive") or {}
+    if not isinstance(drive, dict):
+        raise ValueError(f"{yaml_path}: model drive: must be a mapping, got {drive!r}")
+    if drive:
+        _merge_under(robot, "drive", drive)
+
 
 def _validate_models(cfg: dict, yaml_path: str) -> dict:
     models = cfg.get("models") or {}

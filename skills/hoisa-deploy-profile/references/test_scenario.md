@@ -51,7 +51,7 @@ profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 1. Loads the warehouse scene
 2. Spawns the forklift + digital humans
 3. Initializes the ROS2 Action Graph (the forklift safety disc subscribes `/safety/is_muted`)
-4. Runs the forklift playback (`segments.json`: forward into trailer → idle → backward → idle)
+4. The forklift-controller drives the truck along `waypoints/<map id>/<ROBOT_ID>.json` (forward into trailer → idle → backward → idle)
 5. Starts RTSP streaming — Isaac 6.0 **self-hosts** RTSP per camera (H264):
    `rtsp://localhost:8554/camera`, `:8555/camera_01`, `:8556/camera_02`
 6. Registers the 3 cameras with VST — `--enable-vst` deletes existing sensors, then adds the Isaac cameras

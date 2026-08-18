@@ -12,7 +12,7 @@
 #        --robots-config /isaac-sim/sil/configs/robots-2fl.yaml
 #   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
 #      container (forklift-controller-b2) starts.
-#   4. FORKLIFT_WAYPOINTS_DIR must be ./waypoints/warehouse_20x20 (the default).
+#   4. The scenario's `waypoints:` must be warehouse_20x20 (the default).
 #      A path is metres in one scene's world frame and the controller subtracts
 #      the file's origin from every pose, so the 40x20 set runs here without
 #      complaint — forklift_b2 4.63 m off its lane, nothing logged. preflight.py
@@ -65,6 +65,15 @@ models:
     indicator:
       parent_prim_rel: body/body
 
+    # --- how the forklift-controller drives this asset ---
+    # Read by the controller, not by any graph builder. What lives here follows
+    # from the asset itself, so every truck of this model shares it; what is a
+    # given truck's own choice goes in its `drive:` block below.
+    drive:
+      heading_offset: 180.0   # degrees — ForkliftB faces -X in its own frame
+      no_invert: false        # true skips the reverse leg
+      angular_speed: 0.4      # rad/s while turning
+
 robots:
   - name: forklift_b
     model: forklift_b
@@ -72,11 +81,17 @@ robots:
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
     articulation_prim: /World/forklift_b
 
+    # --- how this truck drives (forklift-controller) ---
+    # Overrides the model's drive: block leaf by leaf; an env var outranks both.
+    drive:
+      speed: 1.5              # m/s along the path
+      loop: true
+
     # --- control (ROS_Forklift_Control_Graph) ---
     # Joints and geometry come from the model; what is left is this truck's own.
     control:
       enabled: true
-      cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
+      cmd_vel_topic: forklift_b/cmd_vel # the controller reads this too, so it is stated once
 
     # --- odometry (Odometry_Graph) ---
     odometry:
@@ -102,6 +117,12 @@ robots:
   - name: forklift_b2
     model: forklift_b
     articulation_prim: /World/forklift_b2
+
+    # --- how this truck drives (forklift-controller) ---
+    # Overrides the model's drive: block leaf by leaf; an env var outranks both.
+    drive:
+      speed: 1.0              # m/s along the path  — slower on purpose, so the two are visibly out of step
+      loop: true
 
     control:
       enabled: true
