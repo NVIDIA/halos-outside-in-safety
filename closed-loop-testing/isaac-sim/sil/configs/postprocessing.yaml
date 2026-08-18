@@ -108,6 +108,35 @@ presets:
       tv_noise.scanlines.enabled: true
       tv_noise.scanlines.spread: 1.0
 
+  # CRT/analog artefacts: the five sub-effects of the tvNoise pass that are not
+  # grain and not scanlines. Every one of them renders on Isaac Sim 6.0.0.
+  #
+  # READ THIS BEFORE CONCLUDING ONE IS BROKEN. Two of them fire on a fraction of
+  # frames, not continuously: the vertical roll on roughly a quarter of frames
+  # and the ghosting on about one frame in twenty. A single screenshot of this
+  # preset will very often look completely clean, and looking at a still is how
+  # all five were once written off as dead. Watch a clip, not a frame.
+  #
+  # The three geometric/compositing ones are also invisible to the obvious
+  # metrics. A vertical roll does not change high-frequency energy, and ghosting
+  # is an alpha blend that lowers it; both read as "no change" to a sharpness or
+  # brightness measure. Detect the roll with frame-to-frame correlation, the
+  # ghost with edge sharpness, the wave with a temporal-median residual over a
+  # static part of the frame.
+  #
+  # None of these five has a magnitude knob -- they are booleans in the renderer
+  # itself, so there is nothing to turn up if the effect looks weak.
+  crt_artifacts:
+    description: Analog CRT artefacts — roll, ghosting, wave, lines, splotches.
+    settings:
+      tv_noise.enabled: true
+      tv_noise.film_grain.enabled: false
+      tv_noise.scroll_bug.enabled: true
+      tv_noise.ghost_flickering.enabled: true
+      tv_noise.wave_distortion.enabled: true
+      tv_noise.vertical_lines.enabled: true
+      tv_noise.random_splotches.enabled: true
+
   # Soft lens obstruction: a heavy vignette pinches the usable image down to
   # the centre. Not a true blockage — an opaque occluder prim in front of the
   # lens is still the only way to model that — but it degrades the frame

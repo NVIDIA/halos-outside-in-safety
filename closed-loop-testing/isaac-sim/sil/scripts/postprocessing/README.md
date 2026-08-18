@@ -65,6 +65,65 @@ ignored — a mistyped anomaly would otherwise score a clean run as a fault run.
 Turn the whole thing off with `--no-postprocessing`, or point it at a different
 preset file with `--postprocessing-config`.
 
+## What you can set
+
+Twenty-seven keys, transcribed from the Kit renderer source into `effects.py`.
+A preset may only use these; anything else is rejected by name rather than
+quietly becoming a dead carb key.
+
+**lives on** decides *when* a per-camera setting takes effect. Camera-prim
+settings apply immediately; render-product settings stay pending until the
+first tick after Play, because that is when the RTSP graph creates the render
+products.
+
+### Exposure
+
+| key | lives on | type | notes |
+|---|---|---|---|
+| `auto_exposure.enabled` | camera prim | bool |  |
+| `exposure.iso` | camera prim | float |  |
+| `exposure.time` | camera prim | float | **per-camera only** — the carb key is rewritten every frame |
+| `exposure.f_stop` | camera prim | float | **per-camera only**, same reason. Tonemapper aperture, *not* depth of field |
+
+### Colour grading
+
+| key | lives on | type | notes |
+|---|---|---|---|
+| `grade.enabled` | render product | bool |  |
+| `grade.gain` | render product | rgb |  |
+| `grade.gamma` | render product | rgb |  |
+| `grade.contrast` | render product | rgb |  |
+
+### TV noise
+
+| key | lives on | type | notes |
+|---|---|---|---|
+| `tv_noise.enabled` | render product | bool |  |
+| `tv_noise.film_grain.enabled` | render product | bool |  |
+| `tv_noise.film_grain.amount` | render product | float |  |
+| `tv_noise.film_grain.size` | render product | float |  |
+| `tv_noise.color_amount` | render product | float |  |
+| `tv_noise.lum_amount` | render product | float |  |
+| `tv_noise.scanlines.enabled` | render product | bool |  |
+| `tv_noise.scanlines.spread` | render product | float |  |
+| `tv_noise.vignetting.enabled` | render product | bool |  |
+| `tv_noise.vignetting.size` | render product | float |  |
+| `tv_noise.vignetting.strength` | render product | float |  |
+| `tv_noise.vignetting.flickering.enabled` | render product | bool |  |
+| `tv_noise.wave_distortion.enabled` | render product | bool | geometric warp — invisible to sharpness/brightness measures |
+| `tv_noise.vertical_lines.enabled` | render product | bool | no detector known yet; confirmed by eye on video |
+| `tv_noise.random_splotches.enabled` | render product | bool | no detector known yet; confirmed by eye on video |
+| `tv_noise.ghost_flickering.enabled` | render product | bool | alpha-blended echo. **~1 frame in 20**; *lowers* sharpness |
+| `tv_noise.scroll_bug.enabled` | render product | bool | vertical roll. **Fires on ~1 frame in 4** — a still often looks clean |
+| `tv_noise.fixed_time.seed` | render product | bool | freezes the noise pattern; determinism not yet proven |
+| `tv_noise.fixed_time.seed_count` | render product | float |  |
+
+The five CRT artefacts — roll, ghosting, wave, vertical lines, splotches — are
+**booleans in the renderer**, with no magnitude parameter anywhere on either the
+carb or the USD side, so if one looks weak there is nothing to turn up. Two of
+them are intermittent, so judge them from a clip rather than a screenshot; the
+`crt_artifacts` preset turns on all five.
+
 ## Three scopes, and why the difference matters
 
 A preset with no `cameras:` key writes **carb settings**, which the renderer

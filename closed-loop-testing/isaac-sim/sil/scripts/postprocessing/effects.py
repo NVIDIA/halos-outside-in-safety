@@ -102,7 +102,12 @@ EFFECTS = {
         _CAM_EXPOSURE_API,
         TARGET_CAMERA,
         KIND_FLOAT,
-        "Aperture. Larger numbers darken the image.",
+        "Aperture. Larger numbers darken the image. PER-CAMERA ONLY, the same "
+        "way exposure.time is: the carb key does not reach the tonemapper in a "
+        "running sim. Measured: a global write left RTSP brightness at 122.8 "
+        "(unchanged), while the same value on the camera prim took it to 15.1. "
+        "Note this is the tonemapper's aperture, not depth of field -- it "
+        "changes exposure, it does not defocus.",
     ),
     # --- Color grading: the "hue shift" / white-balance-drift family. -----
     "grade.enabled": Effect(
