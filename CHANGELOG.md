@@ -80,6 +80,22 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   mounts no fleet file and so runs on `fleet_config.DRIVE_DEFAULTS`, which hold
   the same values `robots.yaml` states for `forklift_b`.
 
+### Removed
+
+- **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file
+  behind it.** It existed because there was no two-truck scene; `warehouse_40x20`
+  is one, and it carries its second truck as a `spawn:` block rather than as a
+  second copy of a warehouse. Gone with it: the 2FL scene USD, its
+  `default_config_ros_2fl.yaml` and `robots-2fl.yaml`, and
+  `waypoints/warehouse_20x20/forklift_b2.json`.
+
+  **What this costs:** `warehouse_40x20` is the only two-truck scenario left, and
+  it is `experimental: true` — no calibration is published for that warehouse, so
+  perception runs 20x20 geometry against a different building. The 20x20 2FL
+  scene shared the 20x20 calibration, so until a 40x20 calibration lands there is
+  no two-truck run whose safety numbers mean anything. Watching two trucks drive,
+  and every ROS-level check, is unaffected.
+
 ### Added
 
 - `robots*.yaml` gained a `drive:` block: `speed` and `loop` per truck, and
@@ -143,7 +159,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 - The second controller is no longer a copy of the first: both services share
   one env anchor and one volume anchor, and differ only by `ROBOT_ID`. Its
-  speed and route come from `robots-2fl.yaml` like every other truck's.
+  speed and route come from `robots-40x20.yaml` like every other truck's.
 - **The controller image is again the only source of the code it runs.** The
   `.:/app:ro` bind that mounted the host checkout over `/app` is gone, so
   `docker run forklift-controller:latest` behaves like the compose stack.

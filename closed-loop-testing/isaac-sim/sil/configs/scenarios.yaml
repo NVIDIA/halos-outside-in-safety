@@ -15,15 +15,6 @@ warehouse_20x20_1fl:
   cameras:   cameras.yaml
   waypoints: warehouse_20x20
 
-# Both trucks are baked into this scene rather than spawned, and it shares the
-# 20x20 calibration, so its numbers mean what the one-forklift numbers mean.
-# Needs COMPOSE_PROFILES to include `multi-robot` for the second controller.
-warehouse_20x20_2fl:
-  ira:       default_config_ros_2fl.yaml
-  robots:    robots-2fl.yaml
-  cameras:   cameras.yaml
-  waypoints: warehouse_20x20
-
 # Trucks spawned from the robots file rather than baked in. No calibration is
 # published for this warehouse, so VSS runs 20x20 geometry against a different
 # building: cameras stream, perception detects, PSF issues verdicts — about the

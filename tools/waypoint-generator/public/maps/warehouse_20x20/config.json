@@ -23,5 +23,5 @@
     "trackWidth": 0.99,
     "forkLength": 1.0
   },
-  "note": "Formula: pixelX = (worldX + transX) * scale, pixelY = (-worldY + transY) * scale. Values derived from the VSS blueprint sample calibration (warehouse-loading-dock-3cams-synthetic), converted from its pixelY = imageHeight - (worldY + transY) * scale convention. defaultForkliftStart matches /World/forklift_b in the scene USD, which sits at (1, -13.39). The _2fl variant of this scene shares the floor plan and this calibration; its second truck is a clone of the first."
+  "note": "Formula: pixelX = (worldX + transX) * scale, pixelY = (-worldY + transY) * scale. Values derived from the VSS blueprint sample calibration (warehouse-loading-dock-3cams-synthetic), converted from its pixelY = imageHeight - (worldY + transY) * scale convention. defaultForkliftStart matches /World/forklift_b in the scene USD, which sits at (1, -13.39)."
 }

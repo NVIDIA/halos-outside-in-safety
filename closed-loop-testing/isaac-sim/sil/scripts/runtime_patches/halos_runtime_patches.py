@@ -88,12 +88,12 @@ _LEGACY_BAKED_CHARS = [
 # pass a robots config (e.g. Script Editor use). The normal launch path
 # derives the list from the same robots yaml the graph builders consume
 # (see _articulations_from_robots_config), so adding a robot stays a
-# yaml-only change. required=False marks prims that exist only in the
-# opt-in two-forklift scene (configs/robots-2fl.yaml); their absence from
-# the default single-forklift scene is expected, not an error.
+# yaml-only change. required=False marks prims that exist only in a fleet
+# declaring a second truck (configs/robots-40x20.yaml); their absence from
+# the default single-forklift fleet is expected, not an error.
 _HALOS_FORKLIFT_ARTICULATIONS = [
     ("/World/forklift_b", True),
-    ("/World/forklift_b2", False),  # only in the 2FL scene variant
+    ("/World/forklift_b2", False),  # only in a two-forklift fleet
 ]
 
 

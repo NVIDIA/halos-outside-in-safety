@@ -16,9 +16,11 @@ docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
   ./run_sdg.sh --start --headless --enable-vst'
 ```
 
-Two-forklift variant: set `SCENARIO=warehouse_20x20_2fl` in the profile env and
-add `multi-robot` to `COMPOSE_PROFILES` — the profile decides whether the second
-controller container exists, the scenario decides what it drives.
+Two-forklift variant: set `SCENARIO=warehouse_40x20` in the profile env and add
+`multi-robot` to `COMPOSE_PROFILES` — the profile decides whether the second
+controller container exists, the scenario decides what it drives. That scene has
+no published calibration (see below), so it is for watching trucks drive, not
+for scoring.
 
 Individual flags (`-c`, `--robots-config`, `--cameras-config`) still win over the
 scenario, for a one-off run against a config the table below does not list.
@@ -37,7 +39,6 @@ human-readable form plus the VSS dataset, which the scenario does not name.
 | `SCENARIO` | Scene | IRA config | robots | cameras | waypoints | VSS `SAMPLE_VIDEO_DATASET` |
 |---|---|---|---|---|---|---|
 | `warehouse_20x20_1fl` | `indicator_warehouse_20x20_layout_overflow_test.usd` | `default_config_ros.yaml` | `robots.yaml` (1 FL) | `cameras.yaml` | `warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
-| `warehouse_20x20_2fl` | `indicator_warehouse_20x20_layout_overflow_test_2fl.usd` | `default_config_ros_2fl.yaml` | `robots-2fl.yaml` (2 FL) | `cameras.yaml` | `warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
 | `warehouse_40x20` | `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `warehouse_40x20` | **none published — see below** |
 
 **The 40x20 row has no calibration and is EXPERIMENTAL / internal-only.** The
@@ -313,9 +314,10 @@ docker exec comm-layer bash -c \
   Flickering (Multi-Machine)".
 - **`Subscription count: 1`** — one SafetyGraph subscriber per robot with
   `safety_indicator.enabled` in the robots config (expected = the number of such
-  robot blocks; **1** with the default `robots.yaml`, **2** with the two-forklift
-  variant `robots-2fl.yaml` — the count follows the robots config passed to Isaac,
-  not `COMPOSE_PROFILES`). `0` means Isaac isn't subscribed yet (scene
+  robot blocks; **1** with the default `robots.yaml` — the count follows the
+  robots config passed to Isaac, not `COMPOSE_PROFILES`; `robots-40x20.yaml`
+  names per-robot topics instead, so the global one reads `0` there). `0` on a
+  20x20 run means Isaac isn't subscribed yet (scene
   not fully up, or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`);
   a count *below* the expected number means one robot's graph didn't build (check
   the `run_actor_sdg` log).

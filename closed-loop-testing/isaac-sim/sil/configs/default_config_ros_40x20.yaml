@@ -1,4 +1,4 @@
-# 40x20 TWO-DOCK variant of default_config_ros_2fl.yaml — identical except
+# 40x20 TWO-DOCK config — identical to default_config_ros.yaml except
 # base_stage_asset_path points at the flattened 40x20 scene. Launch with
 # BOTH flags (plus COMPOSE_PROFILES including `multi-robot`):
 #   ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros_40x20.yaml \
