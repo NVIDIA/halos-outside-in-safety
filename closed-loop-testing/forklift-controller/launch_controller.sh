@@ -4,12 +4,9 @@
 # Launch robot controller with common options
 # Usage: ./launch_controller.sh [robot_id] [path_file]
 #
-# CONTRACT: robot_id MUST be a block name in the fleet file this reads — the
-# Isaac graphs only subscribe /<robot_id>/cmd_vel and publish /<robot_id>/odom,
-# and speed, heading and loop all come from that block. ROBOTS_CONFIG picks the
-# file and defaults to configs/robots.yaml, which declares forklift_b alone, so
-# a second truck names its file too. A robot_id the file does not declare is
-# refused by name rather than driven with defaults.
+# CONTRACT: robot_id MUST be a block name in the fleet file, which ROBOTS_CONFIG
+# picks and which defaults to robots.yaml — forklift_b alone, so a second truck
+# names its file too. An undeclared robot_id is refused rather than defaulted.
 #
 # Example (second forklift, 40x20):
 #   ROBOTS_CONFIG=robots-40x20.yaml WAYPOINTS_MAP=warehouse_40x20 \
@@ -47,19 +44,12 @@ echo ""
 
 cd "$SCRIPT_DIR"
 
-# No drive knob is passed as a flag. A flag outranks the fleet file, so a speed
-# hardcoded here would quietly override robots.yaml and this script would drive
-# the truck differently from the deployment it exists to mimic — which is what it
-# used to do: --speed 1 against a fleet file that says 1.5. It reads the same
-# fleet file Isaac reads instead.
-# Both are this script's own variables, not deployment settings: compose has no
-# fleet override, because a different fleet there is a different SCENARIO. Here
-# there is no scenario to name, so the file is named directly.
+# No drive knob is passed as a flag: a flag outranks the fleet file, so one
+# hardcoded here would drive the truck unlike the deployment this mimics.
 CONFIGS_DIR="${CONFIGS_DIR:-$SCRIPT_DIR/../isaac-sim/sil/configs}"
 ROBOTS_CONFIG="${ROBOTS_CONFIG:-robots.yaml}"
 case "$ROBOTS_CONFIG" in /*) ;; *) ROBOTS_CONFIG="$CONFIGS_DIR/$ROBOTS_CONFIG" ;; esac
-# Where fleet_config imports the shared loader from: a mount in the container,
-# the checkout here.
+# fleet_config imports the shared loader from here (a mount in the container).
 export ISAAC_SCRIPTS_DIR="${ISAAC_SCRIPTS_DIR:-$SCRIPT_DIR/../isaac-sim/sil/scripts}"
 
 exec python3 robot_controller.py \
