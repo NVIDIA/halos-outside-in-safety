@@ -234,8 +234,12 @@ def _scenario_value(svc, key):
     path = next((c for c in candidates if os.path.isfile(c)), None)
     if path is None:
         return None
-    with open(path) as handle:
-        return ((yaml.safe_load(handle) or {}).get(scenario_id) or {}).get(key)
+    # Tolerant on purpose: a checker reports what it found, it does not exit.
+    try:
+        return _load_forklift_common().load_scenario(
+            os.path.dirname(path), scenario_id).get(key)
+    except SystemExit:
+        return None
 
 
 def _check_origin(service_name, robot, waypoint, host_path, baked, baked_reason):

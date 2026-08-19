@@ -71,6 +71,35 @@ _MODEL_CONTROL_KEYS = (
 _MODEL_INDICATOR_MESH_KEYS = ("radius", "segments", "height_offset")
 
 
+SCENARIO_KEYS = ("ira", "robots", "cameras", "waypoints", "experimental")
+
+
+def load_scenario(configs_dir: str, scenario_id: str) -> dict:
+    """One entry of scenarios.yaml. An unknown id is fatal and lists what exists."""
+    import yaml
+
+    path = os.path.join(configs_dir, "scenarios.yaml")
+    if not os.path.isfile(path):
+        raise SystemExit(f"[scenario] {path} not found")
+    with open(path) as handle:
+        data = yaml.safe_load(handle) or {}
+    if scenario_id not in data:
+        raise SystemExit(
+            f"[scenario] '{scenario_id}' is not in {path}. "
+            f"Known scenarios: {', '.join(sorted(data)) or '(none)'}."
+        )
+    entry = data[scenario_id] or {}
+    if not isinstance(entry, dict):
+        raise SystemExit(f"[scenario] {path}: '{scenario_id}' must be a mapping")
+    unknown = sorted(set(entry) - set(SCENARIO_KEYS))
+    if unknown:
+        raise SystemExit(
+            f"[scenario] {path}: '{scenario_id}' has unknown key(s) "
+            f"{', '.join(unknown)}. Known keys: {', '.join(SCENARIO_KEYS)}."
+        )
+    return entry
+
+
 def is_number(x) -> bool:
     """A real number from YAML, rejecting bool, NaN and infinity.
 
