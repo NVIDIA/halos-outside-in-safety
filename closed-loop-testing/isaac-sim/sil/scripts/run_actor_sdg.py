@@ -720,7 +720,10 @@ Examples:
   ./scripts/postprocessing/set_preset.sh tv_noise
         """,
     )
-    parser.add_argument("-c", "--config_file", required=True, help="Path to IRA config file (yaml)")
+    parser.add_argument("-c", "--config_file",
+                        help="Path to IRA config file (yaml); optional when SCENARIO names one")
+    parser.add_argument("--scenario",
+                        help="Scenario id from configs/scenarios.yaml; fills the ira/robots/cameras trio")
     parser.add_argument("--start", action="store_true", help="Automatically start data generation")
     parser.add_argument("--setup-only", action="store_true", help="Only setup simulation, don't wait for data generation")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode (no GUI window)")
@@ -869,7 +872,32 @@ def main():
               file=sys.stderr)
         sys.exit(2)
 
+    # A scenario names the ira/robots/cameras trio for this run. The controllers
+    # read the same SCENARIO, so the simulator and the trucks cannot be launched
+    # against different halves of one run. Any flag still wins over it.
+    _configs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "configs"))
+    scenario = {}
+    scenario_id = (args.scenario or os.environ.get("SCENARIO", "")).strip()
+    if scenario_id:
+        import yaml as _yaml
+        _path = os.path.join(_configs_dir, "scenarios.yaml")
+        with open(_path) as _fh:
+            _all = _yaml.safe_load(_fh) or {}
+        if scenario_id not in _all:
+            print(f"ERROR: scenario '{scenario_id}' is not in {_path}. "
+                  f"Known: {', '.join(sorted(_all)) or '(none)'}", file=sys.stderr)
+            sys.exit(1)
+        scenario = _all[scenario_id] or {}
+        print(f"Scenario: {scenario_id}"
+              f"{'  [EXPERIMENTAL - no published calibration; do not score this run]' if scenario.get('experimental') else ''}")
+
     # Validate config file
+    if not args.config_file and scenario.get("ira"):
+        args.config_file = os.path.join(_configs_dir, scenario["ira"])
+    if not args.config_file:
+        print("ERROR: no IRA config. Pass -c, or set SCENARIO to a scenario that "
+              "names one (configs/scenarios.yaml).", file=sys.stderr)
+        sys.exit(2)
     config_file_path = os.path.abspath(args.config_file)
     if not os.path.isfile(config_file_path):
         print(f"ERROR: Config file not found: {config_file_path}", file=sys.stderr)
@@ -917,11 +945,9 @@ def main():
     elif args.enable_rtsp or args.enable_camera_spawn:
         # Both consumers (RTSP graph build and camera spawn) need it, so either being
         # enabled resolves the default — mirroring the robots.yaml default below.
-        default_cameras_yaml = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
-        )
-        if os.path.isfile(default_cameras_yaml):
-            cameras_config_path = default_cameras_yaml
+        candidate = os.path.join(_configs_dir, scenario.get("cameras") or "cameras.yaml")
+        if os.path.isfile(candidate):
+            cameras_config_path = candidate
 
     print("=" * 60)
     print("Actor SDG Runner (IRA 6.0)")
@@ -990,14 +1016,31 @@ def main():
     # Defaults to the canonical configs/robots.yaml when the operator did
     # not pass --robots-config, mirroring the cameras.yaml default above.
     robots_config_path = None
+    configs_dir = _configs_dir
+    # SCENARIO names the fleet file for BOTH this process and the
+    # forklift-controller containers, so the two cannot be launched against
+    # different fleets. There is deliberately no environment override for the
+    # fleet alone: it would pair one scenario's trucks with another's scene,
+    # unnamed and unrecorded. A different fleet is a different scenario. The
+    # flag still wins, for a one-off run that is not worth a scenario id.
+    env_robots = scenario.get("robots", "")
+    robots_source = f"SCENARIO={args.scenario or os.environ.get('SCENARIO', '')}"
+
+    wants_robots = args.enable_forklift or args.enable_clock or args.enable_forklift_spawn
     if args.robots_config:
         robots_config_path = os.path.abspath(args.robots_config)
         if not os.path.isfile(robots_config_path):
             print(f"WARNING: Robots config file not found: {robots_config_path}", file=sys.stderr)
-    elif args.enable_forklift or args.enable_clock or args.enable_forklift_spawn:
-        default_robots_yaml = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "configs", "robots.yaml")
-        )
+    elif env_robots and wants_robots:
+        robots_config_path = (env_robots if os.path.isabs(env_robots)
+                              else os.path.join(configs_dir, env_robots))
+        if not os.path.isfile(robots_config_path):
+            print(f"WARNING: {robots_source} -> {env_robots} resolves to a missing "
+                  f"file: {robots_config_path}", file=sys.stderr)
+        else:
+            print(f"Robots config from {robots_source}: {robots_config_path}")
+    elif wants_robots:
+        default_robots_yaml = os.path.join(configs_dir, "robots.yaml")
         if os.path.isfile(default_robots_yaml):
             robots_config_path = default_robots_yaml
 

@@ -63,6 +63,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import yaml
 import sys
 
 DEPLOYMENTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -209,6 +210,34 @@ def collect(robots_yaml: str, env_file: str):
     return common, robots, controllers, comm_ids
 
 
+def _scenario_value(svc, key):
+    """One key of the scenario this service names, or None.
+
+    The scenario is what a deployment actually sets; WAYPOINTS_MAP exists only
+    to override one key of it for a single run. Reading it here keeps the check
+    looking at what the container will do rather than at the variables that
+    happen to be spelled out.
+    """
+    scenario_id = (svc["environment"].get("SCENARIO") or "").strip()
+    if not scenario_id:
+        return None
+    # Through the mount first, so an unusual layout is honoured; then the repo
+    # this script lives in, because a profile env still carrying its placeholder
+    # paths is the normal state of a fresh checkout.
+    candidates = []
+    host_dir = _host_path_of(svc, "/app/robots")
+    if host_dir:
+        candidates.append(os.path.join(host_dir, "scenarios.yaml"))
+    candidates.append(os.path.join(
+        REPO_ROOT, "closed-loop-testing", "isaac-sim", "sil", "configs",
+        "scenarios.yaml"))
+    path = next((c for c in candidates if os.path.isfile(c)), None)
+    if path is None:
+        return None
+    with open(path) as handle:
+        return ((yaml.safe_load(handle) or {}).get(scenario_id) or {}).get(key)
+
+
 def _check_origin(service_name, robot, waypoint, host_path, baked, baked_reason):
     """Findings for one controller's waypoint origin against where its truck stands."""
     name = robot["name"]
@@ -243,14 +272,34 @@ def _check_origin(service_name, robot, waypoint, host_path, baked, baked_reason)
         f"(dx={dx:+.3f}, dy={dy:+.3f}). The controller subtracts the origin from "
         f"every world pose, so the truck drives the right shape in the wrong place "
         f"and nothing logs it. This is what a waypoint set from another scene looks "
-        f"like: point FORKLIFT_WAYPOINTS_DIR at the set for this warehouse."
+        f"like: point the scenario's `waypoints:` at this warehouse."
     ))]
 
 
-def check(common, robots, controllers, comm_ids, scene_path=None) -> list[tuple[str, str]]:
+def check(common, robots, controllers, comm_ids, scene_path=None,
+          robots_yaml=None) -> list[tuple[str, str]]:
     findings: list[tuple[str, str]] = []
     robot_names = [r["name"] for r in robots]
     by_name = {r["name"]: r for r in robots}
+
+    # Everything below reads the file named on the command line. If the run will
+    # read a different one, every finding is about a fleet that is not the one
+    # being launched — a green exit code for the wrong config, which is worse
+    # than no check at all. Reported once, not once per controller.
+    if robots_yaml:
+        checked = os.path.basename(robots_yaml)
+        mismatched = {}
+        for service_name, svc in sorted(controllers.items()):
+            effective = _scenario_value(svc, "robots") or ""
+            if effective and os.path.basename(effective) != checked:
+                mismatched[os.path.basename(effective)] = service_name
+        for effective, service_name in sorted(mismatched.items()):
+            findings.append((ERROR, (
+                f"preflight was given {checked}, but {service_name} will read "
+                f"{effective}, the fleet its SCENARIO names. "
+                f"Everything below is about the wrong fleet — re-run with "
+                f"--robots-config .../{effective}."
+            )))
 
     # One stage open for the whole fleet, and only when a robot is actually baked.
     baked: dict[str, tuple[float, float]] = {}
@@ -283,6 +332,14 @@ def check(common, robots, controllers, comm_ids, scene_path=None) -> list[tuple[
                 f"controller {service_names[0]} drives '{robot_id}', which is not in "
                 f"the robots config. Isaac builds no graph for it, so its cmd_vel goes "
                 f"nowhere — rename it, or add the robot."
+            )))
+        elif not common.is_section_enabled(by_name[robot_id], "control"):
+            findings.append((ERROR, (
+                f"controller {service_names[0]} drives '{robot_id}', whose control: "
+                f"block is disabled. Isaac builds no cmd_vel subscriber, so the "
+                f"controller publishes into nothing and the truck stands still with "
+                f"neither side logging anything. Enable control: for '{robot_id}', or "
+                f"drop the service from COMPOSE_PROFILES."
             )))
 
     for robot in robots:
@@ -319,10 +376,19 @@ def check(common, robots, controllers, comm_ids, scene_path=None) -> list[tuple[
         env = svc["environment"]
         robot_id = env["ROBOT_ID"]
 
+        # WAYPOINT_FILE is an explicit override. Normally the container derives
+        # the path from the map and its own ROBOT_ID, so resolve it the same way.
         waypoint = env.get("WAYPOINT_FILE")
         if not waypoint:
-            findings.append((ERROR, f"{service_name} has no WAYPOINT_FILE; it has no path to follow."))
-        else:
+            map_id = env.get("WAYPOINTS_MAP") or _scenario_value(svc, "waypoints")
+            if not map_id:
+                findings.append((ERROR, (
+                    f"{service_name} has neither WAYPOINT_FILE nor WAYPOINTS_MAP; "
+                    f"it has no path to follow."
+                )))
+            else:
+                waypoint = f"/app/waypoints/{map_id}/{robot_id}.json"
+        if waypoint:
             host_path = _host_path_of(svc, waypoint)
             if host_path is None:
                 findings.append((WARN, (
@@ -340,20 +406,6 @@ def check(common, robots, controllers, comm_ids, scene_path=None) -> list[tuple[
                     service_name, by_name[robot_id], waypoint, host_path,
                     baked, baked_reason,
                 )
-
-        # The compose file calls this out as a silent no-op, and it is: the
-        # robot subscribes to <name>/cmd_vel while the controller publishes the
-        # bare /cmd_vel, so both trucks would answer to one topic.
-        namespaced = any(
-            common.resolve_cmd_vel_topic(r).startswith(f"{robot_id}/")
-            for r in robots if r["name"] == robot_id
-        )
-        if namespaced and str(env.get("USE_NAMESPACE", "")).lower() != "true":
-            findings.append((ERROR, (
-                f"{service_name} has USE_NAMESPACE={env.get('USE_NAMESPACE')!r} while the "
-                f"robots config expects {robot_id}/cmd_vel. The controller would publish the "
-                f"bare /cmd_vel, which that robot is not listening to."
-            )))
 
     return findings
 
@@ -393,7 +445,7 @@ def main() -> int:
     print(f"COMM_ROBOT_IDS: {', '.join(comm_ids) or '<empty>'}")
     print()
 
-    findings = check(common, robots, controllers, comm_ids, scene_path)
+    findings = check(common, robots, controllers, comm_ids, scene_path, robots_yaml)
     if not findings:
         print("OK — all four lists agree, and every waypoint origin matches its truck.")
         return 0

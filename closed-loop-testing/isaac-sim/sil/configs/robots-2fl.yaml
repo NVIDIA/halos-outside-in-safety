@@ -1,23 +1,26 @@
 # Halos SIL forklift / robot Action Graph config (6.0) — TWO-FORKLIFT variant.
 #
 # Opt-in multi-robot config (forklift_b + forklift_b2). The default is the
-# single-robot configs/robots.yaml. To run this variant:
-#   1. Scene must contain /World/forklift_b2 (a clone of /World/forklift_b —
-#      same ForkliftB asset payload). The repo ships one plus a matching IRA
-#      config: configs/default_config_ros_2fl.yaml points at
-#        /isaac-sim/sil/scenes/indicator_warehouse_20x20_layout_overflow_test_2fl.usd
-#      run_actor_sdg fails fast if a listed articulation prim is missing.
-#   2. Launch Isaac with the 2FL config pair (both flags together):
-#        -c /isaac-sim/sil/configs/default_config_ros_2fl.yaml \
-#        --robots-config /isaac-sim/sil/configs/robots-2fl.yaml
-#   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
-#      container (forklift-controller-b2) starts.
-#   4. FORKLIFT_WAYPOINTS_DIR must be ./waypoints/warehouse_20x20 (the default).
-#      A path is metres in one scene's world frame and the controller subtracts
-#      the file's origin from every pose, so the 40x20 set runs here without
-#      complaint — forklift_b2 4.63 m off its lane, nothing logged. preflight.py
-#      compares each origin against where the truck stands; pass --scene, since
-#      both trucks here are baked rather than spawned.
+# single-robot configs/robots.yaml. Two lines in the profile env run this
+# variant, and nothing else:
+#   SCENARIO=warehouse_20x20_2fl
+#   COMPOSE_PROFILES=sil,multi-robot     (or hil,multi-robot)
+# The profile decides whether the second controller container exists; the
+# scenario decides what it drives, naming this file together with the IRA
+# config, the cameras config and the waypoint set — see configs/scenarios.yaml.
+# Individual flags (-c, --robots-config) still win, for a one-off run.
+#
+# What that scenario is holding together, and why each half matters:
+#   - The scene must contain /World/forklift_b2 (a clone of /World/forklift_b,
+#     same ForkliftB asset payload). The repo ships one, and
+#     default_config_ros_2fl.yaml points at it. run_actor_sdg fails fast if a
+#     listed articulation prim is missing.
+#   - The waypoint set must be warehouse_20x20. A path is metres in one scene's
+#     world frame and the controller subtracts the file's origin from every
+#     pose, so the 40x20 set runs here without complaint — forklift_b2 4.63 m
+#     off its lane, nothing logged. preflight.py compares each origin against
+#     where the truck stands; pass --scene, since both trucks here are baked
+#     rather than spawned.
 # The shipped 2FL scene intentionally differs from the stock scene beyond the
 # forklift_b2 clone (multi-forklift test scenario): 4 Loading_Zone_Objects
 # prims deactivated, 2 RectLights repositioned toward the second corridor,
@@ -65,6 +68,15 @@ models:
     indicator:
       parent_prim_rel: body/body
 
+    # --- how the forklift-controller drives this asset ---
+    # Read by the controller, not by any graph builder. What lives here follows
+    # from the asset itself, so every truck of this model shares it; what is a
+    # given truck's own choice goes in its `drive:` block below.
+    drive:
+      heading_offset: 180.0   # degrees — ForkliftB faces -X in its own frame
+      no_invert: false        # true skips the reverse leg
+      angular_speed: 0.4      # rad/s while turning
+
 robots:
   - name: forklift_b
     model: forklift_b
@@ -72,11 +84,18 @@ robots:
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
     articulation_prim: /World/forklift_b
 
+    # --- how this truck drives (forklift-controller) ---
+    # Overrides the model's drive: block leaf by leaf. A launch flag outranks
+    # both; no environment variable is read — see fleet_config.py for the order.
+    drive:
+      speed: 1.5              # m/s along the path
+      loop: true
+
     # --- control (ROS_Forklift_Control_Graph) ---
     # Joints and geometry come from the model; what is left is this truck's own.
     control:
       enabled: true
-      cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
+      cmd_vel_topic: forklift_b/cmd_vel # the controller reads this too, so it is stated once
 
     # --- odometry (Odometry_Graph) ---
     odometry:
@@ -102,6 +121,13 @@ robots:
   - name: forklift_b2
     model: forklift_b
     articulation_prim: /World/forklift_b2
+
+    # --- how this truck drives (forklift-controller) ---
+    # Overrides the model's drive: block leaf by leaf. A launch flag outranks
+    # both; no environment variable is read — see fleet_config.py for the order.
+    drive:
+      speed: 1.0              # m/s along the path  — slower on purpose, so the two are visibly out of step
+      loop: true
 
     control:
       enabled: true

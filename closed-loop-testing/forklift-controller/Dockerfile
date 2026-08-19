@@ -18,6 +18,7 @@ LABEL version="1.0.0"
 # Install system dependencies and CycloneDDS for Isaac Sim compatibility
 RUN apt-get update && apt-get install -y \
     python3-pip \
+    python3-yaml \
     python3-dev \
     ros-jazzy-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*
@@ -25,10 +26,13 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
-# Copy controller source
+# Copy controller source. Everything the container runs must be here: /app is
+# no longer bind-mounted from the host, so a module missing from this list is a
+# container that dies at import instead of one that quietly runs host code.
 COPY robot_controller.py /app/
 COPY state_machine.py /app/
 COPY command_handler.py /app/
+COPY fleet_config.py /app/
 
 # Copy test utilities
 COPY test/ /app/test/
@@ -40,20 +44,18 @@ COPY waypoints/ /app/waypoints/
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Environment defaults
+# Bind-mount targets, created here so the mount does not depend on the daemon
+# creating them. The fleet file and its loader are shared with Isaac rather than
+# copied, so both sides read one definition of the `models:` merge.
+RUN mkdir -p /app/robots /app/isaac
+
+# Environment defaults. The drive knobs (speed, heading, tolerances, …) are
+# deliberately NOT set here: an image-level value is indistinguishable from one
+# the operator asked for, and would outrank the robot's own drive: block in
+# robots.yaml every time. Their defaults live in fleet_config.DRIVE_DEFAULTS.
 ENV ROS_DOMAIN_ID=0
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV ROBOT_ID=forklift_b
-ENV BASE_SPEED=1.5
-ENV ANGULAR_SPEED=0.4
-ENV HEADING_OFFSET=180
-ENV USE_NAMESPACE=true
-ENV LOOP_PATH=true
-ENV NO_INVERT=false
-ENV END_TOLERANCE=1.0
-ENV END_POSE_COUNT=5
-ENV SPIRAL_TIMEOUT=10.0
-ENV WAYPOINT_FILE=""
 
 # Disable Python output buffering for real-time logs
 ENV PYTHONUNBUFFERED=1

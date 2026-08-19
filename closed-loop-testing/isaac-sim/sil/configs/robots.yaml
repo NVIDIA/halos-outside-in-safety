@@ -10,12 +10,9 @@
 # matching the stock scene. run_actor_sdg fails fast if a listed
 # articulation prim is missing from the loaded scene.
 #
-# TWO-FORKLIFT variant: configs/robots-2fl.yaml. To switch, launch Isaac with
-# the 2FL config pair (both flags together):
-#   -c /isaac-sim/sil/configs/default_config_ros_2fl.yaml \
-#   --robots-config /isaac-sim/sil/configs/robots-2fl.yaml
-# and COMPOSE_PROFILES including `multi-robot` for the second controller
-# container.
+# TWO-FORKLIFT variant: configs/robots-2fl.yaml. To switch, set
+# SCENARIO=warehouse_20x20_2fl in the profile env and add `multi-robot` to
+# COMPOSE_PROFILES for the second controller container.
 # Keep the `models:` block and the forklift_b block in both files in sync by
 # hand: the model is declared per file so each stays launchable on its own.
 # The parsed values must agree, not the bytes: the comments around them differ.
@@ -55,6 +52,15 @@ models:
     indicator:
       parent_prim_rel: body/body
 
+    # --- how the forklift-controller drives this asset ---
+    # Read by the controller, not by any graph builder. What lives here follows
+    # from the asset itself, so every truck of this model shares it; what is a
+    # given truck's own choice goes in its `drive:` block below.
+    drive:
+      heading_offset: 180.0   # degrees — ForkliftB faces -X in its own frame
+      no_invert: false        # true skips the reverse leg
+      angular_speed: 0.4      # rad/s while turning
+
 robots:
   - name: forklift_b
     model: forklift_b
@@ -62,11 +68,18 @@ robots:
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
     articulation_prim: /World/forklift_b
 
+    # --- how this truck drives (forklift-controller) ---
+    # Overrides the model's drive: block leaf by leaf. A launch flag outranks
+    # both; no environment variable is read — see fleet_config.py for the order.
+    drive:
+      speed: 1.5              # m/s along the path
+      loop: true              # replay forever; needs a closed path
+
     # --- control (ROS_Forklift_Control_Graph) ---
     # Joints and geometry come from the model; what is left is this truck's own.
     control:
       enabled: true
-      cmd_vel_topic: forklift_b/cmd_vel # per-robot namespace (controller USE_NAMESPACE=true; FORKLIFT_* vars in sil.env/hil.env)
+      cmd_vel_topic: forklift_b/cmd_vel # the controller reads this too, so it is stated once
 
     # --- odometry (Odometry_Graph) ---
     odometry:

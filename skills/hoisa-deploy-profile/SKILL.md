@@ -136,7 +136,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 
 Step 8 exists because a robot has to be listed in four places — `robots.yaml`, a controller service, its waypoint file, and `COMM_ROBOT_IDS` — and **every way of getting it half-right is silent**. Two of the four produce the same symptom, a truck that sits there; the third produces a disc that looks like a working indicator reporting danger. The check takes a second and runs on the host; Isaac takes three minutes to boot before showing you any of it. Pass the config you will actually launch with — it has no default on purpose.
 
-It also compares each waypoint file's `origin` against where its truck stands, which is a different kind of mistake: the names all agree, the truck drives, and only the lane is wrong. Waypoints are per scene (`waypoints/<map id>/<ROBOT_ID>.json`, selected by `FORKLIFT_WAYPOINTS_DIR`) because the coordinates are metres in one warehouse's world frame. The scene<->config<->waypoints<->calibration pairings are tabulated in `references/test_scenario.md`; the 40x20 scene has no published calibration and is experimental.
+It also compares each waypoint file's `origin` against where its truck stands, which is a different kind of mistake: the names all agree, the truck drives, and only the lane is wrong. Waypoints are per scene (`waypoints/<map id>/<ROBOT_ID>.json`, the map chosen by `SCENARIO`) because the coordinates are metres in one warehouse's world frame. The scene<->config<->waypoints<->calibration pairings are tabulated in `references/test_scenario.md`; the 40x20 scene has no published calibration and is experimental.
 
 ---
 
@@ -164,7 +164,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | Tag | Rule | Details in |
 |-----|------|-----------|
 | `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2.1 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
-| `VSS_BEFORE_HALOS` | VSS Warehouse **must** be running and healthy before deploying Halos | `vss_2d_overrides.md` |
+| `VSS_BEFORE_HALOS` | **`base`/`sil` only:** VSS Warehouse must be running and healthy before deploying Halos. `hil` inverts this — bring Isaac up and confirm the streams deliver frames first, then deploy VSS on the Thor, or the Thor registers sensors against a cold Isaac and hits the "no caps" race | `vss_2d_overrides.md`, `halos_hil.md` §3 |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
 | `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
 | `SIL_3D_MODEL` | **3D profile:** the R101 Sparse4D model needs the **deployable ONNX + the trainable-package kmeans anchor at the same version** — mixing versions/sources gives silently wrong detections | `model_r101.md` |

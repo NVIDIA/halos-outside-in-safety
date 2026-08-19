@@ -52,6 +52,15 @@ _BAKED_GRAPH_PATHS = (
 KNOWN_DRIVE_TYPES = ("swivel",)
 DEFAULT_DRIVE_TYPE = "swivel"
 
+# How a truck is driven along its path. Read by the forklift-controller, never
+# by a graph builder, but named here because this loader is the one place both
+# sides come through: a knob misfiled into `drive:` would otherwise be merged,
+# ignored and never mentioned. fleet_config.DRIVE_DEFAULTS gives them values.
+KNOWN_DRIVE_KEYS = (
+    "speed", "angular_speed", "heading_offset", "loop", "no_invert",
+    "end_tolerance", "end_pose_count", "spiral_timeout",
+)
+
 # Model keys that describe how the truck drives, and therefore land in the
 # robot's `control` block. Everything here follows from the asset: two trucks
 # built from one ForkliftB payload cannot disagree about their wheelbase.
@@ -130,6 +139,33 @@ def _apply_model(robot: dict, model: dict, yaml_path: str) -> None:
 
     if "asset_path" in model and isinstance(robot.get("spawn"), dict):
         _merge_under(robot, "spawn", {"asset_path": model["asset_path"]})
+
+    # How the truck is driven along its path. Read by the forklift-controller,
+    # not by any graph builder here — the model carries what follows from the
+    # asset (which way it faces), the robot carries what is its own (how fast).
+    drive = model.get("drive") or {}
+    _validate_drive("model", drive, yaml_path)
+    if drive:
+        _merge_under(robot, "drive", drive)
+
+
+def _validate_drive(where: str, drive, yaml_path: str) -> None:
+    """Refuse a `drive:` block that names something no one reads.
+
+    Every sibling block in this file rejects unknown keys; `drive:` did not, and
+    a `segments:` indented one level too far was merged, ignored, and silently
+    absent from the disc it was written for.
+    """
+    if not isinstance(drive, dict):
+        raise ValueError(f"{yaml_path}: {where} drive: must be a mapping, got {drive!r}")
+    unknown = set(drive) - set(KNOWN_DRIVE_KEYS)
+    if unknown:
+        raise ValueError(
+            f"{yaml_path}: {where} drive: has unknown keys: "
+            f"{', '.join(sorted(unknown))}. Known keys are "
+            f"{', '.join(KNOWN_DRIVE_KEYS)} — check the indentation if one of "
+            f"these belongs to the block above."
+        )
 
 
 def _validate_models(cfg: dict, yaml_path: str) -> dict:
@@ -237,6 +273,7 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
             _apply_model(r, models[model_name], yaml_path)
 
         resolve_drive_type(r)
+        _validate_drive(f"'{name}'", r.get("drive") or {}, yaml_path)
 
     clock_cfg = cfg.get("clock", {}) or {}
     return robots, clock_cfg

@@ -6,15 +6,22 @@ Run the Isaac Sim test scenario (`sil` profile) and monitor safety commands.
 
 ## Run the scenario
 
+The run is named by `SCENARIO` in the profile env, which Isaac and every
+controller read, so the two cannot end up on different halves of one run. It
+supplies the IRA config, the fleet file, the cameras config and the warehouse
+together:
+
 ```bash
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+  ./run_sdg.sh --start --headless --enable-vst'
 ```
 
-Two-forklift variant: swap in the 2FL config pair — `-c /isaac-sim/sil/configs/default_config_ros_2fl.yaml
---robots-config /isaac-sim/sil/configs/robots-2fl.yaml` (plus `COMPOSE_PROFILES=sil,multi-robot` — notes in `robots.yaml`/`sil.env`).
+Two-forklift variant: set `SCENARIO=warehouse_20x20_2fl` in the profile env and
+add `multi-robot` to `COMPOSE_PROFILES` — the profile decides whether the second
+controller container exists, the scenario decides what it drives.
+
+Individual flags (`-c`, `--robots-config`, `--cameras-config`) still win over the
+scenario, for a one-off run against a config the table below does not list.
 
 ### Which artifacts go with which scene
 
@@ -23,11 +30,15 @@ here is silent**. Cameras still stream, perception still detects, the controller
 still drives, PSF still issues verdicts — about the wrong building. Pick one row
 and use it whole.
 
-| Scene | IRA config | robots | cameras | `FORKLIFT_WAYPOINTS_DIR` | VSS `SAMPLE_VIDEO_DATASET` |
-|---|---|---|---|---|---|
-| `indicator_warehouse_20x20_layout_overflow_test.usd` | `default_config_ros.yaml` | `robots.yaml` (1 FL) | `cameras.yaml` | `./waypoints/warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
-| `indicator_warehouse_20x20_layout_overflow_test_2fl.usd` | `default_config_ros_2fl.yaml` | `robots-2fl.yaml` (2 FL) | `cameras.yaml` | `./waypoints/warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
-| `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `./waypoints/warehouse_40x20` | **none published — see below** |
+Each row is one `SCENARIO` id. Picking the id picks the whole row —
+`configs/scenarios.yaml` is where the mapping lives, and this table is its
+human-readable form plus the VSS dataset, which the scenario does not name.
+
+| `SCENARIO` | Scene | IRA config | robots | cameras | waypoints | VSS `SAMPLE_VIDEO_DATASET` |
+|---|---|---|---|---|---|---|
+| `warehouse_20x20_1fl` | `indicator_warehouse_20x20_layout_overflow_test.usd` | `default_config_ros.yaml` | `robots.yaml` (1 FL) | `cameras.yaml` | `warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
+| `warehouse_20x20_2fl` | `indicator_warehouse_20x20_layout_overflow_test_2fl.usd` | `default_config_ros_2fl.yaml` | `robots-2fl.yaml` (2 FL) | `cameras.yaml` | `warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
+| `warehouse_40x20` | `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `warehouse_40x20` | **none published — see below** |
 
 **The 40x20 row has no calibration and is EXPERIMENTAL / internal-only.** The
 dataset above is 20x20 geometry: its ROIs and tripwires sit at
@@ -51,7 +62,7 @@ profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 1. Loads the warehouse scene
 2. Spawns the forklift + digital humans
 3. Initializes the ROS2 Action Graph (the forklift safety disc subscribes `/safety/is_muted`)
-4. Runs the forklift playback (`segments.json`: forward into trailer → idle → backward → idle)
+4. The forklift-controller drives the truck along `waypoints/<map id>/<ROBOT_ID>.json` (forward into trailer → idle → backward → idle)
 5. Starts RTSP streaming — Isaac 6.0 **self-hosts** RTSP per camera (H264):
    `rtsp://localhost:8554/camera`, `:8555/camera_01`, `:8556/camera_02`
 6. Registers the 3 cameras with VST — `--enable-vst` deletes existing sensors, then adds the Isaac cameras

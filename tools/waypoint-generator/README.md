@@ -63,10 +63,11 @@ npm run dev
 
 ### Which way the truck faces
 
-The forklift controller runs with pose inversion on — `invert_poses` defaults to
-true and the compose file sets `NO_INVERT=false` explicitly — so it mirrors the
-whole path 180 degrees about the origin before driving it, and adds
-`HEADING_OFFSET=180` to the truck's measured heading. **A path drawn heading
+The forklift controller runs with pose inversion on — the truck's `drive:` block
+in the robots config states `no_invert: false` and `heading_offset: 180.0` — so
+it mirrors the whole path 180 degrees about the origin before driving it, and
+adds that offset to the truck's measured heading. Both values follow from the
+asset, so they sit on the model rather than on each truck. **A path drawn heading
 east here is driven heading west.** That is not a bug to fix in this tool; it is
 how the forklift asset's forward axis is reconciled with the odom frame, and the
 paths under `forklift-controller/waypoints/` are all drawn that way.
@@ -85,7 +86,7 @@ running it.
 
 ## Output Format
 
-The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment the controller reads `<ROBOT_ID>.json` from the set named by `FORKLIFT_WAYPOINTS_DIR`, which is `closed-loop-testing/forklift-controller/waypoints/<map id>/` — so an exported path replaces the file of the same robot name under the map it was drawn on. The `map` block this tool writes records that id, and `deployments/scripts/preflight.py` checks the file's `origin` against where the truck actually stands.
+The JSON export (including `poses`) is the input format of the SIL forklift controller: `closed-loop-testing/forklift-controller/robot_controller.py` loads it via `--path <file>.json`. In the compose deployment the whole `closed-loop-testing/forklift-controller/waypoints/` tree is mounted and the controller reads `<map id>/<ROBOT_ID>.json`, the map coming from `SCENARIO` — so an exported path replaces the file of the same robot name under the map it was drawn on. The `map` block this tool writes records that id, and `deployments/scripts/preflight.py` checks the file's `origin` against where the truck actually stands.
 
 ### JSON (for the forklift controller)
 ```json
