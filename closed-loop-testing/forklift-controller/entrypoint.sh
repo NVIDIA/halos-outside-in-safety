@@ -24,11 +24,6 @@ ARGS="--robot-id ${ROBOT_ID}"
 # truck drives. Drive knobs are not forwarded from the environment: one env var
 # would set every truck in the fleet at once.
 [ -n "${SCENARIO:-}" ]      && ARGS="${ARGS} --scenario ${SCENARIO}"
-case "${ROBOTS_CONFIG:-}" in
-    "")  ;;                                                        # scenario supplies it
-    /*)  ARGS="${ARGS} --robots-config ${ROBOTS_CONFIG}" ;;
-    *)   ARGS="${ARGS} --robots-config /app/robots/${ROBOTS_CONFIG}" ;;
-esac
 [ -n "${WAYPOINTS_MAP:-}" ] && ARGS="${ARGS} --map ${WAYPOINTS_MAP}"
 # One file for this container, set by docker_run.sh. Safe here because a
 # `docker run` env is per container; compose does not set it, where one

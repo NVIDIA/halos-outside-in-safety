@@ -9,10 +9,9 @@ x-forklift-env: &forklift-env
   # Isaac reads the same SCENARIO, so the two cannot run different halves of one
   # run. It names the fleet file and the map; the two below override it per run.
   SCENARIO: ${SCENARIO:-}
-  # A file name under configs/, e.g. robots-2fl.yaml (an absolute path also
-  # works); WAYPOINTS_MAP is a directory name under waypoints/. Each overrides
-  # one key of the scenario for a one-off run, not the run itself.
-  ROBOTS_CONFIG: ${ROBOTS_CONFIG:-}
+  # A directory name under waypoints/, overriding the scenario's for one run.
+  # There is no companion override for the fleet file: a different fleet is a
+  # different run, and a run is named by adding an entry to scenarios.yaml.
   WAYPOINTS_MAP: ${WAYPOINTS_MAP:-}
   # Passed through only so entrypoint.sh can refuse it. A profile carrying the
   # old variable is the case the refusal exists for, and a guard compose never

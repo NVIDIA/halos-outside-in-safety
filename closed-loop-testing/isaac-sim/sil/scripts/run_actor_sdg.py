@@ -1017,15 +1017,14 @@ def main():
     # not pass --robots-config, mirroring the cameras.yaml default above.
     robots_config_path = None
     configs_dir = _configs_dir
-    # ROBOTS_CONFIG names the fleet file for BOTH this process and the
+    # SCENARIO names the fleet file for BOTH this process and the
     # forklift-controller containers, so the two cannot be launched against
-    # different fleets. A bare name is resolved per container against its own
-    # mount; the flag still wins for a one-off run.
-    env_robots = os.environ.get("ROBOTS_CONFIG", "").strip()
-    robots_source = "ROBOTS_CONFIG"
-    if not env_robots:
-        env_robots = scenario.get("robots", "")
-        robots_source = f"SCENARIO={args.scenario or os.environ.get('SCENARIO', '')}"
+    # different fleets. There is deliberately no environment override for the
+    # fleet alone: it would pair one scenario's trucks with another's scene,
+    # unnamed and unrecorded. A different fleet is a different scenario. The
+    # flag still wins, for a one-off run that is not worth a scenario id.
+    env_robots = scenario.get("robots", "")
+    robots_source = f"SCENARIO={args.scenario or os.environ.get('SCENARIO', '')}"
 
     wants_robots = args.enable_forklift or args.enable_clock or args.enable_forklift_spawn
     if args.robots_config:

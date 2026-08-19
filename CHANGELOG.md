@@ -37,6 +37,13 @@ SCENARIO=warehouse_20x20_1fl
 IRA config, fleet file, cameras config and waypoint directory. `-c` is now
 optional when a scenario names one; a flag still wins over the scenario.
 
+There is deliberately no environment override for the fleet file alone. One
+would pair a scenario's scene with another scenario's trucks — unnamed, absent
+from the logs, and impossible to ask preflight about. A different fleet is a
+different run, so it gets an id in `scenarios.yaml`; `--robots-config` is still
+there for a one-off not worth naming. `WAYPOINTS_MAP` remains, because a new
+waypoint set for an existing scene is genuinely the same run driven differently.
+
 **Migrating from 1.3**
 
 - **`FORKLIFT_WAYPOINTS_DIR` is removed.** The whole waypoints tree is mounted

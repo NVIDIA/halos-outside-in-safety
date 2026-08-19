@@ -213,10 +213,10 @@ def collect(robots_yaml: str, env_file: str):
 def _scenario_value(svc, key):
     """One key of the scenario this service names, or None.
 
-    The scenario is what a deployment actually sets; WAYPOINTS_MAP and
-    ROBOTS_CONFIG exist only to override it for a one-off run. Reading it here
-    keeps the check looking at what the container will do rather than at the
-    variables that happen to be spelled out.
+    The scenario is what a deployment actually sets; WAYPOINTS_MAP exists only
+    to override one key of it for a single run. Reading it here keeps the check
+    looking at what the container will do rather than at the variables that
+    happen to be spelled out.
     """
     scenario_id = (svc["environment"].get("SCENARIO") or "").strip()
     if not scenario_id:
@@ -290,14 +290,13 @@ def check(common, robots, controllers, comm_ids, scene_path=None,
         checked = os.path.basename(robots_yaml)
         mismatched = {}
         for service_name, svc in sorted(controllers.items()):
-            effective = ((svc["environment"].get("ROBOTS_CONFIG") or "").strip()
-                         or _scenario_value(svc, "robots") or "")
+            effective = _scenario_value(svc, "robots") or ""
             if effective and os.path.basename(effective) != checked:
                 mismatched[os.path.basename(effective)] = service_name
         for effective, service_name in sorted(mismatched.items()):
             findings.append((ERROR, (
                 f"preflight was given {checked}, but {service_name} will read "
-                f"{effective} (from its SCENARIO, or ROBOTS_CONFIG overriding it). "
+                f"{effective}, the fleet its SCENARIO names. "
                 f"Everything below is about the wrong fleet — re-run with "
                 f"--robots-config .../{effective}."
             )))

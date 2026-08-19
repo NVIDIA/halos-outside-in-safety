@@ -52,6 +52,9 @@ cd "$SCRIPT_DIR"
 # the truck differently from the deployment it exists to mimic — which is what it
 # used to do: --speed 1 against a fleet file that says 1.5. It reads the same
 # fleet file Isaac reads instead.
+# Both are this script's own variables, not deployment settings: compose has no
+# fleet override, because a different fleet there is a different SCENARIO. Here
+# there is no scenario to name, so the file is named directly.
 CONFIGS_DIR="${CONFIGS_DIR:-$SCRIPT_DIR/../isaac-sim/sil/configs}"
 ROBOTS_CONFIG="${ROBOTS_CONFIG:-robots.yaml}"
 case "$ROBOTS_CONFIG" in /*) ;; *) ROBOTS_CONFIG="$CONFIGS_DIR/$ROBOTS_CONFIG" ;; esac
