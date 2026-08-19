@@ -722,10 +722,8 @@ def main():
 
     args, unknown = parser.parse_known_args()
 
-    # argparse hands what it does not recognise to rclpy, which ignores it. A
-    # flag this release removed would therefore do nothing and say nothing, and
-    # the caller would go on believing it still works. Refuse instead — the same
-    # choice entrypoint.sh makes for the waypoints variable this release removed.
+    # rclpy ignores what argparse did not recognise, so a removed flag would do
+    # nothing and say nothing. Name it instead.
     if any(token.split('=', 1)[0] == '--no-namespace' for token in unknown):
         parser.error(
             "--no-namespace was removed: topic names come from the robot's block "

@@ -26,10 +26,8 @@ DOCKER_ARGS=(
     docker run --rm --name "$NAME" --network host
     -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    # No fleet file is mounted here, so the drive knobs come from
-    # fleet_config.DRIVE_DEFAULTS — which hold the same values robots.yaml
-    # states for forklift_b. Naming a truck other than the default therefore
-    # gets the default's speed and heading; use compose for a real fleet.
+    # No fleet file is mounted, so drive knobs fall back to DRIVE_DEFAULTS —
+    # forklift_b's values. Use compose for a real fleet.
     -e ROBOT_ID="${ROBOT_ID:-forklift_b}"
 )
 

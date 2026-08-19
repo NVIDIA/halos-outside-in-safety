@@ -1,22 +1,12 @@
-# Everything every forklift controller shares. A truck differs only in its
-# ROBOT_ID — speed, heading and route all come from its block in the robots
-# config. One container drives one truck, so which truck it is has to be said
-# here; everything else about it is said once, in the fleet file.
+# One container drives one truck, so a service says which truck it is and
+# nothing else about it.
 x-forklift-env: &forklift-env
   ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
   ROS_AUTOMATIC_DISCOVERY_RANGE: ${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
   RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
-  # Isaac reads the same SCENARIO, so the two cannot run different halves of one
-  # run. It names the fleet file and the map; the two below override it per run.
-  SCENARIO: ${SCENARIO:-}
-  # A directory name under waypoints/, overriding the scenario's for one run.
-  # There is no companion override for the fleet file: a different fleet is a
-  # different run, and a run is named by adding an entry to scenarios.yaml.
-  WAYPOINTS_MAP: ${WAYPOINTS_MAP:-}
-  # Passed through only so entrypoint.sh can refuse it. A profile carrying the
-  # old variable is the case the refusal exists for, and a guard compose never
-  # hands the variable to is a guard that cannot fire.
-  FORKLIFT_WAYPOINTS_DIR: ${FORKLIFT_WAYPOINTS_DIR:-}
+  SCENARIO: ${SCENARIO:-}            # Isaac reads the same one, so the two halves cannot disagree
+  WAYPOINTS_MAP: ${WAYPOINTS_MAP:-}   # overrides the scenario's waypoint set for one run
+  FORKLIFT_WAYPOINTS_DIR: ${FORKLIFT_WAYPOINTS_DIR:-}   # passed only so entrypoint.sh can refuse it
 
 x-forklift-volumes: &forklift-volumes
   # The robots config and the loader that reads it. Shared rather than copied:

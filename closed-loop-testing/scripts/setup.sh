@@ -13,13 +13,15 @@
 # sil-data (nvidia/halos-outside-in/sample-sil-data) is a SIL-only prerequisite — pull separately.
 #
 # Usage:
-#   ./scripts/setup.sh <base|sil|hil>     # reads ../../deployments/profiles/<profile>.env
+#   ./scripts/setup.sh <profile>          # reads ../../deployments/profiles/<profile>.env
+#                                         # any name; what it sets up follows from
+#                                         # COMPOSE_PROFILES inside that file
 
 set -e
 
 PROFILE="${1:-}"
 if [ -z "$PROFILE" ]; then
-    echo "ERROR: profile required. Usage: ./scripts/setup.sh <base|sil|hil>"
+    echo "ERROR: profile required. Usage: ./scripts/setup.sh <profile>  (e.g. sil)"
     exit 1
 fi
 
@@ -31,14 +33,6 @@ echo "============================================================"
 echo "  Halos Outside-In Safety — setup (profile: $PROFILE)"
 echo "============================================================"
 
-# Which services' data dirs does this profile need?
-case "$PROFILE" in
-    base) NEED_PSF=1 ;;
-    sil)  NEED_PSF=1; NEED_COMM=1; NEED_ISAAC=1 ;;
-    hil)  NEED_COMM=1; NEED_ISAAC=1 ;;
-    *) echo "ERROR: unknown profile '$PROFILE' (base|sil|hil)"; exit 1 ;;
-esac
-
 # Load profile env
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: env file not found: $ENV_FILE"
@@ -46,6 +40,18 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 echo "Loading $ENV_FILE"
 set -a; source "$ENV_FILE"; set +a
+
+# Which services' data dirs to prepare, taken from the profile's own
+# COMPOSE_PROFILES rather than from its file name — so a profile copied to any
+# name is set up for what it will actually start.
+case ",${COMPOSE_PROFILES}," in *,base,*) NEED_PSF=1 ;; esac
+case ",${COMPOSE_PROFILES}," in *,sil,*)  NEED_PSF=1; NEED_COMM=1; NEED_ISAAC=1 ;; esac
+case ",${COMPOSE_PROFILES}," in *,hil,*)  NEED_COMM=1; NEED_ISAAC=1 ;; esac
+if [ -z "${NEED_PSF}${NEED_COMM}${NEED_ISAAC}" ]; then
+    echo "ERROR: COMPOSE_PROFILES in $ENV_FILE is '${COMPOSE_PROFILES:-<empty>}',"
+    echo "       which names none of base|sil|hil, so there is nothing to set up."
+    exit 1
+fi
 
 # Validate MDX_DATA_DIR (catch unedited template)
 if [ -z "$MDX_DATA_DIR" ]; then

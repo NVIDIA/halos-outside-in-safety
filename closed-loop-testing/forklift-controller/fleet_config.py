@@ -40,22 +40,28 @@ DRIVE_DEFAULTS = {
 }
 
 
-def load_fleet(robots_config_path: str) -> list[dict]:
-    """Every robot in the config, each already folded with its model."""
+def _loader():
+    """The Isaac-side module both this file and the graph builders read."""
     if ISAAC_SCRIPTS_DIR not in sys.path:
         sys.path.insert(0, ISAAC_SCRIPTS_DIR)
     try:
-        from action_graphs.forklift_common import load_and_validate_robots_yaml
+        from action_graphs import forklift_common
     except ImportError as exc:
         raise RuntimeError(
             f"cannot import the fleet loader from {ISAAC_SCRIPTS_DIR} ({exc}). "
             f"The forklift-controller service mounts the Isaac script tree; check "
             f"that mount, or set ISAAC_SCRIPTS_DIR."
         ) from exc
-    # The loader names the knobs, this file gives them values. Two lists that
-    # must agree are worth one assertion rather than a knob that reads as
-    # unknown on one side and as a default on the other.
-    from action_graphs.forklift_common import KNOWN_DRIVE_KEYS
+    return forklift_common
+
+
+def load_fleet(robots_config_path: str) -> list[dict]:
+    """Every robot in the config, each already folded with its model."""
+    common = _loader()
+    load_and_validate_robots_yaml = common.load_and_validate_robots_yaml
+    KNOWN_DRIVE_KEYS = common.KNOWN_DRIVE_KEYS
+    # The loader names the knobs, this file gives them values; the two lists
+    # must not drift.
     if set(KNOWN_DRIVE_KEYS) != set(DRIVE_DEFAULTS):
         raise RuntimeError(
             f"drive knobs disagree: forklift_common knows {sorted(KNOWN_DRIVE_KEYS)}, "
@@ -119,17 +125,13 @@ def resolve_topics(robot: Optional[dict], robot_id: str) -> dict:
     rebuilding the strings is what stops the two sides drifting. Without a fleet
     file — a run started by hand — the namespaced convention still applies.
     """
-    control = (robot or {}).get("control") or {}
-    odometry = (robot or {}).get("odometry") or {}
-
-    def norm(value, fallback):
-        value = value or fallback
-        return value if value.startswith("/") else f"/{value}"
-
-    return {
-        "cmd_vel": norm(control.get("cmd_vel_topic"), f"{robot_id}/cmd_vel"),
-        "odom": norm(odometry.get("odom_topic"), f"{robot_id}/odom"),
-    }
+    if robot is None:
+        names = {"cmd_vel": f"{robot_id}/cmd_vel", "odom": f"{robot_id}/odom"}
+    else:
+        common = _loader()
+        names = {"cmd_vel": common.resolve_cmd_vel_topic(robot),
+                 "odom": common.resolve_odom_topic(robot)}
+    return {k: v if v.startswith("/") else f"/{v}" for k, v in names.items()}
 
 
 SCENARIO_KEYS = ("ira", "robots", "cameras", "waypoints", "experimental")

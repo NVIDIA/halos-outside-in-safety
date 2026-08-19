@@ -1,10 +1,6 @@
-# What to run. One entry per scenario; the key is the id, and `SCENARIO=<id>` in
-# the profile env picks one. Isaac and every forklift controller read the same
-# id, so they cannot end up on different halves of one run.
-#
-# A scenario says what to run. Where to run it — host IP, data paths, GPU,
-# docker gid — stays in deployments/profiles/*.env. A command-line flag still
-# wins over a scenario, for a one-off run.
+# What to run. One entry per scenario; `SCENARIO=<id>` in the profile env picks
+# one, and Isaac and every controller read the same id. Where to run it — host
+# IP, data paths, GPU — stays in the profile env. A flag wins over a scenario.
 #
 #   ira        IRA config. The scene USD is named inside it, so it is not repeated here
 #   robots     fleet file: which trucks exist and how each drives
