@@ -41,7 +41,6 @@
 # table in skills/hoisa-deploy-profile/references/test_scenario.md).
 scene:
   - sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
-  - sil/scenes/indicator_warehouse_20x20_layout_overflow_test_2fl.usd
 #
 # Diff vs Isaac Sim 5.1 schema:
 #   - REMOVE field `rtsp_path` (string `RTSPWriter_World_Cameras_*_rgb`)

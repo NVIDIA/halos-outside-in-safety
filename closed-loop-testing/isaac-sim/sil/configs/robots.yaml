@@ -10,9 +10,9 @@
 # matching the stock scene. run_actor_sdg fails fast if a listed
 # articulation prim is missing from the loaded scene.
 #
-# TWO-FORKLIFT variant: configs/robots-2fl.yaml. To switch, set
-# SCENARIO=warehouse_20x20_2fl in the profile env and add `multi-robot` to
-# COMPOSE_PROFILES for the second controller container.
+# TWO-FORKLIFT runs use configs/robots-40x20.yaml, whose trucks are spawned
+# from the file rather than baked into a scene: set SCENARIO=warehouse_40x20 and
+# add `multi-robot` to COMPOSE_PROFILES for the second controller container.
 # Keep the `models:` block and the forklift_b block in both files in sync by
 # hand: the model is declared per file so each stays launchable on its own.
 # The parsed values must agree, not the bytes: the comments around them differ.

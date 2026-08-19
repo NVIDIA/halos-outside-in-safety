@@ -1,6 +1,6 @@
 # Halos SIL forklift / robot Action Graph config (6.0) — 40x20 TWO-DOCK variant.
 #
-# Same two-robot layout as robots-2fl.yaml, retargeted to the 40x20 scene. To
+# The two-robot fleet. Both trucks are spawned from this file. To
 # run this variant:
 #   1. The scene contains NO forklift prims: the `spawn:` blocks below author
 #      both trucks into a generated layer that sublayers the scene, before IRA
