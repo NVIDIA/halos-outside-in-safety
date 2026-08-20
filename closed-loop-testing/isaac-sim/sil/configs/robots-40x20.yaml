@@ -14,11 +14,8 @@
 #        --cameras-config /isaac-sim/sil/configs/cameras-40x20.yaml
 #   3. COMPOSE_PROFILES must include `multi-robot` so the second controller
 #      container (forklift-controller-b2) starts.
-#   4. COMM_ROBOT_IDS (sil.env) must list the same names, or comm-layer never
-#      publishes the /<name>/safety/is_muted the indicators here listen to and
-#      the discs sit on their alarm colour with nothing in the log. comm-layer
-#      also runs in HIL, where this file does not exist, so it cannot read the
-#      names from here — the list is duplicated on purpose. Verify with:
+#   4. comm-layer reads this file too and mirrors the mute onto
+#      /<name>/safety/is_muted for every robot that wants one. Verify with:
 #        ros2 topic info /forklift_b2/safety/is_muted   # want Publisher count: 1
 #   5. The scenario's `waypoints:` must be warehouse_40x20. A path is
 #      metres in one scene's world frame and the controller subtracts the file's
@@ -48,8 +45,8 @@
 # one prim.
 #
 # One block per robot. Add a robot = add a block here (including `spawn:`) + a
-# controller service (forklift-controller.yml) + the name in COMM_ROBOT_IDS. The
-# scene USD is no longer touched. The TGS rebalance list in
+# controller service (forklift-controller.yml). The scene USD is no longer
+# touched. The TGS rebalance list in
 # runtime_patches/halos_runtime_patches.py is derived from this file.
 
 # What follows from the asset, stated once. Two trucks built from one ForkliftB
@@ -147,9 +144,8 @@ robots:
     safety_indicator:
       enabled: true
       # No muted_topic here: it defaults to /<name>/safety/is_muted, which is what
-      # comm-layer publishes for every robot listed in COMM_ROBOT_IDS (sil.env).
-      # Both halves derive the name from the robot name, so it is never typed
-      # twice. Name it explicitly to point a robot at the global /safety/is_muted.
+      # comm-layer publishes for every robot that wants a mirror. Name it
+      # explicitly to point a robot at the global /safety/is_muted instead.
       #
       # No indicator_prim either: the model's parent_prim_rel puts the disc at
       # /World/forklift_b/body/body/safety_indicator, which is what this said.

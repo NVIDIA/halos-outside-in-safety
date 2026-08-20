@@ -17,7 +17,6 @@ echo "  UDP Port:        $UDP_PORT"
 echo "  OPC UA Endpoint: $OPCUA_ENDPOINT"
 echo "  ROS Topic:       $ROS_TOPIC_PREFIX"
 echo "  ROS Domain ID:   $ROS_DOMAIN_ID"
-echo "  Robot mirrors:   ${ROS_ROBOT_IDS:-<none>}"
 echo ""
 
 # Create log files
@@ -75,7 +74,7 @@ cd /app/ros_bridge
 python3 scripts/run_ros_bridge.py \
     --opcua $OPCUA_ENDPOINT \
     --topic-prefix $ROS_TOPIC_PREFIX \
-    --robot-ids "$ROS_ROBOT_IDS" \
+    --scenario "${SCENARIO:-}" \
     --rate 10.0 \
     2>&1 | tee /app/logs/ros_bridge.log &
 

@@ -354,13 +354,8 @@ def resolve_indicator_prim(robot: dict) -> str:
     )
 
 
-# Must stay in step with SafetyRosBridge._robot_muted_topic() in comm-layer, which
-# builds the same name from the same robot name. The two systems agree by
-# convention rather than by sharing a file: comm-layer also runs in HIL, where
-# robots.yaml does not exist. Deriving it on both sides means the string is
-# written once per system and never typed into a config file, so the halves
-# cannot drift through a typo — only through someone changing one of these two
-# functions.
+# Must stay in step with SafetyRosBridge._robot_muted_topic() in comm-layer,
+# which builds the same name from the same robot name.
 DEFAULT_SAFETY_TOPIC_PREFIX = "/safety"
 
 
@@ -368,8 +363,8 @@ def resolve_muted_topic(robot: dict) -> str:
     """Which topic this robot's indicator listens on.
 
     Defaults to `/<name>/safety/is_muted`, the per-robot mirror comm-layer
-    publishes when its ROS_ROBOT_IDS lists this robot. Scenes that predate the
-    mirrors keep working by naming the global `/safety/is_muted` explicitly.
+    publishes for every robot this fleet asks a mirror for. Scenes that predate
+    the mirrors keep working by naming the global `/safety/is_muted` explicitly.
     """
     cfg = robot.get("safety_indicator", {}) or {}
     topic = cfg.get(
@@ -381,6 +376,18 @@ def resolve_muted_topic(robot: dict) -> str:
             f"must be an absolute topic name starting with '/', got {topic!r}"
         )
     return topic
+
+
+def robots_needing_mute_mirror(robots: list[dict]) -> list[str]:
+    """Robots whose indicator listens on its own mirror, not the global topic.
+
+    comm-layer publishes a mirror for exactly these; a scene that names the
+    global topic needs none.
+    """
+    global_topic = f"{DEFAULT_SAFETY_TOPIC_PREFIX}/is_muted"
+    return [r["name"] for r in robots
+            if is_section_enabled(r, "safety_indicator")
+            and resolve_muted_topic(r) != global_topic]
 
 
 def _resolve_namespaced_topic(robot: dict, section: str, key: str, suffix: str) -> str:

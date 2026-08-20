@@ -54,9 +54,9 @@ Each builder:
 
 ## Mute topic contract
 
-`forklift_safety_indicator.py` subscribes to `/<name>/safety/is_muted`, derived from the robot's `name` by `forklift_common.resolve_muted_topic()`. comm-layer builds the same string in `SafetyRosBridge._robot_muted_topic()` for every robot listed in its `ROS_ROBOT_IDS` (set from `COMM_ROBOT_IDS` in the deployment profile).
+`forklift_safety_indicator.py` subscribes to `/<name>/safety/is_muted`, derived from the robot's `name` by `forklift_common.resolve_muted_topic()`. comm-layer builds the same string in `SafetyRosBridge._robot_muted_topic()` for every robot `forklift_common.robots_needing_mute_mirror()` returns.
 
-The two sides agree by convention, not by sharing a file: **comm-layer also runs in HIL, where `robots.yaml` does not exist**, so it cannot read the robot list from Isaac's config. That leaves exactly one thing duplicated — the list of robot names — and adding a robot means editing both `robots.yaml` and `COMM_ROBOT_IDS`.
+The two sides agree because they read one file: comm-layer mounts the same configs directory the controllers do, in `hil` as well as `sil`, and asks the shared loader which robots want a mirror. Adding a robot is a block in `robots.yaml`; nothing else lists it.
 
 Forgetting the second edit is silent. Isaac subscribes to a topic nobody publishes, the disc stays on its alarm colour, and nothing is logged as an error.
 
