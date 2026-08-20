@@ -1,0 +1,22 @@
+---
+title: "Getting Started"
+description: ""
+---
+Start here to bring up a first working system. Deploy perception and the Safety
+Core on real camera feeds, or run one of the simulation-based quick starts to
+exercise the closed loop without hardware.
+
+[prerequisites](/getting-started/prerequisites) collects the hardware, software, and NGC access
+requirements for every route below. Check it before you pick one.
+
+| Start with | What it deploys | When to choose it |
+| --- | --- | --- |
+| [inference-pipeline](/getting-started/inference-pipeline) | AI Perception (VSS Warehouse Blueprint) on live cameras | You are bringing up real camera feeds. It hands off to the Deployment Guide for the Safety Core install itself. |
+| [safety-core](/getting-started/safety-core) | Safety Core on an existing perception feed | Perception is already publishing events and you want safety decisions on top of it. This is the shortest manual bring-up. |
+| [sil](/getting-started/sil) | Perception, Safety Core, and NVIDIA Isaac Sim as one closed loop | You want the full loop in simulation on a single host, without cameras. Choose the 2D or 3D perception profile there. |
+| [/testing/hil/index](/testing/hil) | The same closed loop split across an x86 host and an NVIDIA IGX Thor | You want perception and the Safety Core running on the target hardware while the simulation drives them from a second host. |
+| [agentic-deployment](/getting-started/agentic-deployment) | Whichever profile you pick, installed for you | A coding agent runs on the deployment host and you want it to perform the bring-up from a single prompt. |
+| [brev-launchable](/getting-started/brev-launchable) | The same single-host closed loop, on a cloud GPU instance | You do not have a host that meets the requirements, or you want the instance, both repositories, and the bring-up handled for you. |
+
+The [/deployment/index](/deployment) covers installation, configuration, runtime
+parameters, and troubleshooting in full.

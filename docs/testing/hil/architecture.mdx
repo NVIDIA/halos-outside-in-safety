@@ -1,0 +1,168 @@
+---
+title: "HIL Architecture"
+description: ""
+---
+System architecture for the two-host Hardware-in-the-Loop (HIL) testing environment.
+
+## System diagram
+
+<Frame caption="NVIDIA Halos Outside-In Safety architecture">
+  <img src="/assets/images/hil/halos-architecture.png" alt="Halos Outside-In Safety architecture, with the digital twin on one host and the blueprint on another" />
+</Frame>
+
+HIL exercises the digital-twin path on the right: Isaac Sim runs on the x86 stimulus host and supplies the camera streams, and the blueprint — perception, the monitors, and the Safety Core — runs on the IGX Thor and returns the safety decision. The facility and inside-out blocks are the production deployment the harness stands in for. The services and ports that path maps to are below.
+
+<Frame caption="The two hosts and the two flows that cross between them. The numbers match the component sections below.">
+  <img src="/assets/images/hil/hil-two-host-architecture.png" alt="The two HIL hosts and the two flows between them, numbered to match the component sections below" />
+</Frame>
+
+## Components
+
+### 1. Isaac Sim (x86)
+
+Built on `nvcr.io/nvidia/isaac-sim:6.0.0` (the `ISAAC_SIM_IMAGE` value in `hil.env`) and run with `network_mode: host`. It renders the warehouse scene and self-hosts one in-process RTSP server per camera — `:8554/camera`, `:8555/camera_01`, and `:8556/camera_02` — with no relay in front of them. It publishes `/odom` and `/clock`, consumes `/cmd_vel`, and its safety-indicator Action Graph subscribes to `/safety/is_muted`.
+
+### 2. Communication layer (x86)
+
+Binds UDP `12346` on `0.0.0.0` with no source-address filter and acknowledges every packet to the sender's own address, so a remote safety host needs no configuration change here. Like the OPC UA endpoint, the command port is unauthenticated: run the harness on a trusted network segment (see [/known-limitations](/known-limitations)). It republishes each decision on `/safety/command` and `/safety/is_muted`, and serves OPC UA at `opc.tcp://0.0.0.0:4840/safety/`. That endpoint doubles as the container healthcheck, and `isaac-sim` waits on it through `depends_on: service_healthy` — an unhealthy communication layer stops Isaac Sim from starting at all.
+
+### 3. Forklift controller (x86)
+
+A stimulus generator. It consumes `/odom` and publishes `/cmd_vel`, driving the forklift around a fixed 41-pose loop. It does **not** consume the safety opcodes on `/safety/command`: the decision is visualized by the in-scene safety indicator, not by the forklift changing its behavior.
+
+### 4. VSS Warehouse perception (IGX Thor)
+
+VST is the RTSP **client**: it pulls the three x86 mounts and re-serves each one Thor-locally as `/live/<UUID>` on `:30554`, `:30555`, and `:30556`. DeepStream consumes that re-serve, never Isaac Sim directly. Behavior Analytics consumes the perception detections and publishes ROI and tripwire events to the Kafka topic `mdx-events` on `localhost:9092`, where the Safety Core reads them — the perception-to-safety hop never crosses the host boundary.
+
+### 5. Safety Core (IGX Thor)
+
+The `nv-psf` container plus a host-side Safety Decision Maker (SDM) binary, started by the launch script installed by the Thor package rather than by Docker Compose. The NvPSD Gateway and the SDM exchange over UDP on `127.0.0.1:50000`, with the SDM re-registering roughly every 30 seconds; see [/integration/index](/integration) for the gateway protocol. The target is selected by `SDM_TARGET`, and the profile ships `ccplex`: the SDM runs as a host process (`atl_sdm`) on the Thor application cores. Running it on the Functional Safety Island instead needs gated-access packages and is described in [SDM on FSI](/deployment#sdm-on-fsi) in the [Deployment Guide ](/deployment).
+
+## Data flow
+
+<Frame caption="Every hop in the loop, with the transport that carries it. The stimulus path runs down the left, the decision path back up the right, and the dashed line marks the host boundary.">
+  <img src="/assets/images/hil/hil-data-flow.png" alt="The stimulus path down the left column and the decision path up the right, with the host boundary marked" />
+</Frame>
+
+## Network interfaces
+
+Two flows carry the safety loop across the host boundary; everything else in the table below is orchestration and infrastructure.
+
+| Port | Protocol | Listener | Connector | Environment variable |
+| --- | --- | --- | --- | --- |
+| `8554`, `8555`, `8556` | RTSP over TCP | `isaac-sim` (x86) | VST (IGX Thor) | — (fixed in `cameras.yaml`) |
+| `12346` | UDP | `comm-layer` (x86), bound on `0.0.0.0` | SDM (IGX Thor) | `COMM_UDP_PORT` (x86), `PSF_CMD_RX_PORT` (IGX Thor) |
+| ephemeral | UDP reply | SDM source socket (IGX Thor) | `comm-layer` (x86), acknowledgment | — |
+| `4840` | OPC UA over TCP | `comm-layer` (x86) | Container healthcheck, external OPC UA clients | `COMM_OPCUA_ENDPOINT` |
+| `30888` | HTTP | VST (IGX Thor) | x86 host, for orchestration and preflight | `VST_BASE_URL` |
+| `9000` | HTTP | Perception (IGX Thor) | x86 host, optional | `PERCEPTION_BASE_URL` |
+| `22` | SSH over TCP | IGX Thor | x86 host, for the preflight check and safety-host commands | — |
+| `123` | NTP over UDP | External time source | Both hosts, outbound | — |
+
+The safety host pulls over TCP only when `rtsp_streaming_over_tcp: true` is set on its VST configuration; over UDP the sensors report `online` and no media arrives ([quickstart](/testing/hil/quickstart)).
+
+The acknowledgment travels back on the flow the SDM already established, so the IGX Thor needs no inbound rule for `12346`. Firewall rules required: Thor to x86, TCP `8554`-`8556` and UDP `12346`; x86 to Thor, TCP `30888`, `9000` (optional), and `22`; both hosts outbound to NTP on UDP `123`.
+
+UDP `12345` and the `halo_safety_udp_port` setting behind it belong to the `base` profile's on-video overlay. In `hil` that overlay is not driven, the setting stays at its shipped default, and the communication layer is the sole command sink.
+
+ROS 2 and its DDS discovery never cross the host boundary — all three ROS participants run on the x86 host — so a discovery failure is always an x86-side problem.
+
+## Safety command packet
+
+The command and its acknowledgment are both 64 bytes: the magic identifier `0xA2`, a `uint16` sequence number, the opcode, a UTC seconds and microseconds timestamp, a CRC-32 computed over bytes 0-19 and 24-63, and two 20-byte object records. For the byte-by-byte layout, see [/deployment/index](/deployment).
+
+The communication layer echoes the full packet back to the sender with a fresh timestamp and a recomputed CRC. The SDM warns when a packet has gone unacknowledged for more than three seconds, and does not retry. Occasional sequence-number gaps are benign, because the decision state is re-emitted idempotently; sustained loss is not.
+
+A `HEARTBEAT` is sent every five seconds.
+
+The opcodes the `hil` profile emits:
+
+| Opcode | Value | Meaning |
+| --- | --- | --- |
+| `HEARTBEAT` | `0x00` | Periodic keep-alive; confirms the safety host to communication layer link is live |
+| `HW_ERROR` | `0x01` | Hardware fault reported by the decision maker |
+| `MUTE` | `0x02` | Allow operation |
+| `SW_ERROR` | `0x03` | Software fault reported by the decision maker |
+| `UNMUTE` | `0x07` | Prevent operation |
+
+The decision maker can also latch a safe state and use three further opcodes on this channel to clear it; see **safe-release** in the [Deployment Guide ](/deployment).
+
+## Configuration surface
+
+Each host carries its own environment file. `deployments/profiles/hil.env` is a Docker Compose environment file whose `COMPOSE_PROFILES=hil` setting selects the three x86 services. `deployments/profiles/hil-thor.env` is **not** a Compose profile — it is sourced by the Thor launch script.
+
+Three values must mirror each other across the two files. When they do not, the symptom is commands leaving the safety host with no acknowledgment coming back, and nothing obviously wrong on either side.
+
+| x86 (`hil.env`) | IGX Thor (`hil-thor.env`) | Must satisfy |
+| --- | --- | --- |
+| `HOST_IP` | `PEER_HOST_IP`, and `PSF_CMD_RX_IP` derived from it | The x86 address VST pulls the camera streams from, and the address the SDM sends decisions to |
+| `PEER_HOST_IP` | `HOST_IP` | The address the preflight probes and ssh reach the safety host on |
+| `COMM_UDP_PORT` | `PSF_CMD_RX_PORT` | Identical value; both ship `12346` |
+
+`hil_preflight.sh` runs on the stimulus host and checks the x86 half — that `HOST_IP` and `PEER_HOST_IP` are filled in and different, and that `COMM_UDP_PORT` is set — plus ssh reachability to the safety host. It cannot read `hil-thor.env`: the two Thor-side values are verified by hand, and the script prints them as a checklist when it is run without `--thor`.
+
+`ROS_AUTOMATIC_DISCOVERY_RANGE` ships as `SUBNET` in `hil.env`, where `sil.env` ships `LOCALHOST`. `LOCALHOST` pins DDS peers to the loopback address while the selected interface stays the physical NIC, so on a multi-interface host the three containers never discover each other and the forklift never moves. `SUBNET` uses LAN-wide multicast instead, so `ROS_DOMAIN_ID` must be nonzero when other ROS hosts share the subnet, and all three containers must carry the same value. Both variables are baked in at container creation, so a change takes effect only when the containers are recreated.
+
+`PSF_LAUNCH_MODE` selects whether the Safety Core starts the Safety AI Monitor. The profile ships `skip`, which does not; `active` does, and reads the sensor configuration file, so its stream URLs and identifiers must be filled in from the live VST sensor list first. See
+[Sensor configuration file](/deployment#sensor-configuration-file) for the format.
+
+`VST_BASE_URL` and `PERCEPTION_BASE_URL` are derived from `PEER_HOST_IP` and need no edit. The preflight check reads them from the x86 host, and the alternative Isaac-side sensor-registration path uses them; the documented bring-up registers sensors on the safety host, so nothing else on the x86 host calls them.
+
+## Logs
+
+**On the x86 host**, under `${MDX_DATA_DIR}/comm-layer`:
+
+- `opc_server.log` — commands and heartbeats as received, with the decoded opcode.
+- `ros_bridge.log` — the ROS 2 republish of each decision.
+
+**On the IGX Thor**, under `/var/log/psf`:
+
+- `psf.log` — fusion, and the `DecisionRequest` lines that show perception is feeding events.
+- `atl_sdm.log` — decisions sent and acknowledgments received, paired by sequence number.
+
+For the full safety-host log set, see [Logs](/deployment#safety-core-logs) in the
+[Deployment Guide ](/deployment).
+
+With the SDM on the safety island, its internal state and logs are not reachable from the host and its packets carry an epoch-zero timestamp. The communication layer log is then the only postmortem record of the decision stream, and latency must be computed receive-side.
+
+## Timing across the host boundary
+
+The distance between the two hosts dominates the loop, not the safety stack. Decision transport is almost entirely propagation delay, so it is set by where the hosts sit: negligible on a shared LAN, and half the round trip on a link that spans sites. Place the two hosts on the same network segment unless the test requires otherwise.
+
+Bandwidth is not the constraint. Three 1080p H264 streams on separate connections are modest next to what any link carrying the round trip already sustains.
+
+Delivered frame rate tracks the Isaac Sim render rate, not the rate the streams advertise. A perception frame rate below the nominal camera rate is the simulation, not the network.
+
+Both hosts must be NTP-synced. The preflight check warns when the skew between them exceeds two seconds.
+
+## Differences from SIL and from the base profile
+
+| Aspect | SIL (single host) | HIL (two hosts) | `base` on IGX Thor |
+| --- | --- | --- | --- |
+| Hosts | One x86 host | An x86 stimulus host and an IGX Thor safety host | One IGX Thor |
+| Simulation | Isaac Sim, on the same host as everything else | Isaac Sim on the x86 host only | None — an existing camera feed |
+| Perception and Safety Core | x86, alongside Isaac Sim | IGX Thor | IGX Thor |
+| Command sink | Local `comm-layer` on `12346` | Remote `comm-layer` on the x86 host, `12346` | Local VST overlay on `127.0.0.1:12345` |
+| Decision rendering | In-scene safety indicator over ROS 2 | In-scene safety indicator over ROS 2, on the x86 host | VST `halo_safety` on-video overlay |
+| ROS discovery range | `LOCALHOST` | `SUBNET` | Not applicable — no ROS participants |
+
+**Shared across all three**: the Safety Core image and its decision logic, the event contract on Kafka, and the 64-byte command format. The profile changes where those run and where the decision is delivered, not what they do.
+
+## What HIL does not exercise
+
+A HIL run exercises the decision path end to end on the target platform. It does not exercise the following, and a result should not be quoted as though it did.
+
+| Element | In HIL | In production |
+| --- | --- | --- |
+| Camera input | Rendered by Isaac Sim on the x86 host and delivered over RTSP | Physical cameras on the facility network |
+| Scene content | A fixed warehouse scene with one forklift on a fixed path | Live facility traffic |
+| Forklift response | The forklift controller ignores the safety opcodes; the decision is shown by the in-scene indicator | The decision gates the machine |
+| Load | One forklift on one fixed path, plus the digital humans the scene renders | Many vehicles and people moving concurrently on unconstrained paths |
+
+The Safety Core is wall-clock only in HIL and in production alike. A simulated clock must never be fed into the pipeline: events carrying simulation timestamps are dropped as stale.
+
+## Next Steps
+
+- [quickstart](/testing/hil/quickstart) — Bring the two-host closed loop up
+- [/testing/sil/architecture](/testing/sil/architecture) — The single-host architecture this one splits
+- [/deployment/index](/deployment) — Safety Core installation, options, and troubleshooting in full

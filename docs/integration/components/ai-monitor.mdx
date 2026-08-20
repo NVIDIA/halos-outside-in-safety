@@ -1,0 +1,114 @@
+---
+title: "Safety AI Monitor (SAIM)"
+description: ""
+---
+Safety AI Monitor continuously assesses the **health of the camera sensor
+inputs** feeding HOISA. It independently observes the same camera streams
+consumed by the perception pipeline (SIPP) and reports per-sensor trust
+verdicts to SEI, so that fusion and downstream decisions can factor sensor
+integrity into the safety response. If a camera can no longer be trusted,
+SAIM makes that visible to the rest of the stack rather than letting a
+degraded feed silently influence safety decisions.
+
+## Operating modes
+
+SAIM runs in one of two modes. A camera is taught its normal appearance once
+in LEARN mode, and is then monitored against that reference in ACTIVE mode.
+
+| **Mode** | **Description** |
+| --- | --- |
+| LEARN | Observes all configured cameras for a configurable duration and records a per-camera reference of what a healthy feed looks like. No trust verdicts are reported in this mode. Run once for all cameras during installation, or whenever a camera's mounting or scene changes. |
+| ACTIVE | Loads the learned references, registers with SEI, and continuously checks every camera against its reference. Reports trust verdicts to SEI whenever a camera's health changes. This is the mode used in production. |
+
+## What SAIM detects
+
+In ACTIVE mode, SAIM compares each live camera feed against the healthy
+reference it learned for that camera. Because the reference captures how that
+specific camera normally looks — its brightness, contrast, sharpness, level
+of detail, and color — SAIM can recognize a wide range of problems that make
+a sensor untrustworthy, including:
+
+- **Out-of-distribution frames** whose measured image characteristics fall
+  outside the camera's learned normal range.
+- **Camera blockage or lens obstruction**, such as an object partly or fully
+  covering the lens.
+- **Fogging or condensation** on the lens.
+- **Loss of focus or sharpness.**
+- **Abnormal brightness, contrast, or color**, such as exposure or lighting
+  faults.
+- **Loss of the camera stream** that cannot be re-established.
+- **Corrupted or incomplete video**, such as heavy packet loss.
+
+Learning each camera's own normal appearance lets SAIM adapt to different
+scenes and lighting instead of relying on fixed, one-size-fits-all checks, so
+it flags genuine departures while tolerating each camera's normal variation.
+
+## Accelerator backends
+
+SAIM offloads its per-frame image analysis to the platform's vision
+accelerator, with two interchangeable backends that produce the same trust
+verdicts:
+
+- **GPU** — used on x86-64 deployments.
+- **PVA** (Programmable Vision Accelerator) — used on IGX / aarch64
+  deployments, which keeps the GPU free for other workloads.
+
+## Trust reporting to SEI
+
+SAIM reports two verdicts to SEI:
+
+- `SENSOR_INVALID` — the camera's input can no longer be trusted, because
+  its image has degraded, its stream was lost, or its video is corrupted.
+- `SENSOR_VALID` — the camera has returned to normal and its input can be
+  trusted again.
+
+SEI consumes these verdicts to qualify per-sensor input integrity and
+propagates the resulting health state to SDM (see [event-integrator](/integration/components/event-integrator)). SAIM reports a
+trust-state change only once a condition is sustained, so brief, transient
+glitches do not cause the verdict to flap back and forth. It also reasserts
+each sensor's current verdict every 30 seconds so SEI can recover the health
+state after a restart.
+
+Every verdict also carries a **cause identifier** that is recorded in the
+PSS logs, so operators can see *why* a sensor changed state. The identifiers
+SAIM reports are:
+
+| **Identifier** | **Verdict** | **Reported when** |
+| --- | --- | --- |
+| `SAIM_INPUT_DEGRADED` | `SENSOR_INVALID` | The camera's frame-quality score stays below its healthy range. This is the general image-degradation cause and covers blockage or obstruction, fogging, loss of focus, abnormal brightness/contrast/ color, and out-of-distribution frames. |
+| `SAIM_STREAM_DISCONNECT` | `SENSOR_INVALID` | The camera stream is lost and cannot be re-established, or is being reconnected (connection-retry exhaustion or a mid-session reconnect). |
+| `SAIM_FRAME_DROP` | `SENSOR_INVALID` | The incoming video is corrupted or incomplete, from dropped video packets (heavy packet loss). |
+| `SAIM_INTERNAL_ERROR` | `SENSOR_INVALID` | SAIM cannot analyze the feed because of an internal analyzer or per-frame processing failure. |
+| `SAIM_INIT` | `SENSOR_INVALID` | Fail-safe seed emitted once per camera at startup, before any frames have been processed (see the cold-start note below). |
+| `SAIM_UNKNOWN` | `SENSOR_INVALID` | Defensive fallback, used only if a `SENSOR_INVALID` verdict is raised without a specific cause. |
+| `SAIM_SENSOR_HEALTHY` | `SENSOR_VALID` | The camera has produced a sustained streak of healthy frames and its input can be trusted again. |
+
+<Note>
+**Cold-start behavior.** SAIM treats every camera as untrusted until it
+is proven healthy. On startup it therefore emits one `SENSOR_INVALID`
+verdict per configured camera — carrying the `SAIM_INIT` cause — before
+any frames have been processed. Once the streams are established and a
+sustained streak of frames passes the health checks, SAIM emits a
+matching `SENSOR_VALID` (`SAIM_SENSOR_HEALTHY`) verdict per camera to
+restore trust. This invalid-then-valid transient is expected and does not
+indicate a sensor fault.
+</Note>
+
+<Note>
+**Per-camera isolation.** SAIM monitors every configured camera
+independently. If one camera's stream drops or its analysis fails, SAIM
+reports that camera as `SENSOR_INVALID` and attempts automatic
+recovery (reconnecting to the stream or reinitializing its analysis);
+the remaining cameras continue to be monitored without interruption.
+</Note>
+
+<Info>
+- Deployment and launch instructions:
+  [/deployment/index](/deployment) Sections 2.1 and 2.4
+- Launcher modes, `--learn-duration`/`--baseline-dir`, and default
+  baselines: [/reference/launcher](/reference/launcher)
+- How SEI consumes SAIM's trust verdicts: [event-integrator](/integration/components/event-integrator)
+- Version changes for this release: [/release-notes](/release-notes)
+- Platform and accelerator resource notes: [/known-limitations](/known-limitations)
+- SAIM troubleshooting: [/deployment/index](/deployment) Sections 6.3, 6.7–6.9
+</Info>

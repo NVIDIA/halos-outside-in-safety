@@ -1,0 +1,313 @@
+---
+title: "`launch_hoisa.sh`"
+description: ""
+---
+`launch_hoisa.sh`
+
+## 1. Overview
+
+`launch_hoisa.sh` is the reference launcher for the full HOISA (Halos Outside-In Safety) Safety
+Core stack. It orchestrates:
+
+- The **Safety Core Docker container** (running the NvPSD Gateway, the
+  SEI daemon, and the event-ingestion pipeline).
+- The **Safety Decision Maker** on the host — either the CCPLEX SDM
+  binary (`atl_sdm` / `proximity_sdm`) or the `fsicom-agent` bridge
+  when SDM is offloaded to the FSI.
+- The **Safety AI Monitor** (`safety_monitor`) in either `LEARN` or
+  `ACTIVE` mode. Under the default Docker runtime it runs inside the
+  Safety Core container; with `--runtime host` it runs directly on the
+  host.
+- The **Perception Monitor** (`nv_perception_monitor`), which runs by
+  default in `LEARN` and `ACTIVE` modes. It is not launched in
+  `skip` mode and can be disabled explicitly with `--skip-pcm`.
+
+It also prepares the filesystem state the stack depends on — the
+`/var/log/psf/` log directory, the runtime IPC directory used for
+host ↔ container communication, the threshold configuration at a stable
+well-known path, and the bind-mount of `nvpss.conf` into the container.
+
+The launcher is installed by the `psf-desktop` / `psf-tegra` Debian
+packages at:
+
+```bash
+/opt/nvidia/psf/bin/launch_hoisa.sh
+```
+
+The recommended execution directory is `/opt/nvidia/psf/bin`:
+
+```bash
+cd /opt/nvidia/psf/bin
+sudo ./launch_hoisa.sh ...
+```
+
+SAIM's per-sensor baseline files are stored in a dedicated host baseline
+directory. This directory is chosen with the `launch_hoisa.sh`
+`--baseline-dir` argument: when the argument is omitted, the default
+`/opt/nvidia/psf/bin/saim_baseline` is used; when it is supplied, the
+path provided is used instead. Under the default Docker runtime the
+directory is bind-mounted into the container as SAIM's working directory,
+so baselines learned in `learn` mode persist for `active` mode.
+
+### Default baselines (running active mode without learn)
+
+SAIM ships default baseline templates so that `active` mode can run even
+before a `learn` pass has been performed. The package includes three
+templates for the **loading-dock reference scenario**:
+`Camera_baseline.cfg.default`, `Camera_01_baseline.cfg.default`, and
+`Camera_02_baseline.cfg.default`. For each configured sensor, SAIM first
+looks for a learned baseline (`<sensorName>_baseline.cfg`) in the baseline
+directory; if that file is not present, it falls back to the matching shipped
+template (`<sensorName>_baseline.cfg.default`). The fallback matches
+`sensorName` exactly, so a site whose sensor names differ from the three
+above gets no template and must run `learn` mode. `active` mode fails
+only when neither a learned baseline nor a default template is found for a
+sensor.
+
+<Note>
+The default templates are tuned for the loading-dock reference cameras.
+For any other camera or scene, run `learn` mode to generate
+site-specific baselines; relying on the defaults elsewhere can produce
+inaccurate trust verdicts.
+</Note>
+
+## 2. Operating Modes
+
+The launcher has three mutually exclusive modes selected via
+`--mode <learn|active|skip>`:
+
+| Mode | What runs | When to use |
+| --- | --- | --- |
+| **learn** | `safety_monitor` and the Perception Monitor, in `LEARN` mode. | One-time baseline-learning pass. `safety_monitor` captures a per-sensor camera baseline into `--baseline-dir` and the Perception Monitor captures its DVM baseline. No threshold config or SDM application is required. Under the default Docker runtime, `--docker-image` must be supplied. |
+| **active** | Safety Core container + host SDM + `safety_monitor` (ACTIVE) + Perception Monitor. | Full production stack. Default deployment. Reads the SAIM baseline files from the baseline directory (`--baseline-dir`). |
+| **skip** | Safety Core container + host SDM. **No** SAIM and no Perception Monitor. | AI-trust path validated separately, or no GPU/decoder budget available for SAIM. Useful for event-ingestion-only deployments. |
+
+## 3. Command-Line Interface
+
+### 3.1 Required Arguments
+
+| Argument | Description |
+| --- | --- |
+| `--mode <learn\|active\|skip>` | Operating mode (see Section 2). |
+| `--sensor-config <file>` | Sensor configuration file in CSV form (`pipelineId, sensorName, rtspUrl` — one sensor per line). Consumed by `safety_monitor` and, in `active` / `skip` modes, bind-mounted into the Safety Core container. Each `rtspUrl` must be directly playable by `ffprobe` or `gst-launch-1.0`; VST registration or online status alone does not prove the stream is usable by HOISA. |
+
+3.2 Arguments Required in `active` / `skip` Modes
+
+### 3.2 Arguments Required in `active` / `skip` Modes
+
+| Argument | Description |
+| --- | --- |
+| `--docker-image <image:tag>` | Fully-qualified image reference for the Safety Core container. Required whenever the Docker runtime is used (the default), including `learn` mode; not needed with `--runtime host`. |
+| `--cmd-rx-ip <ip>` | IP address of the SDM command receiver (PLC or reference command receiver application). |
+| `--cmd-rx-port <port>` | UDP port of the SDM command receiver. |
+
+<Note>
+`--app <atl|pxc>` is optional and defaults to `atl`. Both
+`--cmd-rx-ip` and `--cmd-rx-port` are required in `active` and
+`skip` modes.
+</Note>
+
+### 3.3 Optional Arguments
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--runtime <docker\|host>` | `docker` | How the Safety Core components and SAIM are launched. `docker` runs them inside the `nv-psf` container; `host` runs the binaries directly on the host (no Docker required). |
+| `--sdm-target <ccplex\|fsi>` | `ccplex` | `ccplex` launches the CCPLEX SDM binary on the host. `fsi` launches `fsicom-agent` instead; the SDM itself runs on the Functional Safety Island (see Section 5). |
+| `--threshold-config <file>` | `/opt/nvidia/psf/bin/thresholds.cfg` | SAIM threshold configuration, used in `active` mode only (`learn` mode does not read it). With `--runtime host` the file is read directly; with the Docker runtime it is bind-mounted read-only over the image's default, and if omitted the image default is used. |
+| `--learn-duration <seconds>` | 300 | LEARN-mode duration. Accepted range: `[1, 3600]`. |
+| `--gpu <id>` | unset | Pin all SAIM streams to this GPU index. Without this flag, SAIM distributes streams across visible GPUs. |
+| `--baseline-dir <dir>` | `/opt/nvidia/psf/bin/saim_baseline` | Host folder holding SAIM's per-sensor baseline files. When omitted, the default `/opt/nvidia/psf/bin/saim_baseline` is used; when supplied, the given path is used instead. Under the Docker runtime it is bind-mounted as SAIM's working directory, so baselines learned in `learn` mode persist into `active` mode. If a sensor has no learned `<sensorName>_baseline.cfg` here, SAIM falls back to the shipped `<sensorName>_baseline.cfg.default` template (see [Default baselines (running active mode without learn)](/reference/launcher#default-baselines-running-active-mode-without-learn)). |
+| `--kafka-broker <address>` | unset | Kafka broker endpoint for the event-ingestion client inside the container in `active` / `skip` modes, and for the Perception Monitor's `LEARN` pass in `learn` mode. Ignored in `learn` mode only when `--skip-pcm` is also given; without it, omitting this option leaves the Perception Monitor on `localhost:9092`. |
+| `--container-name <name>` | `nv-psf` | Docker container name. Change when running multiple instances side-by-side. Ignored with `--runtime host`. |
+| `--decision_interval_ms <ms>` | 0 (off) | CCPLEX-SDM periodic decision-repeat interval in milliseconds. `0` disables periodic repeats (decisions remain event-driven). Non-zero values must be in `[100, 36000]`. Not applicable when `--sdm-target fsi`. |
+| `--gateway-ip <ip>` | `127.0.0.1` | Bind address for `nvpsd_gateway`. With `--runtime host`, the launcher forwards it to the gateway, SDM, and FSI bridge. With the Docker runtime, a non-default value is used only for the preflight check and is not forwarded to the in-container gateway. |
+| `--gateway-port <port>` | `50000` | UDP port for `nvpsd_gateway`. Valid range: `[1, 65535]`. With `--runtime host`, the launcher forwards it to the gateway, SDM, and FSI bridge. With the Docker runtime, a non-default value is used only for the preflight check and is not forwarded to the in-container gateway. |
+| `--hb_stale_ms <ms>` | `5000` | Gateway-heartbeat stale grace period for the CCPLEX ATL and Proximity SDMs. Valid range: `[100, 600000]`. Ignored for FSI SDM. |
+| `--hb_period_ms <ms>` | `5500` | Gateway-heartbeat miss period for the CCPLEX ATL and Proximity SDMs. Valid range: `[100, 600000]`. Ignored for FSI SDM. |
+| `--skip-pcm` | unset | Do not launch `nv_perception_monitor` in `learn` or `active` mode. The Perception Monitor is enabled by default in those modes and is always omitted in `skip` mode. |
+| `--nvpss-conf <file>` | `/opt/nvidia/psf/bin/nvpss.conf` | Host path to the SEI daemon configuration. Bind-mounted read-only into the container. Use this to point at a per-site variant without editing the default. **Docker runtime only**: under `--runtime host` there is no bind mount, the daemon reads `/opt/nvidia/psf/bin/nvpss.conf` directly, and this flag is ignored with a warning. Copy the override to that path instead. |
+| `-h`, `--help` | — | Show the inline usage banner and exit. |
+
+<Note>
+In `learn` mode, arguments that apply only to `active` / `skip`
+(`--cmd-rx-ip`, `--cmd-rx-port`, `--sdm-target`,
+`--decision_interval_ms`, `--nvpss-conf`, `--gateway-ip`,
+`--gateway-port`) are
+accepted but ignored, and the launcher emits a
+"Warning: ... is ignored in learn mode" line for transparency.
+`--docker-image` is required in `learn` mode under the default
+Docker runtime (it is only ignored with `--runtime host`).
+</Note>
+
+## 4. Runtime State and Logs
+
+### 4.1 Logs
+
+Logs are written to `/var/log/psf/`:
+
+| File | Contents |
+| --- | --- |
+| `/var/log/psf/psf.log` | Safety Core container components (gateway, SEI daemon, event-ingestion client). |
+| `/var/log/psf/saim.log` | `safety_monitor` when `--runtime host` is used. With the Docker runtime, use `docker logs <container-name>` for SAIM output. |
+| `/var/log/psf/pcm.log` | `nv_perception_monitor` (LEARN or ACTIVE, unless `--skip-pcm` is supplied). |
+| `/var/log/psf/atl_sdm.log` | ATL SDM (`--app atl`). |
+| `/var/log/psf/pxc_sdm.log` | Proximity SDM (`--app pxc`). |
+
+To follow logs live:
+
+```bash
+tail -f /var/log/psf/psf.log
+tail -f /var/log/psf/saim.log  # --runtime host only
+tail -f /var/log/psf/atl_sdm.log   # or pxc_sdm.log
+```
+
+<Note>
+These paths apply when the launcher runs on the host. When it runs inside
+the Safety Core container, components log to stdout instead, so the files
+above can be empty or stale while the container is healthy — follow
+`docker logs -f <container-name>` in that case.
+</Note>
+
+### 4.2 Privilege Requirements
+
+The launcher must be run as **root**, or the invoking user must have
+passwordless `sudo` access. It invokes privileged operations with
+`sudo -n` to prepare the runtime log and IPC directories and to launch
+the host-side SDM process (and SAIM under `--runtime host`).
+
+Membership in the `docker` group is additionally required in any mode
+that uses the default Docker runtime, including `learn`.
+
+## 5. SDM on FSI
+
+When `--sdm-target fsi` is supplied, the launcher does **not** start
+the CCPLEX SDM binary. Instead it starts `fsicom-agent` on the
+CCPLEX, which bridges the FSI-hosted SDM to the NvPSD Gateway.
+
+Prerequisites (unchanged from the manual deployment flow — see
+[/deployment/index](/deployment) §2.2.2 / §2.3.2):
+
+1. IGX-Thor BSP + Safety Extension Package flashed on the target.
+2. HOISA-specific FSI firmware reflashed onto the FSI, matching the
+   application under test (`fsi-fw/atl` or `fsi-fw/proximity`), and the
+   board reset afterwards so the island boots that firmware.
+3. `nvFsiCom` daemon running on the CCPLEX. The launcher does **not**
+   start `nvFsiCom`; it must be started before `launch_hoisa.sh`.
+
+<Info>
+If `nvFsiCom` is not running, `fsicom-agent` stalls at
+`[INIT] Initializing FSI communication...` and no decision ever reaches
+the command receiver, even though the rest of the stack starts cleanly.
+Confirm it with `pgrep -af nvFsiCom` before launching. For the agent's own
+options and expected startup output, see
+[the fsicom-agent option reference](/deployment#fsicom-agent-options).
+</Info>
+
+Example:
+
+```bash
+cd /opt/nvidia/psf/bin
+sudo /opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom &
+
+sudo ./launch_hoisa.sh --mode active --app atl --sdm-target fsi \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --docker-image <PSF_DOCKER_IMAGE> \
+    --cmd-rx-ip <IP> --cmd-rx-port <Port>
+```
+
+SDM logs are observable on the FSI UART shell (use `tcu_muxer` to
+discover the device node). `/var/log/psf/atl_sdm.log` /
+`pxc_sdm.log` carry only the `fsicom-agent` bridge output in this
+mode.
+
+<Note>
+`--decision_interval_ms` is applicable only to the CCPLEX SDM
+binary. The launcher warns if a non-default value is combined with
+`--sdm-target fsi`.
+</Note>
+
+6. SEI Daemon Configuration (`nvpss.conf`)
+
+## 6. SEI Daemon Configuration (`nvpss.conf`)
+
+The SEI daemon reads its configuration from `nvpss.conf`. The launcher
+bind-mounts the host's `nvpss.conf` read-only into the container so
+operator edits on the host are authoritative without rebuilding the
+image.
+
+- Default host source: `/opt/nvidia/psf/bin/nvpss.conf` (populated by
+  the Debian package).
+- Override: `--nvpss-conf /etc/psf/site-a/nvpss.conf` to use a
+  per-site variant without editing the default file.
+
+The launcher validates that the host file exists and is readable before
+starting the container.
+
+Full parameter reference: see [sei-configuration](/reference/sei-configuration).
+
+## 7. Shutdown and Exit Status
+
+Sending `SIGINT` (Ctrl-C) or `SIGTERM` to the launcher triggers a
+graceful shutdown of all managed processes followed by removal of the
+Safety Core container. Any process that does not exit gracefully within
+a short grace period is force-terminated.
+
+Exit codes:
+
+- `0`   — `--help`, or a `learn` run that completed its capture
+  window.
+- `1`   — configuration or prerequisite validation failure, or one of
+  the supervised processes died unexpectedly.
+- `130` — process interrupted by SIGINT.
+- `143` — process terminated by SIGTERM.
+
+## 8. Troubleshooting
+
+8.1 Permission error preparing `/var/log/psf`
+
+### 8.1 Permission error preparing `/var/log/psf`
+
+The invoking user does not have the privileges required to create the
+log directory. Re-run the launcher as root, or configure passwordless
+`sudo` for the invoking user.
+
+### 8.2 Safety Core container fails to start
+
+The launcher dumps the container's initial logs to stderr. Common
+causes:
+
+- Docker image not available locally and not reachable on the registry.
+- Another container already bound to the same name.
+- `nvpss.conf` removed between validation and container start.
+
+### 8.3 Host process exits immediately after launch
+
+If `atl_sdm` / `proximity_sdm` / `safety_monitor` exit within a
+second of starting, the launcher aborts with
+`Error: failed to start <label>`. Inspect the corresponding log in
+`/var/log/psf/` for the root cause.
+
+8.4 `safety_monitor` exits with baseline file not found
+
+### 8.4 `safety_monitor` exits with baseline file not found
+
+`active` mode reads SAIM's per-sensor baseline files from the baseline
+directory (`--baseline-dir`, default `/opt/nvidia/psf/bin/saim_baseline`),
+so pass the same `--baseline-dir` to `learn` and `active`. For the full
+diagnosis and the `learn` command that regenerates site-specific baselines,
+see **saim-baseline-missing**.
+
+8.5 VST RTSP URL returns `DESCRIBE` or `PLAY` 404
+
+### 8.5 VST RTSP URL returns `DESCRIBE` or `PLAY` 404
+
+Every `rtspUrl` in `sensor_config.conf` must be validated before the
+launcher is started in `learn` or `active` mode. For the validation
+commands and the VST-side fix, see **vst-rtsp-playback**.
+
+## 9. Reference
+
+Related documents:
+
+- [/deployment/index](/deployment)
+- [sei-configuration](/reference/sei-configuration)

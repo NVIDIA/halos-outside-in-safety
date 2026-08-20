@@ -1,0 +1,159 @@
+---
+title: "Interpreting the Report"
+description: ""
+---
+A single Regression Testing Reporter run produces a tree of graded reports. This page explains what each file contains, what every headline metric means, and how to drill into a failing clip. Run a test first — see [quickstart](/testing/srr/quickstart).
+
+<Note>
+The healthy ranges below are **operational guidance** for reading a run, not acceptance criteria or benchmark results. Read metrics per class and per scenario; a single blended number can hide a real problem.
+</Note>
+
+<Note>
+**2D vs 3D runs.** Every run scores **Phase 1** (the safety decision). **Phase 2** (perception quality) is added only when the 3D Sparse4D pipeline (`mdx-bev` + `mdx-behavior`) is active — a **2D-only** run (`mdx-events` only) produces a **Phase-1-only** report and simply omits the Phase 2 section, which is expected, not a failure. The scenario you ran shapes what to expect from each metric; see [scenarios](/testing/srr/scenarios) for the test cases.
+</Note>
+
+## Output layout
+
+```text
+runs/multi-test-<TIMESTAMP>/
+├── summary.md                      <- top-level (cross-run): open this first
+├── failures.json                   <- FAIL + analyze-error clips, machine-readable
+├── pss.log                         <- cross-run Safety Core gateway log
+└── <scenario>/
+    ├── scenes/scn_*.parquet
+    ├── videos/scn_*.mp4            <- per-clip review videos
+    ├── clip_logs/<scn>/            <- evidence CSVs (for the debug viewer)
+    └── reports/
+        ├── summary.md              <- per-scenario rollup
+        ├── failures.json
+        └── scn_*.md                <- per-clip detail
+```
+
+| File | Contents |
+| --- | --- |
+| **Top-level** `summary.md` | Headline + per-run rollup table + per-clip detail with MP4 links. **Open this first.** |
+| **Per-scenario** `<scenario>/reports/summary.md` | Same structure, scoped to one scenario. |
+| **Per-clip** `<scenario>/reports/scn_*.md` | The deepest evidence: ground-truth events vs Safety Core state, mismatch windows with timestamps, BA detection per event, MP4 links. |
+| `failures.json` | Clips with verdict = FAIL, plus clips that hit an analysis error, ready for programmatic triage. |
+
+## Verdict buckets
+
+Each clip gets a verdict from its frame-by-frame `match%`:
+
+- **PASS** — `match% ≥ 95`
+- **NEAR** — `80 ≤ match% < 95`
+- **FAIL** — `match% < 80`
+
+A healthy run has roughly ≥ 70 % PASS clips.
+
+## Phase 1 — the safety decision
+
+Phase 1 scores the Safety Core's MUTE / UNMUTE decision against ground truth.
+
+| Metric | What it measures | Healthy |
+| --- | --- | --- |
+| **match%** | Frame-by-frame agreement (expected mute == actual mute) at 30 Hz. | mean ≥ 90, median ≥ 95 |
+| **Mute correct%** | Of frames GT says SHOULD mute, the fraction the system actually muted. | ≥ 90 |
+| **Unmute correct%** | Of frames GT says should NOT mute, the fraction the system unmuted. This is the **safety-critical direction** — over-mute means the alarm was suppressed while a person was present. | ≥ 95 |
+| **worst UNMUTE / MUTE lag** | Max time (ms) between a GT transition and the matching Safety Core state change. Long lag signals state-machine drift. | UNMUTE ≤ 1 s, MUTE ≤ 5 s |
+| **over-mute / under-mute frames** | Direction of the mismatch. Over-mute = alarm suppressed when it shouldn't be (safety-critical); under-mute = false alarm (noise). | — |
+
+<Note>
+A `(n=X)` next to a metric is the frame count behind it. A small N (< 500) means the run barely exercised that direction — treat the percentage with caution. An `n/a (unmute-test scenario)` / `n/a (mute-test scenario)` label means the scenario's design never exercised that direction (e.g. a person always in ROI never produces an expected-mute frame), so that column is not meaningful.
+</Note>
+
+### Behavior-analytics event detection
+
+Phase 1 also checks whether perception's behavior analytics (BA) reported the key events, matched to each ground-truth event within a ±3 s window:
+
+| Event | What it measures | Healthy |
+| --- | --- | --- |
+| **BA ROI** | Per-event detection rate for "person enters the work zone". | ≥ 95 % (median delay ~600–800 ms is normal) |
+| **BA TW IN / OUT** | Per-event detection rate for forklift trailer crossings. | 100 % |
+
+<Note>
+BA reports a **direction** offset that looks odd but is expected: TW IN fires ~2 s *late* (after the ground-truth crossing) and TW OUT ~1.5 s *early* (before it). BA marks the crossing from the detected bounding-box edge while ground truth marks the forklift's centroid — those sit about half a forklift-length apart, an offset that trails the centroid on entry (BA late) and leads it on exit (BA early); a small constant BA processing delay nudges both a touch later, so the magnitudes differ. Neither the positive TW IN delay nor the negative TW OUT delay is a bug — while TW detection stays at 100 %, treat it as a geometry artifact. (BA emits no ROI *exit* event — it simply stops firing — so ROI exits are measured as how long BA kept firing after the person left.)
+</Note>
+
+## Phase 2 — perception quality
+
+Present only when the 3D pipeline (Sparse4D → `mdx-bev` + `mdx-behavior`) was active. It scores the perception feeding the Safety Core, **per class** (Person / Forklift) — always read per class, since a blended number hides the forklift.
+
+| Metric | Question it answers |
+| --- | --- |
+| **detect-fail%** | *"Was the object seen this frame?"* — the % of in-coverage ground-truth frames with no matched detection. A detection question, independent of track identity. Lower is better. |
+| **tracking-loss%** | *"Did the object keep one identity?"* — the % of an actor's matched frames that sit off its dominant track id (id-switch / fragmentation). Scored only where the object was already seen. Lower is better. |
+| **precision / recall / F1** | Standard detection quality, per class. |
+| **pos median vs pos p95** | `pos median` is the **anchor offset** (ground-truth reference point vs the 3D-box centre — geometry, not error). `pos p95` is the **real localization jitter** — that is the spread you care about. |
+| **id-switches / split-frames%** | Track-id changes / frames where one physical object shows two same-class tracks (the "many ids for one object" signal). |
+
+<Note>
+**Coverage — only score what the camera can see.** A ground-truth actor outside camera view is not charged as a miss. Coverage is derived from where detections actually occurred, so a region the camera sees but where nothing was *ever* detected (e.g. a forklift fully lost deep inside the trailer) can fall outside coverage. Cross-check the trailer-boundary slice and the raw recall before reading a high forklift `detect-fail%` as a detector regression — it is usually genuine deep-trailer occlusion, not a bug.
+</Note>
+
+## Reading the per-run rollup
+
+The rollup table lists each scenario. Read it in this order:
+
+1. **Avg match%** + **PASS / NEAR / FAIL** — at-a-glance health.
+2. **Mute / Unmute correct%** — which *direction* is failing. Low unmute =
+   safety-critical; low mute = false-alarm noise.
+3. **BA ROI / TW** — should stay ≥ 95 % / 100 %. A drop means something changed in
+   VSS / perception — escalate.
+4. **`n/a` labels** — the scenario didn't exercise that direction; ignore that
+   column.
+
+## Drilling into a failing clip
+
+Open `<scenario>/reports/scn_*.md` when a clip is FAIL, has an unusually long reaction lag, or shows an odd Mute/Unmute mismatch. Each per-clip report has:
+
+| Section | Use |
+| --- | --- |
+| **Verdict + Window** | PASS/FAIL and ISO timestamps for cross-referencing. |
+| **Ground truth** | `%char_in_roi`, `%forklift_in_trailer`, `%expected_mute` — what the test expected. |
+| **Observed Safety Core state** | `%actual_mute` + command breakdown — what the system did. |
+| **Mismatch windows** | **The most useful section.** Every contiguous (≥ 0.5 s) window with start / end / duration / direction. Scrub to that exact moment in the MP4. |
+| **Reaction lag** | UNMUTE / MUTE median + p95 + max + transition count. |
+| **BA detection per GT event** | The `GT event → BA detected` table with per-event delay. A miss here points at the perception tracker. |
+
+Drill-down workflow for a FAIL clip:
+
+1. Open the per-clip report.
+2. Look at over-mute% vs under-mute% — which direction failed?
+3. Read the mismatch-windows table — *when* (in clip-relative seconds) did it go
+   wrong?
+4. Open the MP4, scrub to that timestamp, see what the cameras saw.
+5. Cross-check the BA detection table: did perception have valid input at that
+   moment?
+6. If yes → Safety Core logic; if no → perception. For scrub-synced evidence, use
+   the [debug-viewer](/testing/srr/debug-viewer).
+
+## Known signatures
+
+Some patterns are known and expected — recognize them rather than filing them as new regressions.
+
+### Safety Core counter-drift
+
+A known Safety Core issue causes the all-clear (unmute) path to drift on long runs, with a fix planned upstream. Recognize the signature so you don't re-investigate it each time:
+
+- `Unmute correct% < 90 %`, especially with high `%char_in_roi` and
+  forklift-in-trailer activity.
+- An **alternating PASS/FAIL pattern aligned with the forklift-in-trailer state**
+  (FAIL while the forklift is in, PASS while out).
+- The Safety Core reporting muted while ground-truth-expected mute was 0 % — its
+  internal state has drifted out of sync with reality.
+
+When you see this pattern, restart the Halos compose between runs (the runner and skill already do this) and note it — don't open a new bug for each occurrence.
+
+### Perception dead
+
+A `PERCEPTION_LIKELY_DEAD` banner in `summary.md` means perception was dead during the run, so `match%` is untrustworthy. Fix perception and re-run — see [quickstart](/testing/srr/quickstart) Troubleshooting.
+
+## Programmatic access
+
+For CI / scripts, `failures.json` gives a clean list of the FAIL (and analyze-error) clips with all fields, so you can gate a change without parsing markdown. The top-level `summary.md` headline lines are also stable enough to extract with simple regexes.
+
+## Next steps
+
+- [debug-viewer](/testing/srr/debug-viewer) — scrub-synced root-cause analysis for a failing clip.
+- [scenarios](/testing/srr/scenarios) — what each scenario was designed to stress.

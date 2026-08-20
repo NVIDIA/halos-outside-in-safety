@@ -1,0 +1,76 @@
+---
+title: "Perception Container Monitor (PCM)"
+description: ""
+---
+The Perception Container Monitor (PCM, `nv_perception_monitor`) assesses
+whether the AI perception pipeline can be trusted. It reports a single
+pipeline verdict, `AI_PIPELINE_VALID` or `AI_PIPELINE_INVALID`, to the
+SEI daemon. SEI forwards the verdict through the safety decision path, so
+PCM is an input to the SDM safety decision.
+
+## Operating modes
+
+PCM has two modes, selected with `--mode LEARN|ACTIVE`. The default is
+`ACTIVE`.
+
+| **Mode** | **Description** |
+| --- | --- |
+| LEARN | Runs only the Data Validation Monitor (DVM). It observes `mdx-frames` for `--learn-duration` seconds (default: 300), writes per-sensor DVM baselines, then exits. It does not register with SEI or report pipeline verdicts. |
+| ACTIVE | Registers with SEI, sends heartbeats, and combines container-health and DVM results into debounced pipeline verdicts. It reads the baselines written by LEARN. |
+
+## What PCM checks
+
+In ACTIVE mode, PCM combines two checks:
+
+- **Container health** — Checks only the exact container names listed in
+  `pcm_monitor.cfg` through the Docker Engine API. A missing container,
+  lifecycle fault, unhealthy health check, or unreachable Docker socket is a
+  fault.
+- **Data Validation Monitor (DVM)** — Consumes `mdx-frames` through its
+  own Kafka consumer group. It validates the learned sensor set, object
+  plausibility, frame rate, Kafka connectivity, and decodable frame data.
+
+PCM evaluates each check on a one-second cadence. Any enabled check that is
+bad makes the combined result bad. PCM emits `AI_PIPELINE_INVALID` after
+two consecutive bad evaluations and `AI_PIPELINE_VALID` after four
+consecutive good evaluations. Verdicts are emitted only when this state
+changes.
+
+## Configuration and baselines
+
+PCM reads its ACTIVE-mode monitor configuration from
+`/opt/nvidia/psf/bin/pcm_monitor.cfg` by default. Set
+`PCM_MONITOR_CONFIG` to select another file. The configuration can enable
+or disable `container_health` and `data_validation`; at least one check
+must remain enabled.
+
+LEARN writes one `pcm_<sensor>_baseline.cfg` file for each observed sensor.
+PCM resolves the baseline location in this order:
+
+1. `--baseline-config <file>`
+2. `PCM_BASELINE_CONFIG`
+3. `/opt/nvidia/psf/bin/pcm_baseline.cfg`
+
+The selected path identifies the **directory** that holds the per-sensor
+baseline files; it is not a consolidated baseline file. LEARN writes
+`pcm_<sensor>_baseline.cfg` files to that directory. ACTIVE scans the same
+directory and loads every matching file, so no consolidation or additional
+file needs to be supplied after LEARN. Use the same baseline location for
+LEARN and ACTIVE.
+
+For a remote perception stack, disable the container-health check and pass
+the remote Kafka endpoint with `--kafka-broker <host:port>`; otherwise
+containers that are not local appear absent and cause a fault.
+
+## Launcher behavior
+
+`launch_hoisa.sh` starts PCM by default in `learn` and `active` modes.
+It does not start PCM in `skip` mode. Pass `--skip-pcm` to suppress PCM
+in `learn` or `active` mode. Its launcher log is
+`/var/log/psf/pcm.log`.
+
+<Info>
+- Launcher modes and options: [/reference/launcher](/reference/launcher)
+- Safety AI Monitor: [ai-monitor](/integration/components/ai-monitor)
+- How SEI consumes trust reports: [event-integrator](/integration/components/event-integrator)
+</Info>

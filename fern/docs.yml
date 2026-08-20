@@ -1,0 +1,192 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
+
+instances:
+  - url: nvidia-halos-outside-in.docs.buildwithfern.com/halos-outside-in
+    custom-domain: docs.nvidia.com/halos-outside-in
+    multi-source: true
+
+title: NVIDIA Halos Outside-In Safety Blueprint
+
+global-theme: nvidia
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA/halos-outside-in-safety
+
+logo:
+  href: /halos-outside-in
+  right-text: Halos Outside-In Safety
+
+navigation:
+  - page: Overview
+    path: ../docs/index.mdx
+    slug: /
+
+  - page: Release Notes
+    path: ../docs/release-notes.mdx
+    slug: release-notes
+
+  - section: Getting Started
+    skip-slug: true
+    contents:
+      - page: Getting Started
+        path: ../docs/getting-started/index.mdx
+        slug: getting-started
+      - page: Prerequisites
+        path: ../docs/getting-started/prerequisites.mdx
+        slug: getting-started/prerequisites
+      - page: Deploy AI Perception
+        path: ../docs/getting-started/inference-pipeline.mdx
+        slug: getting-started/inference-pipeline
+      - page: Deploy the Safety Core
+        path: ../docs/getting-started/safety-core.mdx
+        slug: getting-started/safety-core
+      - page: Software-in-the-Loop (SIL)
+        path: ../docs/getting-started/sil.mdx
+        slug: getting-started/sil
+      - page: Agentic Deployment
+        path: ../docs/getting-started/agentic-deployment.mdx
+        slug: getting-started/agentic-deployment
+      - page: Deploy on NVIDIA Brev
+        path: ../docs/getting-started/brev-launchable.mdx
+        slug: getting-started/brev-launchable
+
+  - page: Deployment Guide
+    path: ../docs/deployment/index.mdx
+    slug: deployment
+
+  - section: Integration Guide
+    skip-slug: true
+    contents:
+      - page: Integration Guide
+        path: ../docs/integration/index.mdx
+        slug: integration
+      - page: Sensor Input Processing Pipeline (SIPP)
+        path: ../docs/integration/components/sensor-input-pipeline.mdx
+        slug: integration/components/sensor-input-pipeline
+      - page: Safety AI Monitor (SAIM)
+        path: ../docs/integration/components/ai-monitor.mdx
+        slug: integration/components/ai-monitor
+      - page: Perception Container Monitor (PCM)
+        path: ../docs/integration/components/perception-monitor.mdx
+        slug: integration/components/perception-monitor
+      - page: Safety Event Integrator (SEI)
+        path: ../docs/integration/components/event-integrator.mdx
+        slug: integration/components/event-integrator
+      - page: Safety Decision Maker (SDM)
+        path: ../docs/integration/components/decision-maker.mdx
+        slug: integration/components/decision-maker
+      - page: Safety Black Box (SBB)
+        path: ../docs/integration/components/black-box.mdx
+        slug: integration/components/black-box
+      - page: Safety User Interface (SUI)
+        path: ../docs/integration/components/user-interface.mdx
+        slug: integration/components/user-interface
+
+  - section: Closed-Loop Testing
+    skip-slug: true
+    contents:
+      - page: Closed-Loop Testing
+        path: ../docs/testing/index.mdx
+        slug: testing
+      - page: Software-in-Loop Testing
+        path: ../docs/testing/sil/index.mdx
+        slug: testing/sil
+      - page: SIL — 2D Perception
+        path: ../docs/testing/sil/sil-2d.mdx
+        slug: testing/sil/sil-2d
+      - page: SIL — 3D Perception
+        path: ../docs/testing/sil/sil-3d.mdx
+        slug: testing/sil/sil-3d
+      - page: SIL Overview
+        path: ../docs/testing/sil/overview.mdx
+        slug: testing/sil/overview
+      - page: SIL Architecture
+        path: ../docs/testing/sil/architecture.mdx
+        slug: testing/sil/architecture
+      - page: Isaac Sim Configuration
+        path: ../docs/testing/sil/components/isaac-sim.mdx
+        slug: testing/sil/components/isaac-sim
+      - page: Isaac Sim Action Graphs
+        path: ../docs/testing/sil/components/action-graph.mdx
+        slug: testing/sil/components/action-graph
+      - page: Forklift Controller
+        path: ../docs/testing/sil/components/forklift-controller.mdx
+        slug: testing/sil/components/forklift-controller
+      - page: Hardware-in-the-Loop Testing
+        path: ../docs/testing/hil/index.mdx
+        slug: testing/hil
+      - page: Deploy the HIL Closed Loop
+        path: ../docs/testing/hil/quickstart.mdx
+        slug: testing/hil/quickstart
+      - page: HIL Architecture
+        path: ../docs/testing/hil/architecture.mdx
+        slug: testing/hil/architecture
+      - page: Regression Testing Reporter
+        path: ../docs/testing/srr/index.mdx
+        slug: testing/srr
+      - page: Overview
+        path: ../docs/testing/srr/overview.mdx
+        slug: testing/srr/overview
+      - page: Quick Start Guide
+        path: ../docs/testing/srr/quickstart.mdx
+        slug: testing/srr/quickstart
+      - page: Architecture
+        path: ../docs/testing/srr/architecture.mdx
+        slug: testing/srr/architecture
+      - page: Test Scenarios
+        path: ../docs/testing/srr/scenarios.mdx
+        slug: testing/srr/scenarios
+      - page: Interpreting the Report
+        path: ../docs/testing/srr/interpret-results.mdx
+        slug: testing/srr/interpret-results
+      - page: Debug Viewer
+        path: ../docs/testing/srr/debug-viewer.mdx
+        slug: testing/srr/debug-viewer
+
+  - section: Reference
+    skip-slug: true
+    contents:
+      - page: Reference
+        path: ../docs/reference/index.mdx
+        slug: reference
+      - page: launch_hoisa.sh
+        path: ../docs/reference/launcher.mdx
+        slug: reference/launcher
+      - page: Log Viewer
+        path: ../docs/reference/log-viewer.mdx
+        slug: reference/log-viewer
+      - page: SEI Configuration
+        path: ../docs/reference/sei-configuration.mdx
+        slug: reference/sei-configuration
+      - page: Event Mapping Configuration
+        path: ../docs/reference/event-mapping-configuration.mdx
+        slug: reference/event-mapping-configuration
+      - page: Runtime Profile
+        path: ../docs/reference/runtime-profile.mdx
+        slug: reference/runtime-profile
+      - page: Glossary
+        path: ../docs/reference/glossary.mdx
+        slug: reference/glossary
+
+  - page: Known Limitations
+    path: ../docs/known-limitations.mdx
+    slug: known-limitations
+
+  - page: End-User License Agreement
+    path: ../docs/eula.mdx
+    slug: eula
+
+redirects:
+  - source: /halos-outside-in/index.html
+    destination: /halos-outside-in
+  - source: /halos-outside-in/1.3
+    destination: /halos-outside-in
+  - source: /halos-outside-in/1.3/:path*
+    destination: /halos-outside-in/:path*
+  - source: /halos-outside-in/:path*/index.html
+    destination: /halos-outside-in/:path*
+  - source: /halos-outside-in/:path*.html
+    destination: /halos-outside-in/:path*

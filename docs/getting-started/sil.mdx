@@ -1,0 +1,39 @@
+---
+title: "Software-in-the-Loop (SIL)"
+description: ""
+---
+Software-in-the-loop testing exercises the whole safety chain on a single host,
+with no cameras and no robot. It swaps the physical parts of the system — the
+warehouse, the forklift, the cameras — for virtual equivalents driven by NVIDIA
+Isaac Sim, while the production software runs unchanged: the VSS Warehouse
+Blueprint for perception, the Safety Core for trust, fusion, and decisions, and
+the communication layer that feeds the decision back to the simulated forklift.
+
+That makes it the fastest way to see the system react end to end. You can start
+before target hardware is available, iterate in minutes rather than
+re-staging a physical scene, and rehearse scenarios that are unsafe or
+impractical to stage with real workers and vehicles.
+
+## Choosing a perception profile
+
+| Quick start | When to choose it |
+| --- | --- |
+| [/testing/sil/sil-2d](/testing/sil/sil-2d) | The recommended starting point. Uses the VSS 2D profile, one pipeline per camera: the simplest setup and the highest frame rate. |
+| [/testing/sil/sil-3d](/testing/sil/sil-3d) | Uses the VSS 3D (BEV) profile, where several cameras are grouped into a single bird's-eye sensor. Choose it when your target deployment is 3D. |
+
+Both run on one host and need an Isaac Sim capable GPU; see
+[/getting-started/prerequisites](/getting-started/prerequisites) for the hardware and software requirements.
+If no such host is available, [/getting-started/brev-launchable](/getting-started/brev-launchable) provisions
+one in the cloud and brings the same 2D loop up from a notebook.
+
+## Going deeper
+
+The [/testing/sil/index](/testing/sil) section is the home for closed-loop testing. Once
+the environment is up, it covers the
+[architecture and data flow ](/testing/sil/architecture), the
+[Isaac Sim integration ](/testing/sil/components/isaac-sim), and the
+[action graph ](/testing/sil/components/action-graph) that drives the
+simulated scene.
+
+To run the same closed loop with perception and the Safety Core on NVIDIA IGX
+Thor hardware, see [/testing/hil/index](/testing/hil).

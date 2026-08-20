@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2600" height="1700" viewBox="0 0 2600 1700">
+  <!-- Action Graph build order (run_actor_sdg.py). House style: NVIDIA blueprint diagram.
+       Grid 8px. Canvas 2600x1700. Container 48..2552. Five builder columns:
+       x0 = 88 / 580 / 1072 / 1564 / 2056, width 456, gap 36. Column centres:
+       316 / 808 / 1300 / 1792 / 2284. Card band y 460..960. -->
+  <defs>
+    <style type="text/css"><![CDATA[
+      .sans   { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .mono   { font-family: Menlo, "DejaVu Sans Mono", "Courier New", monospace; }
+      .htitle { font-size: 36px; font-weight: 700; fill: #1A1A1A; letter-spacing: 0.2px; }
+      .hnote  { font-size: 22px; fill: #6A6A6A; }
+      .bigfn  { font-size: 30px; font-weight: 700; fill: #1A1A1A; }
+      .bignote{ font-size: 22px; fill: #3C3C3C; }
+      .fn     { font-size: 22px; font-weight: 700; fill: #1A1A1A; }
+      .purp   { font-size: 20px; fill: #3C3C3C; }
+      .purpm  { font-size: 20px; fill: #3C3C3C; }
+      .badge  { font-size: 26px; font-weight: 700; fill: #FFFFFF; }
+      .seclbl { font-size: 17px; font-weight: 700; fill: #6A6A6A; letter-spacing: 1.4px; }
+      .greenlbl{ font-size: 17px; font-weight: 700; fill: #5C8A00; letter-spacing: 1.4px; }
+      .path   { font-size: 22px; fill: #1A1A1A; }
+      .cap    { font-size: 19px; fill: #6A6A6A; }
+      .capm   { font-size: 19px; fill: #6A6A6A; }
+      .pill   { font-size: 21px; font-weight: 700; fill: #1A1A1A; }
+      .tag    { font-size: 18px; font-weight: 700; fill: #8A8A8A; letter-spacing: 2px; }
+      .optin  { font-size: 19px; font-weight: 700; fill: #5C8A00; letter-spacing: 1px; }
+      .optinm { font-size: 19px; font-weight: 700; fill: #5C8A00; }
+      .railnote{ font-size: 20px; fill: #6A6A6A; }
+      .hwbar  { font-size: 24px; font-weight: 700; fill: #FFFFFF; letter-spacing: 0.4px; }
+      .lgtitle{ font-size: 24px; font-weight: 700; fill: #1A1A1A; }
+      .lgtext { font-size: 21px; fill: #2B2B2B; }
+      .lgtextm{ font-size: 21px; fill: #2B2B2B; }
+    ]]></style>
+    <marker id="arrowSolid" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="22"
+            refX="24" refY="11" orient="auto">
+      <path d="M0,0 L26,11 L0,22 z" fill="#111111"/>
+    </marker>
+    <marker id="arrowMini" markerUnits="userSpaceOnUse" markerWidth="20" markerHeight="17"
+            refX="19" refY="8.5" orient="auto">
+      <path d="M0,0 L20,8.5 L0,17 z" fill="#111111"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="2600" height="1700" fill="#FFFFFF"/>
+
+  <!-- ================= OUTER CONTAINER ================= -->
+  <rect x="48" y="48" width="2504" height="1342" rx="18" fill="#F4F4F4" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans htitle" x="88" y="118">Action Graph build order</text>
+  <text class="sans hnote"  x="2512" y="118" text-anchor="end">Isaac Sim 6.0 &#8212; every graph is built at run time by a Python builder</text>
+
+  <!-- ================= ENTRY CARD ================= -->
+  <rect x="700" y="170" width="1200" height="150" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="724" y="194" width="10" height="102" rx="5" fill="#76B900"/>
+  <text class="mono bigfn"   x="756" y="234">setup_simulation()</text>
+  <text class="sans bignote" x="756" y="276">stage + USD load, IRA spawns characters</text>
+  <text class="sans tag"     x="1876" y="212" text-anchor="end">ENTRY</text>
+
+  <!-- stem into the fan-out rail -->
+  <line x1="1300" y1="320" x2="1300" y2="384" stroke="#111111" stroke-width="6"/>
+
+  <!-- ================= FAN-OUT RAIL ================= -->
+  <text class="sans railnote" x="316" y="362">builders fire in order 1 &#8594; 5</text>
+  <line x1="316"  y1="384" x2="1792" y2="384" stroke="#111111" stroke-width="6"/>
+  <line x1="1792" y1="384" x2="2284" y2="384" stroke="#111111" stroke-width="6" stroke-dasharray="20 14"/>
+  <line x1="316"  y1="384" x2="316"  y2="456" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <line x1="808"  y1="384" x2="808"  y2="456" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <line x1="1300" y1="384" x2="1300" y2="456" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <line x1="1792" y1="384" x2="1792" y2="456" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <line x1="2284" y1="384" x2="2284" y2="456" stroke="#111111" stroke-width="6" stroke-dasharray="20 14" marker-end="url(#arrowSolid)"/>
+
+  <!-- ================= BUILDER 1 : runtime patches ================= -->
+  <rect x="88" y="460" width="456" height="500" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="112" y="484" width="44" height="44" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="134" y="516" text-anchor="middle">1</text>
+  <text class="mono fn" x="112" y="572">runtime_patches.</text>
+  <text class="mono fn" x="112" y="602">apply_halos_runtime_patches()</text>
+  <text class="sans purp" x="112" y="636">applies the Halos runtime patches</text>
+  <line x1="112" y1="744" x2="520" y2="744" stroke="#E6E6E6" stroke-width="2"/>
+  <text class="sans seclbl" x="112" y="772">EFFECT</text>
+  <rect x="112" y="786" width="408" height="140" rx="10" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <text class="sans path" x="136" y="834">reposition chars</text>
+  <text class="sans cap"  x="136" y="878">runs before any graph is built</text>
+
+  <!-- ================= BUILDER 2 : RTSP graph ================= -->
+  <rect x="580" y="460" width="456" height="500" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="604" y="484" width="44" height="44" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="626" y="516" text-anchor="middle">2</text>
+  <text class="mono fn" x="604" y="572">build_rtsp_graph()</text>
+  <text class="sans purp" x="604" y="606">one h264 RTSP stream per camera</text>
+  <text class="sans purp" x="604" y="636">in <tspan class="mono purpm">cameras.yaml</tspan></text>
+  <line x1="604" y1="744" x2="1012" y2="744" stroke="#E6E6E6" stroke-width="2"/>
+  <text class="sans seclbl" x="604" y="772">PRODUCES</text>
+  <rect x="604" y="786" width="408" height="140" rx="10" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <text class="mono path" x="628" y="834">/World/RTSPMultiGraph</text>
+  <text class="sans cap"  x="628" y="878">one node pair per camera</text>
+
+  <!-- ================= BUILDER 3 : forklift graphs ================= -->
+  <rect x="1072" y="460" width="456" height="500" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="1096" y="484" width="44" height="44" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="1118" y="516" text-anchor="middle">3</text>
+  <text class="mono fn" x="1096" y="572">build_forklift_graphs()</text>
+  <text class="sans purp" x="1096" y="606">runs once per robot in <tspan class="mono purpm">robots.yaml</tspan></text>
+  <rect x="1096" y="630" width="408" height="94" rx="10" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <text class="sans greenlbl" x="1120" y="660">RUNS FIRST</text>
+  <text class="mono path" x="1120" y="702">strip_baked_scene_graphs()</text>
+  <line x1="1096" y1="744" x2="1504" y2="744" stroke="#E6E6E6" stroke-width="2"/>
+  <text class="sans seclbl" x="1096" y="772">PRODUCES &#8212; 3 GRAPHS PER ROBOT</text>
+  <rect x="1096" y="786" width="408" height="44" rx="8" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <rect x="1114" y="801" width="14" height="14" rx="3" fill="#76B900"/>
+  <text class="sans pill" x="1146" y="815">Control</text>
+  <rect x="1096" y="836" width="408" height="44" rx="8" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <rect x="1114" y="851" width="14" height="14" rx="3" fill="#76B900"/>
+  <text class="sans pill" x="1146" y="865">Odometry</text>
+  <rect x="1096" y="886" width="408" height="44" rx="8" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <rect x="1114" y="901" width="14" height="14" rx="3" fill="#76B900"/>
+  <text class="sans pill" x="1146" y="915">Safety</text>
+
+  <!-- ================= BUILDER 4 : clock graph ================= -->
+  <rect x="1564" y="460" width="456" height="500" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="1588" y="484" width="44" height="44" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="1610" y="516" text-anchor="middle">4</text>
+  <text class="mono fn" x="1588" y="572">build_clock_graph()</text>
+  <text class="sans purp" x="1588" y="606">publishes <tspan class="mono purpm">/clock</tspan> (sim time)</text>
+  <text class="sans purp" x="1588" y="636">for every ROS 2 node</text>
+  <line x1="1588" y1="744" x2="1996" y2="744" stroke="#E6E6E6" stroke-width="2"/>
+  <text class="sans seclbl" x="1588" y="772">PRODUCES</text>
+  <rect x="1588" y="786" width="408" height="140" rx="10" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <text class="mono path" x="1612" y="834">/World/ClockPublisherGraph</text>
+  <text class="sans cap"  x="1612" y="878">global &#8212; not tied to an articulation</text>
+
+  <!-- ================= BUILDER 5 : SRR ground truth (opt-in) ================= -->
+  <rect x="2056" y="460" width="456" height="500" rx="12" fill="#FFFFFF" stroke="#8A8A8A" stroke-width="3" stroke-dasharray="14 10"/>
+  <rect x="2080" y="484" width="44" height="44" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="2102" y="516" text-anchor="middle">5</text>
+  <rect x="2265" y="484" width="223" height="44" rx="8" fill="#FFFFFF" stroke="#5C8A00" stroke-width="2" stroke-dasharray="10 7"/>
+  <text class="sans optin" x="2285" y="513">OPT-IN <tspan class="mono optinm">--srr-gt</tspan></text>
+  <text class="mono fn" x="2080" y="572">build_srr_gt_graph()</text>
+  <text class="sans purp" x="2080" y="606">publishes <tspan class="mono purpm">/gt/*/tf</tspan></text>
+  <text class="sans purp" x="2080" y="636">for the Regression Testing harness</text>
+  <line x1="2080" y1="744" x2="2488" y2="744" stroke="#E6E6E6" stroke-width="2"/>
+  <text class="sans seclbl" x="2080" y="772">PRODUCES</text>
+  <rect x="2080" y="786" width="408" height="140" rx="10" fill="#F5F5F5" stroke="#DDDDDD" stroke-width="2"/>
+  <text class="mono path" x="2104" y="834">/World/SRRGraph</text>
+  <text class="sans cap"  x="2104" y="878">built only with <tspan class="mono capm">--srr-gt</tspan> &#8212; default OFF</text>
+
+  <!-- ================= JOIN RAIL ================= -->
+  <line x1="316"  y1="960" x2="316"  y2="1020" stroke="#111111" stroke-width="6"/>
+  <line x1="808"  y1="960" x2="808"  y2="1020" stroke="#111111" stroke-width="6"/>
+  <line x1="1300" y1="960" x2="1300" y2="1020" stroke="#111111" stroke-width="6"/>
+  <line x1="1792" y1="960" x2="1792" y2="1020" stroke="#111111" stroke-width="6"/>
+  <line x1="2284" y1="960" x2="2284" y2="1020" stroke="#111111" stroke-width="6" stroke-dasharray="20 14"/>
+  <line x1="316"  y1="1020" x2="1792" y2="1020" stroke="#111111" stroke-width="6"/>
+  <line x1="1792" y1="1020" x2="2284" y2="1020" stroke="#111111" stroke-width="6" stroke-dasharray="20 14"/>
+  <text class="sans railnote" x="316" y="1058">all five builders complete</text>
+  <line x1="1300" y1="1020" x2="1300" y2="1086" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+
+  <!-- ================= JOIN CARD ================= -->
+  <rect x="700" y="1090" width="1200" height="150" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="724" y="1114" width="10" height="102" rx="5" fill="#76B900"/>
+  <text class="mono bigfn"   x="756" y="1154">timeline.play()</text>
+  <text class="sans bignote" x="756" y="1196">all Python-built graphs tick together</text>
+  <text class="sans tag"     x="1876" y="1132" text-anchor="end">JOIN</text>
+
+  <!-- ================= PLATFORM BAR ================= -->
+  <rect x="88" y="1290" width="2424" height="60" rx="8" fill="#76B900"/>
+  <text class="sans hwbar" x="1300" y="1329" text-anchor="middle">Builders fire from <tspan class="mono hwbar">run_actor_sdg.py</tspan></text>
+
+  <!-- ================= LEGEND ================= -->
+  <rect x="48" y="1430" width="2504" height="222" rx="14" fill="#F7F7F7" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans lgtitle" x="88" y="1476">Reading the diagram</text>
+
+  <line x1="88" y1="1520" x2="200" y2="1520" stroke="#111111" stroke-width="6" marker-end="url(#arrowMini)"/>
+  <text class="sans lgtext" x="232" y="1528">Solid &#8212; the default build path. <tspan class="mono lgtextm">setup_simulation()</tspan> runs first, then builders 1 to 5 in badge order, then <tspan class="mono lgtextm">timeline.play()</tspan>.</text>
+
+  <line x1="88" y1="1572" x2="200" y2="1572" stroke="#111111" stroke-width="6" stroke-dasharray="20 14" marker-end="url(#arrowMini)"/>
+  <text class="sans lgtext" x="232" y="1580">Dashed &#8212; opt-in branch. Builder 5 is built only when <tspan class="mono lgtextm">run_actor_sdg.py</tspan> is started with <tspan class="mono lgtextm">--srr-gt</tspan>; it is absent by default.</text>
+
+  <rect x="130" y="1610" width="28" height="28" rx="6" fill="#76B900"/>
+  <text class="sans lgtext" x="232" y="1632">Green badge &#8212; call order inside <tspan class="mono lgtextm">run_actor_sdg.py</tspan>. Builder 3 runs <tspan class="mono lgtextm">strip_baked_scene_graphs()</tspan> before it builds anything.</text>
+</svg>

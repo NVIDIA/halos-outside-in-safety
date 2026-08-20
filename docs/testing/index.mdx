@@ -1,0 +1,20 @@
+---
+title: "Closed-Loop Testing"
+description: ""
+---
+Closed-loop verification of the Safety Core against a simulated scene. NVIDIA
+Isaac Sim drives a virtual warehouse, forklift, and workers, while the
+production software runs unchanged: the VSS Warehouse Blueprint for perception,
+the Safety Core for trust, fusion, and decisions, and the communication layer
+that returns the decision to the simulated forklift.
+
+Bring the environment up from [sil/sil-2d](/testing/sil/sil-2d), or [sil/sil-3d](/testing/sil/sil-3d) for the
+3D (BEV) perception profile. The rest of the section covers what the harness
+does and does not simulate, its prerequisites and architecture, and the Isaac
+Sim components that drive the scene.
+
+Bringing the loop up tells you it runs, not that it is right. The
+[Regression Testing Reporter ](/testing/srr) *(Preview)* answers the second
+question: it records Isaac Sim ground truth alongside the Safety Core decision
+on one timeline, then grades whether the alarm was raised
+and cleared at the right moment, per clip. It currently scores SIL runs.
