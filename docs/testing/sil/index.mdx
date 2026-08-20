@@ -1,0 +1,38 @@
+---
+title: "Software-in-Loop Testing"
+description: ""
+---
+Welcome to the closed-loop testing guide, covering the **Software-in-the-Loop (SIL)** harness and its workflows.
+
+Closed-loop testing enables end-to-end validation of the Halos safety system using Isaac Sim simulation before deploying to production hardware. This approach accelerates development, reduces costs, and enables testing of dangerous scenarios in a safe environment.
+
+Two quick starts bring up the environment, differing only in the perception
+profile they drive. Start from [sil-2d](/testing/sil/sil-2d), which uses the VSS 2D profile:
+one pipeline per camera, the simplest setup, and the highest frame rate. Use
+[sil-3d](/testing/sil/sil-3d) when you need the 3D (BEV) profile, where VSS groups several
+cameras into a single bird's-eye sensor. Either way, return here afterwards for
+the architecture and component detail.
+
+## Overview
+
+This documentation covers:
+
+- **Quick Starts**: Bring up the closed loop on 2D or 3D perception
+- **SIL Overview**: Understanding the simulation-based testing approach
+- **SIL Prerequisites**: Hardware and software requirements
+- **SIL Architecture**: Detailed system design and data flow
+- **Components**: Deep dive into Isaac Sim, the Action Graphs, and the forklift controller
+
+## Getting Help
+
+If you encounter issues:
+
+- Check the troubleshooting sections in each guide
+- Review the component-specific documentation
+- Contact the Halos development team
+
+## Related Documentation
+
+- [/integration/index](/integration) - Integration Guide
+- [/deployment/index](/deployment) - Deployment Guide
+- [/getting-started/inference-pipeline](/getting-started/inference-pipeline) - Deploy AI Perception

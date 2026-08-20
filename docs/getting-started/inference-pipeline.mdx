@@ -1,0 +1,347 @@
+---
+title: "Deploy AI Perception"
+description: ""
+---
+This quick start guide covers setting up the environment and deploying the Halos Outside-In Safety Blueprint with sample data.
+
+## NVIDIA Halos Outside-In Blueprint Architecture
+
+![Halos Outside-In Architecture](/assets/images/HOISA-Quick-Start-Arch.png)
+
+The current architecture consists of two main groups of components. This page
+uses the user-facing names. The [/integration/index](/integration) describes the same
+system as architectural sub-elements, and the mapping is direct: **AI
+Perception** is the Sensor Input Processing Pipeline (SIPP), and **Safety
+Core** covers the Safety AI Monitor (SAIM), Perception Container Monitor
+(PCM), Safety Event Integrator (SEI), and Safety Decision Maker (SDM), along
+with the Safety Black Box (SBB) and Safety User Interface (SUI) that sit
+outside the mainstream data path.
+
+This page covers AI Perception; the Safety Core components are introduced in
+[safety-core](/getting-started/safety-core).
+
+### AI Perception (Sensor Input Processing Pipeline)
+
+This module detects safety events from 2D camera streams using advanced perception and behavior analytics tuned for warehouse environments.
+It continuously tracks people, forklifts, AMRs, and other moving assets and emits semantically rich events tied to safety zones and workflows.
+The system supports three primary event types:
+
+- Region-of-interest (ROI) events: Triggered when objects enter or exit configured safety zones, enabling occupancy monitoring and enforcement of human‑free or equipment‑free areas.
+- Tripwire events: Triggered when objects cross virtual lines placed at doors, dock edges, or aisle boundaries, enabling directional counting and presence inference in partially occluded or blind areas.
+- Proximity events: Triggered when people and equipment come within unsafe distances, supporting pedestrian–vehicle collision avoidance and automatic slow‑down or stop behaviors.
+
+Learn more about AI Perception component: [VSS Warehouse Blueprint - 2D Vision AI](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html) and [Perception Microservices Documentation](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR.html).
+
+## Deploying Halos Outside-In
+
+Halos Outside-In can be deployed in three levels:
+
+![Halos Outside-In Safety Levels](/assets/images/HOISA-Quick-Start-Safety-Levels.png)
+
+The deployment process includes these steps:
+
+1. Camera Selection, Placement and Calibration
+2. Installation of VSS Warehouse Blueprint
+3. Installation of Safety Event Integrator and Decision Maker
+
+### Camera Selection, Placement and Calibration Guidelines
+
+(If you just want to try out Halos Outside-In with the sample videos packaged within the software, skip this step and proceed to the next step `Installation of AI Perception`_.)
+
+Camera model choice and configuration settings significantly impact detection latency. The method used to connect cameras to the compute platform greatly influences overall system latency.
+
+#### Best Practices for Deployment
+
+- **Use a Consistent Camera Model**: Deploy the same camera model across all units to ensure uniform performance and predictable latency.
+
+- **Standardize Camera Settings**: Apply identical configuration settings to every camera in the deployment. This consistency is essential for reliable detection and optimal fusion of results by the safety supervisor, minimizing latency across the system.
+
+- **Connection Method Matters**: Ensure that all cameras connect to the compute platform using the same interface and topology to avoid introducing variable delays.
+
+Optimal camera placement is crucial and should be tailored to your specific use case. Camera positioning significantly affects both accuracy and latency of safety event detection. For detailed guidance on camera positioning for best results, refer to the [camera placement guide](https://docs.nvidia.com/vss/3.2.1/Calibration-Camera-Positioning-Guide.html).
+
+Once you place your camera, calibrate it by referring to the [camera calibration guidelines](https://docs.nvidia.com/vss/3.2.1/calibration.html).
+
+Configuring Safety Zones and Tripwires is part of the camera calibration process and definitions of tripwires and zones are included in the calibration file.
+
+### Installation of AI Perception
+
+#### System Requirements
+
+The System and GPU requirement of AI Perception (VSS Warehouse Blueprint - 2D profile) is shown as below:
+
+| GPU Type | Number of streams | 2D Vision AI Profile (Number of GPUs) |
+| --- | --- | --- |
+| RTX PRO 6000 BW | 16 | 1 |
+| H100 (NVL, SXM HBM3) | 26 | 1 |
+| L40S | 12 | 1 |
+| IGX-THOR | 7 | 1 |
+| DGX-SPARK | 7 | 1 |
+
+The minimum system requirements are:
+
+- x86-64 architecture
+- 18 core CPU
+- 128 GB RAM
+- 1 TB SSD
+- 1 × 1 Gbps network interface
+- 1 or 2 supported GPUs
+
+For more details in hardware and software prerequisites please refer to [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html).
+
+#### Installation Steps
+
+**1. Clone the VSS Warehouse repository**
+
+You need an NGC API key to pull the container images. If you don't have the NGC CLI installed, refer to the NGC CLI installation guide: https://org.ngc.nvidia.com/setup
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git lfs install
+git checkout v3.2.1
+git lfs pull
+```
+
+The warehouse-operations profile, including the sample calibration data, lives under `deploy/docker/industry-profiles/warehouse-operations/`.
+
+**2. Download the sample data assets**
+
+Download the sample app data (videos and perception models for the `warehouse-loading-dock-3cams-synthetic` dataset) from NGC and extract it:
+
+```bash
+# The app-data resource stays at 3.2.0 for VSS 3.2.1; there is no 3.2.1 build.
+ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0"
+
+cd vss-warehouse-app-data_v3.2.0
+tar -xvf vss-warehouse-app-data.tar.gz
+
+# Set permissions
+sudo chmod -R 777 /path/to/vss-warehouse-app-data
+```
+
+**3. Environment Settings**
+
+Edit `deploy/docker/industry-profiles/warehouse-operations/.env` to run the 2D Vision AI Profile. The defaults select a different profile, so change the values below rather than confirming them — each comment gives the default where it differs:
+
+```bash
+# Deployment mode: 2d, 3d, or mv3dt
+MODE=2d
+# Blueprint profile: bp_wh, bp_wh_kafka, bp_wh_redis, bp_wh_auto_calib
+BP_PROFILE=bp_wh_kafka                           # default: bp_wh, which starts no Kafka
+NUM_STREAMS=3                                    # default: 4
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: nv-warehouse-4cams
+HOST_IP='<HOST IP>'
+VSS_APPS_DIR="/path/to/deploy/docker"            # the cloned repo's deploy/docker
+VSS_DATA_DIR="/path/to/vss-warehouse-app-data"   # where the sample data was extracted in step 2
+# Match your GPU: run `nvidia-smi -L` to identify it, then set the matching
+# value. Valid values: RTXPRO6000BW, H100, L40S, IGX-THOR, DGX-SPARK
+HARDWARE_PROFILE=L40S
+LLM_MODE=none                                    # default: local
+VLM_MODE=none                                    # already the default
+# Deployment scope. Minimal (the VSS default) runs the core perception + Kafka
+# pipeline the Safety Core consumes. Extended additionally deploys ELK/Kibana,
+# the Video Analytics API, and monitoring. Set MINIMAL_PROFILE="" only if you
+# want the optional Kibana analytics dashboard used in the verification below.
+MINIMAL_PROFILE="true"                           # "" enables the extended profile (Kibana/ELK)
+```
+
+**4. Deploy VSS Warehouse Blueprint**
+
+<Warning>
+The two issues below have been observed **only** on safety-flashed
+IGX Thor platforms (IGX Thor Developer Kit T7000 and Developer Kit Mini T5000): the
+`nvstreamer-2d` container fails to start due to a missing NVIDIA
+Container Runtime, and `--pull always` can intermittently fail
+during image pulls. If you are deploying on one of these platforms,
+apply the workarounds in [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor) before
+running the deployment commands below.
+</Warning>
+
+<Info>
+Docker registry authentication is mandatory before deploying VSS Warehouse or Safety Core images from `nvcr.io`. NGC CLI authentication is only used for downloading NGC resources; it does not authenticate Docker image pulls.
+
+Log in to the NGC Docker registry, then validate the required VSS image pulls before starting Docker Compose:
+
+```bash
+docker login nvcr.io
+# Username: $oauthtoken
+# Password: <NGC API key>
+
+docker pull nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1
+docker pull nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.2.1
+docker pull nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1
+docker pull nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.1
+docker pull nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.1
+```
+
+</Info>
+
+Run Docker Compose from `deploy/docker/` so the relative include paths resolve. The top-level `compose.yml` pulls in the shared infrastructure (Kafka, Redis), the perception app, and the warehouse-operations profile selected by the `.env` above.
+
+```bash
+cd deploy/docker
+
+# Start the blueprint
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --detach --pull always --force-recreate --build
+```
+
+Verify the running VSS Warehouse Blueprint:
+
+```bash
+# Verify if containers are in running state
+docker ps
+docker compose ls
+# For 2D Vision AI Profile (perception)
+docker logs -f vss-rtvi-cv
+# Open a browser to check the data once all containers are up and running
+# Verify the Kibana dashboard for safety events (extended profile only, see note below)
+http://<HOST_IP>:7777/kibana
+# Verify the video storage toolkit (VST) dashboard
+http://<HOST_IP>:30888/vst/
+```
+
+<Note>
+The Kibana dashboard is part of the VSS **extended** profile only. With the
+default minimal profile (`MINIMAL_PROFILE="true"` in the `.env` above),
+ELK/Kibana are not deployed and `http://<HOST_IP>:7777/kibana` does not
+resolve. Set `MINIMAL_PROFILE=""` to include it. The Safety Core itself
+only needs the Kafka `mdx-events` stream, which is present in both
+profiles, so the VST dashboard and the `mdx-events` check below are
+sufficient to validate the perception feed on a minimal deployment.
+</Note>
+
+<Note>
+To render the safety decision as the on-video VST overlay, the same VST
+config needs `halo_safety_udp_port` set — it ships disabled at `-1`.
+See [Enable the VST safety overlay](/getting-started/safety-core#enable-the-vst-safety-overlay).
+</Note>
+
+Before launching Safety Core, validate the streams and events that HOISA
+will consume:
+
+```bash
+# Confirm the VST sensors are online.
+curl -s http://<HOST_IP>:30888/vst/api/v1/sensor/list
+
+# Validate each exact rtspUrl configured in sensor_config.conf. Neither
+# tool is installed by default: ffprobe comes from the ffmpeg package,
+# gst-launch-1.0 from gstreamer1.0-tools with gstreamer1.0-plugins-good.
+ffprobe -rtsp_transport tcp <rtsp_url>
+# or
+gst-launch-1.0 rtspsrc location=<rtsp_url> ! fakesink
+
+# Optional: confirm behavior analytics events are present on mdx-events.
+docker exec kafka kafka-console-consumer \
+    --bootstrap-server localhost:9092 \
+    --topic mdx-events \
+    --from-beginning \
+    --timeout-ms 10000
+```
+
+<Note>
+VST sensor online status is not enough by itself. The exact
+`rtspUrl` in `sensor_config.conf` must be playable before SAIM
+and Safety Core are launched.
+</Note>
+
+<Note>
+To relay validated ATL decision commands to VST, launch
+`atl_sdm_cmd_receiver` with both `--vst_ip <VST_IP>` and
+`--vst_port <VST_PORT>`. These options are paired: supplying only one
+causes receiver startup to fail. The relay is optional; its delivery
+failures do not interrupt command reception or acknowledgement. The
+Proximity receiver has no VST relay and rejects both options. Continue
+to use VST sensor status, RTSP playback, SAIM logs, Safety Core logs,
+and Kafka events as deployment-health validation signals.
+</Note>
+
+Stop VSS Warehouse Blueprint:
+
+```bash
+# From deploy/docker, use the SAME env file you deployed with
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env down
+# Tear down all dangling volumes
+docker volume ls -q -f "dangling=true" | xargs docker volume rm
+# Cleanup all data (matches how you deployed)
+bash scripts/cleanup_all_datalog.sh -e industry-profiles/warehouse-operations/.env
+```
+
+#### Customization
+
+It is supported to customize the VSS Warehouse Blueprint for user specific use cases, including adding new cameras,
+configuring different safety zones and tripwires, fine-tuning the AI perception models, etc.
+
+For details please refer to the [VSS Warehouse 2D Blueprint Customization Guide](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/2D-profile.html#customization).
+
+### Installation of Safety Event Integrator and Decision Maker
+
+Once the AI Perception is up and running, events are being generated from the input camera streams.
+To convert those events into actionable signals, continue with [safety-core](/getting-started/safety-core), which introduces the Safety Core components and walks the installation, launch, and verification steps.
+
+## Annex A: VSS Warehouse Blueprint deployment workarounds for safety-flashed IGX Thor
+
+The two issues described in this annex have been observed **only** when
+deploying the VSS Warehouse Blueprint - 2D profile on **safety-flashed
+IGX Thor** systems (IGX Thor Developer Kit T7000 and Developer Kit Mini T5000). Deployment on
+other (non-safety-flashed) platforms is not affected.
+
+Apply the corresponding workaround below before deploying on these systems.
+With these workarounds, VSS Warehouse 3.2.1 has been deployed successfully on
+safety-flashed IGX Thor systems.
+
+### a. nvstreamer-2d container fails to start (NVIDIA Container Runtime missing)
+
+**Issue**: In the safety build with the Safety Extension Package (SEP),
+`runtime: nvidia` is commented out in `warehouse-2d-app.yml` and the
+NVIDIA Container Runtime is not selected automatically. As a result, the
+`nvstreamer-2d` container fails to start with a runtime hook error.
+
+**Workaround**: Add `runtime: nvidia` to the `nvstreamer-2d` service via a
+Compose override. Create `deploy/docker/docker-compose.override.yml` with:
+
+```yaml
+services:
+  nvstreamer-2d:
+    runtime: nvidia
+```
+
+The deployment command passes `-f compose.yml` explicitly, which disables
+auto-discovery of the override file, so add it with an extra `-f` flag when
+starting the blueprint:
+
+```bash
+cd deploy/docker
+
+docker compose -f compose.yml -f docker-compose.override.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --detach --force-recreate --build
+```
+
+With this override, the `nvstreamer-2d` service (container
+`vss-vios-nvstreamer` in `docker ps`) starts successfully.
+
+### b. Intermittent Docker image pull failures with --pull always
+
+**Issue**: Deploying with `--pull always` re-fetches every service image on
+each `docker compose up` and intermittently fails, blocking the deployment
+during image pulls.
+
+**Workaround**: Pre-pull the required images once while authenticated to
+`nvcr.io` (see the Docker registry authentication step under
+`Installation of AI Perception`_), then start the blueprint **without**
+`--pull always` so Docker Compose uses the locally cached images:
+
+```bash
+cd deploy/docker
+
+docker compose -f compose.yml \
+  --env-file industry-profiles/warehouse-operations/.env \
+  up --detach --force-recreate --build
+```
+
+Prefer a local cache or an authenticated registry over anonymous Docker Hub
+pulls.

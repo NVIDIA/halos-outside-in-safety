@@ -1,0 +1,174 @@
+---
+title: "SIL Architecture"
+description: ""
+---
+System architecture for SIL testing environment.
+
+## System Diagram
+
+<Frame caption="SIL Warehouse Architecture">
+  <img src="/assets/images/sil/sil_warehouse_architecture.png" alt="SIL System Architecture" />
+</Frame>
+
+## Components
+
+### 1. Isaac Sim
+
+Isaac Sim provides the **simulation environment** for SIL testing: 20×20m warehouse with loading dock, trailer, racking, and pallet storage. Materials and lighting match real-world conditions for camera feeds.
+
+**Forklift**: Swivel-wheel kinematics — `back_wheel_drive` (velocity), `back_wheel_swivel` (steering). Safety indicator mesh at `/World/forklift_b/body/body/safety_indicator` changes color by safety state. Physics handles steering, friction, weight distribution, and collision detection.
+
+**Digital humans**: IRA (Isaac Replicator Agent) for autonomous navigation. Path planning, obstacle avoidance, and animation blending. Agent count and behavior configurable in `default_config_ros.yaml`.
+
+**Cameras**: 3 cameras (overhead, side, loading dock). 1920×1080 RGB. Isaac Sim 6.0 self-hosts RTSP in-process — one server per camera on ports 8554/8555/8556. With `--enable-vst`, cameras auto-register via `cameras.yaml`.
+
+Cameras stream at **15 FPS** in both 2D and 3D mode. 3D additionally requires a unique timestamp per frame for Sparse4D temporal fusion, which the system (wall-clock) timestamps provide.
+
+**ROS2**: Action Graph subscribes to `/safety/is_muted` from Communication Layer; publishes to `/clock` for ROS2 time synchronization. Uses jazzy, rmw_cyclonedds_cpp, domain ID 0.
+
+### 2. VSS Warehouse Blueprint
+
+Perception pipeline consuming camera streams and generating safety events.
+
+**2D profile**: DeepStream with RT-DETR model for object detection and NvDCF for per-camera tracking. Publishes events to Kafka `mdx-events` topic.
+
+**3D profile**: DeepStream with Sparse4D model for 3D multi-view BEV detection and MTMC (Multi-Target Multi-Camera) tracking. Detections and tracks go to the Kafka `mdx-bev` topic; behavior analytics reads them and publishes the ROI and tripwire events to `mdx-events`, which is the seam the Safety Core reads in both profiles. See [3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html) and [Sparse4D documentation](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html) for details.
+
+The pipeline monitors ROI and Tripwire zones, publishing events to Kafka.
+
+Event format:
+
+```json
+{
+  "event": {
+    "type": "EXIT",
+    "id": "roi-id-1",
+    "info": {
+      "class": "roi"
+    }
+  },
+  "object": {
+    "type": "Forklift",
+    "id": "125",
+    "confidence": 0.826,
+    "speed": 15.409
+  },
+  "sensor": {
+    "id": "Camera_01"
+  },
+  "timestamp": "2026-01-26T20:27:20.366Z"
+}
+```
+
+Event types:
+
+| Event type | Class | Meaning |
+| --- | --- | --- |
+| `ENTRY` | roi | Object enters ROI |
+| `EXIT` | roi | Object exits ROI |
+| `IN` | tripwire | Object crosses tripwire (entering) |
+| `OUT` | tripwire | Object crosses tripwire (exiting) |
+
+### 3. Safety Core (PSF)
+
+Safety event processing:
+
+**Safety Event Integrator** (SEI):
+
+- Consumes Kafka events on `mdx-events` for ROI and tripwire alerts and
+  `mdx-frames` for per-frame analysis, in both the 2D and the 3D profile
+- Multi-camera fusion with `timeWindowSize=6000` ms (the shipped SIL value)
+- Event validation
+- Forwards validated events to Decision Maker
+
+**Safety Decision Maker** (SDM):
+
+- ATL (Automated Trailer Loading) decision logic
+- Tracks forklift and human presence in ROI
+- Generates commands: MUTE (0x02) or UNMUTE (0x07)
+- Sends UDP packets (64 bytes) to Communication Layer on port 12346
+
+### 4. Communication Layer
+
+**Protocol bridge** between Safety Core and Isaac Sim:
+
+- **UDP Receiver** (port 12346): Receives Safety Core commands
+- **OPC UA Server** (port 4840): Industrial protocol interface
+- **ROS2 Bridge**: Publishes to `/safety/is_muted` (Bool)
+
+ROS2 configuration:
+
+- `ROS_DISTRO`: jazzy
+- `RMW_IMPLEMENTATION`: rmw_cyclonedds_cpp
+- `ROS_DOMAIN_ID`: 0
+
+Logs commands to: `${MDX_DATA_DIR}/comm-layer/opc_server.log`
+
+## Data Flow
+
+**2D mode**:
+
+```text
+Isaac Sim Cameras (3 cams, 15 FPS)
+     ↓ RTSP streams
+AI Perception (VSS Warehouse Blueprint)
+     ├─ RT-DETR detection
+     ├─ NvDCF tracking
+     └─ ROI/Tripwire analytics
+     ↓ Kafka events (mdx-events topic)
+Safety Core (PSF)
+     ├─ SEI: Multi-camera fusion + event validation
+     └─ SDM: ATL decision logic (MUTE/UNMUTE)
+     ↓ UDP packet (64 bytes, port 12346)
+Communication Layer
+     ├─ OPC UA update
+     └─ ROS2 publish (/safety/is_muted)
+     ↓ ROS2 topic
+Isaac Sim Action Graph
+     └─ Update safety indicator (GREEN/ORANGE)
+```
+
+**3D mode**:
+
+```text
+Isaac Sim Cameras (3 cams, 15 FPS)
+     ↓ RTSP streams (unique timestamps)
+AI Perception (VSS Warehouse Blueprint)
+     ├─ Sparse4D 3D multi-view BEV detection + tracking
+     └─ BEV ROI/Tripwire analytics
+     ↓ Kafka events (mdx-events topic, sensor id = BEV group)
+Safety Core (PSF)
+     ├─ SEI: Event validation + passthrough (fusion done at perception)
+     └─ SDM: ATL decision logic (MUTE/UNMUTE)
+     ↓ UDP packet (64 bytes, port 12346)
+Communication Layer
+     ├─ OPC UA update
+     └─ ROS2 publish (/safety/is_muted)
+     ↓ ROS2 topic
+Isaac Sim Action Graph
+     └─ Update safety indicator (GREEN/ORANGE)
+```
+
+## Differences from Production
+
+SIL runs on x86 with Docker Compose. Key differences from production (IGX Thor):
+
+| Component | SIL (x86) | Production (IGX Thor) |
+| --- | --- | --- |
+| Platform | x86 workstation | IGX Thor (ARM) |
+| Cameras | Isaac Sim (simulated) | Real IP cameras |
+| Environment | Virtual warehouse | Physical facility |
+| Decision Maker OS | Linux (Docker) | FreeRTOS (FSI) |
+| Event Integrator | Docker on Linux | Docker on CCPLEX |
+| Communication Layer | Simple UDP + OPC UA (non-safe) | ESL/FSoE/Profisafe (safety-certified) |
+| Deployment | Docker Compose | Flash binary + Docker Compose |
+
+**Shared between SIL and production**: AI Perception (VSS Warehouse Blueprint) pipeline, Safety Core fusion algorithms, ATL decision logic, and event formats — ensuring SIL validation reflects production behavior.
+
+## Next Steps
+
+- [components/isaac-sim](/testing/sil/components/isaac-sim) - Isaac Sim configuration details
+- [components/action-graph](/testing/sil/components/action-graph) - Forklift ROS2 Action Graph
+- [components/forklift-controller](/testing/sil/components/forklift-controller) - The service that drives the forklift along a route
+- [sil-2d](/testing/sil/sil-2d) - Deploy SIL system (2D)
+- [sil-3d](/testing/sil/sil-3d) - Deploy SIL system (3D)

@@ -64,7 +64,9 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/halos-outside-in/1.3/index.html).
+User guides live in [`docs/`](docs/) (Fern MDX). Preview locally with `fern docs dev` from the repository root after `npm i -g fern-api` and `fern login`.
+
+Published site: [docs.nvidia.com/halos-outside-in](https://docs.nvidia.com/halos-outside-in/1.3/index.html).
 
 ## Prerequisites
 

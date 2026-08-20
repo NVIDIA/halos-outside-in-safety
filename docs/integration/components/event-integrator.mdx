@@ -1,0 +1,37 @@
+---
+title: "Safety Event Integrator (SEI)"
+description: ""
+---
+SEI is a core component of the Halos Outside-In Safety AI Agent. It fuses
+reported events, prioritizes them by severity, and forwards consolidated
+results to SDM for control decisions.
+
+## Sub-components
+
+- **Communication Interface** (legacy: PSSComm) — Manages IPC between SEI
+  clients, SDM, and Safety Black Box.
+- **Core Processing Unit** (legacy: PSSCore) — Collates event parameters from
+  SIPP clients and evaluates them against defined safety conditions. Also
+  consumes per-sensor trust reports from SAIM and pipeline trust reports from
+  PCM to qualify input integrity, and propagates the resulting health state
+  to SDM so that downstream decisions can react to compromised sensors or a
+  compromised perception pipeline.
+
+## Fusion operations
+
+| **Operation** | **Description** |
+| --- | --- |
+| Temporal | Correlates events from multiple pipelines at different time points (same real-world occurrence). |
+| Spatial | Correlates events from multiple sensors observing the same area. |
+| Attribute | Combines event attributes across sources for a balanced representation. |
+| Prioritized delivery | Not part of fusion itself. Fusion orders candidates by timestamp; the send path then draws from separate critical and operational queues, so critical events reach the SDM with minimal latency. |
+
+Output: SEI forwards fused events to SDM with parameters (type, severity,
+confidence) for action determination. `severity` is daemon-owned and takes
+one of two values, `OPERATIONAL` (0) or `CRITICAL` (1); a client cannot
+set it, and the daemon forces a single severity across every entry of one
+decision request.
+
+<Info>
+- Fusion configuration parameters (`nvpss.conf`): [/reference/sei-configuration](/reference/sei-configuration)
+</Info>

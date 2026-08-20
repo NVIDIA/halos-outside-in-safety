@@ -1,0 +1,90 @@
+---
+title: "Hardware-in-the-Loop Testing"
+description: ""
+---
+Hardware-in-the-Loop (HIL) testing runs the same closed loop as the single-host harness, with the perception stack and the Safety Core on an NVIDIA IGX Thor while NVIDIA Isaac Sim drives the scene from an x86 host. Start from [quickstart](/testing/hil/quickstart), which brings both hosts up in order and ends with the safety decision arriving back in the simulation. [architecture](/testing/hil/architecture) covers the topology, the network interfaces, and the configuration that has to pair across the two hosts.
+
+## What HIL testing adds
+
+Closed-loop testing swaps physical components for virtual equivalents while running the production software unchanged. HIL keeps the virtual scene and moves the safety half of the loop onto the production compute platform: perception, sensor fusion, and the safety decision run on an IGX Thor, and the decision crosses a real network before it reaches the simulation.
+
+Three things become observable that a single-host harness cannot show:
+
+- The perception stack and the Safety Core run on the target platform, with its real memory,
+  accelerator, and platform-profile behavior.
+- The safety decision maker can run on the Functional Safety Island, a placement the single-host
+  x86 harness has no equivalent for.
+- The camera feed and the decision each traverse a real network link, so stream delivery and
+  host-to-host latency are part of the result rather than assumed away.
+
+```text
+x86 stimulus host                    IGX Thor safety host
+  simulated scene, cameras   ---->     perception + Safety Core
+  safety indicator           <----     safety decision
+
+Arrows show data flow. The safety host opens both cross-host connections: it pulls the
+camera streams and it sends the decision.
+```
+
+## SIL or HIL
+
+| Harness | What it runs where | When to choose it |
+| --- | --- | --- |
+| [SIL ](/testing/sil) | The simulation, perception, and the Safety Core on one x86 host | You are developing or regression-testing the safety logic and want the shortest setup and the fastest iteration. One machine, one environment file, one bring-up. |
+| [HIL ](/testing/hil/quickstart) | The simulation on an x86 host; perception and the Safety Core on an IGX Thor | You need the decision produced by the target platform and delivered over a real network, or you are rehearsing a deployment. Two machines, one environment file per host and a bring-up sequence on each. |
+
+The Halos components and their decision logic are the same in both profiles. What changes is which host runs each one, and the handful of settings that follow from the split — see the profile comparison in [architecture](/testing/hil/architecture).
+
+## What runs where
+
+### What is simulated
+
+Isaac Sim renders all of the following on the stimulus host:
+
+- The warehouse, its loading dock, and the trailer.
+- The forklift and the fixed path it drives.
+- The digital humans moving through the workspace.
+- The camera feeds the safety host consumes.
+
+### What is not simulated
+
+These components run unmodified — the same images, binaries, and configuration a deployment uses. On the IGX Thor safety host:
+
+- The perception stack that detects people and vehicles and reports events.
+- The safety event integrator that fuses those events across cameras.
+- The safety decision maker, either as a host process on the application cores or on the
+  Functional Safety Island.
+
+On the stimulus host:
+
+- The communication layer that translates the decision into the protocols a plant controller
+  consumes. It runs there so that the loop closes back into the simulation.
+
+The decision path is therefore real from perception through to the command on the wire. The stimulus is not, and the simulated forklift does not act on the decision — a HIL result validates the decision path, not a vehicle's response to it.
+
+## The safety decision: MUTE and UNMUTE
+
+The harness drives the Automated Trailer Loading scenario. A forklift enters a trailer to load it while overhead cameras watch the area around the dock. While the forklift is inside the trailer and the monitored region is clear of people, loading may proceed at higher speed; when a person enters that region, or the forklift leaves the trailer, that permission is withdrawn.
+
+The quickstart ends by reading these two strings out of the communication layer log. Read them as state names, not as "safety off" and "safety on":
+
+- **MUTE (ALLOW OPERATION)** — the forklift is inside the trailer and the monitored region is
+  clear of people; loading is allowed.
+- **UNMUTE (PREVENT OPERATION)** — a person is detected, or the forklift is leaving the trailer;
+  the alarm is raised and operation is not permitted.
+
+The safety system raises an alarm or signals all clear; it does not stop the vehicle. In this harness the state is visible on the in-scene safety indicator and in the communication layer log.
+
+## What you need
+
+Two hosts, driven from one seat: an x86 stimulus host and an IGX Thor safety host. Both hosts need a clone of the repository, and the safety-host commands run over ssh from the stimulus host.
+
+The two hosts must reach each other directly, in both directions: the safety host pulls the camera streams from the stimulus host, and sends the safety decision back to it.
+
+See [/getting-started/prerequisites](/getting-started/prerequisites) for the hardware and software requirements of both hosts.
+
+## Next Steps
+
+- [quickstart](/testing/hil/quickstart) — The two-host bring-up, step by step, ending at a verified decision
+- [architecture](/testing/hil/architecture) — Ports, packet format, log paths, and the environment values that must pair
+- [/testing/sil/index](/testing/sil) — The single-host harness this profile splits in two

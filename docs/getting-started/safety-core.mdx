@@ -1,0 +1,167 @@
+---
+title: "Deploy the Safety Core"
+description: ""
+---
+Once AI Perception is up and running, events are being generated from the input
+camera streams. The Safety Core converts those events into actionable signals:
+it judges whether the perception inputs can be trusted, fuses the events that
+describe the same situation, and turns the result into control actions for
+field devices.
+
+This page introduces the Safety Core components and walks the bring-up on a
+perception feed that is already publishing events. Each step links to the
+corresponding section of the [/deployment/index](/deployment), which holds the
+commands, the full option set, and the Debian and Docker installation routes.
+
+## Components
+
+### Safety AI Monitor
+
+The Safety AI Monitor (SAIM) continuously assesses the health of the camera sensor inputs feeding NVIDIA Halos Outside-In Safety Blueprint (HOISA).
+It independently observes the same RTSP streams consumed by the AI Perception pipeline and scores every decoded frame against a per-sensor baseline of frame-quality metrics learned during an initial calibration phase.
+When a stream degrades — for example, due to out-of-distribution frames, camera blockage or fogging, RTSP transport loss, or stream corruption — SAIM publishes a `SENSOR_INVALID` trust report to the Safety Event Integrator; when the stream recovers, it publishes a matching `SENSOR_VALID` report.
+This lets fusion and downstream decisions factor sensor integrity into the safety response, rather than relying on perception output from a sensor that can no longer be trusted.
+
+Refer to the [/integration/index](/integration) and [/integration/components/ai-monitor](/integration/components/ai-monitor) for more details.
+
+### Perception Container Monitor
+
+The Perception Container Monitor (PCM) assesses whether the AI perception pipeline itself can be trusted, complementing SAIM's per-sensor view.
+It combines container health with data validation of the perception output and publishes an `AI_PIPELINE_VALID` or `AI_PIPELINE_INVALID` verdict to the Safety Event Integrator.
+The verdict is pipeline-wide: while it is invalid, events derived from that perception pipeline are treated as untrusted evidence.
+
+Refer to the [/integration/index](/integration) and [/integration/components/perception-monitor](/integration/components/perception-monitor) for more details.
+
+### Safety Event Integrator
+
+The Safety Event Integrator (SEI) receives alerts from the VSS Warehouse Blueprint - 2D Vision AI Perception component.
+It groups and correlates alerts that represent the same underlying situation, whether they come from redundant detection pipelines or from multiple camera views of the same area.
+After validating and fusing these inputs into a single high-confidence safety event, Safety Event Integrator forwards the consolidated event to the Safety Decision Maker for action.
+
+Refer to the [/integration/index](/integration) and [/integration/components/event-integrator](/integration/components/event-integrator) for more details.
+
+### Safety Decision Maker
+
+The Safety Decision Maker (SDM) consumes validated safety events from the SEI and converts them into concrete control actions for field devices and applications.
+It applies use-case–specific logic to decide when to slow down or stop a vehicle or inhibit or enable a safety function.
+The blueprint provides a reference SDM implementation for the ATL (Automated Trailer Loading) scenario, which you are expected to extend or adapt to match your target equipment, safety policies, and integration requirements.
+
+Refer to the [/integration/index](/integration) and [/integration/components/decision-maker](/integration/components/decision-maker) for more details.
+
+## Before you start
+
+- The AI Perception stack is running and publishing to Kafka, with the
+  calibration for each monitored ROI including
+  `"restrictedObjectTypes":["Person"]`. See
+  [Safety Core prerequisites](/deployment#safety-core-prerequisites).
+- The behavior analytics events on `mdx-events` use the same camera names
+  that will be configured as `sensorName` values in
+  `sensor_config.conf`. If the camera or pipeline mapping changes in VSS,
+  update `sensor_config.conf` before starting SEI and SDM.
+- Docker is logged in to `nvcr.io` and the image pull is validated, as
+  described in section 1.2 of the [/deployment/index](/deployment). NGC CLI
+  authentication alone is not enough.
+- The launcher runs as root or with passwordless `sudo`.
+
+## Bring-up
+
+1. **Install.** Choose the Debian packages or the Docker container in section 1
+   of the [/deployment/index](/deployment). Docker is the recommended route; the Debian
+   package is needed either way, because it provides `launch_hoisa.sh` and
+   the reference applications under `/opt/nvidia/psf`.
+
+2. **Create the log directory and the sensor configuration.** All deployment
+   methods write to `/var/log/psf/`. `sensor_config.conf` maps each pipeline
+   ID and VSS sensor name to the RTSP stream that SAIM decodes; see
+   [Create the sensor configuration file](/deployment#sensor-configuration-file) and
+   validate every `rtspUrl` with `ffprobe` or `gst-launch-1.0` before
+   launching.
+
+3. **Learn per-camera baselines.** SAIM compares each camera against a
+   baseline. Shipped templates cover the 3-camera reference scene, so you can
+   skip this to try the system out, but any other camera or scene needs a
+   `learn` pass. See
+   [Quick Start with launch_hoisa.sh](/deployment#launch-hoisa-quickstart).
+
+4. **Launch the stack.** `active` mode starts the Safety Core container, the
+   host-side Safety Decision Maker, SAIM, and PCM in one command. Use
+   `--app atl` for forklift safety control or `--app pxc` for Proximity
+   Monitoring, `--sdm-target fsi` to run the decision maker on the IGX Thor
+   Functional Safety Island, and `--runtime host` to run without Docker. The
+   invocations are in
+   [Quick Start with launch_hoisa.sh](/deployment#launch-hoisa-quickstart), and every
+   option is listed in [/reference/launcher](/reference/launcher).
+
+   Running the decision maker on the FSI adds three platform steps before the
+   launch: install `psf-tegra-fsi`, flash the FSI firmware for the
+   application you are running and reset the board, and start the platform
+   `nvFsiCom` daemon. Skipping the daemon is the usual reason a
+   fully-started stack produces no decisions at all. See
+   [Option C: SDM on FSI](/deployment#sdm-on-fsi).
+
+5. **Verify.** Confirm that sensor verdicts and decisions are flowing, using
+   the log locations and the grep commands in [Logs](/deployment#safety-core-logs).
+   The command receiver keeps its per-packet detail in `/tmp/cmdrx.log` and
+   reserves its console for safe-state events, so watch both. When something
+   does not start, see [Troubleshooting](/deployment#safety-core-troubleshooting).
+
+<Note>
+When the Decision Maker enters a safe state it latches there and keeps
+re-asserting the fail-safe commands. Fixing the underlying fault is not
+enough to resume normal operation: an operator must release the latch
+through the command receiver, as described in **safe-release**.
+</Note>
+
+### Enable the VST safety overlay
+
+The Safety Core renders its decision on the video itself through VST. That path
+ships disabled: in the VSS 2D VST config
+(`.../warehouse-2d-app/vst/configs/vst_config.json`) `halo_safety_udp_port`
+is `-1`. Set it to the port the communication layer sends on, then restart VST:
+
+```json
+"halo_safety_udp_port": 12345
+```
+
+The value must equal `COMM_UDP_PORT` on x86 or `PSF_CMD_RX_PORT` on IGX
+Thor; both ship as `12345`. Without it the decision still reaches the
+communication layer, but nothing appears on the video.
+
+This applies to the `base` profile. The `sil` and `hil` profiles leave the
+port at `-1` and drive the indicator over the communication layer and ROS 2
+instead — see [/testing/sil/sil-2d](/testing/sil/sil-2d).
+
+## Configure
+
+Fusion, bypass routing, transport, and heartbeat fail-safe behavior are set in
+`nvpss.conf`; see [/reference/sei-configuration](/reference/sei-configuration). How `mdx_client`
+maps VSS messages onto safety events is covered in
+[/reference/event-mapping-configuration](/reference/event-mapping-configuration). Restart the Safety Core
+processes, or the container, after any configuration change.
+
+## Extend the decision maker
+
+The command receiver application used for demo and test with the reference ATL
+and Proximity Decision Maker applications ships in the Debian package as
+`atl_sdm_cmd_receiver` and `proximity_sdm_cmd_receiver` under
+`/opt/nvidia/psf/apps/atl/` and `/opt/nvidia/psf/apps/proximity/`. It runs
+in the target system's native user space, outside the Safety Core container,
+even when the Safety Event Integrator and Decision Maker run under Docker.
+
+You may modify the Safety Decision Maker implementation based on your overall
+application and deployment system requirements and use cases. The source code
+of the ATL and Proximity sample implementations can be found under
+`<Extraction root>/opt/nvidia/psf/examples/apps/metropolis/` after
+extracting the `psf-desktop-dev` Debian package.
+
+Technical details pertaining to implementation of Safety Decision Maker Logic
+from scratch, including the Safety Framework APIs and decision request call
+flows, are described in Chapter 4 of the [/integration/index](/integration).
+
+## Next steps
+
+- [agentic-deployment](/getting-started/agentic-deployment) — the same bring-up as a single Docker Compose
+  service under the `base` profile, rendering decisions as the VST
+  `halo_safety` overlay, run either by a coding agent or by hand.
+- [/deployment/index](/deployment) — installation, configuration, runtime parameters,
+  and error handling in full.

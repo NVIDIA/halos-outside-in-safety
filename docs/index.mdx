@@ -1,0 +1,64 @@
+---
+title: "NVIDIA Halos Outside-In Safety Blueprint"
+description: ""
+---
+## Introduction
+
+### What is Outside-In Safety?
+
+Onboard sensors have a limited field of view when dealing with occlusions like static walls, payloads, and moving objects such as workers and vehicles.
+With an outside-in safety agent, robot awareness expands beyond the robot's eyes by communicating with sensors and cameras placed throughout the facility.
+
+This broader 360° view helps agents understand, predict, and monitor incredibly complex environments that onboard sensors might miss.
+The result is more proactive protection, fewer slowdowns, and safer, more efficient operations.
+
+### Overview
+
+NVIDIA Halos Outside-In Safety Blueprint extends robot perception beyond onboard sensors
+by using external infrastructure cameras, AI perception, and safety logic to deliver real-time functional safety
+to maximize operational throughput.
+Running on NVIDIA IGX, it enables robots to safely operate alongside workers at high efficiency modes
+while dynamically adapting to complex environments.
+
+- Monitor safety parameters of an industrial environment in real-time
+- Detect potential safety events proactively
+- Communicate safety events to corresponding mitigation mechanisms
+- Maintain continuous safety verification
+- Provide reliable logging and auditing capabilities
+
+### Key Features
+
+1. **Modular Architecture**
+
+   - Built as a modular framework, allowing system integrators to seamlessly integrate it into targeted environments
+   - Adaptive to a variety of sensor processing pipelines
+
+2. **Safety-Centric Design**
+
+   - Designed adhering to safety standards
+
+3. **Real-time Capabilities**
+
+   - Designed to handle real-time safety monitoring and decision-making
+   - Supports low-latency communication between components
+   - Implements priority-based message handling for critical safety
+     events
+
+4. **Scalable Implementation**
+
+   - Can be implemented in small embedded systems to large distributed
+     systems
+   - Supports various communication protocols and data formats
+   - Allows for incremental safety feature implementation
+
+This documentation covers:
+
+- **Getting Started**: Bring up a first working system, from the AI perception pipeline to the Safety Core.
+- **Deployment Guide**: Install, run, configure, and troubleshoot the Safety Core in target environments.
+- **Integration Guide**: Understand the detailed system design, components, and data flows, and build custom applications.
+- **Closed-Loop Testing**: Configure and execute closed-loop testing of the system, in simulation on a single host or with the Safety Core on target hardware.
+- **Reference**: Look up launcher options, configuration keys, runtime profiles, and terminology.
+
+## API Documentation
+
+- [API Documentation](/assets/c-api/index.html)

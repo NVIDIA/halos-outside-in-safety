@@ -1,0 +1,116 @@
+---
+title: "Test Scenarios"
+description: ""
+---
+The Regression Testing Reporter ships five pre-built test cases. Each stresses a different part of the safety decision. All use the stock warehouse scene and differ **only** in the three character behavior trees (the people's movement); the scene, navmesh, ROI calibration, tripwire, forklift control, and cameras stay identical.
+
+## The five scenarios
+
+| Scenario | Default | Stress focus |
+| --- | --- | --- |
+| `in-roi` | 5 min | Person stays inside the work zone constantly — "person constantly present" stress on the Safety Core. |
+| `psf-edge` | 5 min | Person sits **on** the ROI boundary — tests hysteresis / debounce. |
+| `psf-clear` | 5 min | Person clearly inside or clearly outside — the clean A/B partner of `psf-edge`. |
+| `balanced` | 10 min | Mixed activity — the baseline scenario. |
+| `fast` | 20 min | Low idle, motion-heavy — tests cumulative drift over a long run. |
+
+The **Default** column is each scenario's natural length. For demo and regression runs the effective default is **5 minutes** for any scenario unless you override it — long enough to surface most issues without burning wall clock.
+
+## Quick options
+
+- `all` — the five randomized sweep scenarios (`in-roi`, `psf-edge`,
+  `psf-clear`, `balanced`, `fast`) at 5 minutes each.
+- `full` — the recommended full sweep: `in-roi` / `psf-edge` / `psf-clear`
+  at 5 min, `balanced` at 10 min, `fast` at 20 min.
+
+## Duration overrides
+
+Encode an override as `name:seconds` when calling the runner:
+
+```bash
+# psf-edge at the default 5 minutes
+./scripts/run_multi.sh psf-edge
+
+# explicit per-scenario durations
+./scripts/run_multi.sh in-roi:300 balanced:600 fast:180
+```
+
+With the skill, just say it in plain language ("balanced for 10 minutes", "fast at 3 minutes"). See [quickstart](/testing/srr/quickstart) Step 6.
+
+## Scene assumptions
+
+All scenarios target the stock scene `indicator_warehouse_20x20_layout_overflow_test.usd` — a 20×20 m warehouse with a single trailer dock on the east side.
+
+| Item | Value (from `calibration.json`) |
+| --- | --- |
+| **ROI rectangle** (work zone where humans are detected) | `x ∈ [4.877, 9.574]`, `y ∈ [-18.976, -11.239]` |
+| **Trailer tripwire** (forklift in/out of dock) | `x = 9.574` |
+| **Trailer area** (where the forklift docks) | `x > 9.574` |
+
+The scene's baked navmesh already covers the three character zones the scenarios exercise, so the Regression Testing Reporter uses it as-is — no scene edits, no re-bake.
+
+## How the scenarios are built
+
+Each pedestrian is an IRA 1.6 behavior tree (Isaac Sim 6.0 dropped the legacy text command files). The three trees for a scenario are named `srr_<name>_char{0,1,2}.bt.json` and live under `regression-reporter/scenarios/behavior-trees/` (canonical). Selecting a scenario copies its three trees onto the fixed active names (`srr_char{0,1,2}.bt.json`) that Isaac reads, then restarts Isaac. The runner and skill automate this per scenario.
+
+The five randomized scenarios were generated with `randomize_paths.py` using different biases:
+
+```text
+--roi-bias  --roi-clearance  --cycles  --idle-short  --spawn-return-every
+```
+
+   in-roi          1.0       0                200       1,2           none
+   psf-edge        0.5       0                150       1,3           3
+   psf-clear       0.5       1.5              150       1,3           3
+   balanced        0.6       0                150       1,3           3
+   fast            0.6       0                200       1,3           3
+
+All use `--agent-radius 0.8` against the stock scene.
+
+## Regenerate a scenario
+
+To regenerate a scenario's behavior trees (e.g. after changing a bias), run the generator, then re-sync into the Isaac SIL tree:
+
+```bash
+python3 scenarios/tools/randomize_paths.py \
+  --navmesh scenarios/scenes/navmesh.json \
+  --agent-radius 0.8 \
+  --roi-bias 0.6 \
+  --roi-clearance 0 \
+  --cycles 150 \
+  --idle-short 1,3 \
+  --spawn-return-every 3 \
+  --name balanced
+
+# then push the new trees into the Isaac SIL configs dir
+./halos-integration/sync_to_halos.sh
+```
+
+Key generator flags:
+
+| Flag | Purpose |
+| --- | --- |
+| `--roi-bias F` | Probability `[0..1]` of sampling waypoints inside the ROI polygon. |
+| `--roi-clearance D` | Forbidden band (metres) around the ROI boundary (`psf-clear` uses 1.5). |
+| `--cycles N` | Number of waypoint cycles per character. |
+| `--idle-short MIN,MAX` | Short idle durations (seconds) at each waypoint. |
+| `--spawn-return-every K` | Return the character to spawn every K cycles (0 / omitted = never). |
+| `--agent-radius R` | Inflation for the navmesh walkability test (default 0.6; the Regression Testing Reporter uses 0.8). |
+
+## Add a new scenario
+
+1. Run `randomize_paths.py --name <new-name>` (writes the three
+   `srr_<new-name>_char{0,1,2}.bt.json`).
+2. Optionally validate the waypoints against the navmesh with
+   `validate_waypoints.py`.
+3. Re-run `sync_to_halos.sh` to push the trees into the Isaac SIL tree.
+4. Select it: `./scripts/run_multi.sh <new-name>`.
+
+<Note>
+Waypoints are baked into the trees and are scene-specific. If you switch scenes, regenerate **all** behavior trees.
+</Note>
+
+## Next steps
+
+- [quickstart](/testing/srr/quickstart) — run a scenario.
+- [interpret-results](/testing/srr/interpret-results) — read the resulting report.

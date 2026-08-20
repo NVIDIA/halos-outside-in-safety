@@ -1,0 +1,290 @@
+---
+title: "Prerequisites"
+description: ""
+---
+Hardware, software, and access requirements for every Halos Outside-In Safety
+bring-up, gathered in one place. Work through this page once before you start:
+the quick starts and the [/deployment/index](/deployment) assume everything here is
+already in place.
+
+Each section links to the guide that owns the detail, so you can go deeper on
+whichever profile you are deploying.
+
+## Which sections apply
+
+| Profile | What runs | What it needs |
+| --- | --- | --- |
+| `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop. | `Perception host`_, `Software`_, `Runtime environment settings`_, `NGC access`_, and `Perception and calibration`_ |
+| `sil` | The full closed loop on a single host: perception, Safety Core, and NVIDIA Isaac Sim. | The above, plus `Closed-loop host`_ |
+| `hil` | The closed loop split across an x86 stimulus host and an NVIDIA IGX Thor safety host. | `Software`_, `Runtime environment settings`_, `NGC access`_ and `Perception and calibration`_ on both hosts, plus `Closed-loop host`_ for the x86 and `Second host for HIL`_ for the Thor |
+
+## Hardware
+
+Isaac Sim runs on x86-64. The Safety Core runs on either architecture: the `base`
+profile deploys on an x86-64 server or on an aarch64 IGX Thor, and in HIL the safety
+host is always an IGX Thor.
+
+### Perception host
+
+AI Perception is the VSS Warehouse Blueprint. The minimum for the 2D Vision AI
+profile is:
+
+- 18 core CPU (x86 systems)
+- 128 GB RAM
+- 1 TB SSD
+- 1 × 1 Gbps network interface
+- 1 or 2 supported GPUs
+
+Supported GPUs, and the number of camera streams each sustains on the 2D Vision AI
+profile:
+
+| GPU Type | Number of streams | 2D Vision AI Profile (Number of GPUs) |
+| --- | --- | --- |
+| RTX PRO 6000 BW | 16 | 1 |
+| H100 (NVL, SXM HBM3) | 26 | 1 |
+| L40S | 12 | 1 |
+| IGX-THOR | 7 | 1 |
+| DGX-SPARK | 7 | 1 |
+
+For the full list, see [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html) and the
+[Warehouse Quickstart](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html).
+
+### Closed-loop host
+
+Software-in-the-Loop runs perception, the Safety Core, and Isaac Sim together on
+one host, at three cameras. That is a lighter load than a production perception
+deployment, so these figures stand on their own rather than adding to
+`Perception host`_. What the closed loop does add is a GPU with RT cores:
+
+| Component | Minimum | Recommended |
+| --- | --- | --- |
+| **CPU** | 16 cores | 16+ cores |
+| **RAM** | 32 GB | 64 GB |
+| **GPU** | RTX 5090 | RTX PRO 6000 Blackwell |
+| **Storage** | 200 GB | 250 GB |
+| **OS** | Ubuntu 24.04 | Ubuntu 24.04 |
+| **Network** | 1 Gbps | 1 Gbps |
+
+The GPU needs 24 GB or more of VRAM: one RTX 5090, one RTX PRO 6000 Blackwell
+Workstation, or two L40S.
+
+<Warning>
+Isaac Sim renders with ray tracing and needs a GPU with **RT cores**.
+Compute-only accelerators do not have them: an H100 runs perception well and
+cannot run Isaac Sim.
+</Warning>
+
+On a two-GPU host, give perception the first GPU and Isaac Sim the RT-core one. On a
+single-GPU host, that one card needs both the RT cores and the VRAM.
+
+<Note>
+Perception and Isaac Sim share this host, so treat the Recommended column as the
+floor rather than the Minimum.
+</Note>
+
+### Second host for HIL
+
+Hardware-in-the-Loop splits the loop across two machines. Isaac Sim stays on the
+x86 stimulus host described above, and the IGX Thor runs AI Perception and the
+Safety Core, so the x86 side is not sized for perception. The safety host needs:
+
+- NVIDIA IGX Thor running IGX-SW 2.0 with Jetson Linux BSP Rel 38.5, and JetPack
+  installed after the BSP for CUDA and the other runtime components.
+- 32 GB RAM and 200 GB of free disk. The CPU comes with the platform and the
+  x86 core count above does not apply — an IGX Thor Developer Kit reports 14
+  cores and is a supported safety host.
+- Mutually routable IP addresses on both hosts. A Thor reachable only over a
+  USB tether or through a jump host cannot be used.
+- Both hosts NTP-synced.
+- A clone of the repository on each host, and ssh access from the stimulus host
+  to the safety host.
+- MAXN power mode and pinned clocks, per `Runtime environment settings`_.
+
+<Note>
+Flashing via the Jetson USB method includes Docker and the NVIDIA Container
+Toolkit. L4T flash and SDK Manager do not, so install both separately on those
+paths. Depending on the method, Docker may also need `sudo` until you complete
+the Docker post-installation steps.
+</Note>
+
+See [/testing/hil/architecture](/testing/hil/architecture) for the ports each host must expose.
+
+## Software
+
+The OS and driver are tied to each other and to the platform, so pick the row for
+the host you are building rather than taking a single version.
+
+| Platform | OS | NVIDIA Driver |
+| --- | --- | --- |
+| x86-64 | Ubuntu 24.04 | 580.105.08 |
+| NVIDIA IGX Thor | Jetson Linux BSP Rel 38.5, with IGX-SW 2.0 | 580.00 |
+| NVIDIA DGX Spark | DGX OS 7.4.0 | 580.95.05 |
+
+Common to every platform:
+
+- Docker 28.3.3+ and below 29.5.0
+- Docker Compose Plugin v2.39.1+
+- NVIDIA Container Toolkit 1.17.8+
+- NGC CLI 4.10.0+
+
+<Note>
+The VSS Warehouse Blueprint pins x86 hosts to **Ubuntu 24.04**. The base VSS
+Blueprint also supports 22.04 with driver 580.65.06, and the Safety Core itself
+runs on either release, so a Safety-Core-only host is not constrained by this —
+but any host running AI Perception should be on 24.04.
+
+The IGX Thor driver looks like a downgrade and is not: 580.00 is the driver that
+ships with the Jetson BSP and is what `nvidia-smi` reports there. The figures
+in [/reference/runtime-profile](/reference/runtime-profile) were captured on exactly this combination.
+</Note>
+
+<Warning>
+Docker Engine 29.5.0 and later fails NGC image pulls with `Incorrect
+Repository Format` after the layers download. `docker login` still
+succeeds, so the failure surfaces only at the pull. Pin to 28.3.3 if needed.
+</Warning>
+
+## Runtime environment settings
+
+The VSS Blueprint expects a set of host settings that are not defaults. Follow
+[VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html) for the
+commands; the checklist below is only so you can confirm nothing was skipped.
+
+| Setting | Applies to | VSS section |
+| --- | --- | --- |
+| Docker installed from the apt repository, not `snap` | Every host | *Install Docker* |
+| `cgroupfs` cgroup driver in `/etc/docker/daemon.json` | Every host | *Configure Docker* |
+| `sysctl` settings in `/etc/sysctl.d/99-vss.conf` | Every host | *Linux Kernel Settings* |
+| MAXN power mode, pinned clocks, VIC governor | IGX Thor only | *VIC clocks* |
+| Cache cleaner loop | IGX Thor and DGX Spark only | *Cache cleaner* |
+| Inbound access from the Docker bridge subnets | Hosts with a default-deny firewall | *Host firewall and Docker bridge subnets* |
+
+<Info>
+The clock settings are the ones to watch, for two reasons.
+
+They do not persist across a reboot, so a host configured correctly once will
+silently drop to a lower operating point after the next restart.
+
+And every figure in [/reference/runtime-profile](/reference/runtime-profile) was captured with MAXN
+(mode 0) and clocks pinned. A host left at default clocks will not reproduce
+them. The PVA and NVDEC utilization percentages are especially sensitive: they
+are percentages of busy time, so the same work reports a *lower* number at a
+higher clock, and runs at different clocks are not comparable.
+</Info>
+
+<Note>
+Two of these fail silently rather than loudly, which is why they are worth
+checking explicitly rather than assuming. Missing `sysctl` settings degrade
+throughput and latency without an error, and a default-deny firewall leaves
+bridge-networked containers unable to reach host-networked services, so the
+affected workflow produces no output instead of a failure.
+
+If you use the VSS Agent, Kibana or Phoenix UIs, they are served on TCP port
+`7777` of the deployment host.
+</Note>
+
+## NGC access
+
+The Safety Core container image, the Debian packages, and the SIL data tarball
+are published under `nvidia/halos-outside-in` and need no entitlement or
+enrollment. Pulling them still requires a signed-in account: sign in at
+https://ngc.nvidia.com with any NVIDIA account, accept the terms on the [Halos Outside-In Safety resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety)
+when prompted, and authenticate Docker with an API key.
+
+<Note>
+One package is still gated: the FSI firmware under
+`nvidia/outside-in-safety`, which is only needed to run the Safety Decision
+Maker on the Functional Safety Island. Everything the `base`, `sil`, and
+`hil` profiles use is public.
+</Note>
+
+Create an NGC API key at https://ngc.nvidia.com → Account → Setup → API Keys →
+Generate API Key.
+
+<Info>
+Generate a **Personal Key**, with `NGC Catalog` selected under Key
+Permissions. Legacy NGC API keys are not accepted by the Cosmos3 Reasoner NIM
+(1.7.0+) that VSS deploys: they fail when the container is pulled or run, not
+when the key is created, so the problem surfaces late.
+
+Copy the key when it is shown. It cannot be retrieved afterwards.
+</Info>
+
+The same key covers perception. To confirm it has the access VSS needs before
+starting a deployment:
+
+```bash
+export NGC_CLI_API_KEY='<NGC API key>'
+
+ngc registry resource list "nvidia/vss-warehouse/*"
+ngc registry resource list "nvidia/vss-core/*"
+ngc registry image list "nvidia/vss-core/*"
+```
+
+<Note>
+If `ngc config set` reports `Missing org - If Authenticated, org is also
+required`, the org selected in the CLI config does not match the org the key
+was generated against. Regenerate the key with the intended org selected.
+</Note>
+
+### Docker authentication
+
+Docker must be authenticated to `nvcr.io` or protected image pulls fail with
+`401 Unauthorized`. NGC CLI authentication alone is not enough.
+
+```bash
+export PSF_IMAGE=nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.3-6932895
+
+docker login nvcr.io
+# Username: $oauthtoken
+# Password: <NGC API key>
+
+# Validate Docker registry access before deployment.
+docker pull "${PSF_IMAGE}"
+```
+
+### NGC CLI authentication
+
+Required for downloading data and compose files.
+
+```bash
+ngc config set
+# API Key: <NGC API key>
+```
+
+## Perception and calibration
+
+The Safety Core consumes perception events, so the perception stack has to be
+up and correctly calibrated before it starts:
+
+- VSS stack containers (analytics, UI, recorders, and so on) are running and
+  reachable.
+- The calibration file for the monitored region is deployed and includes
+  `"restrictedObjectTypes":["Person"]` for the ROIs, where relevant.
+- For dual-camera configurations, all camera streams are synchronized and named
+  accurately.
+
+See [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the
+[/deployment/index](/deployment).
+
+## Per-profile additions
+
+### 3D perception
+
+[/testing/sil/sil-3d](/testing/sil/sil-3d) assumes familiarity with:
+
+- [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html)
+- [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html)
+
+### Agentic deployment
+
+[agentic-deployment](/getting-started/agentic-deployment) also needs an agentskills.io-compatible coding agent
+on the host, such as Claude Code, Codex, or Cursor.
+
+## Next steps
+
+- [inference-pipeline](/getting-started/inference-pipeline) — Deploy AI Perception on live cameras
+- [safety-core](/getting-started/safety-core) — Deploy the Safety Core on an existing perception feed
+- [/testing/sil/sil-2d](/testing/sil/sil-2d) — Bring up the single-host closed loop
+- [/testing/hil/quickstart](/testing/hil/quickstart) — Bring up the two-host closed loop
+- [agentic-deployment](/getting-started/agentic-deployment) — Have a coding agent perform the bring-up for you

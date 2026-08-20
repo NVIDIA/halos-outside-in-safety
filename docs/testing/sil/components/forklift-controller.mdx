@@ -1,0 +1,213 @@
+---
+title: "Forklift Controller"
+description: ""
+---
+Drives the simulated forklift. The `forklift-controller` service runs a single ROS 2 node, `closed-loop-testing/forklift-controller/robot_controller.py` (the repo directory is mounted read-only at `/app` in the container), that reads the forklift's odometry, steers toward the next pose on a stored route, and publishes `cmd_vel` to the [Forklift Control Graph](/testing/sil/components/action-graph#forklift-control-graph).
+
+## Role in the Loop
+
+The controller is a stimulus generator. It keeps the forklift driving a fixed route so that perception always has a vehicle to detect, Behavior Analytics always has ROI and tripwire crossings to report, and the Safety Core always has a decision to make. Nothing else drives the forklift — character motion comes from the IRA behavior trees inside Isaac Sim (see [isaac-sim](/testing/sil/components/isaac-sim)).
+
+```text
+waypoints.json
+     │
+     v
+forklift-controller ── /cmd_vel ──> Control graph ──> articulation
+     ^                                                     │
+     │                                                  physics
+     └────────── /odom <── Odometry graph <─────────────────┘
+```
+
+The controller publishes in the ROS twist convention; the sign flips for the forklift asset's vehicle frame are applied on the Isaac Sim side (`control.reverse_logic` in `robots.yaml` — see [Forklift Control Graph](/testing/sil/components/action-graph#forklift-control-graph)).
+
+## ROS 2 Interface
+
+One node per robot, named `robot_controller`. Every topic below uses RELIABLE QoS with depth 10. Namespacing is off in the compose deployment (`FORKLIFT_USE_NAMESPACE=false`), so the drive and feedback topics are global.
+
+| Direction | Topic | Type | Notes |
+| --- | --- | --- | --- |
+| Subscribes | `/odom` (`/<robot_id>/odom` namespaced) | `nav_msgs/Odometry` | Position feedback. No `cmd_vel` is published before the first sample arrives. |
+| Subscribes | `/safety/command` | `std_msgs/String` (JSON) | **Never** namespaced — every controller in the ROS domain receives every message. |
+| Subscribes | `/clock` | `rosgraph_msgs/Clock` | Detects simulation stop, play, and reset. |
+| Publishes | `/cmd_vel` (`/<robot_id>/cmd_vel` namespaced) | `geometry_msgs/Twist` | 20 Hz while moving. |
+| Publishes | `/<robot_id>/state` | `std_msgs/String` (JSON) | 5 Hz, always namespaced. |
+| Publishes | `/curve_follower/markers` (`/<robot_id>/markers` namespaced) | `visualization_msgs/MarkerArray` | 5 Hz, a state label above the forklift for rviz. |
+
+The state message carries `robot_id`, `state`, `speed_factor`, `pose_idx`, `total_poses`, and `completed` — the cheapest way to watch progress without parsing the log. A latched `nav_msgs/Path` publisher is also created but never written to, so the route cannot be visualized from ROS.
+
+## Route Following
+
+The route is loaded once at startup from the waypoint file. Each pose is converted from the file's world coordinates into the odometry frame by subtracting `origin`. With pose inversion on (the default), the route is then rotated 180° about that origin: `x` and `y` are negated and π is added to `theta`. Separately, `FORKLIFT_HEADING_OFFSET` — 180° by default — is added to the yaw read from `/odom`. Both defaults exist for the shipped forklift asset (see `robot_front` in [Forklift Odometry Graph](/testing/sil/components/action-graph#forklift-odometry-graph)).
+
+### Advancing Along the Route
+
+A pose is reached when the forklift is within 0.35 m of it, or within `FORKLIFT_END_TOLERANCE` for the last `FORKLIFT_END_POSE_COUNT` poses of the route. The index then advances by one.
+
+Steering is pure pursuit: the controller walks forward from the current pose, up to 15 poses and never across a segment boundary, until it has accumulated `max(0.8, FORKLIFT_BASE_SPEED × 1.5)` metres of path, and steers at that carrot. Angular velocity is the heading error times 1.2, clamped to `FORKLIFT_ANGULAR_SPEED`. On a segment marked `reverse` the desired heading is rotated by π and `linear.x` is negative.
+
+Linear speed is then shaped — scaled by `max(0.4, distance / 0.5)` inside 0.5 m of the target, by 0.4 above 30° of heading error and by 0.2 above 60°, then floored at 0.15 m/s in magnitude so the forklift keeps steering authority.
+
+At the end of the route, `FORKLIFT_LOOP_PATH=true` (the compose default) wraps the index back to zero and logs `Loop: Restarting path`. With looping off the controller publishes a stop, logs `✓ Path completed!`, and transitions to `IDLE` — the scene keeps rendering but stops producing crossings.
+
+### Overshoot Recovery
+
+Following live odometry means the forklift can pass a pose it never came close enough to retire, and then circle back for it. Three guards catch that.
+
+**Skip ahead**: when the target is more than 1 m away and at least three poses remain after the current target, the controller scans up to 9 poses ahead within the same segment and jumps to the nearest one — `⏭️ SKIP AHEAD`. Occasional lines are normal; a burst of them means the route is tighter than the forklift can turn at `FORKLIFT_BASE_SPEED`.
+
+**Passed-pose skip**: when the distance to the target has grown for more than 20 control ticks (roughly one second), the closest approach was under 0.5 m, and the forklift is now more than 0.3 m past that closest approach, the pose is retired — `⏭️ SKIPPING pose`. The last pose of the route is excluded from this skip. The distance printed in this line always reads `infm` — the pose index is the useful part.
+
+**Spiral timeout**: at the final pose only, when it has been the target for longer than `FORKLIFT_SPIRAL_TIMEOUT` and the forklift is within 2 m, the controller declares the route complete — `🔄 SPIRAL DETECTED`. This ends the run: it stops and goes `IDLE` even with looping on.
+
+### Simulation Stop, Play, and Reset
+
+The controller tracks `/clock` so that an operator driving the timeline in the Isaac Sim UI does not leave it commanding a frozen scene:
+
+- No `/clock` for 2 seconds — publishes a stop and holds, logging `⏸️ SIM STOPPED (no /clock) - pausing robot`. It resumes when the clock does.
+- Simulation time jumping backwards by more than 0.5 s — restarts the route, logging `🔄 SIM RESET detected`. Only the backwards jump restarts the route: a pause and resume that leaves simulation time where it was resumes from the current pose.
+- An odometry position jump of more than 5 m — restarts the route, logging `⚡ ODOM JUMP detected`.
+
+A restart does not return to pose 0. The controller scores every pose by distance plus a heading penalty of 3 m per radian and continues from the best match, logging `🔁 Path reset`.
+
+## State Machine and Speed Scaling
+
+| State | Speed factor | Entered by |
+| --- | --- | --- |
+| `IDLE` | 0.0 | The `idle` command, a completed route, or `🔄 SPIRAL DETECTED` |
+| `MOVING` | 1.0 | Startup (unconditional, no command); `proceed`, `start`, `go`, `resume` |
+| `PAUSED` | 0.0 | `stop`, `yield`, `pause` |
+| `SLOW` | 0.3 | `slow`, `buffer`, `caution` |
+
+Published linear speed is `FORKLIFT_BASE_SPEED` times the state's factor times the command's `speed_factor` (clamped to 0.0–1.0, 1.0 when absent), before the near-target and heading-error shaping above. In `IDLE` and `PAUSED` nothing is published at all: the controller emits one zero `Twist` on entering the state and then stops feeding the loop.
+
+The node transitions to `MOVING` as soon as it starts, with no command and no handshake with the simulation. `🔄 State: IDLE → MOVING` therefore appears in every startup log and is not evidence that the forklift is moving — an advancing `📍 pose=` line is.
+
+## Safety Commands
+
+`/safety/command` is the topic the communication layer republishes each safety decision on. The controller subscribes to it and reads three fields out of the JSON payload: `robot_id` (optional; a message naming a different robot is ignored), `command`, and `speed_factor`.
+
+<Note>
+A safety decision does not change how the forklift drives. The communication layer publishes `command` as a numeric opcode and the controller acts on string verbs only, so the decision is discarded without a log line and the stimulus keeps running under any decision. Observe the decision through the in-scene [safety indicator](/testing/sil/components/action-graph#safety-indicator-graph) and the communication layer log instead.
+</Note>
+
+The string verbs in the state table above are what move it, and the bundled helper sends them. It accepts `proceed`, `stop`, `slow`, `idle`, `go`, `pause`, and `resume`, with `--speed` to override the speed factor and `--robot` to target one controller:
+
+```bash
+# run inside the container, which carries the helper and the ROS 2 environment
+docker exec forklift-controller bash -lc \
+  "source /opt/ros/jazzy/setup.bash && python3 /app/test/send_command.py slow"
+```
+
+Expected output:
+
+```text
+[INFO] [...] [robot_controller]: 📥 [forklift_1] Command: slow | speed_factor=0.30
+[INFO] [...] [robot_controller]: 🔄 State: MOVING → SLOW (speed_factor=0.30)
+[INFO] [...] [robot_controller]: 📍 pose=9 ▶FWD dist=0.71m cmd=(0.15,0.08) robot=(5.02,-13.37,178°)
+```
+
+**speed_factor=0.30**: the helper's `slow` default, applied on top of the `SLOW` state's own 0.3.
+
+**cmd=(0.15,...)**: the linear value has hit the 0.15 m/s floor — the two 0.3 factors compound.
+
+`reset` is handled before the state machine: it re-snaps to the nearest heading-compatible pose, exactly as after a simulation reset, and starts moving again.
+
+## Waypoint File
+
+The controller reads one data file, `/app/waypoints/waypoints.json` by default, bind-mounted read-only from `closed-loop-testing/forklift-controller/waypoints/`. Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) on the [isaac-sim](/testing/sil/components/isaac-sim) page, which also documents the export format.
+
+Three top-level keys are read:
+
+- `origin` — `world_x` and `world_y`, the zero of the odometry frame. Every pose is expressed relative to it.
+- `poses` — the interpolated route: `x` and `y` in world metres, `theta` in radians.
+- `segments` — run-length ranges over `poses`, `pose_count` entries each, whose `reverse` flag drives that stretch backwards. The shipped file has two: a forward leg out and a reverse leg back.
+
+Everything else in the file is authoring metadata and is not read — including the `waypoints` array itself and the `velocity` field on each of its entries. Route speed comes from `FORKLIFT_BASE_SPEED` and is uniform; there is no per-waypoint or per-segment speed.
+
+`pose_count` is walked cumulatively and a pose past the last range falls back to forward travel, so a hand-edited file whose `pose_count` values sum to less than the number of poses drives its trailing reverse stretch forwards with no warning.
+
+## Configuration
+
+Set the `FORKLIFT_*` variables below in the profile env file; none of them is set in the shipped profiles, so the defaults apply. `closed-loop-testing/forklift-controller/forklift-controller.yml` maps eleven of them onto unprefixed container variables (`FORKLIFT_BASE_SPEED` becomes `BASE_SPEED`) and `entrypoint.sh` turns those into `robot_controller.py` flags, so `docker exec forklift-controller env` shows the unprefixed names. `FORKLIFT_WAYPOINTS_DIR` is the exception: compose resolves it on the host as the source of the `/app/waypoints` bind mount, and it never enters the container.
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `FORKLIFT_WAYPOINT_FILE` | `/app/waypoints/waypoints.json` | Waypoint file to follow, as a path **inside** the container |
+| `FORKLIFT_WAYPOINTS_DIR` | `./waypoints` | Host directory bind-mounted read-only at `/app/waypoints` — read by compose, not by the node |
+| `FORKLIFT_ROBOT_ID` | `forklift_1` | Robot ID used for topic namespacing and command filtering |
+| `FORKLIFT_BASE_SPEED` | `1.5` | Base linear speed in m/s, uniform over the whole route |
+| `FORKLIFT_ANGULAR_SPEED` | `0.4` | Angular velocity clamp in rad/s |
+| `FORKLIFT_HEADING_OFFSET` | `180.0` | Degrees added to the yaw read from `/odom` |
+| `FORKLIFT_LOOP_PATH` | `true` | Restart the route at the end, so the Safety Core always has a moving target |
+| `FORKLIFT_USE_NAMESPACE` | `false` | `false` uses the global `/odom` and `/cmd_vel` topics |
+| `FORKLIFT_NO_INVERT` | `false` | `true` loads the route without the 180° rotation about `origin` |
+| `FORKLIFT_END_TOLERANCE` | `1.0` | Arrival tolerance in metres for the last poses of the route |
+| `FORKLIFT_END_POSE_COUNT` | `5` | How many poses from the end use that larger tolerance |
+| `FORKLIFT_SPIRAL_TIMEOUT` | `10.0` | Seconds at the final pose before the route is auto-completed |
+
+`FORKLIFT_LOOP_PATH`, `FORKLIFT_NO_INVERT`, and `FORKLIFT_USE_NAMESPACE` are compared against the exact string `true`: `True`, `1`, and `yes` all read as false.
+
+To follow a route of your own, set the host directory and the container path together:
+
+```bash
+# in deployments/profiles/sil.env — FORKLIFT_WAYPOINT_FILE must resolve under /app/waypoints
+FORKLIFT_WAYPOINTS_DIR=<absolute-path-to-route-dir>
+FORKLIFT_WAYPOINT_FILE=/app/waypoints/my_path.json
+```
+
+Recreate the service:
+
+```bash
+cd deployments && docker compose --env-file profiles/sil.env up -d --force-recreate forklift-controller
+```
+
+`docker logs forklift-controller` should show `Loaded path: <N> poses` with the pose count of your file.
+
+<Info>
+`FORKLIFT_WAYPOINT_FILE` is a path inside the container, not on the host. Pointing it at an unmounted host path is a silent failure — the service logs one `Failed to load path:` line, then reports `Up` forever and publishes no `cmd_vel`.
+</Info>
+
+## Logs to Watch
+
+```bash
+docker logs --tail 20 forklift-controller
+```
+
+Expected output:
+
+```text
+[INFO] [...] [robot_controller]: Loaded path: 41 poses
+[INFO] [...] [robot_controller]: Odom received: (1.02, -13.41, 179.8°)
+[INFO] [...] [robot_controller]: 📍 pose=7 ▶FWD dist=0.62m cmd=(1.50,0.12) robot=(4.21,-13.38,178°)
+```
+
+**Loaded path: 41 poses**: the waypoint file parsed, printed once at startup.
+
+**Odom received**: the first odometry sample. Until it appears the controller is running but publishing no `cmd_vel`.
+
+**📍 pose=**: printed every two seconds while moving. `robot=` coordinates that change from line to line are the only proof that the forklift is driving.
+
+**🔄 SEGMENT TRANSITION**: a segment boundary, reading `FORWARD→REVERSE` or `REVERSE→FORWARD`. On the shipped route the first one is the forklift backing out of the trailer.
+
+## Limitations
+
+### One robot per container
+
+**Cause**: the node name is fixed and `/safety/command` is global, so a second controller in the same ROS domain acts on every command the first one does.
+
+**Workarounds**: name `robot_id` in every command message, or run one controller per ROS domain. The shipped deployment runs one.
+
+`Up` is not proof of motion
+
+### `Up` is not proof of motion
+
+**Cause**: the service has no healthcheck and no `depends_on`, and the node starts, subscribes, and waits regardless of whether odometry ever arrives. A count of running containers is therefore not a check that the loop is closed.
+
+**Workarounds**: gate on the `📍 pose=` line advancing, or on `/<robot_id>/state` reporting a rising `pose_idx`.
+
+## Next Steps
+
+- [action-graph](/testing/sil/components/action-graph) — how `cmd_vel` becomes wheel commands, and the odometry that feeds back
+- [isaac-sim](/testing/sil/components/isaac-sim) — the scene, the `robots.yaml` robot block, and the waypoint generator
+- [/testing/sil/overview](/testing/sil/overview) — MUTE and UNMUTE, the vocabulary the safety decision is reported in
+- [/testing/sil/sil-2d](/testing/sil/sil-2d) — deploy the stack this service runs in

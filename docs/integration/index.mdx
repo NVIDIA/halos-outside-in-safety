@@ -1,0 +1,1030 @@
+---
+title: "Integration Guide"
+description: ""
+---
+<Note>
+This documentation uses updated terminology.
+Legacy code may reference PSF, PSS, PSD for backward compatibility.
+</Note>
+
+## 1. Document Structure
+
+This integration guide is organized into the following sections:
+
+- **Overview** - Architectural details and system components
+- **Component Details** - Detailed descriptions of HOISA sub-elements
+- **Application Development** - Implementation guidelines and APIs
+
+## 2. Overview
+
+This section documents the architectural details of the NVIDIA Halos Outside-In Safety Blueprint (HOISA).
+It includes definitions and descriptions of the
+building blocks, interactions with other components of the host
+software stack (L4T for Tegra-based environments and standard Linux
+distributions for x86-64-based environments), interactions and data flow between
+the elements within HOISA, and extensibility interfaces to support a
+variety of end-user specific applications.
+
+The following figures depict the positioning of HOISA in respective platform's host software stack.
+
+![Overview of x86-64 based Software Stack with HOISA](/assets/images/Safety-Core-x86-64.png)
+
+**Figure 1 - Overview of x86-64 based Software Stack with HOISA**
+
+Figure 1 depicts the positioning of HOISA within the x86-64-based software stack.
+HOISA makes use of Linux features and APIs exposed by standard desktop Linux
+distributions, specifically Ubuntu.
+
+![Overview of Tegra based IGX Software Stack with HOISA](/assets/images/Safety-Core-tegra.png)
+
+**Figure 2 - Overview of Tegra based IGX Software Stack with HOISA**
+
+**Tegra/IGX**: Components run on CCPLEX (L4T user space) and FSI (RTOS).
+Interacts with L4T and standard Linux APIs.
+
+For both HOISA variants, the framework includes one or more sensor input
+processing pipelines which may be specific to the use case under
+consideration. These typically include deep neural networks and
+computer vision algorithms operating on image streams captured by camera
+devices, or processing elements operating over data streams captured by
+various sensors deployed to monitor the physical parameters within the
+surroundings. **NVIDIA Metropolis** is an example of a sensor pipeline.
+
+The Halos Outside-In Safety blueprint consists of the following sub-elements:
+
+1. **Sensor Input Processing Pipeline (SIPP)** - Also referred as AI Perception pipeline
+
+2. **Safety AI Monitor (SAIM)**
+
+3. **Perception Container Monitor (PCM)**
+
+4. **Safety Event Integrator (SEI)**
+   - previously known as Proactive Safety Supervisor (PSS)
+
+5. **Safety Decision Maker (SDM)**
+   - previously known as Proactive Safety Decision (PSD)
+
+6. **Safety Black Box (SBB)**
+   - previously known as Proactive Safety Black Box (PSB)
+
+7. **Safety User Interface (SUI)**
+   - previously known as Proactive Safety User Interface (PSU)
+
+**Variable by use case**: SIPP, SDM. **Use-case agnostic**: SAIM, PCM, SEI,
+SBB. SUI is not yet implemented. Data flow:
+
+![HOISA Data Path](/assets/images/Safety-Core-data-path.png)
+
+**Figure 3 - HOISA Data Path**
+
+**Data transformation sequence**:
+
+**Table 1 - Summary of Data Transformations in Sub-Elements**
+
+| **ID** | **Stage** | **Form of Input Data** | **Operation** | **Form of Output Data** |  |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Sensor Input Processing Pipeline (AI Perception) | Data captured by sensors and appropriately conditioned | Transformation through DNN or an algorithm to identify/detect required safety condition | A data structure representing the identified/detected safety condition |  |
+| 2 | Marshalling and Transport | A data structure representing the identified/detected safety condition | Extraction of relevant data and pass to the different process context | Same data structure received across different process context |  |
+| 3 | Safety Event Integrator | Core Processing Unit (legacy: PSSCore) | Data structure representing the identified/detected safety condition | Analysis of contents of the data structure based on certain rules to proactively detect potential safety event | A message or a signal identifying the potential safety event |
+| 4 | Safety Event Integrator | Safety Event Fusion | Message or signal identifying the safety event as received from Safety Event Identifier | Fusion of the messages/signals | A message or a signal confirming the occurrence of safety event |
+| 5 | Safety Decision Maker (FSI or CCPLEX) | A message or signal confirming the occurrence of safety event | Ascertain the appropriate action based on the nature of identified safety event | A message or signal back to PSS-CCPLEX identifying the next required action to address the safety event |  |
+
+The Safety Black Box (SBB) can be considered as a master
+record for the operations associated with HOISA. Any HOISA component can
+access SBB with appropriate access profile to include respective
+operational milestones. The entries in SBB can also be utilized by
+SUI for presenting to the user after appropriate conditions or
+post-processing.
+
+The Safety User Interface (SUI) is not described in
+Figure 3 and Table 1 above as it is not part of the mainstream data
+path. Details of this sub-element are discussed in further sections.
+
+## 3. Component Details
+
+This section provides detailed documentation for each HOISA component,
+including responsibilities, interfaces, and configuration guidelines.
+Review the relevant component page before making design or integration
+changes.
+
+### 3.1 Sensor Input Processing Pipeline (AI Perception)
+
+### 3.2 Safety AI Monitor (SAIM)
+
+### 3.3 Perception Container Monitor (PCM)
+
+### 3.4 Safety Event Integrator (SEI)
+
+### 3.5 Safety Decision Maker (SDM)
+
+### 3.6 Safety Black Box (SBB)
+
+### 3.7 Safety User Interface (SUI)
+
+## 4. Application Development
+
+The perception and behavior analytics features of the Video Storage and Streaming (VSS) stack can be leveraged to define various safety events within a warehouse blueprint. This allows for the creation of independent, customized safety use-cases. Through HOISA, these custom safety events can be mapped, and a Safety Decision Maker (SDM) can be defined to handle them appropriately.
+
+In this section, the process of building a custom application on top of HOISA is explained, using **Control of Forklift Safety Function** and **Proximity Monitoring** as examples.
+
+### 4.1 Control of Forklift Safety Function Use-Case
+
+In the Control of Forklift Safety Function use-case, a forklift operating in a warehouse is monitored while loading and unloading pallets to and from a trailer. The system evaluates forklift and personnel movement around the trailer gate and issues commands to control the forklift safety function.
+
+The application maps perception signals into discrete HOISA safety events, then processes them in the Safety Decision Maker to generate control commands for the forklift:
+
+* **Safe to Enter/Operate in Trailer**: Forklift is in trailer, no personnel inside trailer, and no person in restricted ROI. Mapped through forklift/person movement events and ROI events. A **Mute Safety Function** command (`CMD_MUTE`) is issued by the SDM.
+* **Standard Operation Mode**: Forklift exits trailer, personnel detected, restricted ROI violation, or software/gateway safety fault. Mapped to corresponding safety events. An **Unmute Safety Function** command (`CMD_UNMUTE`) is issued by the SDM, with `CMD_SW_ERROR` in software-fault conditions.
+
+<Info>
+Instructions for executing the Control of Forklift Safety Function application can be found in
+[/deployment/index](/deployment), Section 2.2.
+</Info>
+
+The implementation of this use-case using HOISA components is broken down in the following sections.
+
+#### 4.1.1 SDM Execution on CCPLEX
+
+This approach applies to both x86-64 and aarch64 (IGX-Thor) platforms, where the Safety Decision Maker
+runs natively on the main CPU (CCPLEX) alongside the rest of the HOISA components.
+
+**Prerequisites: Debian Package Installation**
+
+Before proceeding with application development, the HOISA development Debian packages must be installed or extracted on the development system.
+
+**x86-64**: The Debian packages are installed directly on the development host:
+
+```bash
+sudo dpkg -i psf-desktop.deb
+sudo dpkg -i psf-desktop-dev.deb
+```
+
+**aarch64 (IGX-Thor)**: Since cross-compilation for aarch64 targets is performed on an x86-64 development host, the Tegra Debian packages are extracted rather than installed:
+
+```bash
+dpkg -x psf-tegra.deb <extraction_path>
+dpkg -x psf-tegra-dev.deb <extraction_path>
+```
+
+After installation or extraction, the development headers and reference source code are available at the following paths (relative to the installation root or `<extraction_path>`):
+
+| **Component** | **Path** |
+| --- | --- |
+| Headers | /opt/nvidia/psf/include |
+| Reference application source | /opt/nvidia/psf/examples/apps/metropolis |
+
+**1. Define Event Mapping**
+
+The first step is to configure how VSS perception events are mapped into discrete HOISA safety events. This is done using a Protobuf text configuration file passed to the Event Ingestion module (`mdx_client`).
+
+For the Forklift Safety Function use-case, the event mapping subscribes to both `mdx-events` and `mdx-frames` streams. Tripwire alerts capture forklift/person movement across the trailer boundary, while ROI alerts capture restricted-area violations near the trailer gate. These are translated into HOISA output events used by the SDM.
+
+Below is a snapshot of the event mapping configuration:
+
+```protobuf
+rules {
+  name: "Forklift tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_0"
+}
+rules {
+  name: "Forklift tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_1"
+}
+rules {
+  name: "Person tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_2"
+}
+rules {
+  name: "Person tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_3"
+}
+rules {
+  name: "Person restricted area ROI violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "true"
+  output_event: "EVENT_4"
+}
+rules {
+  name: "Person restricted area ROI violation cleared"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "false"
+  output_event: "EVENT_5"
+}
+```
+
+The object types and rule identifiers used in these rules are configurable and should match the labels and IDs emitted by the deployed VSS pipeline.
+
+<Note>
+The rule and object-type strings in the event mapping file must match
+the identifiers produced by the active VSS deployment.
+</Note>
+
+**2. Event Ingestion with mdx_client**
+
+The `mdx_client` application serves as the event ingestion layer between the VSS perception pipeline and HOISA. It subscribes to Kafka topics (`mdx-events` and `mdx-frames`), parses incoming telemetry, and evaluates messages against the configured event mapping rules. When a rule matches, the corresponding HOISA safety event is generated and reported to the SEI daemon.
+
+The application is configuration-driven — different use-cases are supported by supplying a different event mapping file, without requiring any code changes.
+
+The `mdx_client` is launched as follows:
+
+```bash
+./mdx_client --config <path_to_event_mapping_config> --sensor-config <path_to_sensor_config> --broker <broker_address>
+```
+
+| Parameter | Description |
+| --- | --- |
+| `--config`, `-c` | Path to the event mapping configuration file (required). Accepts Protobuf text or binary format. |
+| `--sensor-config`, `-s` | Path to sensor-to-pipeline mapping config file used by HOISA (required). `mdx_client` exits at startup if it is omitted. |
+| `--broker`, `-b` | Kafka broker address. Defaults to `localhost:9092` if omitted. |
+| `--debug`, `-d` | Enables debug mode. Matched events are printed to stdout instead of being reported to the SEI daemon. |
+
+For the Forklift Safety Function use-case, the application is launched with:
+
+```bash
+./mdx_client --config /opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+```
+
+**3. Implement the Safety Decision Maker (SDM)**
+
+The SDM is the core decision-making component of a HOISA application. It receives fused safety events from the SEI daemon via the NvPSD Gateway and translates them into actionable commands (e.g. Mute/Unmute Safety Function) that are transmitted to the downstream forklift command receiver.
+
+A custom SDM is implemented as a standalone application that communicates with the NvPSD Gateway using a lightweight UDP-based protocol. The following headers, available in the development Debian packages (`psf-desktop-dev.deb` or `psf-tegra-dev.deb`) under the `include/` directory, are required:
+
+| Header | Purpose |
+| --- | --- |
+| `pss_protocol.h` | Defines the `DecisionRequest` structure containing fused safety events, and shared event/system status types. |
+| `NvPSDGatewayProtocol.h` | Defines the registration and heartbeat protocol constants (`REGR`, `HBPG`, `HBPC`) used for communication with the NvPSD Gateway. |
+| `pss_message_validate.h` | Declares `pssDecisionRequestVerifyCRC()`, `validateDecisionRequest()`, and the `PSS_ERR_*` bitmask flags used to check every received request. |
+| `NvPSDGatewayContract.hpp` | Defines the registration acceptance rules enforced by the gateway, including the event-type limits and the mandatory event types added to every subscription. |
+| `atl_cmd_pkt.h` | Defines the ATL 64-byte command/ack packet format and command opcodes such as `CMD_MUTE`, `CMD_UNMUTE`, `CMD_SW_ERROR`, and the safe-release opcodes `CMD_SAFE_RELEASE_REQUEST` (`0x08`), `CMD_SAFE_RELEASE_ACK` (`0x09`), and `CMD_SAFE_RELEASE_DENIED` (`0x0A`). |
+
+The system libraries required for linking the SDM are `stdc++`,
+`pthread`, and `rt`. The command receiver needs only `pthread`.
+
+<Info>
+Validating every received `DecisionRequest` is required, not optional.
+Call `pssDecisionRequestVerifyCRC()` and then `validateDecisionRequest()`
+before acting on a request, and check that
+`integrity.schemaVersion` equals `PSS_SCHEMA_VERSION`.
+`validateDecisionRequest()` returns a bitmask of `PSS_ERR_*` flags, so a
+non-zero result means the request must be rejected (`PSS_VALID` is 0).
+Both reference SDMs do this, which is why `pss_message_validate.c`
+appears in the build commands for each of them.
+</Info>
+
+**3.1 Connect to the NvPSD Gateway**
+
+The SDM communicates with the NvPSD Gateway over a UDP socket. At initialization, a non-blocking UDP socket is created and bound to an ephemeral port. The gateway address (IP and port) is typically provided via command-line arguments; the default is `127.0.0.1:50000`.
+
+```c++
+int gwSock = socket(AF_INET, SOCK_DGRAM, 0);
+fcntl(gwSock, F_SETFL, fcntl(gwSock, F_GETFL, 0) | O_NONBLOCK);
+
+struct sockaddr_in bindAddr = {};
+bindAddr.sin_family      = AF_INET;
+bindAddr.sin_addr.s_addr = INADDR_ANY;
+bindAddr.sin_port        = htons(0);  // ephemeral port
+bind(gwSock, (struct sockaddr*)&bindAddr, sizeof(bindAddr));
+
+struct sockaddr_in gatewayAddr = {};
+gatewayAddr.sin_family = AF_INET;
+gatewayAddr.sin_port   = htons(gatewayPort);
+inet_pton(AF_INET, gatewayIP.c_str(), &gatewayAddr.sin_addr);
+```
+
+This same socket is used for all subsequent communication with the gateway — registration, event reception, and heartbeat exchange.
+
+**3.2 Register for Safety Events**
+
+Before the SDM can receive events, it must register with the NvPSD Gateway by sending a binary registration packet. The packet has the following structure:
+
+| Field | Description |
+| --- | --- |
+| Bytes 0-3 | Magic: `REGR` (4 ASCII bytes) |
+| Byte 4 | Count of subscribed event types (`uint8_t`) |
+| Byte 5+ | Array of `uint32_t` event type values in network byte order (one per subscribed event) |
+
+For this use-case, the SDM subscribes to `EVENT_0` through `EVENT_5` and `SW_FAIL`.
+
+```c++
+#include "NvPSDGatewayProtocol.h"
+#include "pss_protocol.h"
+
+static const EventType subscribedEvents[] = {
+    EVENT_0, EVENT_1, EVENT_2, EVENT_3, EVENT_4, EVENT_5, SW_FAIL
+};
+static const uint8_t eventCount = 7;
+```
+
+Registration should be sent once at startup and **re-sent periodically** (e.g. every 30 seconds) to recover from potential gateway restarts where in-memory subscription state may be lost.
+
+**3.3 Receive and Process DecisionRequest Events**
+
+Once registered, the NvPSD Gateway forwards each `DecisionRequest` in a
+versioned `NvPSDGatewayDecisionRequestPacket` UDP envelope. The envelope
+contains `DRPG`, `version`, `headerSize`, `gatewayEpoch`,
+`gatewayTxSeq`, and the `DecisionRequest` payload. The SDM must validate
+the envelope and reject duplicate, stale, or gapped sequences. The event loop
+uses `poll()` on the gateway socket and distinguishes between:
+
+- **Heartbeat** (8 bytes, magic `HBPG`) — Handled as described in the next section.
+- **Decision-request packet** (`sizeof(NvPSDGatewayDecisionRequestPacket)`
+  bytes) — A sequenced fused event batch from the SEI daemon.
+
+The `DecisionRequest` structure contains the following key fields:
+
+| Field | Description |
+| --- | --- |
+| `requestId` | Unique identifier for the decision request. |
+| `sensorDataSummarySize` | Number of valid entries in the `sensorDataSummary` array. |
+| `sensorDataSummary[]` | Array of `SensorData` structs carrying fused safety events and fusion metadata. |
+| `isHealthy` | `SensorData` flag, `false` when SAIM reported `SENSOR_INVALID` for this entry's pipeline. Discard the entry. |
+| `isTrustedSource` | `SensorData` flag, `false` when `AI_PIPELINE_INVALID` was reported for this entry's client. Discard the entry. |
+| `pssStatus` | System status including `mode` (NORMAL, DEGRADED, ERROR). |
+| `integrity` | Message integrity trailer for validation. |
+
+The ATL SDM updates internal state from the subscribed events and then evaluates whether the forklift safety function should be muted or unmuted:
+
+- `EVENT_0`: Forklift entered trailer (tripwire OUT) -> `forkliftInTrailer = true`
+- `EVENT_1`: Forklift exited trailer (tripwire IN) -> `forkliftInTrailer = false`
+- `EVENT_2`: Person entered trailer -> increment person count
+- `EVENT_3`: Person exited trailer -> decrement person count
+- `EVENT_4`: Restricted ROI violation set -> `restrictedAreaViolation = true`
+- `EVENT_5`: Restricted ROI violation cleared -> `restrictedAreaViolation = false`
+- `SW_FAIL` or `pssStatus.mode == ERROR` -> fail-safe (`CMD_UNMUTE` + `CMD_SW_ERROR`)
+
+The following snippet illustrates the core decision logic:
+
+```c++
+if (forkliftInTrailer && personsInTrailerCount == 0 && !restrictedAreaViolationByPerson)
+    sendDecisionCommand(CMD_MUTE, true, nullptr);     // allow operation
+else
+    sendDecisionCommand(CMD_UNMUTE, true, nullptr);   // prevent operation
+```
+
+A safety-path fault does more than drive one fail-safe command: the reference
+SDMs **latch** the safe state and keep re-asserting `CMD_UNMUTE` and
+`CMD_SW_ERROR` until an external controller requests a release. Gateway
+heartbeat loss, an SEI fault, a decision freshness timeout, a gateway decision
+sequence fault, and an all-sensors-failed condition each hold the latch.
+
+A custom decision maker that adopts this model must handle
+`CMD_SAFE_RELEASE_REQUEST` from its configured command receiver endpoint and
+answer on the same socket:
+
+- Any fault source still active: reply `CMD_SAFE_RELEASE_DENIED`, then
+  re-assert `CMD_UNMUTE` and `CMD_SW_ERROR`.
+- All fault sources cleared: reply `CMD_SAFE_RELEASE_ACK` followed by
+  `CMD_UNMUTE`, then clear the latch and reset internal state. Clear the
+  latch only after both replies are sent, so a fault arriving mid-handshake is
+  not lost.
+
+Requests arriving when no latch is held are answered with
+`CMD_SAFE_RELEASE_ACK` and rate-limited to one response per second. For the
+operator-facing side of this handshake, see **safe-release**.
+
+**3.4 Gateway Heartbeat Protocol**
+
+The NvPSD Gateway maintains a heartbeat mechanism to monitor the liveness of connected SDM clients. This protocol operates on the same UDP socket used for event reception and consists of two message types:
+
+| Direction | Format |
+| --- | --- |
+| Gateway -> SDM | 8 bytes: `HBPG` (4 bytes) + sequence number (`uint32_t`, network byte order) |
+| SDM -> Gateway | 8 bytes: `HBPC` (4 bytes) + same sequence number (echo) |
+
+The gateway sends `HBPG` every 2 seconds. Size the SDM-side watchdog
+against that period: a threshold of *N* missed heartbeats corresponds to
+roughly *N* x 2 seconds before the gateway is declared unreachable.
+
+Upon receiving a heartbeat from the gateway, the SDM must echo the sequence number back in an acknowledgement packet:
+
+```c++
+if (n == NVPSD_GATEWAY_HB_MSG_SIZE &&
+    memcmp(rawBuf, NVPSD_GATEWAY_HB_MAGIC_GATEWAY, 4) == 0)
+{
+    char ack[NVPSD_GATEWAY_HB_MSG_SIZE];
+    memcpy(ack, NVPSD_GATEWAY_HB_MAGIC_CLIENT, 4);
+    memcpy(ack + 4, rawBuf + 4, 4);  // echo sequence number
+    sendto(gwSock, ack, NVPSD_GATEWAY_HB_MSG_SIZE, 0,
+           (struct sockaddr*)&sender, senderLen);
+}
+```
+
+It is recommended that a **heartbeat watchdog** be implemented to detect gateway communication failures. If heartbeats are not received within the configured threshold (`max_hb_failures`), the SDM should transition to a fail-safe state. The reference SDMs latch that safe state and keep re-asserting the fail-safe commands rather than exiting, so operation resumes only after the safe-release handshake described above; resumed heartbeats alone do not clear the latch.
+
+**4. Building the Forklift SDM Reference**
+
+A complete reference implementation of the Forklift Safety Function SDM is included in the development Debian packages. After installation (x86-64) or extraction (aarch64), the source files are located at:
+
+```text
+/opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/
+├── ATL.cpp                    # Entry point (CLI argument parsing, launch)
+├── ATLControl.cpp             # Gateway integration, event handling, heartbeat
+├── ATLControl.h               # SDM interface declarations
+└── pss_message_validate.c     # Message integrity validation
+
+/opt/nvidia/psf/examples/apps/metropolis/atl/include/
+└── atl_cmd_pkt.h              # Application-specific command packet definition
+```
+
+The required HOISA headers (`pss_protocol.h`, `NvPSDGatewayProtocol.h`) are located under `/opt/nvidia/psf/include/`. Both reference SDMs additionally
+include three shared headers — `sdm_decision_request_state.h`,
+`sdm_decision_freshness.hpp`, and `sdm_gateway_decision_sequence.hpp` —
+from `examples/apps/metropolis/common/`, which is why that directory is on
+the include path below. If it is missing from your extracted package, take
+the headers from the source repository.
+
+The reference SDM can be compiled using a standard GCC toolchain as follows:
+
+**x86-64**:
+
+```bash
+g++ -std=c++11 -o atl_sdm \
+    /opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/ATL.cpp \
+    /opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/ATLControl.cpp \
+    /opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/pss_message_validate.c \
+    /opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/atl_fault_report_noop.cpp \
+    -I /opt/nvidia/psf/include \
+    -I /opt/nvidia/psf/examples/apps/metropolis/atl/include \
+    -I /opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex \
+    -I /opt/nvidia/psf/examples/apps/metropolis/common \
+    -lpthread -lrt
+```
+
+**aarch64 (cross-compilation on x86-64 host)**:
+
+```bash
+aarch64-linux-gnu-g++ -std=c++11 -o atl_sdm \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/ATL.cpp \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/ATLControl.cpp \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/pss_message_validate.c \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex/atl_fault_report_noop.cpp \
+    -I <extraction_path>/opt/nvidia/psf/include \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/include \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/sdm/ccplex \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/common \
+    -lpthread -lrt
+```
+
+The resulting `atl_sdm` binary can then be deployed and launched as described in [/deployment/index](/deployment), Section 2.2.
+
+**5. Building the Command Receiver Reference**
+
+The development packages also include the source for the Forklift UDP Command Receiver — a reference application that simulates the actuator side. It listens for UDP command packets from the SDM and sends back acknowledgement packets using the same 64-byte packet format.
+
+The source is located at:
+
+```text
+/opt/nvidia/psf/examples/apps/metropolis/atl/udp_cmd_receiver/
+└── cmd_rx.cpp
+
+/opt/nvidia/psf/examples/apps/metropolis/atl/include/
+└── atl_cmd_pkt.h              # Shared packet definition (used by both SDM and receiver)
+```
+
+The command receiver can be compiled as follows:
+
+**x86-64**:
+
+```bash
+g++ -std=c++11 -o atl_sdm_cmd_receiver \
+    /opt/nvidia/psf/examples/apps/metropolis/atl/udp_cmd_receiver/cmd_rx.cpp \
+    -I /opt/nvidia/psf/examples/apps/metropolis/atl/include \
+    -lpthread
+```
+
+**aarch64 (cross-compilation on x86-64 host)**:
+
+```bash
+aarch64-linux-gnu-g++ -std=c++11 -o atl_sdm_cmd_receiver \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/udp_cmd_receiver/cmd_rx.cpp \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/atl/include \
+    -lpthread
+```
+
+The receiver accepts `-p <port>` (default `12345`),
+`--sdm_ip <IPv4>` (default `127.0.0.1`), an optional
+`--sdm_port <port>`, and `--max_hb_failures <N>` (`1`–`255`,
+default `10`). To relay validated decision commands to VST, provide
+`--vst_ip <IPv4> --vst_port <port>` together. Both VST options are
+required for relay mode; invalid configuration terminates the receiver at
+startup. A failure to send a relay packet does not affect command reception
+or acknowledgements.
+
+Logging is split by default: the verbose per-packet log goes to
+`/tmp/cmdrx.log` while the console carries only safe-state latch, clear, and
+release events. Use `--log-file <PATH>` to choose a different file, or
+`--no-log-file` to keep every packet on the console as earlier releases did.
+
+Safe-release over standard input is always enabled and needs no flag. Writing
+`release` to the receiver's stdin sends `CMD_SAFE_RELEASE_REQUEST`, so an
+operator can type it at the console and a script, CI job, or service-managed run
+can `echo release` into the process's stdin or FIFO.
+
+The receiver also issues that request on its own, once, after it first hears from
+its peer, which clears a latch left over from a previous run. See
+**safe-release** for the full handshake, including when the SDM denies the
+request.
+
+### 4.2 Proximity Monitoring Use-Case
+
+In the Proximity Monitoring use-case, the distance between a human (`Person`) and a robot (`Agility_Digit_Humanoid`) is monitored, and commands are issued based on safety thresholds.
+
+The application computes the spatial distances between the specified objects, and maps them into discrete HOISA safety events based on the thresholds. These events are then processed by the Safety Decision Maker to generate control commands for the robot:
+
+* **Safe Zone (> 2m)**: No violation. Mapped to `EVENT_8`. A **Normal Operation** command is issued by the SDM.
+* **Warning Zone (1m to 2m)**: Proximity warning. Mapped to `EVENT_9`. A **Slow Down** command is issued by the SDM.
+* **Critical Zone (< 1m)**: Proximity violation. Mapped to `EVENT_10`. An **Emergency Stop** command is issued by the SDM.
+
+<Info>
+Instructions for executing the Proximity Monitoring application can be found in
+[/deployment/index](/deployment), Section 2.3.
+</Info>
+
+The implementation of this use-case using HOISA components is broken down in the following sections.
+
+#### 4.2.1 SDM Execution on CCPLEX
+
+This approach applies to both x86-64 and aarch64 (IGX-Thor) platforms, where the Safety Decision Maker
+runs natively on the main CPU (CCPLEX) alongside the rest of the HOISA components.
+
+**Prerequisites: Debian Package Installation**
+
+Before proceeding with application development, the HOISA development Debian packages must be installed or extracted on the development system.
+
+**x86-64**: The Debian packages are installed directly on the development host:
+
+```bash
+sudo dpkg -i psf-desktop.deb
+sudo dpkg -i psf-desktop-dev.deb
+```
+
+**aarch64 (IGX-Thor)**: Since cross-compilation for aarch64 targets is performed on an x86-64 development host, the Tegra Debian packages are extracted rather than installed:
+
+```bash
+dpkg -x psf-tegra.deb <extraction_path>
+dpkg -x psf-tegra-dev.deb <extraction_path>
+```
+
+After installation or extraction, the development headers and reference source code are available at the following paths (relative to the installation root or `<extraction_path>`):
+
+| **Component** | **Path** |
+| --- | --- |
+| Headers | /opt/nvidia/psf/include |
+| Reference application source | /opt/nvidia/psf/examples/apps/metropolis |
+
+**1. Define Event Mapping**
+
+The first step is to configure how VSS perception events are mapped into discrete HOISA safety events. This is done using a Protobuf text configuration file passed to the Event Ingestion module (`mdx_client`).
+
+For the Proximity Monitoring use-case, the event mapping configuration defines a set of rules that subscribe to `social_distancing` alerts from the `mdx-frames` message source. Each rule filters incoming alerts by strictly matching the primary and secondary object types to `Agility_Digit_Humanoid` and `Person` respectively. When a matching alert is detected, the rule evaluates `proximity_violation` and, for violations, the reported physical distance against predefined `distance_threshold_meters` parameters. Based on this evaluation, the alert is translated into `EVENT_8`, `EVENT_9`, or `EVENT_10`.
+
+Below is a snapshot of the event mapping configuration :
+
+```protobuf
+rules {
+  name: "Proximity no violation (safe distance, >2m or SD false)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "agility_digit_person_no_violation"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: false
+  output_event: "EVENT_8"
+}
+rules {
+  name: "Proximity 2m > distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "agility_digit_person_lt_2m"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_9"
+}
+rules {
+  name: "Proximity distance < 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "agility_digit_person_lt_1m"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 1.0
+  output_event: "EVENT_10"
+}
+```
+
+The object types specified in the rules are not fixed and can be adapted to match the entities recognized by the VSS perception pipeline. For example, the same distance-based safety logic can be applied to monitor proximity between two robots, or between a person and a different robot type.
+
+The following example illustrates rules for monitoring the distance between an `Agility_Digit_Humanoid` and a `Fourier_GR1_T2_Humanoid` robot:
+
+```protobuf
+rules {
+  name: "Robot-to-robot warning (2m > distance > 1m)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "agility_digit_fourier_lt_2m"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Fourier_GR1_T2_Humanoid"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_9"
+}
+```
+
+Similarly, to monitor the distance between a `Person` and a `Fourier_GR1_T2_Humanoid`:
+
+```protobuf
+rules {
+  name: "Person-to-Fourier warning (2m > distance > 1m)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "person_fourier_lt_2m"
+  object_type_primary: "Fourier_GR1_T2_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_9"
+}
+```
+
+<Note>
+The object type strings must match the class labels defined in the VSS perception model
+configuration. Any object type recognized by the deployed model can be used in the event
+mapping rules.
+</Note>
+
+**2. Event Ingestion with mdx_client**
+
+The `mdx_client` application serves as the event ingestion layer between the VSS perception pipeline and HOISA. It subscribes to Kafka topics (`mdx-events` and `mdx-frames`) published by the VSS stack, parses incoming Behavior and FrameMessage protobufs, and evaluates them against the rules defined in the event mapping configuration file. When a match is found, the corresponding HOISA safety event is generated and reported to the SEI daemon.
+
+The application is configuration-driven — different use-cases are supported by supplying a different event mapping file, without requiring any code changes.
+
+The `mdx_client` is launched as follows:
+
+```bash
+./mdx_client --config <path_to_event_mapping_config> \
+    --sensor-config <path_to_sensor_config> \
+    --broker <broker_address>
+```
+
+| Parameter | Description |
+| --- | --- |
+| `--config`, `-c` | Path to the event mapping configuration file (required). Accepts Protobuf text or binary format. |
+| `--sensor-config`, `-s` | Path to the sensor-to-pipeline mapping file (required). `mdx_client` exits at startup if it is omitted. |
+| `--broker`, `-b` | Kafka broker address. Defaults to `localhost:9092` if omitted. In deployments where the Kafka broker runs on a remote host, a remote address may be specified (e.g. `192.168.1.10:9092`). |
+| `--debug`, `-d` | Enables debug mode. Matched events are printed to stdout instead of being reported to the SEI daemon. Useful for validating rule matching without a running SEI daemon. |
+
+For the Proximity Monitoring use-case, the application is launched with:
+
+```bash
+./mdx_client --config /opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+```
+
+**3. Implement the Safety Decision Maker (SDM)**
+
+The SDM is the core decision-making component of a HOISA application. It receives fused safety events from the SEI daemon via the NvPSD Gateway and translates them into actionable commands (e.g. Stop, Slow Down, Normal Operation) that are transmitted to the downstream actuator or controller.
+
+A custom SDM is implemented as a standalone application that communicates with the NvPSD Gateway using a lightweight UDP-based protocol. The following headers, available in the development Debian packages (`psf-desktop-dev.deb` or `psf-tegra-dev.deb`) under the `include/` directory, are required:
+
+| Header | Purpose |
+| --- | --- |
+| `pss_protocol.h` | Defines the `DecisionRequest` structure containing fused safety events, along with `EventType`, `SensorData`, `SystemStatus`, and `MessageIntegrity` types. |
+| `NvPSDGatewayProtocol.h` | Defines the registration and heartbeat protocol constants (`REGR`, `HBPG`, `HBPC`) used for communication with the NvPSD Gateway. |
+| `pss_message_validate.h` | Declares `pssDecisionRequestVerifyCRC()`, `validateDecisionRequest()`, and the `PSS_ERR_*` bitmask flags used to check every received request. |
+| `NvPSDGatewayContract.hpp` | Defines the registration acceptance rules enforced by the gateway, including the event-type limits and the mandatory event types added to every subscription. |
+| `proximity_cmd_pkt.h` | Defines the Proximity command/ack packet format shared by the SDM and the command receiver. |
+
+The system libraries required for linking the SDM are `stdc++`,
+`pthread`, and `rt`. The command receiver needs only `pthread`.
+
+<Info>
+Validating every received `DecisionRequest` is required, not optional.
+Call `pssDecisionRequestVerifyCRC()` and then `validateDecisionRequest()`
+before acting on a request, and check that
+`integrity.schemaVersion` equals `PSS_SCHEMA_VERSION`.
+`validateDecisionRequest()` returns a bitmask of `PSS_ERR_*` flags, so a
+non-zero result means the request must be rejected (`PSS_VALID` is 0).
+Both reference SDMs do this, which is why `pss_message_validate.c`
+appears in the build commands for each of them.
+</Info>
+
+**3.1 Connect to the NvPSD Gateway**
+
+The SDM communicates with the NvPSD Gateway over a UDP socket. At initialization, a non-blocking UDP socket is created and bound to an ephemeral port. The gateway address (IP and port) is typically provided via command-line arguments; the default is `127.0.0.1:50000`.
+
+```c++
+int gwSock = socket(AF_INET, SOCK_DGRAM, 0);
+fcntl(gwSock, F_SETFL, fcntl(gwSock, F_GETFL, 0) | O_NONBLOCK);
+
+struct sockaddr_in bindAddr = {};
+bindAddr.sin_family      = AF_INET;
+bindAddr.sin_addr.s_addr = INADDR_ANY;
+bindAddr.sin_port        = htons(0);  // ephemeral port
+bind(gwSock, (struct sockaddr*)&bindAddr, sizeof(bindAddr));
+
+struct sockaddr_in gatewayAddr = {};
+gatewayAddr.sin_family = AF_INET;
+gatewayAddr.sin_port   = htons(gatewayPort);
+inet_pton(AF_INET, gatewayIP.c_str(), &gatewayAddr.sin_addr);
+```
+
+This same socket is used for all subsequent communication with the gateway — registration, event reception, and heartbeat exchange.
+
+**3.2 Register for Safety Events**
+
+Before the SDM can receive events, it must register with the NvPSD Gateway by sending a binary registration packet. The packet has the following structure:
+
+| Field | Description |
+| --- | --- |
+| Bytes 0–3 | Magic: `REGR` (4 ASCII bytes) |
+| Byte 4 | Count of subscribed event types (`uint8_t`) |
+| Byte 5+ | Array of `uint32_t` event type values in network byte order (one per subscribed event) |
+
+Each `uint32_t` value corresponds to an `EventType` enum value from
+`pss_protocol.h` (e.g. `EVENT_8`, `EVENT_9`, `EVENT_10`). The gateway
+forwards the subscribed types plus four types it adds to every accepted
+registration — `SW_FAIL`, `PSS_STATUS_NOOP`, `SENSOR_INVALID`, and
+`SENSOR_VALID` — so that sensor-health evidence reaches every decision
+maker. Handle all four even if your registration omits them.
+
+The gateway also enforces three limits on registration: the event count must
+be between 1 and 32, values that are neither a valid `EventType` nor
+`SENSOR_INVALID` / `SENSOR_VALID` are dropped silently (and the packet is
+rejected outright if nothing valid remains, logged as "ignoring REGR with no
+valid event types"), and at most 10 decision-maker clients can be registered
+at once.
+
+```c++
+#include "NvPSDGatewayProtocol.h"
+#include "pss_protocol.h"
+
+static const EventType subscribedEvents[] = {
+    EVENT_8, EVENT_9, EVENT_10, SW_FAIL
+};
+static const uint8_t   eventCount = 4;
+
+void sendRegistration(int gwSock, struct sockaddr_in* gwAddr)
+{
+    char buf[4 + 1 + eventCount * sizeof(uint32_t)];
+    memcpy(buf, NVPSD_GATEWAY_REG_MAGIC, 4);       // "REGR"
+    buf[4] = static_cast<char>(eventCount);
+
+    for (uint8_t i = 0; i < eventCount; ++i) {
+        uint32_t val = htonl(static_cast<uint32_t>(subscribedEvents[i]));
+        memcpy(buf + 5 + i * sizeof(uint32_t), &val, sizeof(uint32_t));
+    }
+
+    sendto(gwSock, buf, sizeof(buf), 0,
+           (struct sockaddr*)gwAddr, sizeof(*gwAddr));
+}
+```
+
+Registration should be sent once at startup and **re-sent periodically** (e.g. every 30 seconds) to recover from potential gateway restarts where in-memory subscription state may be lost.
+
+**3.3 Receive and Process DecisionRequest Events**
+
+Once registered, the NvPSD Gateway forwards each `DecisionRequest` in a
+versioned `NvPSDGatewayDecisionRequestPacket` UDP envelope. The envelope
+contains `DRPG`, `version`, `headerSize`, `gatewayEpoch`,
+`gatewayTxSeq`, and the `DecisionRequest` payload. The SDM must validate
+the envelope and reject duplicate, stale, or gapped sequences. The event loop
+uses `poll()` on the gateway socket and distinguishes between:
+
+- **Heartbeat** (8 bytes, magic `HBPG`) — Handled as described in the next section.
+- **Decision-request packet** (`sizeof(NvPSDGatewayDecisionRequestPacket)`
+  bytes) — A sequenced fused event batch from the SEI daemon.
+
+The `DecisionRequest` structure contains the following key fields:
+
+| Field | Description |
+| --- | --- |
+| `requestId` | Unique identifier for the decision request. |
+| `sensorDataSummarySize` | Number of valid entries in the `sensorDataSummary` array. |
+| `sensorDataSummary[]` | Array of `SensorData` structs, each containing a `FusedSafetyEvent` with the event `type`, `severity`, `status` (FUSED, PASSTHROUGH, STALE), and `fusionMetadata` (object coordinates, IDs, types). |
+| `pssStatus` | System status including `mode` (NORMAL, DEGRADED, ERROR) and hardware/software error flags. |
+| `integrity` | Message integrity trailer for validation. |
+
+The event handler examines each `SensorData` entry and maps the `event.type` to an application-specific action. Four classes of entry must be skipped before any decision is taken: `STALE` status, the `SENSOR_INVALID` / `SENSOR_VALID` health events (consumed by the health monitor), entries with `isHealthy == false`, and entries with `isTrustedSource == false`. If `pssStatus.mode` is `ERROR`, the SDM should immediately issue a fail-safe response.
+
+A `DecisionRequest` carries a batch of entries, so resolve the whole batch to **one** command and send it after the loop. Issuing a command per entry lets a later benign event overwrite an earlier critical one on the wire.
+
+The following snippet illustrates the core event handling logic for the Proximity Monitoring use-case:
+
+```c++
+void onEventNotificationReceive(const DecisionRequest* request)
+{
+    // PSS ERROR mode — immediate fail-safe
+    if (request->pssStatus.mode == ERROR) {
+        issueFailSafeAction();
+        return;
+    }
+
+    unsigned char cmd   = CMD_NORMAL;
+    bool          found = false;
+
+    for (uint8_t i = 0; i < request->sensorDataSummarySize; ++i) {
+        const SensorData& sd = request->sensorDataSummary[i];
+
+        if (sd.event.status == STALE)
+            continue;  // skip stale events
+
+        if (sd.event.type == SENSOR_INVALID || sd.event.type == SENSOR_VALID)
+            continue;  // health evidence, not a proximity decision
+
+        if (!sd.isHealthy || !sd.isTrustedSource)
+            continue;  // sensor or AI pipeline not trustworthy
+
+        if (sd.event.type == EVENT_10) {       // Critical proximity (< 1 m)
+            cmd = CMD_STOP;   found = true;
+        } else if (sd.event.type == EVENT_9) { // Warning zone (1–2 m)
+            cmd = CMD_REDUCE; found = true;
+        } else if (sd.event.type == EVENT_8) { // Safe distance (> 2 m)
+            cmd = CMD_NORMAL; found = true;
+        }
+    }
+
+    if (found)
+        sendDecisionCommand(cmd);  // one command per request
+}
+```
+
+The mapping between event types and actions is entirely application-specific. Each use-case defines its own logic for translating the received events into appropriate actuator commands.
+
+**3.4 Gateway Heartbeat Protocol**
+
+The NvPSD Gateway maintains a heartbeat mechanism to monitor the liveness of connected SDM clients. This protocol operates on the same UDP socket used for event reception and consists of two message types:
+
+| Direction | Format |
+| --- | --- |
+| Gateway -> SDM | 8 bytes: `HBPG` (4 bytes) + sequence number (`uint32_t`, network byte order) |
+| SDM -> Gateway | 8 bytes: `HBPC` (4 bytes) + same sequence number (echo) |
+
+The gateway sends `HBPG` every 2 seconds. Size the SDM-side watchdog
+against that period: a threshold of *N* missed heartbeats corresponds to
+roughly *N* x 2 seconds before the gateway is declared unreachable.
+
+Upon receiving a heartbeat from the gateway, the SDM must echo the sequence number back in an acknowledgement packet:
+
+```c++
+if (n == NVPSD_GATEWAY_HB_MSG_SIZE &&
+    memcmp(rawBuf, NVPSD_GATEWAY_HB_MAGIC_GATEWAY, 4) == 0)
+{
+    // Update local watchdog timestamp
+    hbLastRecvTime = std::chrono::steady_clock::now();
+
+    // Echo ACK: [HBPC][seq]
+    char ack[NVPSD_GATEWAY_HB_MSG_SIZE];
+    memcpy(ack, NVPSD_GATEWAY_HB_MAGIC_CLIENT, 4);
+    memcpy(ack + 4, rawBuf + 4, 4);  // echo sequence number
+    sendto(gwSock, ack, NVPSD_GATEWAY_HB_MSG_SIZE, 0,
+           (struct sockaddr*)&sender, senderLen);
+}
+```
+
+It is recommended that a **heartbeat watchdog** be implemented to detect gateway communication failures. The watchdog tracks the elapsed time since the last received heartbeat and derives a miss count. If heartbeats are not received within the configured threshold (`max_hb_failures`, default: 10), the SDM should transition to a fail-safe state. As in the ATL reference application, the Proximity SDM latches that safe state and keeps re-asserting the fail-safe commands rather than exiting; it returns to normal operation only through the safe-release handshake (**safe-release**).
+
+**4. Building the Proximity SDM Reference**
+
+A complete reference implementation of the Proximity Monitoring SDM is included in the development Debian packages. After installation (x86-64) or extraction (aarch64), the source files are located at:
+
+```text
+/opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/
+├── Proximity.cpp              # Entry point (CLI argument parsing, launch)
+├── ProximityControl.cpp        # Gateway integration, event handling, heartbeat
+├── ProximityControl.h          # SDM interface declarations
+└── pss_message_validate.c      # Message integrity validation
+
+/opt/nvidia/psf/examples/apps/metropolis/proximity/include/
+└── proximity_cmd_pkt.h         # Application-specific command packet definition
+```
+
+The required HOISA headers (`pss_protocol.h`, `NvPSDGatewayProtocol.h`) are located under `/opt/nvidia/psf/include/`. Both reference SDMs additionally
+include three shared headers — `sdm_decision_request_state.h`,
+`sdm_decision_freshness.hpp`, and `sdm_gateway_decision_sequence.hpp` —
+from `examples/apps/metropolis/common/`, which is why that directory is on
+the include path below. If it is missing from your extracted package, take
+the headers from the source repository.
+
+The reference SDM can be compiled using a standard GCC toolchain as follows:
+
+**x86-64**:
+
+```bash
+g++ -std=c++11 -o proximity_sdm \
+    /opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/Proximity.cpp \
+    /opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/ProximityControl.cpp \
+    /opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/pss_message_validate.c \
+    -I /opt/nvidia/psf/include \
+    -I /opt/nvidia/psf/examples/apps/metropolis/proximity/include \
+    -I /opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex \
+    -I /opt/nvidia/psf/examples/apps/metropolis/common \
+    -lpthread -lrt
+```
+
+**aarch64 (cross-compilation on x86-64 host)**:
+
+```bash
+aarch64-linux-gnu-g++ -std=c++11 -o proximity_sdm \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/Proximity.cpp \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/ProximityControl.cpp \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex/pss_message_validate.c \
+    -I <extraction_path>/opt/nvidia/psf/include \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/include \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/sdm/ccplex \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/common \
+    -lpthread -lrt
+```
+
+The resulting `proximity_sdm` binary can then be deployed and launched as described in [/deployment/index](/deployment), Section 2.3.
+
+**5. Building the Command Receiver Reference**
+
+The development packages also include the source for the Proximity UDP Command Receiver — a reference application that simulates the actuator side. It listens for UDP command packets from the SDM and evaluates them using a "most conservative wins" policy over a fixed 100 ms window (`EVAL_WINDOW_MS`, a compile-time constant with no CLI override):
+
+- Any **Software Error** command in the window drives the fault safe state / alarm, which outranks a stop.
+- Any **Stop** or **Hardware Error** command results in an Emergency Stop.
+- Any **Reduce** command (with no stop or error) results in a Slow Down.
+- If all commands are **Normal**, normal operation continues.
+- An empty window is skipped, so the previously decided action is held rather than reverting to normal.
+
+The source is located at:
+
+```text
+/opt/nvidia/psf/examples/apps/metropolis/proximity/udp_cmd_receiver/
+└── cmd_rx.cpp
+
+/opt/nvidia/psf/examples/apps/metropolis/proximity/include/
+└── proximity_cmd_pkt.h        # Shared packet definition (used by both SDM and receiver)
+```
+
+The command receiver can be compiled as follows:
+
+**x86-64**:
+
+```bash
+g++ -std=c++11 -o proximity_sdm_cmd_receiver \
+    /opt/nvidia/psf/examples/apps/metropolis/proximity/udp_cmd_receiver/cmd_rx.cpp \
+    -I /opt/nvidia/psf/examples/apps/metropolis/proximity/include \
+    -lpthread
+```
+
+**aarch64 (cross-compilation on x86-64 host)**:
+
+```bash
+aarch64-linux-gnu-g++ -std=c++11 -o proximity_sdm_cmd_receiver \
+    <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/udp_cmd_receiver/cmd_rx.cpp \
+    -I <extraction_path>/opt/nvidia/psf/examples/apps/metropolis/proximity/include \
+    -lpthread
+```
+
+The receiver accepts `-p <port>` (default `12345`),
+`--sdm_ip <IPv4>` (default `127.0.0.1`), an optional
+`--sdm_port <port>`, and `--max_hb_failures <N>` (`1`–`255`,
+default `10`). Unlike the ATL receiver it has no VST relay, so it rejects
+`--vst_ip` and `--vst_port` at startup with `error: unknown option`.
+
+Logging is split by default: the verbose per-packet log goes to
+`/tmp/cmdrx.log` while the console carries only safe-state latch, clear, and
+release events. Use `--log-file <PATH>` to choose a different file, or
+`--no-log-file` to keep every packet on the console as earlier releases did.
+
+Safe-release over standard input is always enabled and needs no flag. Writing
+`release` to the receiver's stdin sends `CMD_SAFE_RELEASE_REQUEST`, so an
+operator can type it at the console and a script, CI job, or service-managed run
+can `echo release` into the process's stdin or FIFO.
+
+The receiver also issues that request on its own, once, after it first hears from
+its peer, which clears a latch left over from a previous run. See
+**safe-release** for the full handshake, including when the SDM denies the
+request.
