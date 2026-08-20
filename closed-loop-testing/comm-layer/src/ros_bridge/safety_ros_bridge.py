@@ -562,6 +562,28 @@ def _parse_robot_ids(raw: str) -> List[str]:
     return ids
 
 
+ISAAC_SCRIPTS_DIR = os.environ.get("ISAAC_SCRIPTS_DIR", "/app/isaac")
+
+
+def _mirrors_from_scenario(configs_dir: str, scenario_id: str) -> List[str]:
+    """Which robots this scenario's fleet wants a mute mirror for."""
+    if ISAAC_SCRIPTS_DIR not in sys.path:
+        sys.path.insert(0, ISAAC_SCRIPTS_DIR)
+    try:
+        from action_graphs.forklift_common import (
+            load_and_validate_robots_yaml, load_scenario, robots_needing_mute_mirror)
+    except ImportError as exc:
+        raise SystemExit(
+            f"cannot import the fleet loader from {ISAAC_SCRIPTS_DIR} ({exc}). "
+            f"The comm-layer service mounts the Isaac script tree; check that "
+            f"mount, or set ISAAC_SCRIPTS_DIR."
+        ) from exc
+    entry = load_scenario(configs_dir, scenario_id)
+    robots, _ = load_and_validate_robots_yaml(
+        os.path.join(configs_dir, entry["robots"]))
+    return robots_needing_mute_mirror(robots)
+
+
 def main():
     """Standalone entry point"""
     import argparse
@@ -571,12 +593,24 @@ def main():
     parser.add_argument('--direct', action='store_true', help='Direct mode (start ESL receiver)')
     parser.add_argument('--topic-prefix', default='/safety', help='ROS2 topic prefix')
     parser.add_argument('--rate', type=float, default=10.0, help='Publish rate (Hz)')
+    parser.add_argument('--scenario', default='',
+                        help='Scenario id; its fleet file says which robots want a '
+                             'mirror. Overridden by --robot-ids.')
+    parser.add_argument('--configs-dir', default='/app/robots',
+                        help='Directory holding scenarios.yaml and the robots configs')
     parser.add_argument('--robot-ids', default='',
-                        help='Comma-separated robots to mirror is_muted to, e.g. '
-                             '"forklift_b,forklift_b2". Empty publishes the global '
-                             'topic only. Must match the robot names in robots.yaml.')
+                        help='Comma-separated robots to mirror is_muted to. Overrides '
+                             '--scenario; empty publishes the global topic only.')
     args = parser.parse_args()
-    robot_ids = _parse_robot_ids(args.robot_ids)
+    if args.robot_ids:
+        robot_ids = _parse_robot_ids(args.robot_ids)
+        source = 'flag'
+    elif args.scenario:
+        robot_ids = _mirrors_from_scenario(args.configs_dir, args.scenario)
+        source = f'SCENARIO={args.scenario}'
+    else:
+        robot_ids, source = [], 'nothing named a fleet'
+    print(f"[mirrors] {', '.join(robot_ids) or '<none>'}  ({source})", flush=True)
     
     print("""
 ╔══════════════════════════════════════════════════════════╗

@@ -80,6 +80,24 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   mounts no fleet file and so runs on `fleet_config.DRIVE_DEFAULTS`, which hold
   the same values `robots.yaml` states for `forklift_b`.
 
+### Changed
+
+- **comm-layer derives its mute mirrors from the fleet file.** `COMM_ROBOT_IDS`
+  was a fourth list of robot names kept by hand, and the only way to get it
+  wrong was silent: a truck missing from it listens on a topic nobody publishes,
+  so its disc sits on the alarm colour for the whole run with nothing in any
+  log. comm-layer now mounts the same configs directory the controllers do,
+  reads `SCENARIO`, and mirrors for exactly the robots whose fleet entry asks
+  for a per-robot topic. The variable is gone from both profiles, and
+  `preflight.py` checks three lists rather than four.
+
+  The shipped value was already wrong for the default run: it named two trucks
+  while `robots.yaml` declares one and names the global topic explicitly, so
+  every 20x20 run published two mirrors nobody subscribed to and preflight
+  warned about it each time. Derived, that run asks for none.
+
+  **Needs `up -d --build`** — the comm-layer image changes.
+
 ### Removed
 
 - **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file

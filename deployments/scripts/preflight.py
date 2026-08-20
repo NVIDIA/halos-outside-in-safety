@@ -9,7 +9,9 @@ four files that never see each other:
   1. `robots.yaml`          — Isaac builds the prim and the graphs from it
   2. the controller service — publishes that robot's cmd_vel
   3. `waypoints/<id>.json`  — the path the controller follows
-  4. `COMM_ROBOT_IDS`       — tells comm-layer to mirror the mute topic
+
+comm-layer's mute mirrors used to be a fourth list, kept by hand; it now derives
+them from the same fleet file, so they cannot disagree.
 
 Two more decide whether a passing run means anything, and are not checked here:
 `cameras.yaml` places the sensors, and VSS's `calibration.json` states where
@@ -18,15 +20,14 @@ produces frames, detections and PSF verdicts, all of them about the wrong
 warehouse. That pair is asserted by hand — see the scene<->calibration table in
 skills/hoisa-deploy-profile/references/test_scenario.md.
 
-The four cannot be collapsed into one file: comm-layer also runs in HIL, where
-`robots.yaml` does not exist, and the controller is a container the simulator
-knows nothing about. What makes the duplication dangerous is that **every way
-of getting it wrong is silent**. Miss the controller and the truck stands
-still. Miss the waypoint file and it stands still for a different reason. Miss
-`COMM_ROBOT_IDS` and its disc sits on the alarm colour forever. Nothing logs an
-error, because from inside each container nothing is wrong.
+The three cannot be collapsed into one file: the controller is a container the
+simulator knows nothing about, and a waypoint file is drawn by hand. What makes
+the duplication dangerous is that **every way of getting it wrong is silent**.
+Miss the controller and the truck stands still. Miss the waypoint file and it
+stands still for a different reason. Nothing logs an error, because from inside
+each container nothing is wrong.
 
-So this reads all four and says which one disagrees, before Isaac spends three
+So this reads all three and says which one disagrees, before Isaac spends three
 minutes booting. It answers "did I finish adding the robot", not "is the system
 healthy" — it starts nothing and talks to nothing that is running.
 
@@ -201,12 +202,8 @@ def collect(robots_yaml: str, env_file: str):
         name: svc for name, svc in services.items()
         if "ROBOT_ID" in (svc.get("environment") or {})
     }
-    comm_ids: list[str] = []
-    for svc in services.values():
-        raw = (svc.get("environment") or {}).get("ROS_ROBOT_IDS")
-        if raw:
-            comm_ids = [x.strip() for x in raw.split(",") if x.strip()]
-            break
+    # Derived from the fleet, the way comm-layer derives it.
+    comm_ids = common.robots_needing_mute_mirror(robots)
     return common, robots, controllers, comm_ids
 
 
@@ -356,25 +353,6 @@ def check(common, robots, controllers, comm_ids, scene_path=None,
                 f"ROBOT_ID={name}, and put its profile in COMPOSE_PROFILES."
             )))
 
-        if common.is_section_enabled(robot, "safety_indicator"):
-            topic = common.resolve_muted_topic(robot)
-            # A scene naming the global topic opted out of the mirrors and needs
-            # no entry; only a derived per-robot topic depends on the list.
-            if topic != "/safety/is_muted" and name not in comm_ids:
-                findings.append((ERROR, (
-                    f"'{name}' listens on {topic}, which comm-layer is not publishing: "
-                    f"COMM_ROBOT_IDS is {', '.join(comm_ids) or '<empty>'}. Its disc will "
-                    f"sit on the alarm colour for the whole run with nothing in any log. "
-                    f"Add {name} to COMM_ROBOT_IDS in the env file."
-                )))
-
-    for name in comm_ids:
-        if name not in robot_names:
-            findings.append((WARN, (
-                f"COMM_ROBOT_IDS lists '{name}', which this robots config does not have. "
-                f"Harmless — a topic with no subscriber — and expected if the list is "
-                f"shared across scenes."
-            )))
 
     for service_name, svc in sorted(controllers.items()):
         env = svc["environment"]
@@ -417,7 +395,7 @@ def check(common, robots, controllers, comm_ids, scene_path=None,
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check a robot is wired the same in robots.yaml, the controller "
-                    "service, its waypoint file and COMM_ROBOT_IDS.")
+                    "service and its waypoint file.")
     parser.add_argument("--robots-config", required=True,
                         help="the robots.yaml Isaac will be launched with (no default: "
                              "checking the wrong one is the failure this catches)")
@@ -446,12 +424,12 @@ def main() -> int:
         for name, svc in sorted(controllers.items())
     )
     print(f"controllers   : {listed or '<none>'}")
-    print(f"COMM_ROBOT_IDS: {', '.join(comm_ids) or '<empty>'}")
+    print(f"mute mirrors  : {', '.join(comm_ids) or '<none>'}")
     print()
 
     findings = check(common, robots, controllers, comm_ids, scene_path, robots_yaml)
     if not findings:
-        print("OK — all four lists agree, and every waypoint origin matches its truck.")
+        print("OK — all three lists agree, and every waypoint origin matches its truck.")
         return 0
 
     for level, message in findings:
