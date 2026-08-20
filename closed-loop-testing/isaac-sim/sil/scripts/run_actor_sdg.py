@@ -879,15 +879,8 @@ def main():
     scenario = {}
     scenario_id = (args.scenario or os.environ.get("SCENARIO", "")).strip()
     if scenario_id:
-        import yaml as _yaml
-        _path = os.path.join(_configs_dir, "scenarios.yaml")
-        with open(_path) as _fh:
-            _all = _yaml.safe_load(_fh) or {}
-        if scenario_id not in _all:
-            print(f"ERROR: scenario '{scenario_id}' is not in {_path}. "
-                  f"Known: {', '.join(sorted(_all)) or '(none)'}", file=sys.stderr)
-            sys.exit(1)
-        scenario = _all[scenario_id] or {}
+        from action_graphs.forklift_common import load_scenario
+        scenario = load_scenario(_configs_dir, scenario_id)
         print(f"Scenario: {scenario_id}"
               f"{'  [EXPERIMENTAL - no published calibration; do not score this run]' if scenario.get('experimental') else ''}")
 
