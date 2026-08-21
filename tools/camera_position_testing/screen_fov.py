@@ -22,9 +22,9 @@ break different things:
           no position at all — the detection cannot be placed in the ROI or tested against
           the tripwire.
 ``body``  foot *and* head are in frame, so the bounding box is not clipped by the frame
-          edge. This is the level Shuo's "close object partially out of the FOV" concern is
-          about, and the level KION's own pro/con sheet predicts will fail for a person
-          standing directly under a gate-mounted camera.
+          edge. This is the level the "close object partially out of the FOV" concern is
+          about, and the one predicted to fail for a person standing directly under a
+          gate-mounted camera.
 
 Since the frame is convex and a straight world segment projects to a straight image
 segment, testing the two endpoints settles the whole segment.
@@ -165,7 +165,7 @@ def approach_run(sensors: list[Sensor], station: tuple[float, float],
                  outward: tuple[float, float], height: float) -> float:
     """Metres of continuous body-level visibility immediately outside the tripwire.
 
-    This is the geometric form of the meeting's requirement to push the tripwire out far
+    This is the geometric form of the requirement to push the tripwire out far
     enough "to ensure enough detection points": a target walking in towards the wire must
     stay fully in frame over the final stretch of its approach, or there are no frames in
     which the crossing can be established. Zero means the crossing is undetectable no
@@ -189,8 +189,8 @@ def wire_view_angles(sensors: list[Sensor], station: tuple[float, float]) -> lis
     position by back-projecting the floor contact point through the ground homography, and
     the steeper the view, the less that point behaves: at 90 degrees the target stands on
     its own contact point and occludes it, so the recovered position walks by however tall
-    the target is. That is the mechanism behind Shuo's "blind spot on one side of the
-    tripwire" and the reason D exists as a knob at all.
+    the target is. That is the mechanism behind the "blind spot on one side of the tripwire"
+    reported from a gate mount, and the reason D exists as a knob at all.
 
     Sorted shallowest first, because one camera with a usable angle is enough to place the
     target. The second entry matters as much as the first though, and on a gate mount it is

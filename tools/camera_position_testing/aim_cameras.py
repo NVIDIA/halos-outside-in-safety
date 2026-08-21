@@ -242,8 +242,8 @@ def main() -> None:
     parser.add_argument("--aim", metavar="x,y[,z]",
                         help="point every camera at this world point")
     parser.add_argument("--aim-for", action="append", default=[], metavar="NAME=x,y[,z]",
-                        help="aim one camera somewhere else (repeatable), e.g. the "
-                             "diagonal aiming in KION's sketch")
+                        help="aim one camera somewhere else (repeatable), e.g. a "
+                             "diagonal arrangement where each camera covers the far side")
     parser.add_argument("--aim-z", type=float, default=0.0,
                         help="z of an aim point given as x,y — 0.0 is the floor (default), "
                              "1.0 aims at torso height instead")
