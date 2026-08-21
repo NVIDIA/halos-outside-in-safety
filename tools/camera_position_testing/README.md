@@ -499,9 +499,17 @@ and need committing (or reimplementing) first:
 
 | Missing | What it does |
 |---|---|
-| `closed-loop-testing/isaac-sim/sil/configs/navmesh.json` | the walkability check in §5 needs it; without it `shift_waypoints.py` skips that check and says so |
-| local edits to `cameras.yaml`, `safety-core/configs/sensor_config.conf`, `srr/utils/vst_video.py` | the 2-camera configuration and a VST lookup fix |
-| VSS-side overrides | the profile `.env` and the live calibration sit in the VSS checkout on a non-upstream branch; a patch file exists but is not in this repo |
+| the 2-camera stack configuration | `cameras.yaml` and one row removed from `safety-core/configs/sensor_config.conf`. Regenerate the first from `candidates/cameras-gate-I.yaml` (§2.5); the second is a one-line edit |
+| VSS-side overrides | the profile `.env` (`NUM_STREAMS`) and the live calibration sit in the VSS checkout on a non-upstream branch; §2.5 says what to set |
+
+`navmesh.json` is generated rather than committed — bake and export it inside the `isaac-sim`
+container with the tracked
+`closed-loop-testing/regression-reporter/scenarios/isaac-scripts/navmesh/export_navmesh.py`,
+which writes it to `/isaac-sim/sil/configs/navmesh.json`, where `shift_waypoints.py` looks for
+it. Do this per scene, not once.
+
+`candidates/` holds the placement every number in §7 was measured at — `cameras-gate-I.yaml`
+and the calibration derived from it — so a row can be reproduced before authoring anything new.
 
 Everything else described above is in this directory. The two harness scripts here are copies
 of the ones in `closed-loop-testing/regression-reporter/scripts/` with the host-specific paths
@@ -524,6 +532,7 @@ version.
 | `run_srr_sweep.sh`, `run_srr_2cam.sh` | run the five scenarios for one placement, with the pose guard and the liveness watchdogs (§3) |
 | `watch_safety_core.sh` | standalone monitor for the Safety Core decision path (§3) |
 | `compare_runs.py` | put several runs side by side as text and CSV (§4) |
+| `candidates/` | the placement §7 was measured at, as a worked example |
 | `to_3d_calibration.py` | convert a calibration for the 3D (sparse4d) profile — see trap 8 |
 
 A customer-facing version of this document, with figures, is kept outside the repo and shared
