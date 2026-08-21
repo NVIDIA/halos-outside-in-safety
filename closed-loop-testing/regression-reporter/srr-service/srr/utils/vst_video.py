@@ -103,20 +103,65 @@ class VstClient:
 
     # ---- streams + timelines ----
     def list_streams(self) -> dict[str, dict]:
-        """Return {streamId: stream_info_dict}."""
+        """Return {streamId: stream_info_dict}.
+
+        VST sometimes keys an entry with a blank id while still reporting the
+        real one in the payload's `streamId` — seen on streams whose sensor
+        registration has since been replaced. Falling back to the payload keeps
+        that footage reachable; using the blank key as an id would build a clip
+        URL like /v1/storage/file//url, which 404s.
+        """
         out: dict[str, dict] = {}
         data = self._get_json("/v1/record/streams")
         for entry in data:
-            for sid, infos in entry.items():
-                if infos:
+            for key, infos in entry.items():
+                if not (infos and isinstance(infos[0], dict)):
+                    continue
+                sid = str(key).strip() or str(infos[0].get("streamId", "")).strip()
+                if sid:
                     out[sid] = infos[0]
         return out
 
-    def stream_id_by_name(self, name: str) -> str:
-        """Map a friendly camera name (e.g. 'Camera', 'Camera_01') to its UUID."""
+    def pin_stream(self, name: str, stream_id: str) -> None:
+        """Force `name` to resolve to `stream_id`, skipping auto-selection.
+
+        Needed to reach a superseded stream: a camera name resolves to whichever
+        id holds the newest footage, so an older window is only addressable by id.
+        """
         if self._stream_cache is None:
-            self._stream_cache = {info["name"]: sid
-                                  for sid, info in self.list_streams().items()}
+            self._stream_cache = {}
+        self._stream_cache[name] = stream_id
+
+    def _recording_end(self, sid: str) -> Optional[str]:
+        """Latest recorded endTime for a stream, or None when it has no footage."""
+        try:
+            spans = self._get_json(f"/v1/record/{sid}/timelines")
+        except Exception:
+            return None
+        ends = [s.get("endTime") for s in spans or [] if isinstance(s, dict) and s.get("endTime")]
+        return max(ends) if ends else None
+
+    def stream_id_by_name(self, name: str) -> str:
+        """Map a friendly camera name (e.g. 'Camera', 'Camera_01') to its UUID.
+
+        A camera name is not unique in VST: every delete/re-add cycle leaves the
+        previous registration behind, so a long-lived deployment accumulates
+        several ids under one name and only the newest holds current footage.
+        Pick the one that actually has recordings, most recent first.
+        """
+        if self._stream_cache is None:
+            by_name: dict[str, list[str]] = {}
+            for sid, info in self.list_streams().items():
+                by_name.setdefault(info.get("name", ""), []).append(sid)
+            cache: dict[str, str] = {}
+            for nm, sids in by_name.items():
+                if len(sids) == 1:
+                    cache[nm] = sids[0]
+                    continue
+                dated = [(self._recording_end(s), s) for s in sids]
+                recorded = [(e, s) for e, s in dated if e]
+                cache[nm] = max(recorded)[1] if recorded else sids[-1]
+            self._stream_cache = cache
         if name not in self._stream_cache:
             raise KeyError(f"camera {name!r} not found in VST streams; "
                            f"have: {sorted(self._stream_cache)}")
@@ -205,25 +250,32 @@ class VstClient:
 
 # ---- CLI ----
 def _cmd_list(args, vc: VstClient):
+    streams = vc.list_streams()
     print("Available VST streams:")
-    for sid, info in vc.list_streams().items():
+    for sid, info in streams.items():
         print(f"  {info['name']:14s}  {sid}  url={info.get('url','')}")
-    print("\nTimelines:")
-    for sid, info in vc.list_streams().items():
+    # Keyed by id, not name: one camera name usually maps to several ids here,
+    # and the windows are what tell you which id holds the run you want.
+    print("\nTimelines (per stream id):")
+    for sid, info in streams.items():
         try:
-            tls = vc.timelines(info["name"])
-            for tl in tls:
-                print(f"  {info['name']:14s}  {tl['startTime']} → {tl['endTime']}")
+            for tl in vc._get_json(f"/v1/record/{sid}/timelines") or []:
+                print(f"  {info['name']:14s}  {sid[:8]}  "
+                      f"{tl.get('startTime')} → {tl.get('endTime')}")
         except Exception as e:
-            print(f"  {info['name']:14s}  ERR {e}")
+            print(f"  {info['name']:14s}  {sid[:8]}  ERR {e}")
 
 
 def _cmd_download(args, vc: VstClient):
+    if args.stream_id:
+        vc.pin_stream(args.cam, args.stream_id)
     n = vc.download_clip(args.cam, args.start, args.end, args.out, args.container)
     print(f"saved {args.out} ({n/1e6:.1f} MB)")
 
 
 def _cmd_split_run(args, vc: VstClient):
+    if args.stream_id:
+        vc.pin_stream(args.cam, args.stream_id)
     vc.split_run(args.run_dir, args.out_dir, cam=args.cam,
                  full_video=not args.no_full, scenes=not args.no_scenes)
 
@@ -247,6 +299,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     sp.add_argument("--end", required=True)
     sp.add_argument("--out", required=True)
     sp.add_argument("--container", default="mp4")
+    sp.add_argument("--stream-id", default="",
+                    help="pin an exact VST stream id (see `list`) instead of "
+                         "resolving --cam to the newest one")
     sp.set_defaults(func=_cmd_download)
 
     sp = sub.add_parser("split-run", help="download cam0 full + per-scene clips for a run dir")
@@ -255,6 +310,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     sp.add_argument("--out-dir", required=True,
                     help="cam0.mp4 + scn_*.mp4 will be written here (flat layout)")
     sp.add_argument("--cam", default="Camera")
+    sp.add_argument("--stream-id", default="",
+                    help="pin an exact VST stream id (see `list`); required to "
+                         "re-pull a run whose sensor registration was replaced")
     sp.add_argument("--no-full", action="store_true", help="skip full cam0.mp4")
     sp.add_argument("--no-scenes", action="store_true", help="skip per-scene clips")
     sp.set_defaults(func=_cmd_split_run)
