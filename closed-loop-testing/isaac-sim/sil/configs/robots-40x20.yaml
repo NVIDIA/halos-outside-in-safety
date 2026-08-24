@@ -39,10 +39,9 @@
 #
 # The safety_indicator disc is NOT in this scene's USD: indicator_loader.py
 # authors it from the model's `indicator:` size below, before the graph builder
-# runs. The 20x20 scenes still carry a baked disc and so their model states no
-# size, which makes the loader a no-op for them. Declaring a size while a baked
-# disc still sits at the same prim path is an error — two sources of truth for
-# one prim.
+# runs. No scene in sil/scenes/ carries a baked disc, so every fleet file states
+# a size. Declaring one while a baked disc sits at the same prim path is an
+# error — two sources of truth for one prim.
 #
 # One block per robot. Add a robot = add a block here (including `spawn:`) + a
 # controller service (forklift-controller.yml). The scene USD is no longer

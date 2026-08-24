@@ -217,10 +217,10 @@ class ActorSDGRunner:
             print("Simulation setup complete!")
 
             # Post-setup stage modifiers + ActionGraph builders. Order matters:
-            #   1. runtime_patches.apply_halos_runtime_patches deactivates the
-            #      legacy 5.1 baked Character prims and moves IRA-spawned
-            #      chars to deterministic positions. Must run BEFORE Play so
-            #      chars are at canonical positions when BT first ticks.
+            #   1. runtime_patches.apply_halos_runtime_patches moves the
+            #      IRA-spawned chars to deterministic positions. Must run
+            #      BEFORE Play so chars are at canonical positions when BT
+            #      first ticks.
             #   2. action_graphs.build_rtsp_graph wires N RTSP streams on top
             #      of camera prims that already exist on the stage (no dep
             #      on char positions).
@@ -754,7 +754,7 @@ Examples:
     # See sil/scripts/action_graphs/README.md for what each does.
     parser.add_argument("--no-runtime-patches", dest="enable_runtime_patches", action="store_false",
                         default=True,
-                        help="Skip apply_halos_runtime_patches (legacy char deactivation + IRA char placement)")
+                        help="Skip apply_halos_runtime_patches (IRA char placement + forklift TGS rebalance)")
     parser.add_argument("--no-rtsp", dest="enable_rtsp", action="store_false",
                         default=True,
                         help="Skip build_rtsp_graph (RTSP multi-camera Action Graph build)")

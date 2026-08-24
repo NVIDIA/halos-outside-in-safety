@@ -6,13 +6,14 @@
 #   - build_odometry_graph   (IsaacComputeOdometry -> odom + TF tree)
 #   - build_safety_graph     (/safety/is_muted -> indicator disk color)
 #
-# This file is the default for EVERY profile (sil and hil): one forklift,
-# matching the stock scene. run_actor_sdg fails fast if a listed
-# articulation prim is missing from the loaded scene.
+# This file is the default for EVERY profile (sil and hil): one forklift. The
+# 20x20 scene contains no forklift prim — the `spawn:` block below authors it
+# into a generated layer that sublayers the scene, before IRA opens it, and
+# indicator_loader.py authors its safety disc. run_actor_sdg fails fast if a
+# listed articulation prim is missing from the loaded scene.
 #
-# TWO-FORKLIFT runs use configs/robots-40x20.yaml, whose trucks are spawned
-# from the file rather than baked into a scene: set SCENARIO=warehouse_40x20 and
-# add `multi-robot` to COMPOSE_PROFILES for the second controller container.
+# TWO-FORKLIFT runs use configs/robots-40x20.yaml: set SCENARIO=warehouse_40x20
+# and add `multi-robot` to COMPOSE_PROFILES for the second controller container.
 # Keep the `models:` block and the forklift_b block in both files in sync by
 # hand: the model is declared per file so each stays launchable on its own.
 # The parsed values must agree, not the bytes: the comments around them differ.
@@ -23,6 +24,10 @@
 # instead of a copy of everything below.
 models:
   forklift_b:
+    # Where the truck comes from. Used by `spawn:` below; a scene with the prim
+    # already baked in ignores it.
+    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+
     # Which control graph gets built — a choice of topology, not a label. The
     # swivel builder drives one steered wheel and one driven wheel; a
     # differential-drive robot needs its own builder rather than these numbers
@@ -42,15 +47,16 @@ models:
 
     robot_front: [-1.0, 0.0, 0.0]     # ros2_publish_odometry.inputs:robotFront
 
-    # Where the disc hangs, so `indicator_prim` need not be retyped per truck.
-    # No size next to it, unlike robots-40x20.yaml: this scene's disc is baked
-    # into the USD, and stating a size makes indicator_loader.py author a second
-    # one at the same path, which is an error rather than a duplicate.
-    #
-    # No asset_path either — the truck is baked into this scene too, so nothing
-    # spawns it.
+    # Safety disc: where it hangs on this model's bodywork, and how big it is.
+    # `indicator_prim` is derived from it as <articulation_prim>/<rel>/safety_indicator,
+    # so the long path is not retyped per truck. Declaring size here is
+    # what makes indicator_loader.py author the disc — a scene whose disc is
+    # baked into the USD must leave these out, or two things claim one prim.
     indicator:
       parent_prim_rel: body/body
+      radius: 1.5                     # metres, final world-space size
+      segments: 32                    # triangle-fan segments
+      height_offset: 0.0              # world metres above the parent origin
 
     # --- how the forklift-controller drives this asset ---
     # Read by the controller, not by any graph builder. What lives here follows
@@ -66,6 +72,7 @@ robots:
     model: forklift_b
     # Articulation root prim (was articulation_controller.inputs:targetPrim
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
+    # Also where `spawn:` below authors the truck, and what the disc hangs off.
     articulation_prim: /World/forklift_b
 
     # --- how this truck drives (forklift-controller) ---
@@ -74,6 +81,20 @@ robots:
     drive:
       speed: 1.5              # m/s along the path
       loop: true              # replay forever; needs a closed path
+
+    # --- prim ---
+    # forklift_overlay.py turns this into the truck's payload + transform. Drop
+    # the block to require a prim baked into the scene instead; declaring it
+    # while the scene already has one is an error, not a silent win.
+    #
+    # This position is also `defaultForkliftStart` in the waypoint generator's
+    # warehouse_20x20 map and the `origin` of every waypoint file under
+    # waypoints/warehouse_20x20/ — the controller subtracts that origin from
+    # every world pose, so moving the truck here without moving them makes it
+    # drive the right shape in the wrong place. preflight.py compares the two.
+    spawn:
+      position: [1.0, -13.39, 0.0]    # metres, world space — faces the dock door
+      yaw_deg: 180.0                  # rotation about Z — the truck faces -X
 
     # --- control (ROS_Forklift_Control_Graph) ---
     # Joints and geometry come from the model; what is left is this truck's own.

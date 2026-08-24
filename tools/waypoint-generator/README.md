@@ -217,8 +217,7 @@ The calibration fields:
 
 The formula is `pixelX = (worldX + transX) * scale` and
 `pixelY = (-worldY + transY) * scale`. Take `defaultForkliftStart` from the
-forklift prim's transform in the scene, or from its `spawn:` block in
-`sil/configs/robots-*.yaml`.
+truck's `spawn:` block in `sil/configs/robots*.yaml`.
 
 The 20x20 values come from the [VSS blueprint sample data](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic).
 That calibration measures pixel Y from the image *bottom*, so `transY` has to be

@@ -33,11 +33,12 @@ _FORKLIFT_PRIMS = [
     "/World/SM_Forklift_B01_Red_01_physics",
     "/World/SM_HeavyDutyPalletTruck_A01_01",
     "/World/ActionGraph",  # script_node_SwivelIK + MakeJointNames (forklift control)
-    # NOTE: /World/forklift_b and /World/forklift_c are the LIVE physics-active
-    # forklifts referenced by /World/ActionGraph/articulation_controller. We do NOT
-    # deactivate them here because doing so triggers omni.physx.tensors.plugin
+    # NOTE: /World/forklift_b is the LIVE physics-active forklift the control graph
+    # drives (spawned from the robots config by forklift_overlay.py). We do NOT
+    # deactivate it here because doing so triggers omni.physx.tensors.plugin
     # "Pattern did not match any articulations" errors at every render tick, which
-    # makes frame duplication worse, not better, so they are left active.
+    # makes frame duplication worse, not better, so it is left active. To run
+    # without a truck at all, launch with a fleet file that declares none.
 ]
 _ROS_CONTROLLED_ROBOTS = [
     "/World/Nova_Carter_ROS",
@@ -200,7 +201,6 @@ def deactivate_optional_scene_components(stage) -> None:
     if _env_flag("HALOS_REMOVE_FORKLIFT_FULL"):
         full_kill_paths = [
             "/World/forklift_b",
-            "/World/forklift_c",
             "/World/ActionGraph",
             "/World/SM_Forklift_A01_Blue_01",
             "/World/SM_Forklift_A01_Blue_01_physics",
@@ -214,7 +214,6 @@ def deactivate_optional_scene_components(stage) -> None:
     if _env_flag("HALOS_REMOVE_ALL_DYNAMIC"):
         full_kill_paths = [
             "/World/forklift_b",
-            "/World/forklift_c",
             "/World/ActionGraph",
             "/World/SM_Forklift_A01_Blue_01",
             "/World/SM_Forklift_A01_Blue_01_physics",
@@ -249,8 +248,8 @@ def deactivate_optional_scene_components(stage) -> None:
     total = 0
     if _env_flag("HALOS_DEACTIVATE_FORKLIFT"):
         total += _deactivate_prims(stage, _FORKLIFT_PRIMS, "forklift")
-        # Wildcard intentionally omitted: catches forklift_b/forklift_c which we
-        # cannot safely deactivate (breaks articulation_controller — see K1b/c).
+        # Wildcard intentionally omitted: catches forklift_b, which we cannot
+        # safely deactivate (breaks articulation_controller — see K1b/c).
     if _env_flag("HALOS_DEACTIVATE_ROS"):
         total += _deactivate_prims(stage, _ROS_CONTROLLED_ROBOTS, "ros")
         total += _deactivate_prims_by_name_substring(

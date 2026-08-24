@@ -129,7 +129,7 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 - [ ] 7. Set a unique ROS_DOMAIN_ID (0-232) + verify Publisher count=1
 - [ ] 8. (sil, multi-robot) Cross-check the four robot lists BEFORE booting Isaac:
         deployments/scripts/preflight.py --robots-config <the robots.yaml you will launch with>
-                                        [--scene <the scene USD, for trucks baked into it>]
+                                        [--scene <only for a fleet with a truck baked into the scene>]
 - [ ] 9. (sil) Run the Isaac Sim test scenario                   → references/test_scenario.md
 - [ ] 10. Monitor until sim-driven safety transitions appear (the "complete" signal)
 ```

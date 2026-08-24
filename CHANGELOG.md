@@ -82,6 +82,20 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Changed
 
+- **The 20x20 scene describes the warehouse and nothing else.** `forklift_b` and
+  its safety disc are declared in `robots.yaml` — a `spawn:` block at
+  `(1, -13.39)` facing 180°, and the `indicator:` size the baked disc used to
+  state as geometry — the way `robots-40x20.yaml` has declared its trucks since
+  they stopped being baked. No scene in `sil/scenes/` carries a forklift prim
+  now, so adding or moving a truck is a config change that can be reviewed as a
+  diff instead of a 36k-line USD edit.
+
+  The `spawn:` block names the `6.0` ForkliftB URL, where the deleted prim named
+  the `5.1` one, so both fleet files now say the same thing. Nothing about the
+  truck changes: the two URLs serve the same file, byte for byte
+  (`md5 eee8b76a…`). It still authors 16 TGS velocity iterations, so the runtime
+  patch's rebalance is load-bearing rather than a historical no-op.
+
 - **comm-layer derives its mute mirrors from the fleet file.** `COMM_ROBOT_IDS`
   was a fourth list of robot names kept by hand, and the only way to get it
   wrong was silent: a truck missing from it listens on a topic nobody publishes,
@@ -99,6 +113,19 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   **Needs `up -d --build`** — the comm-layer image changes.
 
 ### Removed
+
+- **The three 5.1 baked `Character` prims and their shared `Biped_Setup` rig,
+  from the 20x20 scene.** They carried no Behavior Tree in the 6.0 stack, so
+  every run showed six workers of which three stood still, and
+  `halos_runtime_patches.py` deactivated them on each launch to hide it. The
+  three IRA-spawned characters are unaffected — the patch still moves them to
+  the canonical positions. The prims declared `NavMeshExcludeAPI`, so the
+  navmesh bake is unchanged.
+
+- **The disabled `forklift_c` prim, from both the 20x20 and 40x20 scenes.** It
+  was `active = false` and `invisible` in both, referencing a
+  `collected-assets` payload nothing loaded, and its only remaining mentions
+  were in the `HALOS_*` bisection lists in `scene_component_isolation.py`.
 
 - **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file
   behind it.** It existed because there was no two-truck scene; `warehouse_40x20`
