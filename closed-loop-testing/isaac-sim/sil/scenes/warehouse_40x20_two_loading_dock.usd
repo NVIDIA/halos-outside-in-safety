@@ -21,8 +21,6 @@
             string boundCamera = "/OmniverseKit_Persp"
         }
         dictionary metricsAssembler = {
-            dictionary "/World/Characters/Biped_Setup" = {
-            }
             dictionary "/World/RackLong_A8_physics" = {
             }
             dictionary "/World/RackLong_A9_physics" = {

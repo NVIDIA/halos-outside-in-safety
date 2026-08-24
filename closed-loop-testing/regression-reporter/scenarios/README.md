@@ -160,16 +160,24 @@ If you switch scenes, regenerate ALL behavior trees — waypoints baked into the
 
 | Prim path | Type | Notes |
 |---|---|---|
-| `/World/forklift_b` | Articulation root | Body link is the moving root pose. SRR recorder uses `lookup_transform("world", "body")`. Sub-links (lift, wheels) are static offsets relative to body. |
-| `/World/Characters/Character/DHGen/SkelRoot` | Skeleton | Char_0, published as `/gt/character_0/tf` |
-| `/World/Characters/Character_01/DHGen/SkelRoot` | Skeleton | Char_1 |
-| `/World/Characters/Character_02/DHGen/SkelRoot` | Skeleton | Char_2 |
+| `/World/forklift_b` | Articulation root | Not in the scene USD — spawned from the `spawn:` block in `robots.yaml` by `forklift_overlay.py`. Body link is the moving root pose. SRR recorder uses `lookup_transform("world", "body")`. Sub-links (lift, wheels) are static offsets relative to body. |
+| `/World/Characters/inspect_workers/inspect_workers_0/…/ManRoot` | Skeleton | Char_0, published as `/gt/character_0/tf` |
+| `/World/Characters/gather_workers/gather_workers_0/…/ManRoot` | Skeleton | Char_1 |
+| `/World/Characters/pickup_workers/pickup_workers_0/…/ManRoot` | Skeleton | Char_2 |
 | `/World/Cameras/Camera`, `Camera_01`, `Camera_02` | Camera | 3 RTSP camera streams into VSS perception (via VST) |
 | `/World/ActionGraph` | OmniGraph | Forklift control graph — built at run time by the SIL stack (not baked) |
 | `/World/SRRGraph` | OmniGraph | `/gt/*/tf` publishers — built at run time via `--srr-gt` (`action_graphs/srr_ground_truth.py`) |
 | `/World/Loading_Zone_Objects` | Xform | Pallet stacks (loading-zone props) |
 | `/World/Loading_Zone_Objects_01` | Xform | Loading-dock obstacles |
 | `/World/Navmesh/NavMeshVolume_*` | NavMeshVolume | NavMesh volumes; the stock bake already covers the character zones |
+
+The three characters are spawned by IRA, not baked into the scene, so the segment
+elided as `…` above is the IRA-chosen asset name and changes with the spawn seed.
+`srr_ground_truth.py` does not hardcode it — it walks each `<group>_0` root looking
+for a prim named `ManRoot` (the 6.0 successor to the 5.1 `SkelRoot`) and raises if
+any group is missing, so a bad spawn fails loudly instead of misaligning the
+`/gt/character_<i>` indices. Group order in `DEFAULT_CHAR_GROUPS` is what fixes
+which character is 0, 1 and 2.
 
 ### Calibration (from `calibration.json`)
 
