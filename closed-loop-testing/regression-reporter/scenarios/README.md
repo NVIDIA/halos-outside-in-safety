@@ -171,8 +171,9 @@ If you switch scenes, regenerate ALL behavior trees — waypoints baked into the
 | `/World/Loading_Zone_Objects_01` | Xform | Loading-dock obstacles |
 | `/World/Navmesh/NavMeshVolume_*` | NavMeshVolume | NavMesh volumes; the stock bake already covers the character zones |
 
-The three characters are spawned by IRA, not baked into the scene, so the segment
-elided as `…` above is the IRA-chosen asset name and changes with the spawn seed.
+The three characters are spawned by IRA, not baked into the scene, so what `…`
+elides above is zero or more segments of IRA-chosen asset name, varying with the
+spawn seed and differing between the three groups.
 `srr_ground_truth.py` does not hardcode it — it walks each `<group>_0` root looking
 for a prim named `ManRoot` (the 6.0 successor to the 5.1 `SkelRoot`) and raises if
 any group is missing, so a bad spawn fails loudly instead of misaligning the

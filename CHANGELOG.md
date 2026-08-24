@@ -88,7 +88,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   state as geometry — the way `robots-40x20.yaml` has declared its trucks since
   they stopped being baked. No scene in `sil/scenes/` carries a forklift prim
   now, so adding or moving a truck is a config change that can be reviewed as a
-  diff instead of a 36k-line USD edit.
+  diff instead of a 35k-line USD edit.
 
   The `spawn:` block names the `6.0` ForkliftB URL, where the deleted prim named
   the `5.1` one, so both fleet files now say the same thing. Nothing about the
