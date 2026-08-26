@@ -43,17 +43,31 @@ def load_roi(calib_path: Optional[Path]) -> tuple[Polygon, Tripwire]:
 
     The tripwire's inside side comes from the calibration's ``direction``
     field (arrow head = inside/trailer side) — see srr.tripwire.
+
+    Refuses to fall back to the built-in zone. Scoring against geometry the run
+    was not recorded with produces a report that looks ordinary and is wrong,
+    and nothing downstream records which zone was used.
     """
-    if calib_path and calib_path.exists():
+    if calib_path is None:
+        raise SystemExit(
+            "[agg] FATAL: no calibration path given. Pass --calib pointing at the "
+            "calibration.json this run was recorded with."
+        )
+    if not calib_path.exists():
+        raise SystemExit(
+            f"[agg] FATAL: calibration not found: {calib_path}. Scoring would fall back to "
+            f"the built-in zone (wire x={DEFAULT_TW_X}), which is wrong for any moved zone."
+        )
+    try:
         d = json.loads(calib_path.read_text())
         # all sensors share the same ROI/TW in this scene; take first
         s0 = d["sensors"][0]
         coords = [(c["x"], c["y"]) for c in s0["rois"][0]["roiCoordinates"]]
         return (Polygon(coords), Tripwire.from_calib_dict(s0["tripwires"][0]))
-    return (
-        Polygon(DEFAULT_ROI_VERTICES),
-        Tripwire.legacy(DEFAULT_TW_X, DEFAULT_TW_Y_MIN, DEFAULT_TW_Y_MAX),
-    )
+    except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
+        raise SystemExit(
+            f"[agg] FATAL: could not read an ROI and tripwire from {calib_path} ({e})."
+        ) from e
 
 
 # ---------- Verdict math ----------
@@ -1507,7 +1521,7 @@ def render_clip_report(v: ClipVerdict) -> str:
 
 
 def render_summary(verdicts: list[ClipVerdict], top_level: bool = False,
-                   n_analyze_errors: int = 0) -> str:
+                   n_analyze_errors: int = 0, geometry: Optional[str] = None) -> str:
     if not verdicts:
         return "# SRR Aggregator — no clips found\n"
     n = len(verdicts)
@@ -1677,9 +1691,14 @@ def render_summary(verdicts: list[ClipVerdict], top_level: bool = False,
             "",
         ]
 
+    # Two rows of a zone sweep are identical from the metrics alone, so the
+    # report has to say which zone produced them.
+    geometry_lines = [f"_Scored against:_ {geometry}", ""] if geometry else []
+
     lines = [
         f"# SRR Aggregator — {n} clip(s)",
         "",
+        *geometry_lines,
         *ghost_banner,
         *scen_ghost_banner,
         *psf_banner,
@@ -2096,8 +2115,10 @@ def main() -> None:
     else:
         summary_path = out_dir / "summary.md"
         failures_path = out_dir / "failures.json"
+    geometry_note = f"`{calib_path}` · TW {tw} · ROI {list(roi.exterior.coords)}"
     summary_path.write_text(render_summary(verdicts, top_level=args.top_level,
-                                           n_analyze_errors=n_analyze_errors))
+                                           n_analyze_errors=n_analyze_errors,
+                                           geometry=geometry_note))
     failures_path.write_text(json.dumps({
         "total_clips": len(verdicts),
         "failed_clips": len(failures),
@@ -2112,7 +2133,8 @@ def main() -> None:
             by_run.setdefault(v.run_label, []).append(v)
         for run, vs in by_run.items():
             run_summary = runs_dir / run / "reports" / "summary.md"
-            run_summary.write_text(render_summary(vs, top_level=False))
+            run_summary.write_text(render_summary(vs, top_level=False,
+                                                  geometry=geometry_note))
             print(f"[agg] wrote {run_summary}")
 
 
