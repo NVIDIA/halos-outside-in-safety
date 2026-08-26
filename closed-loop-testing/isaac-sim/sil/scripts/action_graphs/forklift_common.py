@@ -467,9 +467,9 @@ def resolve_indicator_colors(robot: dict) -> tuple[tuple[float, float, float],
                                                    tuple[float, float, float]]:
     """(muted, alarm) RGB for this robot's disk, defaults applied.
 
-    Lives under `safety_indicator`, not under its `mesh:` block: a scene whose
-    disk is still baked into the USD has no `mesh:` block and would otherwise
-    be unable to change the colours.
+    Lives under `safety_indicator`, not under its `mesh:` block: the graph
+    recolours the disk on every state change, so the palette has to stay
+    configurable for a disk this stack did not author the geometry of.
     """
     cfg = robot.get("safety_indicator", {}) or {}
     name = robot.get("name", "?")
@@ -549,7 +549,7 @@ def strip_baked_scene_graphs(extra_paths: tuple[str, ...] = ()) -> list[str]:
     Python builders are authoritative and logic does not double-run.
 
     Headless/SSH-safe alternative to deleting the prim in the OmniGraph
-    editor and re-saving the (36k-line) scene USD. Idempotent: prims
+    editor and re-saving the (35k-line) scene USD. Idempotent: prims
     already absent are skipped. Returns the list of paths actually removed.
 
     Call BEFORE the per-robot builders.
@@ -558,10 +558,10 @@ def strip_baked_scene_graphs(extra_paths: tuple[str, ...] = ()) -> list[str]:
     spec in the current edit target, not wherever the prim was defined. With a
     forklift overlay as root layer (see forklift_overlay.py) the edit target is
     the overlay, so a graph defined down in the scene sublayer would keep
-    composing while the line above says it was stripped. None of the three
-    scenes in sil/scenes carries a prim at any of these paths, so nothing relies
-    on it. Anything that starts to should deactivate the prim, or set the edit
-    target to the layer that defines it, instead of trusting this.
+    composing while the line above says it was stripped. Neither scene in
+    sil/scenes carries a prim at any of these paths, so nothing relies on it.
+    Anything that starts to should deactivate the prim, or set the edit target
+    to the layer that defines it, instead of trusting this.
     """
     import omni.usd
 

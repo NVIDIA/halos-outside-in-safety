@@ -7,11 +7,7 @@ after IRA has finished `setup_simulation()` (environment + chars + robots
 + sensors loaded; timeline still stopped).
 
 What it does:
-  1. Deactivates 3 legacy 5.1 baked Character prims that exist in the
-     warehouse USD for backwards compatibility. They have no Behavior
-     Tree wired up in the 6.0 stack and would otherwise sit static in
-     the scene cluttering it.
-  2. Moves the IRA-spawned characters
+  1. Moves the IRA-spawned characters
      (`/World/Characters/<group>/<group>_0`) from their NavMesh-randomized
      positions to the canonical baked positions taken from the Halos
      scenario specification:
@@ -26,16 +22,20 @@ What it does:
      trackThreat log evidence). Offline navmesh queries confirmed every waypoint
      is on-navmesh and every A<->B segment has a valid path, so navmesh geometry
      is healthy.
+  2. Re-balances the forklift articulation's PhysX TGS solver iterations to
+     match the 5.1 baseline (see the comment on
+     `_HALOS_FORKLIFT_ARTICULATIONS` for why 6.0 needs this).
 
-Why this exists (not just a YAML config):
+Why step 1 exists (not just a YAML config):
   IRA 6.0 has no deterministic-spawn config path today. `spawn_areas` is
   NavMesh-area-name only, and the Character prim's xformOp:translate is
   unconditionally overwritten by `character_loader.py:set_prim_pos` at
   setup time. The only way to pin spawn to (2.26, -10.30, 0) etc. is to
   move chars AFTER setup.
 
-Once IRA exposes runtime spawn position via USD attributes, retire this
-module + replace with a few lines in cameras.yaml / character.yaml.
+Once IRA exposes runtime spawn position via USD attributes, retire step 1 +
+replace with a few lines in cameras.yaml / character.yaml. Step 2 outlives it:
+it is about the asset and the PhysX version, not about IRA.
 """
 
 from __future__ import annotations
@@ -50,18 +50,6 @@ _HALOS_CHAR_SPAWN_TARGETS = [
     ("/World/Characters/pickup_workers/pickup_workers_0",   (-2.86, -15.28, 0.00)),
 ]
 
-# Legacy 5.1 baked Character prims that we deactivate so the scene
-# doesn't show 6 chars (3 baked + 3 IRA-spawned) at the same time.
-# Biped_Setup is the 5.1 animation rig shared by the 3 baked chars; its
-# Biped_Setup.usd payload 404s on the 6.0 S3 (only the 5.1 path resolves),
-# so it's deactivated as a side-effect cleanup too.
-_LEGACY_BAKED_CHARS = [
-    "/World/Characters/Character",
-    "/World/Characters/Character_01",
-    "/World/Characters/Character_02",
-    "/World/Characters/Biped_Setup",
-]
-
 # Camera render tick rate (`omni:sensor:tickRate`) is intentionally NOT
 # authored here. Since the tc=60 fix (commit 595534a) the production value
 # is 0.0 (no cap), which is already the sensor default — the dup-DTS
@@ -72,11 +60,11 @@ _LEGACY_BAKED_CHARS = [
 # `omni:sensor:tickRate` on the camera in cameras.yaml / camera_loader.
 
 # Articulation roots whose PhysX TGS solver iterations must be re-balanced for
-# Isaac Sim 6.0 (PhysX SDK 5.3). The forklift asset (Isaac 5.1 ForkliftB) was
-# authored for the PhysX 5.2 TGS solver, which SILENTLY converted any velocity
-# iterations in excess of 4 into position iterations. PhysX 5.3 no longer does
-# this (CHANGELOG: TGS now honors the requested velocity-iteration count like
-# PGS), so the same asset solves differently in 6.0 and logs:
+# Isaac Sim 6.0 (PhysX SDK 5.3). The ForkliftB payload authors 16 velocity
+# iterations, written for the PhysX 5.2 TGS solver, which SILENTLY converted any
+# velocity iterations in excess of 4 into position iterations. PhysX 5.3 no
+# longer does this (CHANGELOG: TGS now honors the requested velocity-iteration
+# count like PGS), so the same asset solves differently in 6.0 and logs:
 #   [omni.physx.plugin] Detected an articulation at /World/forklift_b with more
 #   than 4 velocity iterations being added to a TGS scene...
 # To keep the forklift dynamics matching the 5.1 baseline, apply NVIDIA's
@@ -205,14 +193,7 @@ def apply_halos_runtime_patches(robots_config_path=None) -> None:
         print("[halos-runtime-patches] WARN: no USD stage open, skipping")
         return
 
-    # 1) Deactivate legacy baked Character prims so they don't render.
-    for legacy_path in _LEGACY_BAKED_CHARS:
-        prim = stage.GetPrimAtPath(legacy_path)
-        if prim and prim.IsValid():
-            prim.SetActive(False)
-            print(f"[halos-runtime-patches] Deactivated {legacy_path}")
-
-    # 2) Move each IRA-spawned char to its baked position.
+    # 1) Move each IRA-spawned char to its baked position.
     for prim_path, target in _HALOS_CHAR_SPAWN_TARGETS:
         prim = stage.GetPrimAtPath(prim_path)
         if not prim or not prim.IsValid():
@@ -230,7 +211,7 @@ def apply_halos_runtime_patches(robots_config_path=None) -> None:
             f"({target[0]:.2f}, {target[1]:.2f}, {target[2]:.2f})"
         )
 
-    # 3) Re-balance forklift TGS solver iterations to match the 5.1 baseline
+    # 2) Re-balance forklift TGS solver iterations to match the 5.1 baseline
     #    (PhysX 5.3 no longer auto-converts velocity iters >4 to position iters).
     articulations = (
         _articulations_from_robots_config(robots_config_path)

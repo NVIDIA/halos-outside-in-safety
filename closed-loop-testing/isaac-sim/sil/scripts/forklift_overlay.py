@@ -172,6 +172,59 @@ def _author_robot(layer, prim_path: str, asset_path: str, position, yaw_deg: flo
          ["xformOp:translate", "xformOp:orient", "xformOp:scale"], uniform=True)
 
 
+def _assert_scene_matches(robots_config_path: str, base_stage_path: str) -> None:
+    """Refuse a fleet file written for a different warehouse than the one loading.
+
+    `spawn.position` is world-space, so the 40x20 fleet in the 20x20 warehouse
+    parks forklift_b2 at y = -21.63, outside the walls. Nothing objects: the
+    prim is authored, the payload loads, the control graph binds, and the truck
+    drives its waypoints through a wall.
+
+    Until this refactor the pairing was checked by accident. Every scene authored
+    its own truck, so a mismatched fleet hit `_assert_not_already_in_scene` and
+    died on "already authored in ...". No scene authors a truck now, so that
+    guard cannot fire for any shipped pairing, and the scenario id became the
+    only thing holding the halves together — one that run_multi.sh does not pass
+    (`--robots-config` is absent there, so the fleet comes from the container's
+    SCENARIO while the IRA config is hardcoded).
+
+    Optional `scene:` key at the top level of the fleet file, so a config that
+    does not name one keeps working — same shape, and same suffix matching, as
+    `camera_loader.assert_scene_matches`:
+
+        scene: sil/scenes/warehouse_40x20_two_loading_dock.usd
+
+    One string, or a list when the fleet is valid in more than one scene.
+
+    MUST be called with the scene, before this module retargets the launch at
+    the generated overlay: after that the comparison is against a file name no
+    config could have named.
+    """
+    import yaml
+
+    with open(robots_config_path) as f:
+        declared = (yaml.safe_load(f) or {}).get("scene")
+    if not declared:
+        print(f"[forklift-overlay] {os.path.basename(robots_config_path)} declares no "
+              f"'scene:' — cannot check it against the scene being loaded", flush=True)
+        return
+    candidates = [declared] if isinstance(declared, str) else list(declared)
+
+    actual = str(base_stage_path).replace("\\", "/")
+    if not any(actual.endswith(str(c).lstrip("./")) for c in candidates):
+        raise RuntimeError(
+            f"[forklift-overlay] {robots_config_path} is written for "
+            f"{', '.join(str(c) for c in candidates)}, but the launch is loading "
+            f"{base_stage_path}. These are different warehouses and spawn positions "
+            f"are world-space, so the trucks would be parked metres from where the "
+            f"waypoints expect them — possibly outside the building — with every "
+            f"graph reporting healthy. Pass the --robots-config that goes with this "
+            f"scene, or correct the 'scene:' key."
+        )
+    print(f"[forklift-overlay] fleet file matches the scene: "
+          f"{os.path.basename(actual)}", flush=True)
+
+
 def _assert_not_already_in_scene(base_stage_path: str, claims: dict[str, str]) -> None:
     """Fail if the scene already authors a prim the YAML wants to spawn."""
     from pxr import Usd
@@ -198,6 +251,15 @@ def _assert_not_already_in_scene(base_stage_path: str, claims: dict[str, str]) -
 # the overlay sublayer whatever the scene sublayers, not the scene.
 _LAYER_METADATA_NOT_COPIED = {"subLayers", "subLayerOffsets"}
 
+# customLayerData entries that name a path relative to the layer holding them.
+# The overlay sits one directory deeper than the scene (`generated/`), so a value
+# copied verbatim resolves against a directory the file it names is not in: the
+# 20x20 scene's `./indicator_warehouse_20x20_layout_overflow_test.usd` would
+# point inside `generated/`. Dropped rather than rewritten — `authoring_layer` is
+# a Kit hint for which layer of the stack the layer editor writes into, and its
+# absent-value default is the root layer, which IS the overlay.
+_CUSTOM_LAYER_DATA_DROPPED = {"omni_layer": ("authoring_layer",)}
+
 
 def _copy_root_layer_metadata(base_stage_path: str, layer) -> None:
     """Repeat the scene's layer-level metadata on the overlay.
@@ -220,6 +282,10 @@ def _copy_root_layer_metadata(base_stage_path: str, layer) -> None:
     with no nominated root, and the navmesh then bakes to nothing: the volumes
     and floor are all still there, but characters spawn at the origin and every
     MoveTo fails, with the navmesh itself reported as present and healthy.
+
+    "Verbatim" has one exception, `_CUSTOM_LAYER_DATA_DROPPED`: a value that is
+    a path relative to the layer holding it does not survive the move into
+    `generated/`.
     """
     from pxr import Sdf
 
@@ -231,7 +297,31 @@ def _copy_root_layer_metadata(base_stage_path: str, layer) -> None:
     for key in base_layer.pseudoRoot.ListInfoKeys():
         if key in _LAYER_METADATA_NOT_COPIED:
             continue
-        layer.pseudoRoot.SetInfo(key, base_layer.pseudoRoot.GetInfo(key))
+        value = base_layer.pseudoRoot.GetInfo(key)
+        if key == "customLayerData":
+            value = _without_relative_paths(value)
+        layer.pseudoRoot.SetInfo(key, value)
+
+
+def _without_relative_paths(custom_layer_data):
+    """`customLayerData` minus the entries that name a layer-relative path.
+
+    Copied rather than mutated in place: the value comes from the scene's own
+    layer, which stays open for the `Usd.Stage` the caller composed from it.
+    """
+    out = dict(custom_layer_data)
+    for group, keys in _CUSTOM_LAYER_DATA_DROPPED.items():
+        if not isinstance(out.get(group), dict):
+            continue
+        pruned = {k: v for k, v in out[group].items() if k not in keys}
+        for dropped in set(out[group]) - set(pruned):
+            print(
+                f"[forklift-overlay] Dropped customLayerData[{group!r}][{dropped!r}] "
+                f"({out[group][dropped]!r}): relative to the scene's directory, "
+                f"and the overlay is one level below it"
+            )
+        out[group] = pruned
+    return out
 
 
 def _assert_writable(out_dir: str) -> None:
@@ -261,6 +351,10 @@ def generate_overlay(robots_config_path: str, base_stage_path: str) -> str | Non
     from pxr import Sdf
 
     from action_graphs.forklift_common import load_and_validate_robots_yaml
+
+    # Before the `spawn:` filter: a fleet paired with the wrong warehouse is worth
+    # rejecting whether or not this particular fleet is the one authoring trucks.
+    _assert_scene_matches(robots_config_path, base_stage_path)
 
     robots, _ = load_and_validate_robots_yaml(robots_config_path)
     # Key presence, not truthiness: `spawn:` with an empty body parses as None, and a

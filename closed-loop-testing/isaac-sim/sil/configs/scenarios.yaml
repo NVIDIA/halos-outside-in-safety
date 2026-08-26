@@ -3,8 +3,9 @@
 # IP, data paths, GPU — stays in the profile env. A flag wins over a scenario.
 #
 #   ira        IRA config. The scene USD is named inside it, so it is not repeated here
-#   robots     fleet file: which trucks exist and how each drives
-#   cameras    camera config; its `scene:` key is cross-checked against the IRA scene at load
+#   robots     fleet file: which trucks exist and how each drives. Its `scene:`
+#              key is cross-checked against the IRA scene at load
+#   cameras    camera config; its `scene:` key is cross-checked the same way
 #   waypoints  directory under forklift-controller/waypoints/, holding <robot>.json per truck
 #   experimental  true = no published calibration, so perception geometry does not
 #                 match this scene. Run it to watch trucks drive; do not score it.

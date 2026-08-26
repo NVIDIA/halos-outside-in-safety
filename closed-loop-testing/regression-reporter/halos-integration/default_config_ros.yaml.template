@@ -38,8 +38,7 @@
 #      runs are unaffected); run_actor_sdg.py then builds the graph in its
 #      post-setup block — AFTER IRA spawned the chars — and pumps their live
 #      Fabric transforms each frame. runtime_patches repositions inspect_workers /
-#      gather_workers / pickup_workers to their canonical spawns + deactivates the
-#      static 5.1 baked Character{,_01,_02}.
+#      gather_workers / pickup_workers to their canonical spawns.
 #   2. Camera / VST streaming — SRR perception needs the 3 calibrated cameras
 #      (Camera, Camera_01, Camera_02). run_actor_sdg.py is launched with
 #      --cameras-config cameras.yaml and --enable-vst; confirm frames reach VST /

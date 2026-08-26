@@ -82,6 +82,20 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Changed
 
+- **The 20x20 scene describes the warehouse and nothing else.** `forklift_b` and
+  its safety disc are declared in `robots.yaml` — a `spawn:` block at
+  `(1, -13.39)` facing 180°, and the `indicator:` size the baked disc used to
+  state as geometry — the way `robots-40x20.yaml` has declared its trucks since
+  they stopped being baked. No scene in `sil/scenes/` carries a forklift prim
+  now, so adding or moving a truck is a config change that can be reviewed as a
+  diff instead of a 35k-line USD edit.
+
+  The `spawn:` block names the `6.0` ForkliftB URL, where the deleted prim named
+  the `5.1` one, so both fleet files now say the same thing. Nothing about the
+  truck changes: the two URLs serve the same file, byte for byte
+  (`md5 eee8b76a…`). It still authors 16 TGS velocity iterations, so the runtime
+  patch's rebalance is load-bearing rather than a historical no-op.
+
 - **comm-layer derives its mute mirrors from the fleet file.** `COMM_ROBOT_IDS`
   was a fourth list of robot names kept by hand, and the only way to get it
   wrong was silent: a truck missing from it listens on a topic nobody publishes,
@@ -99,6 +113,22 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   **Needs `up -d --build`** — the comm-layer image changes.
 
 ### Removed
+
+- **The three 5.1 baked `Character` prims and their shared `Biped_Setup` rig,
+  from the 20x20 scene.** They carried no Behavior Tree in the 6.0 stack, so
+  every run showed six workers of which three stood still, and
+  `halos_runtime_patches.py` deactivated them on each launch to hide it. The
+  three IRA-spawned characters are unaffected — the patch still moves them to
+  the canonical positions. The navmesh bake is unchanged: the three `Character`
+  prims declared `NavMeshExcludeAPI`, and `Biped_Setup` — which declares no api
+  schemas and does compose real geometry — is `invisible`, carries no collider,
+  and sits on a patch of `scenarios/scenes/navmesh.json` that is already fully
+  walkable.
+
+- **The disabled `forklift_c` prim, from both the 20x20 and 40x20 scenes.** It
+  was `active = false` and `invisible` in both, referencing a
+  `collected-assets` payload nothing loaded, and its only remaining mentions
+  were in the `HALOS_*` bisection lists in `scene_component_isolation.py`.
 
 - **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file
   behind it.** It existed because there was no two-truck scene; `warehouse_40x20`
@@ -130,12 +160,35 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `COMM_ROBOT_IDS` — comm-layer mirrors the mute decision onto `/<robot>/safety/is_muted` for each listed robot. Every mirror carries the same value: the decision is made for a camera-covered zone, not for a named truck.
 - 40x20 two-dock scene and its config trio. **Experimental / internal-only** — no calibration is published with it, so VSS runs 20x20 geometry against it and the safety numbers do not mean anything.
 - `deployments/scripts/preflight.py` — cross-checks the robots config, controller services, waypoint files and `COMM_ROBOT_IDS` before Isaac boots, and compares each waypoint origin against where its truck stands.
+- **Optional `scene:` key in `robots*.yaml`, checked before the stage opens.**
+  A `spawn.position` is world-space, so the 40x20 fleet in the 20x20 warehouse
+  parks `forklift_b2` at y = -21.63, outside the walls, while the prim is
+  authored, the payload loads, the control graph binds and the truck drives its
+  waypoints through it. Until the trucks left the scene USDs this pairing was
+  enforced by accident — a mismatched fleet died on "already authored in …" —
+  and `run_multi.sh` passes no `--robots-config`, so a stale `SCENARIO` is
+  enough to hit it. Same shape and same path-suffix matching as
+  `cameras.yaml`'s own `scene:`; a fleet file that names none keeps working and
+  says so at launch.
 
 ### Fixed
 
 - `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.0 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
+- The generated forklift overlay copied the 20x20 scene's
+  `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
+  scene's directory, landing in a file one level below it in
+  `scenes/generated/`. Dropped rather than rewritten: it is a Kit hint for which
+  layer the layer editor writes into, and its default is the root layer, which
+  is the overlay. `navmeshSettings` and `defaultPrim`, the two load-bearing
+  entries, are copied as before. First run to reach this would have been the
+  first default 20x20 run after the truck moved out of the scene.
+- Two `HALOS_REMOVE_*` bisection toggles called `stage.RemovePrim` directly and
+  printed `Removed` whatever it returned. Now that the overlay is the root
+  layer, `RemovePrim` deletes the spec in the edit target rather than where the
+  prim is defined, so those two could report success while the prim kept
+  composing. Both go through `_remove_prims`, which checks the return value.
 - `robots*.yaml` `drive:` was the only block in this config family that accepted
   unknown keys. `robots-40x20.yaml` had already lost the disc's `segments:` and
   `height_offset:` to it, one indentation level too far — merged, never read,
