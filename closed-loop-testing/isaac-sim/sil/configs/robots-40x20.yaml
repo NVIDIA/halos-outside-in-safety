@@ -48,6 +48,14 @@
 # touched. The TGS rebalance list in
 # runtime_patches/halos_runtime_patches.py is derived from this file.
 
+# Which warehouse the `spawn:` positions below are measured in. Checked against
+# the scene actually loading, before the stage opens (forklift_overlay.py), the
+# same way cameras-40x20.yaml declares its own. This file is the reason the check
+# exists: run_multi.sh passes no --robots-config, so a stale SCENARIO pairs this
+# fleet with the 20x20 scene and parks forklift_b2 at y = -21.63, outside the
+# walls, with every graph reporting healthy.
+scene: sil/scenes/warehouse_40x20_two_loading_dock.usd
+
 # What follows from the asset, stated once. Two trucks built from one ForkliftB
 # payload cannot disagree about their wheelbase, so these belong to the model
 # rather than to each truck — before this block they were copied per robot, and

@@ -70,7 +70,16 @@ def _deactivate_prims(stage, paths, label: str) -> int:
 
 
 def _remove_prims(stage, paths, label: str) -> int:
-    """USD-level removal (stronger than SetActive — also tears down OmniGraph refs)."""
+    """USD-level removal (stronger than SetActive — also tears down OmniGraph refs).
+
+    `RemovePrim` removes the spec in the current EDIT TARGET, not wherever the
+    prim was defined. Since the forklift overlay became the root layer (see
+    forklift_overlay.py) the edit target is the overlay, so a prim defined down
+    in the scene sublayer keeps composing and this returns False. Every caller
+    goes through here so that shows up as a printed line rather than as a
+    toggle that quietly does nothing; when it happens, deactivate the prim
+    instead, or set the edit target to the layer that defines it.
+    """
     count = 0
     for path in paths:
         prim = stage.GetPrimAtPath(path)
@@ -155,15 +164,11 @@ def deactivate_optional_scene_components(stage) -> None:
     if _env_flag("HALOS_REMOVE_PHYSICS_SCENE"):
         # Collect-then-remove (iterator invalidation safety)
         paths = [str(p.GetPath()) for p in stage.Traverse() if "PhysicsScene" in str(p.GetTypeName())]
-        for p in paths:
-            stage.RemovePrim(p)
-            print(f"[scene-isolation/physics_scene_remove] Removed {p}")
+        _remove_prims(stage, paths, "physics_scene_remove")
 
     if _env_flag("HALOS_REMOVE_RENDER_SETTINGS"):
         paths = [str(p.GetPath()) for p in stage.Traverse() if "RenderSettings" in str(p.GetTypeName())]
-        for p in paths:
-            stage.RemovePrim(p)
-            print(f"[scene-isolation/render_settings_remove] Removed {p}")
+        _remove_prims(stage, paths, "render_settings_remove")
 
     if _env_flag("HALOS_REMOVE_VIEWPORT_MEASURE"):
         _remove_prims(stage, ["/Viewport_Measure"], "viewport_measure_remove")

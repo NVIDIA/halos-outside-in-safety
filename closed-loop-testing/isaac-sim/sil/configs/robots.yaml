@@ -18,6 +18,14 @@
 # hand: the model is declared per file so each stays launchable on its own.
 # The parsed values must agree, not the bytes: the comments around them differ.
 
+# Which warehouse the `spawn:` positions below are measured in. Checked against
+# the scene actually loading, before the stage opens (forklift_overlay.py), the
+# same way cameras.yaml declares its own. Worth stating because the pairing used
+# to be enforced by accident: while every scene authored its own truck, a fleet
+# aimed at the wrong warehouse died on "already authored in ...". Nothing authors
+# a truck now, so a mismatch would simply park it in the wrong building.
+scene: sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+
 # What follows from the asset, stated once per file. With a single robot there
 # is nothing to deduplicate here yet; the block exists so this file has the same
 # shape as the others, and so a second truck costs one `model: forklift_b` line

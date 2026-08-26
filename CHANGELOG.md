@@ -160,12 +160,35 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `COMM_ROBOT_IDS` — comm-layer mirrors the mute decision onto `/<robot>/safety/is_muted` for each listed robot. Every mirror carries the same value: the decision is made for a camera-covered zone, not for a named truck.
 - 40x20 two-dock scene and its config trio. **Experimental / internal-only** — no calibration is published with it, so VSS runs 20x20 geometry against it and the safety numbers do not mean anything.
 - `deployments/scripts/preflight.py` — cross-checks the robots config, controller services, waypoint files and `COMM_ROBOT_IDS` before Isaac boots, and compares each waypoint origin against where its truck stands.
+- **Optional `scene:` key in `robots*.yaml`, checked before the stage opens.**
+  A `spawn.position` is world-space, so the 40x20 fleet in the 20x20 warehouse
+  parks `forklift_b2` at y = -21.63, outside the walls, while the prim is
+  authored, the payload loads, the control graph binds and the truck drives its
+  waypoints through it. Until the trucks left the scene USDs this pairing was
+  enforced by accident — a mismatched fleet died on "already authored in …" —
+  and `run_multi.sh` passes no `--robots-config`, so a stale `SCENARIO` is
+  enough to hit it. Same shape and same path-suffix matching as
+  `cameras.yaml`'s own `scene:`; a fleet file that names none keeps working and
+  says so at launch.
 
 ### Fixed
 
 - `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.0 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
+- The generated forklift overlay copied the 20x20 scene's
+  `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
+  scene's directory, landing in a file one level below it in
+  `scenes/generated/`. Dropped rather than rewritten: it is a Kit hint for which
+  layer the layer editor writes into, and its default is the root layer, which
+  is the overlay. `navmeshSettings` and `defaultPrim`, the two load-bearing
+  entries, are copied as before. First run to reach this would have been the
+  first default 20x20 run after the truck moved out of the scene.
+- Two `HALOS_REMOVE_*` bisection toggles called `stage.RemovePrim` directly and
+  printed `Removed` whatever it returned. Now that the overlay is the root
+  layer, `RemovePrim` deletes the spec in the edit target rather than where the
+  prim is defined, so those two could report success while the prim kept
+  composing. Both go through `_remove_prims`, which checks the return value.
 - `robots*.yaml` `drive:` was the only block in this config family that accepted
   unknown keys. `robots-40x20.yaml` had already lost the disc's `segments:` and
   `height_offset:` to it, one indentation level too far — merged, never read,
