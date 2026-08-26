@@ -488,10 +488,10 @@ phase_analyze() {
   # clears the source. End-of-run concat picks these up.
   local snap_script="$SCRIPT_DIR/snapshot_pss.sh"
   local scn_host_dir="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}/${label}"
-  if [[ -x "$snap_script" && -d "$scn_host_dir" ]]; then
+  if [[ -r "$snap_script" && -d "$scn_host_dir" ]]; then
     log "snapshotting pss.log (per-scn)..."
-    # The per-scenario PSF forensic log is destroyed by the next scenario's
-    # compose restart, so a failed snapshot loses it permanently. Fail the sweep
+    # This is the only point at which this scenario's PSF window is separable
+    # from the next one's, so a failed snapshot loses it permanently. Fail the sweep
     # by default instead of silently warning; set SRR_PSS_STRICT=0
     # to downgrade to a non-fatal warning (tolerate one lost log, keep sweeping).
     if ! bash "$snap_script" "$scn_host_dir" --per-scn; then
@@ -521,7 +521,7 @@ phase_analyze() {
     # Say so. A missing script or an unexpected runs path used to skip the
     # snapshot without printing anything, and the run only looked wrong much
     # later, as pss_raw=0 on every clip.
-    log "WARN skipping pss.log snapshot for ${label}: snap_script=${snap_script} (executable: $([[ -x "$snap_script" ]] && echo yes || echo no)), scenario dir=${scn_host_dir} (present: $([[ -d "$scn_host_dir" ]] && echo yes || echo no))"
+    log "WARN skipping pss.log snapshot for ${label}: snap_script=${snap_script} (readable: $([[ -r "$snap_script" ]] && echo yes || echo no)), scenario dir=${scn_host_dir} (present: $([[ -d "$scn_host_dir" ]] && echo yes || echo no))"
   fi
 
   # Guard the flush-vs-read race: the recorder's writer.close() footer may not
