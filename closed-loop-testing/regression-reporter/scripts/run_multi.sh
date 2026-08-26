@@ -607,19 +607,25 @@ docker exec srr bash -c 'rm -f /app/runs/run-*.parquet' >/dev/null 2>&1 || true
 # root, which is the EPERM that SRR_PSS_STRICT exists to paper over.
 HOST_RUN_DIR_INIT="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}"
 SNAP_INIT="$SCRIPT_DIR/snapshot_pss.sh"
-if [[ -x "$SNAP_INIT" ]]; then
+# Readable, not executable: these are invoked as `bash <script>`, so the
+# executable bit does not decide whether they run — testing it only invents a
+# way for the step to be skipped without saying so.
+if [[ -r "$SNAP_INIT" ]]; then
   bash "$SNAP_INIT" "$HOST_RUN_DIR_INIT" --init \
     || log "WARN pss.log baseline not set — the first scenario will copy the whole log"
 else
+  log "WARN $SNAP_INIT not readable — no pss.log baseline for this run"
   mkdir -p "$HOST_RUN_DIR_INIT" 2>/dev/null || true
 fi
 
 # Record what is producing this run, while it is still true.
 PROV_SCRIPT="$SCRIPT_DIR/write_provenance.sh"
-if [[ -x "$PROV_SCRIPT" ]]; then
+if [[ -r "$PROV_SCRIPT" ]]; then
   SRR_RUN_CMDLINE="$0 $*" \
   SRR_RUN_SCENARIOS="$(printf '%s; ' "${SCENARIOS[@]}")" \
     bash "$PROV_SCRIPT" "$HOST_RUN_DIR_INIT" || log "WARN provenance capture failed (continuing)"
+else
+  log "WARN $PROV_SCRIPT not readable — this run will not record the code or geometry that produced it"
 fi
 
 # Score against the geometry this run was recorded with. tw_split and the
@@ -709,7 +715,7 @@ log "top-level summary written: /app/runs/multi-test-${TIMESTAMP}/summary.md"
 # previous one, so together they hold every scenario's PSF data exactly once.
 SNAP_SCRIPT="$(dirname "$0")/snapshot_pss.sh"
 HOST_RUN_DIR="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}"
-if [[ -x "$SNAP_SCRIPT" && -d "$HOST_RUN_DIR" ]]; then
+if [[ -r "$SNAP_SCRIPT" && -d "$HOST_RUN_DIR" ]]; then
   log "concatenating per-scn pss.log snapshots..."
   if ! bash "$SNAP_SCRIPT" "$HOST_RUN_DIR"; then
     if [[ "${SRR_PSS_STRICT:-1}" == "0" ]]; then
@@ -720,7 +726,7 @@ if [[ -x "$SNAP_SCRIPT" && -d "$HOST_RUN_DIR" ]]; then
     fi
   fi
 else
-  log "WARN skipping final pss.log concat: snap script=${SNAP_SCRIPT} (executable: $([[ -x "$SNAP_SCRIPT" ]] && echo yes || echo no)), run dir=${HOST_RUN_DIR} (present: $([[ -d "$HOST_RUN_DIR" ]] && echo yes || echo no))"
+  log "WARN skipping final pss.log concat: snap script=${SNAP_SCRIPT} (readable: $([[ -r "$SNAP_SCRIPT" ]] && echo yes || echo no)), run dir=${HOST_RUN_DIR} (present: $([[ -d "$HOST_RUN_DIR" ]] && echo yes || echo no))"
 fi
 
 echo "  Output: /app/runs/multi-test-${TIMESTAMP}/"
