@@ -38,7 +38,10 @@ _FORKLIFT_PRIMS = [
     # deactivate it here because doing so triggers omni.physx.tensors.plugin
     # "Pattern did not match any articulations" errors at every render tick, which
     # makes frame duplication worse, not better, so it is left active. To run
-    # without a truck at all, launch with a fleet file that declares none.
+    # without a truck at all, declare the robot but leave out its `spawn:` block
+    # and set control, odometry and safety_indicator to `enabled: false`: the
+    # loader rejects an empty `robots:` list, and any enabled section fails on the
+    # prim that was never spawned.
 ]
 _ROS_CONTROLLED_ROBOTS = [
     "/World/Nova_Carter_ROS",

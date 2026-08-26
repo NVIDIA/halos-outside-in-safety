@@ -50,8 +50,9 @@ models:
     # Safety disc: where it hangs on this model's bodywork, and how big it is.
     # `indicator_prim` is derived from it as <articulation_prim>/<rel>/safety_indicator,
     # so the long path is not retyped per truck. Declaring size here is
-    # what makes indicator_loader.py author the disc — a scene whose disc is
-    # baked into the USD must leave these out, or two things claim one prim.
+    # what makes indicator_loader.py author the disc, and no scene carries a
+    # baked one, so leaving it out means nothing authors the disc and the graph
+    # builder dies on the prim.
     indicator:
       parent_prim_rel: body/body
       radius: 1.5                     # metres, final world-space size
@@ -94,7 +95,8 @@ robots:
     # drive the right shape in the wrong place. preflight.py compares the two.
     spawn:
       position: [1.0, -13.39, 0.0]    # metres, world space — faces the dock door
-      yaw_deg: 180.0                  # rotation about Z — the truck faces -X
+      yaw_deg: 180.0                  # rotation about Z — ForkliftB's front is -X
+                                      # in its own frame, so this points it at +X
 
     # --- control (ROS_Forklift_Control_Graph) ---
     # Joints and geometry come from the model; what is left is this truck's own.

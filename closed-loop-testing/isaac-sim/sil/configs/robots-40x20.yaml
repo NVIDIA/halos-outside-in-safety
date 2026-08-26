@@ -55,7 +55,7 @@
 #
 # A second kind of truck is a second entry here, not a longer robot block. Note
 # that this list is per file on purpose: each robots*.yaml stays launchable on
-# its own, at the price of repeating the model across the three of them.
+# its own, at the price of repeating the model across both files.
 models:
   forklift_b:
     # Where the truck comes from. Used by `spawn:` below; a scene with the prim
@@ -84,8 +84,9 @@ models:
     # Safety disc: where it hangs on this model's bodywork, and how big it is.
     # `indicator_prim` is derived from it as <articulation_prim>/<rel>/safety_indicator,
     # so the long path is no longer retyped per truck. Declaring size here is
-    # what makes indicator_loader.py author the disc — a scene whose disc is
-    # baked into the USD must leave these out, or two things claim one prim.
+    # what makes indicator_loader.py author the disc, and no scene carries a
+    # baked one, so leaving it out means nothing authors the disc and the graph
+    # builder dies on the prim.
     indicator:
       parent_prim_rel: body/body
       radius: 1.5                     # metres, final world-space size

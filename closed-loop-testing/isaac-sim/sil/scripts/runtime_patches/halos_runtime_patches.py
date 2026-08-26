@@ -22,16 +22,20 @@ What it does:
      trackThreat log evidence). Offline navmesh queries confirmed every waypoint
      is on-navmesh and every A<->B segment has a valid path, so navmesh geometry
      is healthy.
+  2. Re-balances the forklift articulation's PhysX TGS solver iterations to
+     match the 5.1 baseline (see the comment on
+     `_HALOS_FORKLIFT_ARTICULATIONS` for why 6.0 needs this).
 
-Why this exists (not just a YAML config):
+Why step 1 exists (not just a YAML config):
   IRA 6.0 has no deterministic-spawn config path today. `spawn_areas` is
   NavMesh-area-name only, and the Character prim's xformOp:translate is
   unconditionally overwritten by `character_loader.py:set_prim_pos` at
   setup time. The only way to pin spawn to (2.26, -10.30, 0) etc. is to
   move chars AFTER setup.
 
-Once IRA exposes runtime spawn position via USD attributes, retire this
-module + replace with a few lines in cameras.yaml / character.yaml.
+Once IRA exposes runtime spawn position via USD attributes, retire step 1 +
+replace with a few lines in cameras.yaml / character.yaml. Step 2 outlives it:
+it is about the asset and the PhysX version, not about IRA.
 """
 
 from __future__ import annotations

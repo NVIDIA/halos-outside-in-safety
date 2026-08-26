@@ -119,8 +119,11 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   every run showed six workers of which three stood still, and
   `halos_runtime_patches.py` deactivated them on each launch to hide it. The
   three IRA-spawned characters are unaffected — the patch still moves them to
-  the canonical positions. The prims declared `NavMeshExcludeAPI`, so the
-  navmesh bake is unchanged.
+  the canonical positions. The navmesh bake is unchanged: the three `Character`
+  prims declared `NavMeshExcludeAPI`, and `Biped_Setup` — which declares no api
+  schemas and does compose real geometry — is `invisible`, carries no collider,
+  and sits on a patch of `scenarios/scenes/navmesh.json` that is already fully
+  walkable.
 
 - **The disabled `forklift_c` prim, from both the 20x20 and 40x20 scenes.** It
   was `active = false` and `invisible` in both, referencing a
