@@ -65,25 +65,27 @@ inspect_image() {  # $1 = container name → "<image-ref>|<image-id>|<repo-diges
 }
 
 # ---- code identity ----
-# Hash the .py tree the same way on both sides so the two are comparable.
-tree_digest() {  # reads a `find`-able root on stdin-free args
-  local root="$1"
-  find "$root" -name '*.py' -type f -print0 2>/dev/null \
-    | sort -z \
-    | xargs -0 sha256sum 2>/dev/null \
-    | awk '{print $1}' \
-    | sha256sum | cut -d' ' -f1
-}
+# One expression, run on both sides, because two transcriptions of "hash the
+# tree" drift: the first pair differed only in sort order (the host's locale
+# collates __init__.py after clip_logs.py, the container's C locale before it)
+# and reported a mismatch for two identical trees. LC_ALL=C pins the collation,
+# paths are relative to the tree root so they read the same in both places, and
+# hashing path alongside content means a rename is a difference too.
+CODE_DIGEST_CMD='cd "$0" 2>/dev/null || exit 1
+find . -name "*.py" -type f -print0 2>/dev/null \
+  | LC_ALL=C sort -z \
+  | xargs -0 sha256sum 2>/dev/null \
+  | LC_ALL=C sort \
+  | sha256sum | cut -d" " -f1'
 
 HOST_CODE_SHA=""
 if [[ -d "$SRR_HOST_SRC" ]]; then
-  HOST_CODE_SHA=$(tree_digest "$SRR_HOST_SRC")
+  HOST_CODE_SHA=$(bash -c "$CODE_DIGEST_CMD" "$SRR_HOST_SRC" 2>/dev/null || echo "")
 fi
 
 CTR_CODE_SHA=""
 if docker inspect "$SRR_CONTAINER" >/dev/null 2>&1; then
-  CTR_CODE_SHA=$(docker exec "$SRR_CONTAINER" bash -c \
-    "find /app/srr -name '*.py' -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | awk '{print \$1}' | sha256sum | cut -d' ' -f1" \
+  CTR_CODE_SHA=$(docker exec "$SRR_CONTAINER" bash -c "$CODE_DIGEST_CMD" /app/srr \
     2>/dev/null | tr -d '\r' || echo "")
 fi
 
