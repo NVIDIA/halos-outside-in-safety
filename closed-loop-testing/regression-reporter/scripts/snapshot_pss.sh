@@ -2,18 +2,34 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Snapshot the bind-mounted PSF host log into a SRR run dir, so PSF internal-state
-# evidence survives the next compose restart (which truncates the log file).
+# evidence for a scenario survives whatever the next compose restart does to the
+# source. Observed behaviour is that the restart does NOT truncate it — the log
+# is cumulative across scenarios and grows into the multi-GB range — but the
+# stack can be brought up in ways that do, so neither is assumed.
 #
-# Two modes:
+# Three modes:
+#
+#   0. Init (called once before the first scenario):
+#
+#         snapshot_pss.sh <multi-test-dir> --init
+#
+#      → creates the run dir host-side (so later host writes into it are not
+#      blocked by the srr container's root ownership) and records the source's
+#      current size as the run baseline. Everything already in the log at this
+#      point predates the run and is never copied into it.
 #
 #   1. Per-scenario (called from phase_analyze right after record stop, before
 #      the next scenario's compose_restart wipes the source):
 #
 #         snapshot_pss.sh <multi-test-dir>/<scn-label> --per-scn
 #
-#      → copies the full source pss.log into <scn-label>/pss.log. At this
-#      instant the source only contains the current scenario's PSF data
-#      (previous scenarios' data was already truncated by the prior restart).
+#      → copies the bytes appended since the previous snapshot into
+#      <scn-label>/pss.log. The source is NOT reliably truncated between
+#      scenarios: whether the restart truncates depends on how the stack was
+#      brought up, and when it does not, a full copy makes every scenario a
+#      near-complete duplicate of its predecessors. Tracking the offset gives
+#      the same evidence either way — a truncation or rotation is detected by
+#      inode + head digest and falls back to copying the whole file.
 #
 #   2. Cross-run (end of multi-test, concat per-scn snapshots into a single
 #      run-level file used by clip_logs default-fallback):
@@ -44,6 +60,7 @@ SRC=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --per-scn) MODE="per-scn"; shift ;;
+    --init)    MODE="init"; shift ;;
     -*) echo "snapshot_pss: unknown flag $1" >&2; exit 1 ;;
     *)  SRC="$1"; shift ;;
   esac
@@ -85,11 +102,45 @@ fi
 
 echo "snapshot_pss: resolved source = $SRC" >&2
 
-if [[ ! -d "$RUN_DIR" ]]; then
+if [[ "$MODE" == "init" ]]; then
+  mkdir -p "$RUN_DIR"
+elif [[ ! -d "$RUN_DIR" ]]; then
   echo "snapshot_pss: no such dir: $RUN_DIR" >&2; exit 1
 fi
 
 OUT="$RUN_DIR/pss.log"
+
+# Offset bookkeeping lives at the multi-test root: --init and cross-run are
+# handed that dir directly, --per-scn a scenario dir one level below it.
+if [[ "$MODE" == "per-scn" ]]; then
+  STATE_FILE="$(dirname "$RUN_DIR")/.pss_offset"
+else
+  STATE_FILE="$RUN_DIR/.pss_offset"
+fi
+
+# Identify the source well enough to tell "grew" from "was truncated and
+# regrew past the old offset" — the latter happens whenever safety-core
+# restarts mid-run, and a byte offset alone cannot distinguish the two.
+#
+# The digest covers only bytes already accounted for by the offset. Those are
+# immutable unless the file was replaced, whereas a fixed-size prefix of a log
+# smaller than that prefix keeps changing as it grows, which reads as a
+# truncation on every call.
+HEAD_SAMPLE_MAX=4096
+src_inode() { stat -c %i "$SRC" 2>/dev/null || echo 0; }
+src_size()  { stat -c %s "$SRC" 2>/dev/null || echo 0; }
+head_len()  { local n="$1"; (( n < HEAD_SAMPLE_MAX )) && echo "$n" || echo "$HEAD_SAMPLE_MAX"; }
+src_head()  {  # $1 = leading byte count to digest
+  local n="$1"
+  if (( n <= 0 )); then echo "-"; return; fi
+  head -c "$n" "$SRC" 2>/dev/null | sha256sum | cut -d' ' -f1
+}
+
+write_state() {  # $1 = inode, $2 = head length, $3 = head digest, $4 = offset
+  printf 'PSS_INODE=%s\nPSS_HEADLEN=%s\nPSS_HEAD=%s\nPSS_OFFSET=%s\n' "$1" "$2" "$3" "$4" \
+    > "$STATE_FILE" 2>/dev/null \
+    || echo "snapshot_pss: WARN could not write $STATE_FILE — next snapshot will copy the whole log" >&2
+}
 
 # The run/scenario dirs are created by the srr container (root), so a host-side
 # `cp`/redirect into them fails with EPERM. write_out() copies a host-readable
@@ -111,24 +162,88 @@ write_out() {  # $1 = host-readable source file, $2 = OUT host path
   return 1
 }
 
+# write_out returning 0 is not proof the evidence landed: the container fallback
+# reports the exit status of `cat` inside the container, and a copy taken while
+# safety-core is still appending can come up short. Check the destination.
+verify_out() {  # $1 = OUT host path, $2 = expected byte count
+  local out="$1" want="$2" got
+  if [[ ! -s "$out" ]]; then
+    echo "snapshot_pss: destination missing or empty after write: $out" >&2
+    return 1
+  fi
+  got=$(stat -c %s "$out" 2>/dev/null || echo "")
+  if [[ -z "$got" ]]; then
+    echo "snapshot_pss: WARN cannot stat $out to confirm size" >&2
+    return 0
+  fi
+  if [[ "$got" != "$want" ]]; then
+    echo "snapshot_pss: short write: $out is $got bytes, expected $want" >&2
+    return 1
+  fi
+  return 0
+}
+
+if [[ "$MODE" == "init" ]]; then
+  # Everything already in the log belongs to whatever ran before this sweep.
+  # Recording it as the baseline is what keeps the first scenario's snapshot
+  # from dragging the entire pre-run history into the run directory.
+  BASE=$(src_size)
+  BASE_HL=$(head_len "$BASE")
+  write_state "$(src_inode)" "$BASE_HL" "$(src_head "$BASE_HL")" "$BASE"
+  echo "snapshot_pss: baseline for $RUN_DIR set at $BASE bytes of $SRC [init]"
+  exit 0
+fi
+
 if [[ "$MODE" == "per-scn" ]]; then
-  # At call time the source only holds the current scenario (previous
-  # scenarios' lines were truncated by the prior compose restart). A plain
-  # copy preserves the entire scenario including PSF init lines that no
-  # mtime-window heuristic would catch.
   # Missing OR empty (0-byte) source both mean no Safety Core evidence for this
   # scenario — fail rather than copy an empty log that would silently "pass".
   if [[ ! -s "$SRC" ]]; then
     echo "snapshot_pss: source pss.log missing or empty: $SRC" >&2; exit 1
   fi
-  # A failed write (host EPERM AND container fallback both denied) must propagate,
-  # otherwise run_multi's strict sweep-abort never sees the lost snapshot.
-  if ! write_out "$SRC" "$OUT"; then
+
+  SRC_SIZE=$(src_size)
+  INODE=$(src_inode)
+
+  START=0
+  if [[ -f "$STATE_FILE" ]]; then
+    PSS_INODE=""; PSS_HEADLEN=0; PSS_HEAD=""; PSS_OFFSET=0
+    # shellcheck disable=SC1090
+    source "$STATE_FILE"
+    if [[ "$PSS_INODE" == "$INODE" \
+       && "$PSS_OFFSET" -le "$SRC_SIZE" \
+       && "$PSS_HEAD" == "$(src_head "$PSS_HEADLEN")" ]]; then
+      START="$PSS_OFFSET"
+    else
+      echo "snapshot_pss: source was truncated or rotated since the last snapshot — copying from the start" >&2
+    fi
+  fi
+
+  BYTES=$(( SRC_SIZE - START ))
+  if (( BYTES <= 0 )); then
+    echo "snapshot_pss: source gained no bytes since the last snapshot ($SRC is $SRC_SIZE bytes) — no Safety Core evidence for this scenario" >&2
     exit 1
   fi
-  LINES=$(wc -l < "$SRC")
-  SIZE=$(du -h "$SRC" | awk '{print $1}')
-  echo "snapshot_pss: copied $SRC → $OUT ($LINES lines, $SIZE) [per-scn]"
+
+  # Cut at the size read above rather than streaming to EOF: safety-core is
+  # still appending, and a snapshot that ends wherever the writer happened to
+  # be is not reproducible and can split a line in half.
+  TMP=$(mktemp)
+  trap 'rm -f "$TMP"' EXIT
+  tail -c "+$((START + 1))" "$SRC" | head -c "$BYTES" > "$TMP"
+
+  # A failed write (host EPERM AND container fallback both denied) must propagate,
+  # otherwise run_multi's strict sweep-abort never sees the lost snapshot.
+  if ! write_out "$TMP" "$OUT"; then
+    exit 1
+  fi
+  if ! verify_out "$OUT" "$BYTES"; then
+    exit 1
+  fi
+  LINES=$(wc -l < "$TMP")
+  SIZE=$(du -h "$TMP" | awk '{print $1}')
+  NEW_HL=$(head_len "$SRC_SIZE")
+  write_state "$INODE" "$NEW_HL" "$(src_head "$NEW_HL")" "$SRC_SIZE"
+  echo "snapshot_pss: copied bytes ${START}-${SRC_SIZE} of $SRC → $OUT ($LINES lines, $SIZE) [per-scn]"
   exit 0
 fi
 
@@ -148,11 +263,16 @@ if [[ ${#PER_SCN_FILES[@]} -gt 0 ]]; then
   # Concat, sort by leading ISO timestamp (line-stable sort -k1,1), dedupe
   # exact lines (first occurrence wins; output stays timestamp-sorted).
   TMP=$(mktemp)
+  trap 'rm -f "$TMP"' EXIT
   cat "${PER_SCN_FILES[@]}" | sort -s -k1,1 | awk '!seen[$0]++' > "$TMP"
-  write_out "$TMP" "$OUT"
+  if ! write_out "$TMP" "$OUT"; then
+    exit 1
+  fi
+  if ! verify_out "$OUT" "$(stat -c %s "$TMP")"; then
+    exit 1
+  fi
   LINES=$(wc -l < "$TMP")
   SIZE=$(du -h "$TMP" | awk '{print $1}')
-  rm -f "$TMP"
   echo "snapshot_pss: concat ${#PER_SCN_FILES[@]} per-scn snapshot(s) → $OUT ($LINES lines, $SIZE)"
   exit 0
 fi
@@ -173,18 +293,41 @@ LO=$(awk -v t="$LO" -v p="$PAD_S" 'BEGIN{printf "%d", t - p}')
 HI=$(awk -v t="$HI" -v p="$PAD_S" 'BEGIN{printf "%d", t + p}')
 
 TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+# LO/HI are true epoch seconds (find -printf %T@). pss.log timestamps carry a
+# UTC offset, so the wall clock in the first 19 characters cannot be compared
+# against them directly — read the offset and fold it back in, or every
+# comparison is wrong by however far the host sits from UTC.
 TZ=UTC awk -v lo="$LO" -v hi="$HI" '
-  /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\./ {
-    iso = substr($0, 1, 19); gsub(/[-T:]/, " ", iso)
+  {
+    tok = $1
+    if (tok !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]\./) next
+    iso = substr(tok, 1, 19); gsub(/[-T:]/, " ", iso)
     t = mktime(iso)
     if (t == -1) next
-    if (t < lo) next
-    if (t > hi) exit
+    if (match(tok, /[+-][0-9][0-9]:[0-9][0-9]$/)) {
+      off = substr(tok, RSTART, RLENGTH)
+      secs = (substr(off, 2, 2) * 3600) + (substr(off, 5, 2) * 60)
+      t += (substr(off, 1, 1) == "+") ? -secs : secs
+    }
+    if (t < lo) { past = 0; next }
+    if (t > hi) {
+      # Stop early — this is a multi-GB scan — but not on the first line past
+      # the window: the log interleaves several writers and is not perfectly
+      # ordered, so a lone late line must not end the slice.
+      if (++past > 10000) exit
+      next
+    }
+    past = 0
     print
   }
 ' "$SRC" > "$TMP"
-write_out "$TMP" "$OUT"
+if ! write_out "$TMP" "$OUT"; then
+  exit 1
+fi
+if ! verify_out "$OUT" "$(stat -c %s "$TMP")"; then
+  exit 1
+fi
 LINES=$(wc -l < "$TMP")
 SIZE=$(du -h "$TMP" | awk '{print $1}')
-rm -f "$TMP"
 echo "snapshot_pss: wrote $OUT ($LINES lines, $SIZE) — window [$LO, $HI] [mtime-slice fallback]"

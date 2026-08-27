@@ -483,14 +483,15 @@ phase_analyze() {
     mv \$(ls -t run-*.parquet | head -1) multi-test-${TIMESTAMP}/${label}/
   "
 
-  # Per-scenario pss.log snapshot — MUST happen before the next scenario's
-  # compose restart truncates the source log. End-of-run concat picks these up.
+  # Per-scenario pss.log snapshot — MUST happen before the next scenario runs,
+  # so this scenario's PSF window is pinned down whether or not the restart
+  # clears the source. End-of-run concat picks these up.
   local snap_script="$SCRIPT_DIR/snapshot_pss.sh"
   local scn_host_dir="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}/${label}"
-  if [[ -x "$snap_script" && -d "$scn_host_dir" ]]; then
+  if [[ -r "$snap_script" && -d "$scn_host_dir" ]]; then
     log "snapshotting pss.log (per-scn)..."
-    # The per-scenario PSF forensic log is destroyed by the next scenario's
-    # compose restart, so a failed snapshot loses it permanently. Fail the sweep
+    # This is the only point at which this scenario's PSF window is separable
+    # from the next one's, so a failed snapshot loses it permanently. Fail the sweep
     # by default instead of silently warning; set SRR_PSS_STRICT=0
     # to downgrade to a non-fatal warning (tolerate one lost log, keep sweeping).
     if ! bash "$snap_script" "$scn_host_dir" --per-scn; then
@@ -505,8 +506,22 @@ phase_analyze() {
     # Refresh the run-level concat right away, not only at end-of-multi-test:
     # if the run is aborted or resumed later, a stale run-level pss.log makes
     # clip_logs slice every clip recorded after its last timestamp to 0 lines.
-    bash "$snap_script" "${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}" \
-      || log "snapshot_pss cross-run WARN (non-fatal)"
+    # Losing this file is as bad as losing a per-scenario one — clip_logs falls
+    # back to the live cumulative host log and attaches whatever it finds there
+    # — so it answers to SRR_PSS_STRICT too rather than being a bare warning.
+    if ! bash "$snap_script" "${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}"; then
+      if [[ "${SRR_PSS_STRICT:-1}" == "0" ]]; then
+        log "WARN snapshot_pss cross-run FAILED — run-level pss.log is stale or missing (SRR_PSS_STRICT=0, continuing)"
+      else
+        log "ERROR snapshot_pss cross-run FAILED — run-level pss.log is stale or missing, so clip_logs would slice clips against the live log; aborting the sweep (set SRR_PSS_STRICT=0 to downgrade to a warning)"
+        exit 1
+      fi
+    fi
+  else
+    # Say so. A missing script or an unexpected runs path used to skip the
+    # snapshot without printing anything, and the run only looked wrong much
+    # later, as pss_raw=0 on every clip.
+    log "WARN skipping pss.log snapshot for ${label}: snap_script=${snap_script} (readable: $([[ -r "$snap_script" ]] && echo yes || echo no)), scenario dir=${scn_host_dir} (present: $([[ -d "$scn_host_dir" ]] && echo yes || echo no))"
   fi
 
   # Guard the flush-vs-read race: the recorder's writer.close() footer may not
@@ -530,7 +545,7 @@ phase_analyze() {
     cd /app && python3 -m srr.tw_split \
       /app/runs/multi-test-${TIMESTAMP}/${label}/run-*.parquet \
       /app/runs/multi-test-${TIMESTAMP}/${label}/scenes \
-      --source gt
+      --source gt ${CALIB_ARG}
   " >/dev/null
 
   local n
@@ -541,7 +556,7 @@ phase_analyze() {
   docker exec srr bash -c "
     cd /app && python3 -m srr.aggregator \
       --runs-dir /app/runs/multi-test-${TIMESTAMP} \
-      --top-level
+      --top-level ${CALIB_ARG}
   " >/dev/null
   log "aggregator done."
 
@@ -585,6 +600,46 @@ hdr "Launching SIL test runs..."
 # would then mis-attribute it to the scenario (observed: scenario 1 grabbed a
 # stale 768-row debugging parquet). Deleting the run dir also clears these.
 docker exec srr bash -c 'rm -f /app/runs/run-*.parquet' >/dev/null 2>&1 || true
+
+# Establish the run directory and its pss.log baseline before the first
+# scenario. Creating it host-side also means the per-scenario snapshots write
+# into a directory this user owns, instead of one the srr container made as
+# root, which is the EPERM that SRR_PSS_STRICT exists to paper over.
+HOST_RUN_DIR_INIT="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}"
+SNAP_INIT="$SCRIPT_DIR/snapshot_pss.sh"
+# Readable, not executable: these are invoked as `bash <script>`, so the
+# executable bit does not decide whether they run — testing it only invents a
+# way for the step to be skipped without saying so.
+if [[ -r "$SNAP_INIT" ]]; then
+  bash "$SNAP_INIT" "$HOST_RUN_DIR_INIT" --init \
+    || log "WARN pss.log baseline not set — the first scenario will copy the whole log"
+else
+  log "WARN $SNAP_INIT not readable — no pss.log baseline for this run"
+  mkdir -p "$HOST_RUN_DIR_INIT" 2>/dev/null || true
+fi
+
+# Record what is producing this run, while it is still true.
+PROV_SCRIPT="$SCRIPT_DIR/write_provenance.sh"
+if [[ -r "$PROV_SCRIPT" ]]; then
+  SRR_RUN_CMDLINE="$0 $*" \
+  SRR_RUN_SCENARIOS="$(printf '%s; ' "${SCENARIOS[@]}")" \
+    bash "$PROV_SCRIPT" "$HOST_RUN_DIR_INIT" || log "WARN provenance capture failed (continuing)"
+else
+  log "WARN $PROV_SCRIPT not readable — this run will not record the code or geometry that produced it"
+fi
+
+# Score against the geometry this run was recorded with. tw_split and the
+# aggregator otherwise read the live /app/calibration.json on every invocation,
+# so re-scoring a run after a calibration swap silently answers a different
+# question than the original report did.
+RUN_CALIB="/app/runs/multi-test-${TIMESTAMP}/calibration-used.json"
+if docker exec srr test -f "$RUN_CALIB" 2>/dev/null; then
+  CALIB_ARG="--calib $RUN_CALIB"
+  log "scoring against the run's own calibration copy: $RUN_CALIB"
+else
+  CALIB_ARG=""
+  log "WARN run dir has no calibration-used.json — falling back to the live /app/calibration.json mount"
+fi
 
 # Isaac Sim must be the SOLE camera source for SRR. nvstreamer (the VSS
 # sample-video player) publishes the same camera names; running it alongside
@@ -650,19 +705,28 @@ log "running cross-run aggregator (--top-level)..."
 docker exec srr bash -c "
   cd /app && python3 -m srr.aggregator \
     --runs-dir /app/runs/multi-test-${TIMESTAMP} \
-    --top-level
+    --top-level ${CALIB_ARG}
 " >/dev/null
 log "top-level summary written: /app/runs/multi-test-${TIMESTAMP}/summary.md"
 
 # Concat per-scenario pss.log snapshots into a single run-level pss.log used
 # by clip_logs default fallback. Per-scn snapshots were taken in phase_analyze
-# right after each record stop (before the next compose restart truncated the
-# source), so this preserves every scenario's PSF data.
+# right after each record stop, each covering the bytes appended since the
+# previous one, so together they hold every scenario's PSF data exactly once.
 SNAP_SCRIPT="$(dirname "$0")/snapshot_pss.sh"
 HOST_RUN_DIR="${RUNS_HOST_BASE}/multi-test-${TIMESTAMP}"
-if [[ -x "$SNAP_SCRIPT" && -d "$HOST_RUN_DIR" ]]; then
+if [[ -r "$SNAP_SCRIPT" && -d "$HOST_RUN_DIR" ]]; then
   log "concatenating per-scn pss.log snapshots..."
-  bash "$SNAP_SCRIPT" "$HOST_RUN_DIR" || log "snapshot_pss WARN: $?"
+  if ! bash "$SNAP_SCRIPT" "$HOST_RUN_DIR"; then
+    if [[ "${SRR_PSS_STRICT:-1}" == "0" ]]; then
+      log "WARN final snapshot_pss concat FAILED — run-level pss.log is stale or missing (SRR_PSS_STRICT=0)"
+    else
+      log "ERROR final snapshot_pss concat FAILED — run-level pss.log is stale or missing"
+      exit 1
+    fi
+  fi
+else
+  log "WARN skipping final pss.log concat: snap script=${SNAP_SCRIPT} (readable: $([[ -r "$SNAP_SCRIPT" ]] && echo yes || echo no)), run dir=${HOST_RUN_DIR} (present: $([[ -d "$HOST_RUN_DIR" ]] && echo yes || echo no))"
 fi
 
 echo "  Output: /app/runs/multi-test-${TIMESTAMP}/"

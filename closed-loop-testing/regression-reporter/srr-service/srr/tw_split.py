@@ -57,14 +57,30 @@ def get_sensors() -> tuple[str, ...]:
 
 def load_tripwire(calib_path: Optional[Path]) -> Tripwire:
     """Load the tripwire (wire + inside side from ``direction``) from
-    calibration.json, fall back to the legacy vertical-wire default."""
-    if calib_path and calib_path.exists():
-        try:
-            d = json.loads(calib_path.read_text())
-            return Tripwire.from_calib_dict(d["sensors"][0]["tripwires"][0])
-        except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
-            print(f"[tw_split] WARN: --calib failed to parse ({e}); using default TW_X={DEFAULT_TW_X}")
-    return Tripwire.legacy(DEFAULT_TW_X, 0.0, 1.0)
+    calibration.json.
+
+    Refuses to guess. Silently substituting ``DEFAULT_TW_X`` scores a run
+    against a wire the run was not recorded with — for a pushed-out zone that
+    is the original line, and the report says nothing about it. A missing or
+    unparseable calibration is a setup error, not a default.
+    """
+    if calib_path is None:
+        raise SystemExit(
+            "[tw_split] FATAL: no calibration path given. Pass --calib pointing at the "
+            "calibration.json this run was recorded with."
+        )
+    if not calib_path.exists():
+        raise SystemExit(
+            f"[tw_split] FATAL: calibration not found: {calib_path}. Scoring would fall back "
+            f"to the legacy wire at x={DEFAULT_TW_X}, which is wrong for any moved zone."
+        )
+    try:
+        d = json.loads(calib_path.read_text())
+        return Tripwire.from_calib_dict(d["sensors"][0]["tripwires"][0])
+    except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
+        raise SystemExit(
+            f"[tw_split] FATAL: could not read a tripwire from {calib_path} ({e})."
+        ) from e
 
 
 # Module-level (import-time) values — kept for backward compat with callers that
@@ -236,7 +252,7 @@ def main() -> None:
     args = ap.parse_args()
 
     # Apply runtime overrides to module-level constants used by split()/write_manifest()
-    TW = load_tripwire(args.calib if args.calib and args.calib.exists() else None)
+    TW = load_tripwire(args.calib)
     VST_BASE = args.vst_base_url.rstrip("/")
     SENSORS = tuple(s.strip() for s in args.sensors.split(",") if s.strip())
     print(f"[tw_split] TW={TW} · VST={VST_BASE} · sensors={SENSORS}")
