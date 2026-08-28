@@ -2,9 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 """
-UDP Safety Command Receiver — 64-Byte ATL Packet (HOISA v1.2)
+UDP Safety Command Receiver — 64-Byte ATL + Proximity Packets (HOISA v1.2)
 
 Receives 64-byte safety commands from PSF via UDP (Black Channel / Comm Layer).
+
+TWO PACKET TYPES ON ONE PORT, TOLD APART BY BYTE 0
+--------------------------------------------------
+PSF sends ATL packets (0xA2) or proximity packets (0xA5) depending on which
+`--app` it was started with. The two are the same size with the same field
+offsets, and 0x02/0x07 mean OPPOSITE things in each — so the identifier picks
+the decoder and the opcode table together, and the two paths never share a
+command object. See common/proximity_commands.py for the collision table.
+
+Before this, a proximity run was silently dropped in full: every packet counted
+as `invalid_identifier` and logged "Bad identifier: 0xA5", while the ROS bridge
+kept publishing NOP heartbeats with is_muted=False — a safe-looking output for a
+system that was emitting STOP.
 
 Changes from 16B version:
   - PACKET_SIZE 16 → 64
@@ -41,6 +54,11 @@ from common.safety_commands import (
     COMMAND_PACKET_SIZE,
     ATL_PACKET_IDENTIFIER,
 )
+from common.proximity_commands import (
+    PROXIMITY_PACKET_IDENTIFIER,
+    ProximityCmdPacket,
+    ProximityCommandCode,
+)
 from common.config import UdpReceiverConfig, get_config
 
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +77,14 @@ class ReceiverStats:
     errors: int = 0
     last_sequence: int = -1
     last_receive_time: Optional[datetime] = None
+    # Counted apart from the ATL totals above. Mixing them would hide the case
+    # this receiver has actually been in for the whole project: PSF running in
+    # proximity mode while every packet is discarded as a bad identifier, with
+    # packets_processed sitting at zero and no counter saying why.
+    proximity_received: int = 0
+    proximity_invalid_crc: int = 0
+    proximity_last_sequence: int = -1
+    proximity_last_command: Optional[str] = None
 
 
 class SafetyReceiver:
@@ -93,6 +119,7 @@ class SafetyReceiver:
         send_ack: bool = True,
         verify_crc: bool = True,
         config: Optional[UdpReceiverConfig] = None,
+        proximity_callback: Optional[Callable[["ProximityCmdPacket"], None]] = None,
     ):
         if config:
             self.host = config.host
@@ -104,6 +131,12 @@ class SafetyReceiver:
         self.callback = callback
         self.send_ack = send_ack
         self.verify_crc = verify_crc
+        # Deliberately NOT the same callback as `callback`. A consumer written
+        # against SafetyCommand reads `.status` as MUTED/ACTIVE, which for a
+        # proximity packet would invert the meaning of 0x02 and 0x07 — see the
+        # collision table in common/proximity_commands.py. Anyone wanting
+        # proximity has to opt in and accept a ProximityCmdPacket.
+        self.proximity_callback = proximity_callback
 
         self._socket: Optional[socket.socket] = None
         self._running = False
@@ -177,12 +210,23 @@ class SafetyReceiver:
                     logger.warning(f"Invalid packet size: {len(data)} bytes (expected {self.PACKET_SIZE})")
                     continue
 
+                # Identifier selects the DECODER, before any opcode is read.
+                # Both packet types are 64 bytes with identical field offsets,
+                # so nothing downstream can tell them apart once the header is
+                # parsed — byte 0 is the only discriminator that exists.
+                if data[0] == PROXIMITY_PACKET_IDENTIFIER:
+                    self._process_proximity(data, addr)
+                    continue
+
                 pkt = CmdPacket.unpack(data, verify_crc=self.verify_crc)
 
                 if pkt is None:
                     if data[0] != ATL_PACKET_IDENTIFIER:
                         self._stats.invalid_identifier += 1
-                        logger.warning(f"Bad identifier: 0x{data[0]:02X} (expected 0x{ATL_PACKET_IDENTIFIER:02X})")
+                        logger.warning(
+                            f"Bad identifier: 0x{data[0]:02X} "
+                            f"(expected 0x{ATL_PACKET_IDENTIFIER:02X} ATL "
+                            f"or 0x{PROXIMITY_PACKET_IDENTIFIER:02X} proximity)")
                     else:
                         self._stats.invalid_crc += 1
                         logger.warning("CRC mismatch — packet discarded")
@@ -228,6 +272,59 @@ class SafetyReceiver:
             f"{command.command.description} | "
             f"{command.status.emoji} {command.status.description} | ts={command.timestamp_iso}"
         )
+
+    def _process_proximity(self, data: bytes, addr: tuple) -> None:
+        """Decode a 0xA5 packet, ACK it, log the pair, hand it to the callback.
+
+        Kept off the ATL queue and out of the ATL callback on purpose. Those
+        carry a SafetyCommand whose `status` is MUTED/ACTIVE, and a proximity
+        STOP mapped onto that vocabulary reads as "safety muted, loading
+        allowed" — the exact inversion this split exists to prevent.
+        """
+        pkt = ProximityCmdPacket.unpack(data, verify_crc=self.verify_crc)
+        if pkt is None:
+            with self._lock:
+                self._stats.proximity_invalid_crc += 1
+            logger.warning("Proximity CRC mismatch — packet discarded")
+            return
+
+        is_known = isinstance(pkt.command, ProximityCommandCode)
+        with self._lock:
+            self._stats.proximity_received += 1
+            self._stats.proximity_last_sequence = pkt.seq
+            self._stats.proximity_last_command = (
+                pkt.command.name if is_known else f"0x{int(pkt.command):02X}")
+            self._stats.last_receive_time = datetime.now()
+
+        if self.send_ack:
+            try:
+                self._socket.sendto(pkt.build_ack().pack(), addr)
+            except Exception as e:
+                logger.error(f"Proximity ACK send error: {e}")
+
+        if not is_known:
+            # Not coerced to a motion level. An unrecognised opcode is a version
+            # mismatch between this decoder and PSF, and guessing at it is how a
+            # controller ends up acting on a command nobody defined.
+            logger.warning(f"Proximity Seq#{pkt.seq}: unknown opcode "
+                           f"0x{int(pkt.command):02X} — not published")
+            return
+
+        # Heartbeats are the steady state at 10 Hz and would bury everything
+        # else; only the motion levels and the error/handshake codes are worth a
+        # line. The object dump rides along because the coordinates are the only
+        # route to per-robot attribution: `metadata` collapses every machine
+        # onto one ObjectType value, so x/y is what distinguishes them.
+        if pkt.command != ProximityCommandCode.HEARTBEAT:
+            logger.info(
+                f"Proximity: Seq#{pkt.seq} | {pkt.command.description} | "
+                f"{pkt.describe_objects()} | ts={pkt.timestamp_iso}")
+
+        if self.proximity_callback:
+            try:
+                self.proximity_callback(pkt)
+            except Exception as e:
+                logger.error(f"Proximity callback error: {e}")
 
     def _send_ack(self, received: CmdPacket, addr: tuple) -> None:
         """ACK echoes original seq+command with fresh timestamp + recomputed CRC."""
