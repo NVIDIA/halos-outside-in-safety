@@ -31,6 +31,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common.safety_commands import SafetyCommand, CommandCode, SafetyStatus
+from common.proximity_commands import ProximityCmdPacket, ProximityCommandCode, classify
 from common.config import OpcUaConfig, get_config
 
 # Setup logging
@@ -72,6 +73,13 @@ class SafetyOpcUaServer:
     - Safety.StatusName: Status description (string)
     - Safety.Timestamp: Last update timestamp (string)
     - Safety.IsAlarm: Whether alarm is active (bool)
+
+    Proximity (0xA5) lives on its own nodes and shares none of the above:
+    - Safety.ProximityCommand / ProximityCommandName: opcode + description
+    - Safety.ProximityMode: "stop" | "reduce_speed" | "normal", "" if not a
+      motion decision
+    - Safety.ProximitySeparation: ground-plane metres, -1.0 if a slot is unfilled
+    - Safety.ProximityStateJson: atomic snapshot incl. both ObjectRecords
     
     Usage:
         from udp_receiver import SafetyReceiver
@@ -90,7 +98,8 @@ class SafetyOpcUaServer:
         endpoint: str = "opc.tcp://0.0.0.0:4840/safety/",
         server_name: str = "Safety OPC UA Server",
         namespace: str = "http://nvidia.com/safety",
-        config: Optional[OpcUaConfig] = None
+        config: Optional[OpcUaConfig] = None,
+        proximity_queue: Optional[Queue] = None
     ):
         """
         Initialize OPC UA server
@@ -101,6 +110,11 @@ class SafetyOpcUaServer:
             server_name: Server name
             namespace: OPC UA namespace
             config: Optional OpcUaConfig object
+            proximity_queue: Queue of ProximityCmdPacket. SEPARATE from
+                input_queue on purpose: 0x02 is STOP here and MUTE there, so a
+                proximity packet drained through update_command() would write
+                IsMuted=True for a person inside 1 m. See the collision table in
+                common/proximity_commands.py.
         """
         if not HAS_OPCUA:
             raise ImportError("asyncua library not installed. Install with: pip install asyncua")
@@ -115,6 +129,7 @@ class SafetyOpcUaServer:
             self.namespace = namespace
         
         self.input_queue = input_queue or Queue()
+        self.proximity_queue = proximity_queue
         
         self._server: Optional[Server] = None
         self._running = False
@@ -123,6 +138,7 @@ class SafetyOpcUaServer:
         # OPC UA nodes
         self._nodes = {}
         self._last_command: Optional[SafetyCommand] = None
+        self._last_proximity: Optional[ProximityCmdPacket] = None
     
     def start(self, blocking: bool = False):
         """Start the OPC UA server"""
@@ -209,11 +225,98 @@ class SafetyOpcUaServer:
             
         except Exception as e:
             logger.error(f"Failed to update OPC UA nodes: {e}")
-    
+
+    @staticmethod
+    def _object_payload(role: str, obj) -> dict:
+        """One ObjectRecord as JSON, with `empty` kept rather than dropped.
+
+        An unfilled slot decodes to id=0 at (0, 0), which is a legal position in
+        this scene's frame, so a consumer cannot tell it apart from a real object
+        at the origin. fillObjectRecords() memsets all 40 bytes on the periodic
+        re-assert path (request == nullptr), so this happens on every repeat of a
+        held command, not just at startup.
+        """
+        return {
+            'role': role,
+            'id': int(obj.object_id),
+            'x': float(obj.x),
+            'y': float(obj.y),
+            'z': float(obj.z),
+            'class': classify(obj.metadata),
+            'empty': bool(obj.is_empty),
+        }
+
+    def update_proximity(self, packet: ProximityCmdPacket):
+        """Update the proximity OPC UA nodes from a 0xA5 packet.
+
+        Writes NOTHING on the ATL nodes. IsMuted/IsAlarm are defined by the ATL
+        opcode table and proximity inverts two of its entries, so the two command
+        sets share this server but never share a node.
+        """
+        if not self._running or not self._nodes:
+            return
+
+        try:
+            cmd = packet.command
+            is_enum = isinstance(cmd, ProximityCommandCode)
+            code = int(cmd)
+            name = cmd.description if is_enum else f"UNKNOWN (0x{code:02X})"
+            # None for heartbeats, error codes and the safe-release handshake.
+            # Deliberately NOT coerced to "normal": only the three motion levels
+            # may drive a robot, and a heartbeat is not a permission to move.
+            mode = cmd.mode if is_enum else None
+            sep = packet.separation_m
+
+            self._nodes['proximity_command'].write_value(
+                ua.Variant(code, ua.VariantType.Int32)
+            )
+            self._nodes['proximity_command_name'].write_value(
+                ua.Variant(str(name), ua.VariantType.String)
+            )
+            # Empty string, not "unknown": the mode topic must stay a closed set
+            # of three values, so absence is spelled as absence.
+            self._nodes['proximity_mode'].write_value(
+                ua.Variant(str(mode or ""), ua.VariantType.String)
+            )
+            self._nodes['proximity_separation'].write_value(
+                ua.Variant(float(sep) if sep is not None else -1.0,
+                           ua.VariantType.Double)
+            )
+            # Atomic commit point, same contract as StateJson: written LAST so a
+            # reader that takes this one node never pairs a fresh sequence with a
+            # stale pair. The bridge reads only this node.
+            self._nodes['proximity_state_json'].write_value(
+                ua.Variant(json.dumps({
+                    'sequence': int(packet.seq),
+                    'command': code,
+                    'command_name': str(name),
+                    'mode': mode,
+                    'separation_m': sep,
+                    'safety_critical': bool(cmd.is_safety_critical) if is_enum else True,
+                    'objects': [
+                        self._object_payload('machine', packet.machine),
+                        self._object_payload('person', packet.person),
+                    ],
+                    'timestamp': packet.timestamp_iso,
+                    'last_update': datetime.now().isoformat(),
+                }), ua.VariantType.String)
+            )
+
+            self._last_proximity = packet
+            logger.debug(f"Updated proximity OPC UA nodes: {packet}")
+
+        except Exception as e:
+            logger.error(f"Failed to update proximity OPC UA nodes: {e}")
+
     @property
     def is_running(self) -> bool:
         """Check if server is running"""
         return self._running
+
+    @property
+    def last_proximity(self) -> Optional[ProximityCmdPacket]:
+        """Get last received proximity packet"""
+        return self._last_proximity
     
     @property
     def last_command(self) -> Optional[SafetyCommand]:
@@ -269,6 +372,34 @@ class SafetyOpcUaServer:
             idx, "StateJson", "", ua.VariantType.String
         )
 
+        # --- Proximity (0xA5) ------------------------------------------------
+        # Flat under Safety rather than in a sub-folder: the ROS bridge builds its
+        # node map from safety_folder.get_children() and calls read_value() on each
+        # child, so a folder child would raise on every poll.
+        #
+        # Disjoint from the ATL nodes above, not an extension of them. Sharing
+        # IsMuted would publish "loading allowed" for a person inside 1 m, because
+        # proximity STOP and ATL MUTE are both opcode 0x02.
+        self._nodes['proximity_command'] = safety_folder.add_variable(
+            idx, "ProximityCommand", 0, ua.VariantType.Int32
+        )
+        self._nodes['proximity_command_name'] = safety_folder.add_variable(
+            idx, "ProximityCommandName", "UNKNOWN", ua.VariantType.String
+        )
+        # One of "stop" / "reduce_speed" / "normal", or "" for anything that is not
+        # a motion decision (heartbeat, HW/SW error, safe-release handshake).
+        self._nodes['proximity_mode'] = safety_folder.add_variable(
+            idx, "ProximityMode", "", ua.VariantType.String
+        )
+        # Reconstructed ground-plane distance, -1.0 when either slot is unfilled.
+        # PSF scores with dz but sends z = 0, so this is not the figure it decided on.
+        self._nodes['proximity_separation'] = safety_folder.add_variable(
+            idx, "ProximitySeparation", -1.0, ua.VariantType.Double
+        )
+        self._nodes['proximity_state_json'] = safety_folder.add_variable(
+            idx, "ProximityStateJson", "", ua.VariantType.String
+        )
+
         # Make nodes readable
         for node in self._nodes.values():
             node.set_writable()
@@ -282,16 +413,33 @@ class SafetyOpcUaServer:
             logger.info(f"OPC UA server listening at {self.endpoint}")
             
             while self._running:
-                # Check for new commands
+                # Both queues are drained non-blocking, then the loop sleeps only
+                # when both were empty. A blocking get() on one queue would add its
+                # timeout to the other's latency, and proximity arrives at up to
+                # 10 Hz while ATL is silent for minutes at a time.
+                idle = True
+
                 try:
-                    command = self.input_queue.get(timeout=0.1)
+                    command = self.input_queue.get_nowait()
                     self.update_command(command)
+                    idle = False
                 except Empty:
                     pass
                 except Exception as e:
                     logger.error(f"Error processing command: {e}")
-                
-                time.sleep(0.01)
+
+                if self.proximity_queue is not None:
+                    try:
+                        packet = self.proximity_queue.get_nowait()
+                        self.update_proximity(packet)
+                        idle = False
+                    except Empty:
+                        pass
+                    except Exception as e:
+                        logger.error(f"Error processing proximity packet: {e}")
+
+                if idle:
+                    time.sleep(0.01)
                 
         except Exception as e:
             logger.error(f"OPC UA server error: {e}")
@@ -324,16 +472,34 @@ def main():
     
     # Start UDP receiver to get commands
     from udp_receiver.safety_receiver import SafetyReceiver
-    
+
+    # Proximity packets arrive on the receiver thread. Bounded and non-blocking so
+    # a stalled OPC write can never back-pressure the receive loop — that loop also
+    # sends the ACKs, and cmd_rx.cpp treats a missing ACK as an unacknowledged
+    # command. Dropping the oldest is right for a state signal: only the newest
+    # decision is actionable, and PSF re-asserts the held command periodically.
+    proximity_queue: Queue = Queue(maxsize=100)
+
+    def on_proximity(packet):
+        try:
+            proximity_queue.put_nowait(packet)
+        except Exception:
+            try:
+                proximity_queue.get_nowait()
+                proximity_queue.put_nowait(packet)
+            except Exception:
+                logger.warning("Proximity queue full, dropped Seq#%s", packet.seq)
+
     print(f"\nStarting UDP Receiver on port {args.port}...")
-    receiver = SafetyReceiver(port=args.port)
+    receiver = SafetyReceiver(port=args.port, proximity_callback=on_proximity)
     receiver.start()
     print(f"UDP Receiver listening on port {args.port}")
     
     # Start OPC UA server
     server = SafetyOpcUaServer(
         input_queue=receiver._queue,
-        endpoint=args.endpoint
+        endpoint=args.endpoint,
+        proximity_queue=proximity_queue
     )
     
     try:

@@ -79,6 +79,30 @@ class SafetyCommand:
         return self.command_code == 7
 
 
+# Proximity is a separate type from SafetyCommand for the same reason the OPC
+# nodes are separate: `is_muted` above is `command_code == 2`, and 0x02 is STOP
+# in the proximity table. Reusing SafetyCommand would publish is_muted=True for a
+# person inside 1 m, on a topic whose consumers read it as "loading allowed".
+@dataclass
+class ProximityDecision:
+    """One 0xA5 decision as it arrives from the OPC snapshot."""
+    sequence_number: int
+    command_code: int
+    command_name: str
+    # "stop" | "reduce_speed" | "normal", or None when the packet is a heartbeat,
+    # an error code or a safe-release message. None is NOT "normal".
+    mode: Optional[str] = None
+    separation_m: Optional[float] = None
+    safety_critical: bool = False
+    objects: Optional[List[dict]] = None
+    timestamp: str = ""
+    source: str = "unknown"
+
+    @property
+    def is_motion_decision(self) -> bool:
+        return self.mode in ("stop", "reduce_speed", "normal")
+
+
 class SafetyRosBridge:
     """
     Safety ROS2 Bridge
@@ -95,6 +119,19 @@ class SafetyRosBridge:
       `robot_ids`. PSF reasons about camera-covered zones, not about named
       trucks, so these mirrors are about the shape of the interface, not about
       per-truck decisions — they are all equal to /safety/is_muted.
+
+    Proximity (0xA5) publishes on its own topics and touches none of the four
+    above, because opcodes 0x02 and 0x07 carry opposite meanings in the two
+    command sets:
+    - /safety/proximity/mode (String): "stop" | "reduce_speed" | "normal".
+      Published ONLY for those three. A heartbeat, an error code or a
+      safe-release message is not a motion decision and must not be turned into
+      one, so nothing is published on this topic for them — a consumer holding
+      the last value is correct, one reading silence as "normal" is not.
+    - /safety/proximity/pair (String): JSON with the full decision, including
+      both ObjectRecords (id, x, y, z, class, empty), the reconstructed
+      separation, the raw opcode and `safety_critical`. This is the topic to
+      read for a fault, and the only place object identity reaches ROS.
     
     Usage:
         # OPC UA mode
@@ -134,6 +171,10 @@ class SafetyRosBridge:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_command: Optional[SafetyCommand] = None
+        self._last_proximity: Optional[ProximityDecision] = None
+        self._prox_last_seq = -1
+        self._prox_last_update = ""
+        self._warned_no_prox_node = False
         self._mode = "unknown"
         
         # Track actual muted/alarm state (persists across "No Operation" commands)
@@ -149,6 +190,7 @@ class SafetyRosBridge:
         
         # Callbacks
         self._command_callbacks = []
+        self._proximity_callbacks = []
     
     def start(self, blocking: bool = False):
         """Start the ROS2 bridge"""
@@ -202,6 +244,74 @@ class SafetyRosBridge:
     def add_command_callback(self, callback: Callable[[SafetyCommand], None]):
         """Add callback for new commands"""
         self._command_callbacks.append(callback)
+
+    def add_proximity_callback(self, callback: Callable[["ProximityDecision"], None]):
+        """Add callback for new proximity decisions"""
+        self._proximity_callbacks.append(callback)
+
+    def publish_proximity(self, decision: "ProximityDecision"):
+        """Publish a proximity decision to its own two topics.
+
+        Publishes the pair unconditionally and the mode only for the three motion
+        levels. The asymmetry is the point: a consumer subscribed to mode may
+        assume every message it receives is a motion decision, and a fault has to
+        be visible somewhere the consumer cannot mistake for permission to move.
+        """
+        self._last_proximity = decision
+
+        for callback in self._proximity_callbacks:
+            try:
+                callback(decision)
+            except Exception as e:
+                logger.error(f"Proximity callback error: {e}")
+
+        if not HAS_ROS2:
+            logger.info(f"[Simulation] Would publish proximity: {decision}")
+            return
+
+        try:
+            pair_json = json.dumps({
+                'sequence': decision.sequence_number,
+                'command': decision.command_code,
+                'command_name': decision.command_name,
+                'mode': decision.mode,
+                'separation_m': decision.separation_m,
+                'safety_critical': decision.safety_critical,
+                'objects': decision.objects or [],
+                # Left null for the same reason as /safety/command: the wire
+                # carries a uint32 VSS fusion id, controllers filter on a string
+                # robot name, and there is no mapping between them. The ids are in
+                # `objects` so a consumer can build attribution from x/y; putting a
+                # guess here would tell every other controller to ignore a STOP.
+                'robot_id': None,
+                'timestamp': decision.timestamp,
+                'source': decision.source,
+                'ros_time': datetime.now().isoformat(),
+            })
+            msg_pair = String()
+            msg_pair.data = pair_json
+            self._publishers['proximity_pair'].publish(msg_pair)
+
+            if decision.is_motion_decision:
+                msg_mode = String()
+                msg_mode.data = decision.mode
+                self._publishers['proximity_mode'].publish(msg_mode)
+            elif decision.safety_critical:
+                # HW_ERROR / SW_ERROR. Not mapped to a mode here: choosing what a
+                # faulted PSF means for a moving robot is a safety decision, and it
+                # belongs to the consumer that owns the drive, not to this bridge.
+                logger.warning(
+                    "Proximity fault opcode 0x%02X (%s) — no mode published; "
+                    "read /safety/proximity/pair for the fault",
+                    decision.command_code, decision.command_name
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to publish proximity to ROS2: {e}")
+
+    @property
+    def last_proximity(self) -> Optional["ProximityDecision"]:
+        return self._last_proximity
     
     def publish_command(self, command: SafetyCommand):
         """Publish command to ROS2 topics"""
@@ -332,6 +442,16 @@ class SafetyRosBridge:
             self._publishers['is_muted'] = self._node.create_publisher(
                 Bool, f"{self.topic_prefix}/is_muted", 10
             )
+            # Proximity: own namespace, own types. Nothing here mirrors is_muted —
+            # a three-level motion decision has no faithful Bool encoding, and
+            # squeezing REDUCE into one would lose the level that exists to keep a
+            # machine moving slowly rather than stopping it.
+            self._publishers['proximity_mode'] = self._node.create_publisher(
+                String, f"{self.topic_prefix}/proximity/mode", 10
+            )
+            self._publishers['proximity_pair'] = self._node.create_publisher(
+                String, f"{self.topic_prefix}/proximity/pair", 10
+            )
             
             logger.info(f"ROS2 publishers created with prefix: {self.topic_prefix}")
             
@@ -407,6 +527,57 @@ class SafetyRosBridge:
             if HAS_ROS2 and self._node:
                 rclpy.spin_once(self._node, timeout_sec=0.001)
     
+    def _poll_proximity(self, opcua_nodes: dict):
+        """Read the proximity snapshot node and publish it if it is new.
+
+        Absence is downgraded to one warning rather than an error, unlike the ATL
+        StateJson check: a deployment running only `--app atl` legitimately never
+        has these nodes, so a hard error would cry wolf on every ATL run.
+        """
+        node = opcua_nodes.get('ProximityStateJson')
+        if node is None:
+            if not self._warned_no_prox_node:
+                logger.warning(
+                    "ProximityStateJson OPC node absent — this server predates "
+                    "proximity support; %s/proximity/* will not be published",
+                    self.topic_prefix
+                )
+                self._warned_no_prox_node = True
+            return
+
+        raw = node.read_value()
+        if not raw:
+            return
+        try:
+            st = json.loads(raw)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Skipping malformed ProximityStateJson: {e}")
+            return
+
+        seq = st.get('sequence')
+        if seq is None or st.get('command') is None:
+            logger.warning(
+                f"Skipping incomplete ProximityStateJson: {raw!r}")
+            return
+
+        last_update = st.get('last_update', "")
+        if seq == self._prox_last_seq and last_update == self._prox_last_update:
+            return
+
+        self.publish_proximity(ProximityDecision(
+            sequence_number=seq,
+            command_code=st.get('command'),
+            command_name=st.get('command_name', "Unknown"),
+            mode=st.get('mode'),
+            separation_m=st.get('separation_m'),
+            safety_critical=bool(st.get('safety_critical', False)),
+            objects=st.get('objects') or [],
+            timestamp=st.get('timestamp', ""),
+            source="opcua",
+        ))
+        self._prox_last_seq = seq
+        self._prox_last_update = last_update
+
     def _run_opcua_loop(self, interval: float):
         """Run loop reading from OPC UA server"""
         logger.info(f"Running OPC UA client loop, connecting to {self.opc_ua_url}...")
@@ -498,7 +669,12 @@ class SafetyRosBridge:
                                     self.publish_command(command)
                                     last_sequence = seq
                                     last_timestamp = last_update
-                
+
+                # Independent of the ATL block above, and reached whether or not
+                # StateJson had anything: only one of the two apps is ever running,
+                # so gating proximity on ATL traffic would publish nothing.
+                self._poll_proximity(opcua_nodes)
+
                 time.sleep(interval)
                 
                 if HAS_ROS2 and self._node:
@@ -656,6 +832,20 @@ def main():
         print(f"ROS2: Seq#{cmd.sequence_number:02d} | {cmd_short:6s} | {emoji} is_muted={is_muted} | State: {muted_str}", flush=True)
     
     bridge.add_command_callback(log_command)
+
+    def log_proximity(dec: ProximityDecision):
+        emoji = {"stop": "🔴", "reduce_speed": "🟡", "normal": "🟢"}.get(dec.mode, "⚪")
+        sep = f"{dec.separation_m:.2f}m" if dec.separation_m is not None else "n/a"
+        pair = " ".join(
+            f"{o.get('role')}[{o.get('id')}]" + ("<empty>" if o.get('empty') else
+            f"({o.get('x', 0.0):.2f},{o.get('y', 0.0):.2f})")
+            for o in (dec.objects or [])
+        )
+        mode = dec.mode or "-"
+        print(f"ROS2-PXC: Seq#{dec.sequence_number} | {emoji} mode={mode:12s} "
+              f"| sep={sep:>7s} | {pair}", flush=True)
+
+    bridge.add_proximity_callback(log_proximity)
     
     try:
         bridge.start(blocking=True)
