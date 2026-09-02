@@ -23,12 +23,12 @@ healthy deployment, not as guaranteed limits.
 | AI Perception | VSS Warehouse Blueprint 3.2.1, warehouse-loading scenario, 3 camera streams |
 | Use case | Control of safety function on a forklift (ATL), with the ATL SDM application running on the CCPLEX |
 | SAIM backend | PVA. On IGX Thor SAIM analyzes frames on the PVA, not the GPU (see [/integration/components/ai-monitor](/integration/components/ai-monitor)) |
-| Clock configuration | Maximum clocks, pinned before sampling and restored afterwards. The rates measured during the run are in `Clock Configuration`_ |
+| Clock configuration | Maximum clocks, pinned before sampling and restored afterwards. The rates measured during the run are in [Clock Configuration](#clock-configuration) |
 
 <Note>
 These figures come from a **co-located** deployment: VSS Warehouse perception
 and the Safety Core share one IGX Thor, with the ATL decision maker on the
-CCPLEX. That is why the NVDEC figure in `Shared Engine Utilization`_ covers
+CCPLEX. That is why the NVDEC figure in [Shared Engine Utilization](#shared-engine-utilization) covers
 two independent decode consumers rather than SAIM alone.
 
 The split topology described in [/getting-started/prerequisites](/getting-started/prerequisites), where
@@ -84,7 +84,7 @@ matters more than the average here: a run that started pinned and later
 throttled would show a minimum below the maximum. None did.
 
 The PVA row confirms something worth stating explicitly, because the
-`Shared Engine Utilization`_ figures depend on it: pinning the SoC clocks does
+[Shared Engine Utilization](#shared-engine-utilization) figures depend on it: pinning the SoC clocks does
 reach the PVA on this platform, so the PVA duty-cycle numbers are comparable
 across runs. `nvidia-smi` does not expose a maximum graphics clock on Thor,
 so the GPU is corroborated by a flat trace rather than by comparison against
@@ -95,7 +95,7 @@ a ceiling.
 
 Every value in this section is **per process**, attributed to the named
 component. Engine-wide counters, which cannot be split per process, are reported
-separately in `Shared Engine Utilization`_.
+separately in [Shared Engine Utilization](#shared-engine-utilization).
 
 CPU percentages follow the usual convention where 100% is one fully busy logical
 CPU. Because IGX Thor exposes 14 logical CPUs, the *Normalized CPU* row restates
@@ -161,7 +161,7 @@ for them.
 `safety_monitor` is the only component that touches an accelerator, and it
 touches two of them. Its per-frame image analysis runs on the two VPUs of the
 PVA0 engine, and its RTSP frame decode runs on the hardware decoder — see
-`Shared Engine Utilization`_ for both.
+[Shared Engine Utilization](#shared-engine-utilization) for both.
 
 The *GPU context memory* row is a genuine `safety_monitor` value, even
 though SAIM runs no compute kernels on the GPU. Frame decode uses the CUDA
@@ -191,9 +191,9 @@ on this host.
 These totals cover the Safety Core only. On the co-located topology measured
 here, the VSS Warehouse perception pipeline runs on the same host, and it is
 excluded from the totals above and from every per-process figure in
-`Runtime Usage Summary`_.
+[Runtime Usage Summary](#runtime-usage-summary).
 
-It is *included* in `Shared Engine Utilization`_ and `Host Totals`_, which are
+It is *included* in [Shared Engine Utilization](#shared-engine-utilization) and [Host Totals](#host-totals), which are
 whole-engine and whole-host by definition. The NVDEC row covers both decode
 consumers, and the host memory and CPU figures cover every process on the box.
 Those two sections are the ones to use for headroom; these totals are the ones
@@ -227,7 +227,7 @@ it.
 ## Host Totals
 
 Whole-host figures covering every process on the box, including the co-located
-VSS perception pipeline. Use these for headroom, and `Runtime Usage Summary`_
+VSS perception pipeline. Use these for headroom, and [Runtime Usage Summary](#runtime-usage-summary)
 for attribution.
 
 | Metric | IGX-Thor |
@@ -282,10 +282,10 @@ single-interval spike is the expected shape rather than a sign of inactivity.
 Two scopes appear on this page, and they are kept in separate tables so that an
 engine-wide number is never listed under a component heading.
 
-**Per-process** — attributed to the named component, in `Runtime Usage Summary`_: CPU, normalized CPU, threads, RSS and GPU context memory.
+**Per-process** — attributed to the named component, in [Runtime Usage Summary](#runtime-usage-summary): CPU, normalized CPU, threads, RSS and GPU context memory.
 
 **Whole-engine or whole-host** — not attributable to a single process, in
-`Shared Engine Utilization`_ and `Host Totals`_: NVDEC utilization, the two PVA0
+[Shared Engine Utilization](#shared-engine-utilization) and [Host Totals](#host-totals): NVDEC utilization, the two PVA0
 VPU counters, and the system CPU and memory figures.
 
 GPU compute utilization is deliberately not reported on this page. On IGX Thor

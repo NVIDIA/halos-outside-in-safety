@@ -81,13 +81,13 @@ SBB. SUI is not yet implemented. Data flow:
 
 **Table 1 - Summary of Data Transformations in Sub-Elements**
 
-| **ID** | **Stage** | **Form of Input Data** | **Operation** | **Form of Output Data** |  |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Sensor Input Processing Pipeline (AI Perception) | Data captured by sensors and appropriately conditioned | Transformation through DNN or an algorithm to identify/detect required safety condition | A data structure representing the identified/detected safety condition |  |
-| 2 | Marshalling and Transport | A data structure representing the identified/detected safety condition | Extraction of relevant data and pass to the different process context | Same data structure received across different process context |  |
-| 3 | Safety Event Integrator | Core Processing Unit (legacy: PSSCore) | Data structure representing the identified/detected safety condition | Analysis of contents of the data structure based on certain rules to proactively detect potential safety event | A message or a signal identifying the potential safety event |
-| 4 | Safety Event Integrator | Safety Event Fusion | Message or signal identifying the safety event as received from Safety Event Identifier | Fusion of the messages/signals | A message or a signal confirming the occurrence of safety event |
-| 5 | Safety Decision Maker (FSI or CCPLEX) | A message or signal confirming the occurrence of safety event | Ascertain the appropriate action based on the nature of identified safety event | A message or signal back to PSS-CCPLEX identifying the next required action to address the safety event |  |
+| **ID** | **Stage** | **Form of Input Data** | **Operation** | **Form of Output Data** |
+| --- | --- | --- | --- | --- |
+| 1 | Sensor Input Processing Pipeline (AI Perception) | Data captured by sensors and appropriately conditioned | Transformation through DNN or an algorithm to identify/detect required safety condition | A data structure representing the identified/detected safety condition |
+| 2 | Marshalling and Transport | A data structure representing the identified/detected safety condition | Extraction of relevant data and pass to the different process context | Same data structure received across different process context |
+| 3 | Safety Event Integrator — Core Processing Unit (legacy: PSSCore) | Data structure representing the identified/detected safety condition | Analysis of contents of the data structure based on certain rules to proactively detect potential safety event | A message or a signal identifying the potential safety event |
+| 4 | Safety Event Integrator — Safety Event Fusion | Message or signal identifying the safety event as received from Safety Event Identifier | Fusion of the messages/signals | A message or a signal confirming the occurrence of safety event |
+| 5 | Safety Decision Maker (FSI or CCPLEX) | A message or signal confirming the occurrence of safety event | Ascertain the appropriate action based on the nature of identified safety event | A message or signal back to PSS-CCPLEX identifying the next required action to address the safety event |
 
 The Safety Black Box (SBB) can be considered as a master
 record for the operations associated with HOISA. Any HOISA component can
@@ -109,17 +109,31 @@ changes.
 
 ### 3.1 Sensor Input Processing Pipeline (AI Perception)
 
+See [Sensor Input Processing Pipeline (SIPP)](/integration/components/sensor-input-pipeline).
+
 ### 3.2 Safety AI Monitor (SAIM)
+
+See [Safety AI Monitor (SAIM)](/integration/components/ai-monitor).
 
 ### 3.3 Perception Container Monitor (PCM)
 
+See [Perception Container Monitor (PCM)](/integration/components/perception-monitor).
+
 ### 3.4 Safety Event Integrator (SEI)
+
+See [Safety Event Integrator (SEI)](/integration/components/event-integrator).
 
 ### 3.5 Safety Decision Maker (SDM)
 
+See [Safety Decision Maker (SDM)](/integration/components/decision-maker).
+
 ### 3.6 Safety Black Box (SBB)
 
+See [Safety Black Box (SBB)](/integration/components/black-box).
+
 ### 3.7 Safety User Interface (SUI)
+
+See [Safety User Interface (SUI)](/integration/components/user-interface).
 
 ## 4. Application Development
 

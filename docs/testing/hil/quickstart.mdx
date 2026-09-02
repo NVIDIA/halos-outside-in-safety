@@ -129,7 +129,7 @@ The check covers the address pairing, the command port, the repository and data 
 docker compose --env-file profiles/hil.env up -d
 ```
 
-`docker ps` shows exactly three containers: `isaac-sim`, `comm-layer` (`healthy`), and `forklift-controller`. A first run builds all three images and takes several minutes. Two containers instead of three means the communication layer never became healthy and Isaac Sim is still waiting on it — see `Only Two Containers Start`_.
+`docker ps` shows exactly three containers: `isaac-sim`, `comm-layer` (`healthy`), and `forklift-controller`. A first run builds all three images and takes several minutes. Two containers instead of three means the communication layer never became healthy and Isaac Sim is still waiting on it — see [Only Two Containers Start](#only-two-containers-start).
 
 ## Step 7: Launch the Scenario
 
@@ -176,7 +176,7 @@ Deploy VSS Warehouse on the safety host following [/testing/sil/sil-2d](/testing
 - **Remote stream URLs** (`camera_configs/camera_info.json`): register the three streams against the x86 host — `rtsp://<X86_IP>:8554/camera`, `:8555/camera_01`, `:8556/camera_02` — and keep the sensor names exactly `Camera`, `Camera_01`, and `Camera_02`. Behavior analytics calibration and safety event matching key on those names.
 - **One registration owner** (warehouse profile `.env`): set `SENSOR_INFO_SOURCE=file` so the configurator registers from `camera_info.json`, which is why Step 7.1 launches the driver without `--enable-vst`. Two writers race on the same sensor names, the colliding adds fail, and perception can end up on the wrong source.
 - **Recording** (`blueprint_config.yml`, the configurator's input): set `always_recording: false` and keep event recording on. Continuous clips fill the safety host's disk. The configurator hard-writes `always_recording: true` into the generated `vst_config.json` on every `up`, so this one has to be set in its input file, not in what it generates.
-- **Fresh state**: on an IGX Thor that has run VSS Warehouse before, clear the Kafka volumes first (see `Cleanup and Teardown`_), or the sensor distribution service replays old sensor history and perception stays at 0 fps.
+- **Fresh state**: on an IGX Thor that has run VSS Warehouse before, clear the Kafka volumes first (see [Cleanup and Teardown](#cleanup-and-teardown)), or the sensor distribution service replays old sensor history and perception stays at 0 fps.
 
 The single-host setup already sets `rtsp_streaming_over_tcp: true` in `vst_config.json`; it applies unchanged here, and is not optional. Over UDP the sensors report `online` and no media arrives.
 
@@ -252,7 +252,7 @@ On the safety host, confirm that decisions are leaving and being acknowledged:
 sudo grep -E "Sending decision command|Received acknowledgment" /var/log/psf/atl_sdm.log | tail -4
 ```
 
-Every `Sending decision command` line must be followed by a `Received acknowledgment` line carrying the same sequence number, and the destination must be the x86 host on `12346`. Commands sent with nothing coming back means the communication layer is not receiving — see `The Communication Layer Receives Nothing`_. No decisions at all means perception is not producing events, so re-check Step 8.
+Every `Sending decision command` line must be followed by a `Received acknowledgment` line carrying the same sequence number, and the destination must be the x86 host on `12346`. Commands sent with nothing coming back means the communication layer is not receiving — see [The Communication Layer Receives Nothing](#the-communication-layer-receives-nothing). No decisions at all means perception is not producing events, so re-check Step 8.
 
 On the stimulus host, read the decisions as they arrive:
 
@@ -300,8 +300,8 @@ To run the loop against the 3D (BEV) perception profile, keep every step above a
 Restarting the scene is a two-host procedure, in this order:
 
 1. IGX Thor: `docker stop vss-vios-streamprocessing`, which detaches VST from the streams before they go away.
-2. x86: stop the driver and [start it again](/testing/hil/quickstart#7-1-start-the-driver), still without `--enable-vst`.
-3. x86: re-run the [frames gate](/testing/hil/quickstart#7-2-confirm-the-streams-deliver-frames).
+2. x86: stop the driver and [start it again](/testing/hil/quickstart#71-start-the-driver), still without `--enable-vst`.
+3. x86: re-run the [frames gate](/testing/hil/quickstart#72-confirm-the-streams-deliver-frames).
 4. IGX Thor: `docker start vss-vios-streamprocessing`, then wait for three sensors online and `Active sources : 3` again.
 5. IGX Thor: `bash closed-loop-testing/scripts/stop_thor_safety.sh`, then relaunch the Safety Core at a [clear-scene moment](/testing/hil/quickstart#step-9-start-the-safety-core-on-a-clear-scene). A Safety Core left running holds decision state from a scene that no longer exists.
 
@@ -340,17 +340,17 @@ On the IGX Thor, tear VSS Warehouse down **without** `-v`, and never run `docker
 
 ### RTSP Streams Report No Caps and Perception Shows 0 Sources
 
-Sensors were registered, or described, against a cold Isaac Sim — the failure the [frames gate](/testing/hil/quickstart#7-2-confirm-the-streams-deliver-frames) in Step 7.2 exists to prevent.
+Sensors were registered, or described, against a cold Isaac Sim — the failure the [frames gate](/testing/hil/quickstart#72-confirm-the-streams-deliver-frames) in Step 7.2 exists to prevent.
 
-Stop the describe attempts first — `docker stop vss-vios-streamprocessing` on the safety host — then re-run the [frames gate](/testing/hil/quickstart#7-2-confirm-the-streams-deliver-frames) inside the `isaac-sim` container, one stream at a time and then all three at once; passing sequentially but failing concurrently is the concurrency race. Do not probe the x86 mounts while VST is still pulling them. Once Isaac Sim is warm, register the sensors again. Do not restart the configuration adaptor chain to recover: it duplicates sensors without re-pushing the source list.
+Stop the describe attempts first — `docker stop vss-vios-streamprocessing` on the safety host — then re-run the [frames gate](/testing/hil/quickstart#72-confirm-the-streams-deliver-frames) inside the `isaac-sim` container, one stream at a time and then all three at once; passing sequentially but failing concurrently is the concurrency race. Do not probe the x86 mounts while VST is still pulling them. Once Isaac Sim is warm, register the sensors again. Do not restart the configuration adaptor chain to recover: it duplicates sensors without re-pushing the source list.
 
 ### VST Sensors Are Online but Perception Shows 0 FPS
 
 Three causes, in the order worth checking:
 
 - RTSP is being pulled over UDP. Set `rtsp_streaming_over_tcp: true` and restart VST.
-- An Isaac Sim restart wedged the mounts. Follow `Restart the Scenario`_ in full.
-- The IGX Thor is replaying stale sensor history from an earlier deployment. If it recurs after every restart, remove the Kafka volumes as described in `Cleanup and Teardown`_.
+- An Isaac Sim restart wedged the mounts. Follow [Restart the Scenario](#restart-the-scenario) in full.
+- The IGX Thor is replaying stale sensor history from an earlier deployment. If it recurs after every restart, remove the Kafka volumes as described in [Cleanup and Teardown](#cleanup-and-teardown).
 
 ### Forklift Never Moves
 

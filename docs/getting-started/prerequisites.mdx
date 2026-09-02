@@ -14,9 +14,9 @@ whichever profile you are deploying.
 
 | Profile | What runs | What it needs |
 | --- | --- | --- |
-| `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop. | `Perception host`_, `Software`_, `Runtime environment settings`_, `NGC access`_, and `Perception and calibration`_ |
-| `sil` | The full closed loop on a single host: perception, Safety Core, and NVIDIA Isaac Sim. | The above, plus `Closed-loop host`_ |
-| `hil` | The closed loop split across an x86 stimulus host and an NVIDIA IGX Thor safety host. | `Software`_, `Runtime environment settings`_, `NGC access`_ and `Perception and calibration`_ on both hosts, plus `Closed-loop host`_ for the x86 and `Second host for HIL`_ for the Thor |
+| `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop. | [Perception host](#perception-host), [Software](#software), [Runtime environment settings](#runtime-environment-settings), [NGC access](#ngc-access), and [Perception and calibration](#perception-and-calibration) |
+| `sil` | The full closed loop on a single host: perception, Safety Core, and NVIDIA Isaac Sim. | The above, plus [Closed-loop host](#closed-loop-host) |
+| `hil` | The closed loop split across an x86 stimulus host and an NVIDIA IGX Thor safety host. | [Software](#software), [Runtime environment settings](#runtime-environment-settings), [NGC access](#ngc-access) and [Perception and calibration](#perception-and-calibration) on both hosts, plus [Closed-loop host](#closed-loop-host) for the x86 and [Second host for HIL](#second-host-for-hil) for the Thor |
 
 ## Hardware
 
@@ -54,7 +54,7 @@ For the full list, see [VSS Warehouse Blueprint Prerequisites](https://docs.nvid
 Software-in-the-Loop runs perception, the Safety Core, and Isaac Sim together on
 one host, at three cameras. That is a lighter load than a production perception
 deployment, so these figures stand on their own rather than adding to
-`Perception host`_. What the closed loop does add is a GPU with RT cores:
+[Perception host](#perception-host). What the closed loop does add is a GPU with RT cores:
 
 | Component | Minimum | Recommended |
 | --- | --- | --- |
@@ -98,7 +98,7 @@ Safety Core, so the x86 side is not sized for perception. The safety host needs:
 - Both hosts NTP-synced.
 - A clone of the repository on each host, and ssh access from the stimulus host
   to the safety host.
-- MAXN power mode and pinned clocks, per `Runtime environment settings`_.
+- MAXN power mode and pinned clocks, per [Runtime environment settings](#runtime-environment-settings).
 
 <Note>
 Flashing via the Jetson USB method includes Docker and the NVIDIA Container

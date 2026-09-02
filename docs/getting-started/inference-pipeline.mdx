@@ -46,7 +46,7 @@ The deployment process includes these steps:
 
 ### Camera Selection, Placement and Calibration Guidelines
 
-(If you just want to try out Halos Outside-In with the sample videos packaged within the software, skip this step and proceed to the next step `Installation of AI Perception`_.)
+(If you just want to try out Halos Outside-In with the sample videos packaged within the software, skip this step and proceed to the next step [Installation of AI Perception](#installation-of-ai-perception).)
 
 Camera model choice and configuration settings significantly impact detection latency. The method used to connect cameras to the compute platform greatly influences overall system latency.
 
@@ -332,7 +332,7 @@ during image pulls.
 
 **Workaround**: Pre-pull the required images once while authenticated to
 `nvcr.io` (see the Docker registry authentication step under
-`Installation of AI Perception`_), then start the blueprint **without**
+[Installation of AI Perception](#installation-of-ai-perception)), then start the blueprint **without**
 `--pull always` so Docker Compose uses the locally cached images:
 
 ```bash
