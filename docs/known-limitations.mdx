@@ -74,8 +74,8 @@ Two open issues in the sensor provisioning chain leave AI Perception short of it
 
 | Bug ID | Symptom | Workaround |
 | --- | --- | --- |
-| 6511231 | **Blueprint configurator.** Duplicate camera registration hot-loops, so perception reports duplicate camera names or a camera never registers at all. Restarting the sensor distribution service replays the stale event backlog and makes it worse. | Flush the event backlog, then register once — `Recovering a camera that never registers`_. |
-| 6511265 | **Sensor distribution service.** One camera sits at 0 FPS after re-registration and the active source count stays short, because perception holds the previous sensor uuid's source bin while the live uuid is never added. For the 3D profile this corrupts the bird's-eye output rather than degrading it. | Purge the stale source, then add the live one — `Recovering a camera stuck at 0 FPS`_. |
+| 6511231 | **Blueprint configurator.** Duplicate camera registration hot-loops, so perception reports duplicate camera names or a camera never registers at all. Restarting the sensor distribution service replays the stale event backlog and makes it worse. | Flush the event backlog, then register once — [Recovering a camera that never registers](#recovering-a-camera-that-never-registers). |
+| 6511265 | **Sensor distribution service.** One camera sits at 0 FPS after re-registration and the active source count stays short, because perception holds the previous sensor uuid's source bin while the live uuid is never added. For the 3D profile this corrupts the bird's-eye output rather than degrading it. | Purge the stale source, then add the live one — [Recovering a camera stuck at 0 FPS](#recovering-a-camera-stuck-at-0-fps). |
 
 ### Recovering a camera that never registers
 

@@ -498,7 +498,7 @@ For Debian-based installation:
 <Note>
 Ensure the Debian package corresponding to the target architecture has been installed:
 `psf-desktop.deb` for x86-64 or `psf-tegra.deb` for aarch64 (IGX Thor).
-Refer to `1.1 Debian Installation`_ for details.
+Refer to [1.1 Debian Installation](#11-debian-installation) for details.
 </Note>
 
 ```bash
@@ -572,7 +572,7 @@ from the SDM, which clears a latch left over from a previous run. See
 **safe-release**.
 </Note>
 
-The Safety Core Docker container pulled in `1.2 Docker Installation`_ can now be launched. All Spatial AI 2D Docker containers must be up and running before proceeding.
+The Safety Core Docker container pulled in [1.2 Docker Installation](#12-docker-installation) can now be launched. All Spatial AI 2D Docker containers must be up and running before proceeding.
 The Safety Core container should be started with the Docker socket, shared log directory, and sensor configuration file mounted from the host and bound to the host network.
 
 ```bash
@@ -602,7 +602,7 @@ With the 1.3 Safety Core image the Safety AI Monitor runs inside this
 container alongside the other Safety Core components. The command above
 starts SAIM in `active` mode using the shipped default baselines. To
 capture site-specific baselines, run a one-time `learn` pass (see
-`2.4.2 Typical Invocations`_) and bind-mount a host baseline directory
+[2.4.2 Typical Invocations](#242-typical-invocations)) and bind-mount a host baseline directory
 onto `/opt/nvidia/psf/bin/saim_baseline` in both the `learn` and
 `active` commands so the learned `.cfg` files persist. With a raw
 `docker run`, add that same `-v` mount plus
@@ -672,7 +672,7 @@ For Debian-based installation:
 
 <Note>
 Ensure the `psf-tegra.deb` package has been installed for the CCPLEX-side components.
-Refer to `1.1 Debian Installation`_ for details. The `fsicom-agent` bridge used in this
+Refer to [1.1 Debian Installation](#11-debian-installation) for details. The `fsicom-agent` bridge used in this
 mode ships in the `psf-tegra-fsi.deb` package (see the prerequisite extraction step
 above), while `psf-tegra.deb` supplies the remaining CCPLEX-side components.
 </Note>
@@ -764,7 +764,7 @@ to obtain the device node for accessing the FSI UART.
 For Docker-based installation:
 
 The command receiver must run outside the Safety Core container, as described in
-`2.2.1 Option A / B : x86-64 / aarch64 — SDM on CCPLEX`_.
+[2.2.1 Option A / B : x86-64 / aarch64 — SDM on CCPLEX](#221-option-a--b--x86-64--aarch64--sdm-on-ccplex).
 
 The Safety Core Docker container is launched with the `--sdm-on-fsi` flag, which skips
 the CCPLEX-based SDM process. The `nvFsiCom` daemon and `fsicom-agent` must be launched
@@ -899,7 +899,7 @@ For Debian-based installation:
 <Note>
 Ensure the Debian package corresponding to the target architecture has been installed:
 `psf-desktop.deb` for x86-64 or `psf-tegra.deb` for aarch64 (IGX Thor).
-Refer to `1.1 Debian Installation`_ for details.
+Refer to [1.1 Debian Installation](#11-debian-installation) for details.
 </Note>
 
 ```bash
@@ -973,7 +973,7 @@ from the SDM, which clears a latch left over from a previous run. See
 **safe-release**.
 </Note>
 
-The Safety Core Docker container pulled in `1.2 Docker Installation`_ can now be
+The Safety Core Docker container pulled in [1.2 Docker Installation](#12-docker-installation) can now be
 launched. All Spatial AI 3D Docker containers must be up and running before proceeding.
 The Safety Core container should be started with the Docker socket, shared log directory,
 and sensor configuration file mounted from the host and bound to the host network.
@@ -1005,7 +1005,7 @@ With the 1.3 Safety Core image the Safety AI Monitor runs inside this
 container alongside the other Safety Core components. The command above
 starts SAIM in `active` mode using the shipped default baselines. To
 capture site-specific baselines, run a one-time `learn` pass (see
-`2.4.2 Typical Invocations`_) and bind-mount a host baseline directory
+[2.4.2 Typical Invocations](#242-typical-invocations)) and bind-mount a host baseline directory
 onto `/opt/nvidia/psf/bin/saim_baseline` in both the `learn` and
 `active` commands so the learned `.cfg` files persist. With a raw
 `docker run`, add that same `-v` mount plus
@@ -1023,7 +1023,7 @@ IGX Thor based platforms. The SEI daemon, event ingestion pipeline, and NvPSD Ga
 run on the CCPLEX, while the SDM executes in the hardware-isolated FSI environment.
 
 The prerequisites for FSI deployment are the same as described in
-`2.2.2 Option C: aarch64 — SDM on FSI`_, with the FSI firmware located at
+[2.2.2 Option C: aarch64 — SDM on FSI](#sdm-on-fsi), with the FSI firmware located at
 `/opt/nvidia/psf/etc/fsi-fw/proximity/fsi-ffw-t264.bin`. The `fsicom-agent`
 options, expected startup output, and link checks are the same as well; see
 [the option reference below](/deployment#fsicom-agent-options).
@@ -1032,9 +1032,9 @@ For Debian-based installation:
 
 <Note>
 Ensure the `psf-tegra.deb` package has been installed for the CCPLEX-side components.
-Refer to `1.1 Debian Installation`_ for details. The `fsicom-agent` bridge used in this
+Refer to [1.1 Debian Installation](#11-debian-installation) for details. The `fsicom-agent` bridge used in this
 mode ships in the `psf-tegra-fsi.deb` package (see the prerequisite extraction step
-in `2.2.2 Option C: aarch64 — SDM on FSI`_), while `psf-tegra.deb` supplies the remaining
+in [2.2.2 Option C: aarch64 — SDM on FSI](#sdm-on-fsi)), while `psf-tegra.deb` supplies the remaining
 CCPLEX-side components.
 </Note>
 
@@ -1235,8 +1235,8 @@ sudo ./launch_hoisa.sh --mode active --app pxc \
 ```
 
 **Active — SDM on FSI** (IGX Thor; `nvFsiCom` must be started
-separately, see sections `2.2.2 Option C: aarch64 — SDM on FSI`_ and
-`2.3.2 Option C: aarch64 — SDM on FSI`_):
+separately, see sections [2.2.2 Option C: aarch64 — SDM on FSI](#sdm-on-fsi) and
+[2.3.2 Option C: aarch64 — SDM on FSI](#232-option-c-aarch64--sdm-on-fsi)):
 
 ```bash
 cd /opt/nvidia/psf/bin
@@ -1624,9 +1624,9 @@ Solutions:
 
    - Use one of the supported launch paths (recommended):
 
-     - `launch_hoisa.sh` — see `2.4 Quick Start with launch_hoisa.sh`_.
+     - `launch_hoisa.sh` — see [2.4 Quick Start with launch_hoisa.sh](#launch-hoisa-quickstart).
      - The Safety Core Docker container — see
-       `1.3 Safety Core Setup (Docker Runtime)`_.
+       [1.3 Safety Core Setup (Docker Runtime)](#13-safety-core-setup-docker-runtime).
 
    - If the daemon must be started directly, create the runtime directory
      with appropriate permissions before launching it:
@@ -1897,7 +1897,7 @@ Solutions:
 
    - Make the sensor configuration, the event mapping, and the perception
      stack agree on both the pipeline IDs and the sensor names. See
-     `2.1.3 Create the sensor configuration file`_ and
+     [2.1.3 Create the sensor configuration file](#sensor-configuration-file) and
      [/reference/event-mapping-configuration](/reference/event-mapping-configuration).
    - Confirm `maxPipelines` in `nvpss.conf` covers every configured
      pipeline ID. See [/reference/sei-configuration](/reference/sei-configuration).

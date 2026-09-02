@@ -2,7 +2,7 @@
 title: "Agentic Deployment"
 description: ""
 ---
-Deploy Halos Outside-In Safety by **profile**, driven from natural language by a coding agent and the `hoisa-deploy-profile` skill instead of running the steps yourself. If no agent is available, the manual route for each profile is under `Fallback: manual bring-up`_.
+Deploy Halos Outside-In Safety by **profile**, driven from natural language by a coding agent and the `hoisa-deploy-profile` skill instead of running the steps yourself. If no agent is available, the manual route for each profile is under [Fallback: manual bring-up](#fallback-manual-bring-up).
 
 The skill ships **in the repo you cloned**, at `skills/hoisa-deploy-profile/`. It is a developer-side tool following the [agentskills.io](https://agentskills.io/specification) specification: any agentskills.io-compatible coding agent loads it and operates the system for you. It reads the repo's compose files, profiles, and configs, and brings up the VSS Warehouse 3.2.1 perception backend first.
 
@@ -10,7 +10,7 @@ The skill ships **in the repo you cloned**, at `skills/hoisa-deploy-profile/`. I
 
 | Profile | What it deploys | Manual route |
 | --- | --- | --- |
-| `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop: the MUTE / UNMUTE decision renders as the VST `halo_safety` overlay. Runs on an x86 host, or on an IGX Thor with the decision maker on CCPLEX or FSI; a Thor here runs the Safety Core alone, not the two-host closed loop. | `Fallback: manual bring-up`_ |
+| `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop: the MUTE / UNMUTE decision renders as the VST `halo_safety` overlay. Runs on an x86 host, or on an IGX Thor with the decision maker on CCPLEX or FSI; a Thor here runs the Safety Core alone, not the two-host closed loop. | [Fallback: manual bring-up](#fallback-manual-bring-up) |
 | `sil` | The full single-host closed loop: NVIDIA Isaac Sim drives a forklift and the safety decision is fed back over ROS. Runs on the 2D or the 3D perception backend. | [/testing/sil/sil-2d](/testing/sil/sil-2d), or [/testing/sil/sil-3d](/testing/sil/sil-3d) for 3D |
 | `hil` | The closed loop split across two hosts: NVIDIA Isaac Sim, the communication layer, and the forklift controller on an x86 stimulus host, with perception and the Safety Core on an NVIDIA IGX Thor. | [/testing/hil/quickstart](/testing/hil/quickstart) |
 
