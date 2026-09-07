@@ -115,7 +115,57 @@ and rebuild and redeploy PSS, the gateway and both SDMs together.
 - Two free UDP ports for the PLC command streams. Defaults are 12345 for
   `atl_sdm` and 12346 for `atl_proximity_sdm`; they must differ.
 
+## Build and install
+
+Every `/opt/nvidia/psf/...` path in this README is an **installed** path. It
+exists only once the runtime Debian package is installed, or inside the Docker
+image built from that package. A plain `cmake --build` leaves the binaries in
+the build tree and creates nothing under `/opt`.
+
+`safety-core/BUILD.md` covers the prerequisites, the CUDA root and the
+configure step for each architecture. Configure as documented there first, then
+build the packages from that same build directory.
+
+### Debian packages
+
+```bash
+# x86_64
+cmake --build safety-core/build-x86_64 --target safety_core_debian --parallel
+sudo apt-get install ./safety-core/build-x86_64/packages/psf-desktop.deb
+
+# aarch64/Tegra
+cmake --build safety-core/build-aarch64 --target safety_core_debian --parallel
+sudo apt-get install ./safety-core/build-aarch64/packages/psf-tegra.deb
+```
+
+Install with `apt-get install`, not `dpkg -i`: the runtime package depends on
+`librdkafka1` and `libprotobuf32t64`, which apt will pull in.
+
+Installing is what makes the paths in the next section resolve —
+`bin/launch_psf.sh`, `apps/atl_proximity/atl_proximity_sdm` and its command
+receiver, `apps/atl_proximity/event_mapping_atl_proximity.pb.txt`, and
+`configs/sensor_config.conf`. The matching `-dev` package adds the public
+headers and this component's example sources.
+
+### Docker image
+
+The Docker target builds the Debian packages itself and installs them into the
+image, so it needs no separate deb step:
+
+```bash
+cmake --build safety-core/build-x86_64 --target safety_core_docker --parallel
+docker load -i safety-core/build-x86_64/packages/psf-desktop.docker.tar
+```
+
+That produces `psf-desktop:latest`; the aarch64 build directory produces
+`psf-tegra:latest` from `psf-tegra.docker.tar`. The image entrypoint is
+`launch_psf.sh`, so whatever you pass to `docker run` after the image name goes
+straight to the launcher, and `/opt/nvidia/psf` is already populated inside.
+
 ## How to run
+
+The paths below assume the runtime package is installed, or that you are inside
+the container image.
 
 ### Through the launcher (recommended)
 
@@ -145,17 +195,24 @@ The decision makers are CCPLEX only; this app has no FSI variant.
 
 ### Under Docker
 
-Remember the sysctl from the prerequisites:
+Remember the sysctl from the prerequisites — without it PSS cannot create its
+queue and the stack will not come up:
 
 ```bash
-docker run -d --name nv-psf --network host --runtime=nvidia \
+docker run -d --name nv-psf --network host \
   --sysctl fs.mqueue.msgsize_max=16384 \
-  <psf-image> \
+  -v /path/to/sensor_config.conf:/opt/nvidia/psf/configs/sensor_config.conf:ro \
+  psf-desktop:latest \
   --app atl_proximity \
   --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12349 --proximity_cmd_rx_port 12350 \
   --pair_ttl_ms 2000 \
   --sensor-config /opt/nvidia/psf/configs/sensor_config.conf
 ```
+
+Use `psf-tegra:latest` on Tegra. The config is mounted because the one shipped
+in the package is a template and has to describe your actual sensors. No GPU
+runtime flag is needed: the launcher starts the gateway, the PSS daemon, the
+SDMs and `mdx_client`, none of which use the GPU.
 
 ### Running the proximity SDM directly
 
