@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define MAX_SENSORS_DATA_SUMMARY_SIZE 8
+#define MAX_SENSORS_DATA_SUMMARY_SIZE 32
 #define MAX_TRAJECTORY_COORDINATES 10
 #define MAX_INDENTIFIER_LENGTH 64
 #define MAX_SUPPORTED_PIPELINES 8
@@ -18,7 +18,7 @@
  * Protocol schema version.  Increment on any wire-incompatible change
  * to SafetyEvent, FusedSafetyEvent, or DecisionRequest.
  */
-#define PSS_SCHEMA_VERSION 3U
+#define PSS_SCHEMA_VERSION 8U
 
 #pragma pack(push, 1)
 

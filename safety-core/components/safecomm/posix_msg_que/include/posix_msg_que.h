@@ -36,8 +36,13 @@ extern "C" {
 
 /** @def MQ_MAX_MSG_SIZE
  *  @brief Maximum size of each message in bytes.
+ *
+ *  Must stay >= sizeof(DecisionRequest), which scales with
+ *  MAX_SENSORS_DATA_SUMMARY_SIZE (8369 bytes at 32 slots). The enclosing IPC
+ *  namespace must also allow it: fs.mqueue.msgsize_max defaults to 8192, so
+ *  mq_open() fails with EINVAL unless that sysctl is raised to match.
  */
-#define MQ_MAX_MSG_SIZE 8192
+#define MQ_MAX_MSG_SIZE 16384
 
 /** @def MQ_MSG_BUFFER_SIZE
  *  @brief Buffer size for messages including additional space.

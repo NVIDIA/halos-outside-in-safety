@@ -18,7 +18,9 @@ foreach(_safety_core_target IN ITEMS
     atl_sdm
     atl_sdm_cmd_receiver
     proximity_sdm
-    proximity_sdm_cmd_receiver)
+    proximity_sdm_cmd_receiver
+    atl_proximity_sdm
+    atl_proximity_sdm_cmd_receiver)
   if(TARGET "${_safety_core_target}")
     list(APPEND _safety_core_package_dependencies "${_safety_core_target}")
   endif()
