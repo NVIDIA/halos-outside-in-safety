@@ -99,7 +99,7 @@ safety-core/build-aarch64/packages/psf-tegra.tar.gz
 safety-core/build-aarch64/packages/psf-tegra-dev.tar.gz
 ```
 
-The runtime package installs under `/opt/nvidia/psf` and includes runtime binaries, shared libraries, default configs, launch scripts, event mappings, rsyslog config, and tmpfiles config. The dev package includes public headers and ATL/proximity example sources.
+The runtime package installs under `/opt/nvidia/psf` and includes runtime binaries, shared libraries, default configs, launch scripts, event mappings, rsyslog config, and tmpfiles config. The dev package includes public headers and the ATL, proximity, and combined ATL + proximity example sources.
 
 ## Build Docker Image Archive
 
@@ -158,6 +158,8 @@ atl_sdm
 atl_sdm_cmd_receiver
 proximity_sdm
 proximity_sdm_cmd_receiver
+atl_proximity_sdm
+atl_proximity_sdm_cmd_receiver
 ```
 
 The default build produces these shared libraries:
@@ -202,8 +204,14 @@ The runtime Debian package stages the main executables under `/opt/nvidia/psf`:
 /opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver
 /opt/nvidia/psf/apps/proximity/proximity_sdm
 /opt/nvidia/psf/apps/proximity/proximity_sdm_cmd_receiver
+/opt/nvidia/psf/apps/atl_proximity/atl_proximity_sdm
+/opt/nvidia/psf/apps/atl_proximity/atl_proximity_sdm_cmd_receiver
 /opt/nvidia/psf/apps/mdx-client/mdx_client
 ```
+
+The combined ATL + forklift/person proximity app runs two decision makers over
+one gateway; see `decision-makers/atl_proximity/README.md`, which also documents
+the `fs.mqueue.msgsize_max` setting its `DecisionRequest` size requires.
 
 Runtime libraries are staged in `/opt/nvidia/psf/lib`, and default configs are staged in `/opt/nvidia/psf/configs`.
 

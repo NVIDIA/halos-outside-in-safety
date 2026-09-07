@@ -14,18 +14,26 @@ SENSOR_CONFIG="${CONFIG_DIR}/sensor_config.conf"
 KAFKA_BROKER=""
 CMD_RX_IP=""
 CMD_RX_PORT=""
+PROXIMITY_CMD_RX_PORT=""
+PAIR_TTL_MS=""
 
 declare -a BG_PIDS=()
 
 usage() {
     cat <<USAGE
-Usage: $(basename "$0") --app <atl|proximity|pxc> [options]
+Usage: $(basename "$0") --app <atl|proximity|pxc|atl_proximity> [options]
 
 Options:
   --sensor-config <file>   Sensor config mounted or installed in the container
   --broker <address>       Kafka broker passed to mdx_client
   --cmd_rx_ip <ip>         Command receiver IP passed to the SDM app
   --cmd_rx_port <port>     Command receiver port passed to the SDM app
+
+Options for --app atl_proximity, which runs two decision makers:
+  --proximity_cmd_rx_port <port>
+                           Command receiver port for atl_proximity_sdm. Must
+                           differ from --cmd_rx_port, which atl_sdm uses.
+  --pair_ttl_ms <ms>       Pair liveness window for atl_proximity_sdm
   -h, --help               Show this help
 USAGE
 }
@@ -63,6 +71,8 @@ while [[ $# -gt 0 ]]; do
         --broker) require_arg "$@"; KAFKA_BROKER="$2"; shift 2 ;;
         --cmd_rx_ip) require_arg "$@"; CMD_RX_IP="$2"; shift 2 ;;
         --cmd_rx_port) require_arg "$@"; CMD_RX_PORT="$2"; shift 2 ;;
+        --proximity_cmd_rx_port) require_arg "$@"; PROXIMITY_CMD_RX_PORT="$2"; shift 2 ;;
+        --pair_ttl_ms) require_arg "$@"; PAIR_TTL_MS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -72,9 +82,27 @@ if [[ "$APP" == "pxc" ]]; then
     APP="proximity"
 fi
 
-if [[ "$APP" != "atl" && "$APP" != "proximity" ]]; then
-    echo "Error: --app must be atl, proximity, or pxc" >&2
+if [[ "$APP" != "atl" && "$APP" != "proximity" && "$APP" != "atl_proximity" ]]; then
+    echo "Error: --app must be atl, proximity, pxc, or atl_proximity" >&2
     exit 1
+fi
+
+# Both decision makers in the atl_proximity app drive the same PLC, so sharing
+# one port would interleave two command streams on it.
+if [[ "$APP" == "atl_proximity" && -n "$PROXIMITY_CMD_RX_PORT" && "$PROXIMITY_CMD_RX_PORT" == "$CMD_RX_PORT" ]]; then
+    echo "Error: --proximity_cmd_rx_port must differ from --cmd_rx_port" >&2
+    exit 1
+fi
+
+if [[ "$APP" != "atl_proximity" ]]; then
+    if [[ -n "$PROXIMITY_CMD_RX_PORT" ]]; then
+        echo "Error: --proximity_cmd_rx_port applies only to --app atl_proximity" >&2
+        exit 1
+    fi
+    if [[ -n "$PAIR_TTL_MS" ]]; then
+        echo "Error: --pair_ttl_ms applies only to --app atl_proximity" >&2
+        exit 1
+    fi
 fi
 
 if [[ ! -f "$SENSOR_CONFIG" ]]; then
@@ -106,6 +134,25 @@ fi
 if [[ "$APP" == "atl" ]]; then
     start_process "${APPS_DIR}/atl/atl_sdm" "${SDM_ARGS[@]}"
     MDX_CONFIG="${APPS_DIR}/atl/event_mapping_atl.pb.txt"
+elif [[ "$APP" == "atl_proximity" ]]; then
+    # Two decision makers over one gateway and one mdx_client: atl_sdm takes
+    # EVENT_0..EVENT_5 and atl_proximity_sdm takes EVENT_8..EVENT_10, from the
+    # single combined mapping below. Each registers only for what it consumes.
+    start_process "${APPS_DIR}/atl/atl_sdm" "${SDM_ARGS[@]}"
+
+    APX_ARGS=()
+    if [[ -n "$CMD_RX_IP" ]]; then
+        APX_ARGS+=(--cmd_rx_ip "$CMD_RX_IP")
+    fi
+    if [[ -n "$PROXIMITY_CMD_RX_PORT" ]]; then
+        APX_ARGS+=(--cmd_rx_port "$PROXIMITY_CMD_RX_PORT")
+    fi
+    if [[ -n "$PAIR_TTL_MS" ]]; then
+        APX_ARGS+=(--pair_ttl_ms "$PAIR_TTL_MS")
+    fi
+    start_process "${APPS_DIR}/atl_proximity/atl_proximity_sdm" "${APX_ARGS[@]}"
+
+    MDX_CONFIG="${APPS_DIR}/atl_proximity/event_mapping_atl_proximity.pb.txt"
 else
     start_process "${APPS_DIR}/proximity/proximity_sdm" "${SDM_ARGS[@]}"
     MDX_CONFIG="${APPS_DIR}/proximity/proximity_event_mapping.pb.txt"
