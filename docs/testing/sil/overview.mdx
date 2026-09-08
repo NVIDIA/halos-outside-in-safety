@@ -1,0 +1,191 @@
+---
+title: "SIL Overview"
+description: ""
+---
+## What is Software-in-the-Loop Testing?
+
+Software-in-the-Loop (SIL) testing validates the Halos Outside-In Safety system using simulation before hardware deployment.
+
+It swaps physical components (warehouse, forklift, cameras) with **virtual equivalents** while running the **actual production software** (AI Perception (VSS), Safety Core, Comm Layer).
+
+### Key Components
+
+The system simulates:
+
+- **Warehouse Environment**: Virtual 20x20m warehouse with loading dock and trailer
+- **Forklift Operations**: Autonomous forklift with ROS2 control for loading/unloading
+- **Human Workers**: AI-controlled digital humans moving through the workspace
+- **Camera Feeds**: Multiple RTSP camera streams from simulation
+- **Perception Pipeline**: Real VSS Warehouse Blueprint with RT-DETR detection
+- **Safety Logic**: Safety Core for event correlation and decision making
+
+### What is NOT Simulated
+
+These components run as production software:
+
+- **Safety Event Integrator**: Multi-camera sensor fusion
+- **Safety Decision Maker**: MUTE/UNMUTE logic for Automated Trailer Loading (ATL)
+- **Communication Layer**: UDP, OPC UA, and ROS2 protocol translation
+- **VSS Warehouse Blueprint**: RT-DETR perception pipeline
+
+This hybrid approach ensures the safety-critical software is validated under realistic conditions.
+
+## Why Use SIL?
+
+### Test Before Hardware Available
+
+Validating safety logic before IGX Thor or physical robots arrive eliminates hardware dependency for software development.
+
+### Faster Iteration
+
+- No physical setup required
+- Instant simulation reset
+- Quick parameter changes
+- Parallel testing scenarios
+
+Key benefits:
+
+- Modify forklift paths in minutes vs. hours of physical setup
+- Test 100+ scenarios per day vs. 5-10 with hardware
+- No risk of hardware damage during development
+
+### Reproducible Scenarios
+
+The same simulation produces identical results every time, enabling:
+
+- Regression testing: Verify software updates don't break existing functionality
+- Performance benchmarking: Measure latency improvements across versions
+- Bug reproduction: Replay exact conditions that triggered issues
+- Automated testing: Run scenarios in CI/CD pipelines
+
+### Dangerous Scenario Testing
+
+Test scenarios that are unsafe or impractical with real equipment:
+
+- **Near-collision events**: Human enters ROI while forklift is moving at full speed
+- **System failure modes**: What happens if perception briefly loses tracking?
+- **Edge cases**: Multiple humans entering simultaneously, occlusion scenarios
+- **Stress testing**: Maximum forklift speed, minimum reaction times
+
+### Cost-Effective Development
+
+Eliminate expenses associated with hardware testing:
+
+- No robot shipping costs
+- No facility rental
+- No insurance for physical testing
+- No specialized test personnel
+- Scale development team without scaling hardware
+
+## Automated Trailer Loading (ATL) Use Case
+
+Current testing harness specifically validates the Automated Trailer Loading scenario.
+
+### Scenario Description
+
+```text
+Warehouse → Loading Dock → Trailer
+    ↓
+Autonomous forklift loads/unloads pallets
+Human workers supervise operations
+Overhead cameras monitor safety zones
+```
+
+### Safety Logic (MUTE/UNMUTE)
+
+These are the two strings the communication layer logs. Read them as state names, not as
+"safety off" and "safety on".
+
+**MUTE (ALLOW OPERATION)**:
+  - Forklift fully inside trailer
+  - NO humans detected in Region of Interest (ROI)
+  - Loading may proceed at higher speed
+
+**UNMUTE (PREVENT OPERATION)**:
+  - Human detected in ROI (≥1 person)
+  - Forklift exiting trailer
+  - Alarm raised; the permission to run at higher speed is withdrawn
+
+The safety system raises an alarm or signals all clear; it does not stop the vehicle. Acting
+on the decision is the integrator's responsibility.
+
+### Why This Matters
+
+**Productivity**: Faster movement inside trailers when no humans present. **Safety**: Only when cameras confirm no humans. **Outside-in cameras**: "Guardian angel" view forklift sensors cannot provide.
+
+## Architecture Overview
+
+<Frame caption="SIL harness Architecture">
+  <img src="/assets/images/sil/sil_warehouse_architecture.png" alt="SIL Warehouse Architecture" />
+</Frame>
+
+The SIL harness consists of four main components:
+
+1. **AI Perception (VSS Warehouse Blueprint)**
+   - RT-DETR perception for person and forklift detection
+   - ROI (Region of Interest) and Tripwire monitoring
+   - Kafka event streaming
+   - Must be deployed separately before the core testing harness
+
+2. **Safety Core (PSF)**
+   - Safety Event Integrator: Correlates events from multiple cameras
+   - Safety Decision Maker: ATL logic (MUTE/UNMUTE commands)
+   - Event validation and fusion
+
+3. **Communication Layer**
+   - UDP Receiver: Receives commands from Safety Core
+   - OPC UA Server: Industrial protocol interface
+   - ROS2 Bridge: Publishes to Isaac Sim
+
+4. **Isaac Sim**
+   - Warehouse environment simulation
+   - Forklift with Action Graph for ROS2 control
+   - IRA (Isaacsim.Replicator.Agent) extension for digital human movement
+   - Multiple cameras with RTSP output, self-hosted in-process (one server per camera)
+
+### Data Flow
+
+```text
+Isaac Sim Cameras (15 FPS RTSP)
+     ↓
+AI Perception (VSS Warehouse Blueprint)
+     ├─ RT-DETR inference
+     ├─ Object tracking
+     └─ ROI/Tripwire checks
+     ↓ Kafka events
+Safety Event Integrator
+     ├─ Multi-camera fusion
+     └─ Event validation
+     ↓ Validated events
+Safety Decision Maker
+     ├─ ATL logic
+     └─ MUTE/UNMUTE decision
+     ↓ UDP packet (64 bytes)
+Communication Layer
+     ├─ Protocol translation
+     └─ ROS2 publish
+     ↓ /safety/is_muted topic
+Isaac Sim Action Graph
+     └─ Safety indicator (orange/green light)
+```
+
+## System Requirements
+
+| Component | Minimum | Recommended |
+| --- | --- | --- |
+| **CPU** | 8 cores | 16+ cores |
+| **RAM** | 32 GB | 64 GB |
+| **GPU** | 5090 | Pro 6000 Blackwell |
+| **Storage** | 200 GB | 200 GB |
+| **OS** | Ubuntu 22.04/24.04 LTS | Ubuntu 22.04/24.04 LTS |
+| **Network** | 0.5 Gbps | 1 Gbps |
+
+## Next Steps
+
+Ready to get started? Follow these guides:
+
+1. [/getting-started/prerequisites](/getting-started/prerequisites) - Verify hardware and software requirements
+2. [/testing/sil/sil-2d](/testing/sil/sil-2d) - Deploy testing harness in 30 minutes
+3. [architecture](/testing/sil/architecture) - Deep dive into system design
+4. [components/isaac-sim](/testing/sil/components/isaac-sim) - Customize Isaac Sim scenes
+5. [/testing/srr/overview](/testing/srr/overview) - Score the safety decision against ground truth with the **Regression Testing Reporter**

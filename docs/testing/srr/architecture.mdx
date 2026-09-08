@@ -1,0 +1,118 @@
+---
+title: "Architecture"
+description: ""
+---
+How the Regression Testing Reporter records the closed loop and turns it into a graded report. Read [overview](/testing/srr/overview) first for the what and why.
+
+## Data flow (one scenario)
+
+The Regression Testing Reporter runs three things in lockstep — Isaac Sim (ground truth + camera streams), the VSS + Safety Core stack (the decision), and the Regression Testing Reporter service (the recorder + scorer):
+
+<Frame caption="The Regression Testing Reporter service (left) records ground truth and the Safety Core decision; the Halos Outside-In Safety stack (centre) produces the MUTE / UNMUTE decision; the digital twin (right) drives the scene and publishes ground truth. Each column is a host / GPU.">
+  <img src="/assets/images/sil/srr/SRR-arch.png" alt="Regression Testing Reporter data flow across the CPU host, the Safety Core GPU, and the Isaac Sim GPU" />
+</Frame>
+
+- **Isaac Sim** publishes true poses on `/gt/*` (the *reference*, via the
+  `/World/SRRGraph` ROS 2 TF publishers — see [Regression Testing Reporter Ground-Truth Graph (opt-in)](/testing/sil/components/action-graph#regression-testing-reporter-ground-truth-graph-opt-in)) and hosts the three RTSP camera streams the perception stack consumes.
+- **VSS** turns those streams into Kafka events (`mdx-*`); the **Safety Core**
+  (PSF: SEI fusion + ATL) turns events into the MUTE / UNMUTE decision on `/safety/*`.
+- The **Regression Testing Reporter service** (rclpy + tf2 + Kafka consumers) records both the ground
+  truth and the decision into a single 30 Hz `parquet` log, then `tw_split` and `aggregator` split and score it.
+
+In short: Regression Testing Reporter compares what the Safety Core **decided** (mute/unmute) against what ground truth said it **should** decide, and scores the perception feeding that decision.
+
+<Note>
+The diagram labels perception as "VSS Warehouse 2D (RT-DETR + NvDCF)". With the 3D profile, SIL deployments run VSS Warehouse 3.2.1 with Sparse4D 3D detections (`mdx-bev` / `mdx-behavior`), which is what enables the Phase 2 perception scores. A 2D-only feed still works and gives the Phase 1 safety-decision scores only.
+</Note>
+
+## Pipeline stages
+
+A run advances through these stages **per scenario**:
+
+1. **Restart** — both the Halos and Regression Testing Reporter compose stacks are restarted for a fresh
+   Safety Core state (counter drift otherwise carries across runs).
+2. **Scene start** — Isaac Sim loads the warehouse scene with `--srr-gt`, which
+   builds the `/gt/*` ground-truth publishers at run time (see [Regression Testing Reporter Ground-Truth Graph (opt-in)](/testing/sil/components/action-graph#regression-testing-reporter-ground-truth-graph-opt-in)).
+3. **Warm-up** — a short settle so the first clip isn't a cold-start outlier.
+4. **Record** — `/srr/record true` starts the 30 Hz capture; ``/srr/record
+   false` stops it. One recording → one `run-*.parquet``.
+5. **Split** — `tw_split` cuts the recording into per-clip segments at each
+   forklift trailer-tripwire crossing.
+6. **Aggregate** — the aggregator scores each clip (Phase 1 + Phase 2) and
+   renders `summary.md`, `failures.json`, and per-clip `scn_*.md`.
+7. **Video pull** — per-clip review MP4s are pulled from VST.
+
+### Clip semantics
+
+Each time the forklift's x-coordinate crosses the trailer tripwire (`TW_X`, default `9.574`) is a scene boundary. Consecutive boundaries delimit one clip (~40 s each). Roughly: a 5-minute recording → ~7 clips, 10 min → ~15, 20 min → ~30. The hazard (forklift entering/leaving the dock while people are near) forms around these crossings, which is why the Regression Testing Reporter centers clips on them.
+
+## Two scoring layers
+
+Every recording is scored on two independent layers:
+
+| Layer | What it scores |
+| --- | --- |
+| **Phase 1 — the safety decision** | Ground-truth-expected MUTE vs the actual Safety Core `is_muted` → `match%`, Mute/Unmute-correct%, reaction lag, and behavior-analytics ROI/TW event detection. |
+| **Phase 2 — perception quality** | Ground-truth TF vs the `mdx-bev` 3D detections and `mdx-behavior` positions → per-class detection and tracking quality, precision/recall/F1, position offset vs jitter, id-switches, coverage. |
+
+Phase 2 depends on the 3D pipeline (Sparse4D → `mdx-bev` + `mdx-behavior`) flowing. A 2D-only feed (only `mdx-events`) gives **Phase 1 only** — the Phase 2 section is simply omitted, which is expected, not a failure. See [interpret-results](/testing/srr/interpret-results) for what every metric means.
+
+## Recording schema
+
+The recorder samples at **30 Hz** (`SAMPLE_HZ = 30`). Enabling the 3D pipeline adds five nullable columns to the parquet, so a Phase-1-only deploy still records cleanly:
+
+| Parquet column | Purpose |
+| --- | --- |
+| `detections_json` | Sparse4D 3D detections (`mdx-bev`) — Phase 2 detection scoring. |
+| `tracker_state_json` | Tracker state — Phase 2 tracking-loss / id-switch scoring. |
+| `ba_positions_json` | `mdx-behavior` BA track positions. |
+| `bev_frame_id` / `bev_create_time` | Frame id + create time for the 3D detections. |
+
+Setting the `BEV_TOPIC` or `BEHAVIOR_TOPIC` env to an empty string disables that consumer. Ground-truth, Safety Core state, and `ba_events_json` (ROI/TW) are always recorded (Phase 1).
+
+## Host and network layout
+
+- **Isaac Sim** — digital twin, ground-truth publishers, and the three RTSP
+  camera sources.
+- **VSS + Safety Core** — perception (`vss-rtvi-cv`), behavior analytics
+  (`vss-behavior-analytics`), Kafka, and the Safety Core decision-maker.
+- **Regression Testing Reporter service** — a container that joins the **host network** so it can reach
+  ROS 2 (`/gt/*` and `/safety/*`) and Kafka (`mdx-*`) directly.
+
+All coordinates and zones come from the VSS `calibration.json`:
+
+| Constant | Source / default |
+| --- | --- |
+| `TW_X` (trailer tripwire) | `calibration.json`; fallback `9.574` — the clip-boundary key. |
+| `ROI` (work zone) | `calibration.json`; fallback `x ∈ [4.877, 9.574], y ∈ [-18.976, -11.239]`. |
+| `SAMPLE_HZ` | `30` (recording rate). |
+| `gate_m` | `1.5 m` — nearest-GT match gate for detect-fail / recall. |
+
+## Fixture integration
+
+The Regression Testing Reporter's scenario fixtures (behavior trees + navmesh) must reach the `isaac-sim` container before Isaac launches. The default approach is a one-time **sync** (Pattern A): `sync_to_halos.sh` copies the canonical `regression-reporter/scenarios/` fixtures (behavior trees + navmesh, plus the Script-Editor utilities and the `default_config_ros.yaml` template) into the Isaac SIL config tree. A planned follow-up (Pattern B) bind-mounts the `scenarios/` dir into the container so edits appear without copying, so Pattern A is the default until it lands. The `regression-reporter/scenarios/` copy is always **canonical** — edit there, then re-sync.
+
+The sync command itself lives in the runbook — see [quickstart](/testing/srr/quickstart) Step 4 — and [scenarios](/testing/srr/scenarios) for the fixtures themselves.
+
+## Orchestration: manual vs skill
+
+The manual runner (`scripts/run_multi.sh`) executes every stage in sequence. The `hoisa-generate-regression-report` skill drives the same stages but inserts a readiness check between each phase boundary (instead of fixed sleeps) and prints a demo-friendly log. Its reference docs map to the pipeline stages:
+
+| Skill phase | What it covers |
+| --- | --- |
+| `01_test_plan` | Select scenarios + durations; confirm compose is deployed. |
+| `02_launch` | Per-scenario launch: compose restart, scene start, `/srr/record true`. |
+| `03_monitor` | Live recording monitor — forklift tripwire-crossing detection. |
+| `04_analyze` | Post-recording: `tw_split` + aggregator + per-clip video pull. |
+| `05_report` | Cross-run rollup → top-level `summary.md` + headline metrics. |
+| `06_interpret_report` | What every metric means + the FAIL-clip drill-down workflow. |
+
+<Note>
+The manual `run_multi.sh` always restarts both the Halos and Regression Testing Reporter compose stacks between scenarios, and the skill does the same. This cross-scenario isolation is required — Safety Core counter drift carries across runs and corrupts the next scenario's results.
+</Note>
+
+## Next steps
+
+- [scenarios](/testing/srr/scenarios) — the pre-built test cases and how to regenerate them.
+- [interpret-results](/testing/srr/interpret-results) — how to read the graded report.
+- [debug-viewer](/testing/srr/debug-viewer) — root-cause analysis for failing clips.

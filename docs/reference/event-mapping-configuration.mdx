@@ -1,0 +1,229 @@
+---
+title: "Event Mapping Configuration"
+description: ""
+---
+## 1. Overview
+
+The event-mapping configuration controls how VSS messages are translated into
+HOISA `SafetyEvent` types. The `mdx_client` reads the configuration passed
+with `--config` and evaluates each incoming `mdx-events` or
+`mdx-frames` candidate against the rules. Empty condition fields match any
+value. Rules are evaluated in file order; the first matching rule is reported.
+
+The ATL reference mapping is installed at:
+
+```text
+/opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt
+```
+
+The mapping is a Protobuf text-format `EventMappingConfig` file. A binary
+Protobuf configuration is also accepted by `mdx_client`.
+
+## 2. Launching Event Ingestion
+
+Pass the event mapping and sensor configuration to `mdx_client`:
+
+```bash
+/opt/nvidia/psf/apps/mdx-client/mdx_client \
+    --config /opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+```
+
+`--config` (`-c`) and `--sensor-config` (`-s`) are required;
+`mdx_client` exits at startup without them. `--broker` (`-b`)
+`<host:port>` sets the Kafka broker, taking precedence over the
+`MDX_MSGBUS_BROKERS` environment variable, which in turn overrides the
+`localhost:9092` default. `--debug` prints
+matched events instead of reporting them to the SEI daemon.
+
+## 3. Rule Format
+
+Each `rules { ... }` block describes one mapping:
+
+```protobuf
+rules {
+  name: "Human restricted-area violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "true"
+  output_event: "EVENT_4"
+}
+```
+
+The common fields are:
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `name` | No | Human-readable rule name used for diagnostics. |
+| `message_source` | In practice | Kafka message source: `mdx-events` or `mdx-frames`. An empty value is accepted at load time but matches nothing, so the rule never fires. |
+| `alert_type` | In practice | Alert category: `tripwire`, `roi`, `empty_roi`, `social_distancing`, or `object_presence`. As with `message_source`, an empty value loads but never matches. |
+| `event_type` | For `mdx-events` rules as needed | Direction or event value: `IN`, `OUT`, `ENTRY`, or `EXIT`. |
+| `object_type` | No | Object type to match. It is also the primary-type fallback for a proximity-pair rule. |
+| `rule_id` | As needed | Exact, case-insensitive tripwire or ROI identifier. It is required and unique for proximity-pair rules. |
+| `output_event` | In practice | HOISA event type to report, for example `EVENT_0` or `EVENT_4`. Not checked at load time: a rule with a missing or misspelled value matches normally and reports an event of type `EVENT_UNKNOWN`, which no decision maker subscribes to. |
+| `scale_factor` | No | `mdx-frames` emission interval in frames. The default is `1`. |
+
+`severity` is reserved and must not be included in a rule.
+
+`rule_id_prefix_match` remains in the Protobuf message for compatibility,
+but is deprecated and ignored. Rule identifiers are matched
+case-insensitively, either exactly or against a producer identifier of the
+form `<rule_id>:<suffix>`.
+
+<Note>
+Only proximity-pair rules and the three violation filters are validated
+when the file is loaded. Everything else in this table is matched at
+runtime, so a typo in `message_source`, `alert_type`, or
+`output_event` produces a mapping that loads cleanly and silently
+never fires. Confirm with `--debug` that each rule you added actually
+matches before relying on it.
+</Note>
+
+For binary Protobuf mappings, preserve the presence of the optional
+`proximity_violation` and `distance_threshold_meters` fields. Presence is
+meaningful: an omitted distance threshold is valid only when
+`proximity_violation` is `false`; a present threshold must be finite and
+positive when `proximity_violation` is `true`.
+
+## 4. ATL Reference Mapping
+
+The ATL use case translates tripwire and ROI events into `EVENT_0` through
+`EVENT_5`:
+
+| Input | Match | Output event | SDM state update |
+| --- | --- | --- | --- |
+| Forklift tripwire OUT | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_0` | Forklift entered trailer. |
+| Forklift tripwire IN | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_1` | Forklift exited trailer. |
+| Person tripwire OUT | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_2` | Increment persons-in-trailer count. |
+| Person tripwire IN | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_3` | Decrement persons-in-trailer count. |
+| Person restricted-area violation | `mdx-frames` / `roi` / `restricted_area_violation: "true"` | `EVENT_4` | Set restricted-area violation. |
+| Person restricted-area violation cleared | `mdx-frames` / `roi` / `restricted_area_violation: "false"` | `EVENT_5` | Clear restricted-area violation. |
+
+The shipped ATL mapping is:
+
+```protobuf
+rules {
+  name: "Forklift tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_0"
+}
+rules {
+  name: "Forklift tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_1"
+}
+rules {
+  name: "Person tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_2"
+}
+rules {
+  name: "Person tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_3"
+}
+rules {
+  name: "Person restricted area ROI violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "true"
+  output_event: "EVENT_4"
+}
+rules {
+  name: "Person restricted area ROI violation cleared"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "false"
+  output_event: "EVENT_5"
+}
+```
+
+5. `mdx-frames` Violation Filters
+
+## 5. `mdx-frames` Violation Filters
+
+`restricted_area_violation` and `confined_area_violation` accept
+`"true"`, `"false"`, `"any"`, or an empty value. A non-empty filter
+requires `message_source: "mdx-frames"` and `alert_type: "roi"`.
+The rule is evaluated against the current frame; there is no separate
+transition-only cleared alert type.
+
+`social_distancing_violation` uses the same values and requires
+`message_source: "mdx-frames"` with
+`alert_type: "social_distancing"`.
+
+At most one of the three filters may be set in a rule. Two ROI filters
+together are rejected just as an ROI filter combined with the
+social-distance filter is, and the rejection takes the whole file down with
+`Rejected unsafe event mapping rule`.
+
+## 6. Proximity-Pair Rules
+
+Proximity-pair rules apply to an unordered pair of object types in
+`mdx-frames`:
+
+```protobuf
+rules {
+  name: "Person and robot within 2 m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "robot_person_lt_2m"
+  object_type_primary: "Agility_Digit_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_9"
+}
+```
+
+For a pair rule:
+
+- `rule_id` must be unique and non-empty.
+- `proximity_violation: true` requires a finite, positive
+  `distance_threshold_meters`.
+- `proximity_violation: false` requires
+  `distance_threshold_meters` to be omitted.
+- The primary and secondary object types are matched without order.
+
+## 7. Validation and Troubleshooting
+
+`mdx_client` rejects an empty mapping or a rule that violates the mapping
+contract, then exits without reporting events. Check the event-ingestion log
+for `Invalid event mapping rule` or `Rejected unsafe event mapping rule`.
+
+Before changing a mapping:
+
+1. Confirm the VSS producer emits the exact camera names used by
+   `sensor_config.conf`.
+2. Confirm object-type labels and tripwire or ROI identifiers match the
+   deployed VSS configuration.
+3. Use `--debug` to inspect matched events before reporting to SEI.
+4. Restart `mdx_client` or the Safety Core after changing the mapping.
+
+<Info>
+- Safety Event Integrator configuration: [sei-configuration](/reference/sei-configuration)
+- Application-specific mapping and SDM logic: [/integration/index](/integration)
+- Sensor configuration: [sensor configuration file](/deployment#sensor-configuration-file)
+</Info>

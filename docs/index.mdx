@@ -1,0 +1,62 @@
+---
+title: "NVIDIA Halos Outside-In Safety Blueprint"
+description: "Outside-in safety agents that extend robot perception with infrastructure cameras, AI perception, and safety logic."
+---
+
+NVIDIA Halos Outside-In Safety Blueprint extends robot perception beyond onboard sensors by using external infrastructure cameras, AI perception, and safety logic. Running on NVIDIA IGX, it helps robots operate alongside workers at higher efficiency while adapting to occlusions and complex facility layouts.
+
+Onboard sensors have a limited field of view when walls, payloads, workers, or vehicles block them. An outside-in safety agent expands that view with sensors and cameras placed throughout the facility, so the system can detect safety events, communicate mitigations, and keep a verifiable log.
+
+<Cards>
+  <Card title="Start here" href="/getting-started">
+    Bring up a first working system: prerequisites, AI perception, the Safety Core, SIL, HIL, agentic deploy, or NVIDIA Brev.
+  </Card>
+  <Card title="Skip ahead: Safety Core only" href="/getting-started/safety-core">
+    Perception is already publishing events. Install and run the Safety Core on that feed.
+  </Card>
+  <Card title="Skip ahead: closed loop in simulation" href="/getting-started/sil">
+    Run perception, the Safety Core, and NVIDIA Isaac Sim on a single host with no cameras.
+  </Card>
+  <Card title="Skip ahead: deploy on NVIDIA Brev" href="/getting-started/brev-launchable">
+    Provision a cloud GPU instance and bring up the SIL loop from a notebook.
+  </Card>
+</Cards>
+
+## What you can do
+
+- Monitor safety parameters of an industrial environment in real time
+- Detect potential safety events proactively
+- Communicate safety events to corresponding mitigation mechanisms
+- Maintain continuous safety verification
+- Provide reliable logging and auditing
+
+The reference use case is Automated Trailer Loading: fixed cameras and AI perception monitor workers and autonomous forklifts at a warehouse dock, and the Safety Core decides when it is safe for the forklift to enter the trailer.
+
+## Key features
+
+1. **Modular architecture** — Integrate the framework into the target environment and adapt it to a variety of sensor processing pipelines.
+2. **Safety-centric design** — Designed adhering to safety standards.
+3. **Real-time capabilities** — Low-latency communication and priority-based handling for critical safety events.
+4. **Scalable implementation** — From small embedded systems to large distributed systems, with incremental feature rollout.
+
+## Documentation
+
+<Cards>
+  <Card title="Getting Started" href="/getting-started">
+    First working system, from the AI perception pipeline to the Safety Core.
+  </Card>
+  <Card title="Deployment Guide" href="/deployment">
+    Install, run, configure, and troubleshoot the Safety Core in target environments.
+  </Card>
+  <Card title="Integration Guide" href="/integration">
+    System design, components, data flows, and custom applications.
+  </Card>
+  <Card title="Closed-Loop Testing" href="/testing">
+    SIL, HIL, and the Regression Testing Reporter.
+  </Card>
+  <Card title="Reference" href="/reference">
+    Launcher options, configuration keys, runtime profiles, and terminology.
+  </Card>
+</Cards>
+
+The C API reference is not vendored in this Apache-2.0 repository. Until the Fern site replaces the Sphinx host, the published pages are at `https://docs.nvidia.com/halos-outside-in/latest/_static/index.html`.

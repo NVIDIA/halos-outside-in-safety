@@ -1,0 +1,44 @@
+---
+title: "Safety Decision Maker (SDM)"
+description: ""
+---
+SDM receives **safety events** identified and fused by SEI, then produces
+**actionable control signals**. It may also incorporate additional inputs —
+hardware or software error signals, supplementary sensors — to refine decisions.
+
+SDM logic is deployment-specific; integrators implement their own behavior.
+The HOISA framework provides:
+
+- **NvPSD Gateway** — a UDP-based gateway through which the SDM registers for
+  safety event types and receives fused `DecisionRequest` messages from the SEI
+- **Reference implementations** — forklift ATL and Proximity Monitoring use-cases
+
+## Deployment placement
+
+The SDM can run in either of two places, and the choice does not change the
+decision logic or the command protocol:
+
+- **On the CCPLEX**, as the `atl_sdm` or `proximity_sdm` process. It talks
+  to the NvPSD Gateway directly and sends decisions to the command receiver
+  itself.
+- **On the FSI**, in the hardware-isolated island of an IGX Thor platform. The
+  CCPLEX SDM binary is not started; `fsicom-agent` bridges the FSI-hosted SDM
+  to the NvPSD Gateway and relays the decisions coming back from the island to
+  the command receiver. This mode requires the FSI firmware from
+  `psf-tegra-fsi` and the platform `nvFsiCom` daemon.
+
+Two differences are visible to an integrator in FSI mode. The decision packet
+timestamp is left at zero rather than filled in, so receivers log
+`UTC epoch: 0.000000`; and SDM logs appear on the FSI UART shell rather than
+in the CCPLEX log files. Command opcodes, sequence numbers, acknowledgements,
+and the safe-release handshake are identical in both placements.
+
+<Info>
+- Application development and SDM integration guide:
+  [/integration/index](/integration) Section 4
+- Deployment and launch instructions:
+  [/deployment/index](/deployment) Sections 2.2 and 2.3
+- Clearing a latched safe state: **safe-release**
+- `fsicom-agent` options and startup output:
+  [Deployment guide, SDM on FSI](/deployment#fsicom-agent-options)
+</Info>

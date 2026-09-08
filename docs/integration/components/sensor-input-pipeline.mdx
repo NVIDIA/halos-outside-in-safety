@@ -1,0 +1,50 @@
+---
+title: "Sensor Input Processing Pipeline (SIPP)"
+description: ""
+---
+SIPP is the data generation unit of HOISA. It processes **sensor inputs** to
+identify safety-relevant conditions and **reports them downstream to SEI**.
+Behavior differs between Tegra-based and x86-64-based platforms.
+
+## Architecture
+
+SIPP has two logical parts:
+
+- **Physical Sensors** — Monitor environment parameters. Most common: cameras
+  (image streams). Others: temperature, pressure, flow rate, smoke density.
+- **Software Framework** — Processes sensor data against defined safety
+  conditions. May use Deep Learning or legacy algorithms.
+
+**Reference SIPP Implementation**
+
+The [/getting-started/inference-pipeline](/getting-started/inference-pipeline) page uses the
+[VSS Warehouse Blueprint - 2D Vision AI](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html)
+(NVIDIA Metropolis). Reference capabilities: **person**, **forklift**, and
+**AMR detection** with ROI, tripwire, and proximity event generation.
+
+**Platform-Specific Hardware Acceleration**
+
+On **Tegra**, SIPP may use these hardware engines:
+
+| Engine | Use case |
+| --- | --- |
+| **iGPU** (Integrated Graphics Processing Unit) | DNN inference; best for parallelizable non-DNN |
+| **PVA** (Programmable Vision Accelerator) | Non-DNN computer vision algorithms |
+| **DLA** (Deep Learning Accelerator) | Accelerated DNN inference |
+
+On **x86-64**, discrete GPU (dGPU) typically drives SIPP; CPU-based
+implementations also exist.
+
+**Connecting SIPP to HOISA**
+
+The SIPP-to-HOISA interface is unified across platforms. Connection options:
+
+| Method | Description |
+| --- | --- |
+| SEI interface library | Link directly to `libnvpssd_interface.so` |
+| Message brokering | Publish to Kafka, Redis, or similar |
+| PSSCom library | Use the PSSCom communication library |
+
+<Info>
+[Integration Guide](/integration) describes the SEI interface calls used for source/sink setup when connecting the Sensor Input Processing Pipeline to HOISA.
+</Info>

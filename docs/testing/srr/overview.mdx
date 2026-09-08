@@ -1,0 +1,98 @@
+---
+title: "Overview"
+description: ""
+---
+The **Regression Testing Reporter** is the closed-loop regression-testing layer for the Halos Outside-In Safety closed loop. It runs a scenario in Isaac Sim, records what the Safety Core *decided* alongside what the simulation *ground truth* says it *should* have decided, aligns the two frame by frame, and produces a graded, repeatable report of the end-to-end safety decision.
+
+## What is it?
+
+The Regression Testing Reporter builds on top of the Software-in-the-Loop (SIL) stack and turns a simulated hazard run into a *measurable* regression test. Its module, container, and directories use the short name `srr` (the source lives under `closed-loop-testing/regression-reporter/`), so the commands throughout these guides reference `srr` directly. The short name is retained from the tool's original name, Scenario Recorder + Reporter.
+
+SIL (see [/testing/sil/overview](/testing/sil/overview)) proves the production stack — AI Perception (VSS), Safety Core, and the communication layer — runs end to end against a simulated warehouse. The Regression Testing Reporter adds the **metric layer** on top: it scores whether the system raised and cleared the safety alarm at the **right time**, and how well perception fed that decision.
+
+<Frame caption="Isaac Sim, the Halos Outside-In Safety stack, and the Regression Testing Reporter service run in lockstep, so ground truth, safety events, and decisions can be aligned frame by frame and converted into reports and review artifacts.">
+  <img src="/assets/images/sil/srr/SRR-arch.png" alt="Regression Testing Reporter architecture — Isaac Sim, Halos Outside-In Safety, and the recorder in lockstep" />
+</Frame>
+
+## Why the Regression Testing Reporter?
+
+The safety decision in Halos is **emergent**: no single perception result proves the end-to-end response was correct or timely. A live demo can show the safety indicator changing, but it gives no repeatable score, does not scale across many cases, and cannot safely stage real near-misses with human workers.
+
+The Regression Testing Reporter closes that validation gap:
+
+- **Simulation-grounded expected decisions.** Isaac Sim provides true person and
+  forklift positions and safety-zone occupancy, so the *expected* MUTE / UNMUTE state is known at every frame — no manual labeling.
+- **Frame-by-frame comparison.** Regression Testing Reporter records the actual Safety Core decision on
+  the same simulation timeline as ground truth, so expected and observed decisions line up exactly.
+- **Repeatable and unattended.** The same scenario produces the same test every
+  time, so runs can gate a change the way ordinary software tests do, and can run in CI/CD without a human in the loop.
+- **Aligned evidence for debugging.** Video, detections, tracking, behavior
+  events, and safety logs normally live in separate stores and clocks. The Regression Testing Reporter aligns them on one 30 Hz timeline so a mismatch can be traced to its source.
+
+## Where the Regression Testing Reporter fits
+
+The Regression Testing Reporter is a **layer on top of an already-deployed SIL stack** — it is not a deployment path.
+
+<Note>
+Before running Regression Testing Reporter, the SIL stack (VSS Warehouse 3.2.1 + the Halos `sil` profile) must be deployed and healthy. Deploy it first — see [/testing/sil/sil-2d](/testing/sil/sil-2d) (manual) or [/getting-started/agentic-deployment](/getting-started/agentic-deployment) (agent-driven). The Regression Testing Reporter does **not** deploy Halos or VSS.
+</Note>
+
+The relationship in one line:
+
+- **Software-in-the-Loop (SIL)** brings up the digital twin and runs the
+  production safety stack against it.
+- **Regression Testing Reporter** records that loop, scores the decision against ground
+  truth, and reports.
+
+## What one run produces
+
+A single Regression Testing Reporter run splits the recording into per-clip segments at each forklift trailer crossing (where the hazard appears) and emits:
+
+- `summary.md` — the headline report: per-clip verdicts, decision-accuracy
+  metrics, behavior-analytics event detection, and — when the 3D perception pipeline is active — per-class perception quality.
+- `<scenario>/reports/scn_*.md` — per-clip detail, including the exact
+  mismatch windows with timestamps.
+- `<scenario>/videos/scn_*.mp4` — per-clip review videos.
+- `failures.json` — the machine-readable list of FAIL + analyze-error clips,
+  ready for triage.
+- An optional evidence bundle for the synchronized debug viewer.
+
+See [interpret-results](/testing/srr/interpret-results) for how to read each of these.
+
+## How it works (high level)
+
+Regression Testing Reporter evaluates one simulated hazard scenario at a time. The pipeline is:
+
+1. **Ground-truth stream.** Isaac Sim publishes true person and forklift poses
+   as `/gt/*` topics (armed at launch with the `--srr-gt` flag). See [Regression Testing Reporter Ground-Truth Graph (opt-in)](/testing/sil/components/action-graph#regression-testing-reporter-ground-truth-graph-opt-in) for the Action Graph that publishes them.
+2. **Recording.** The Regression Testing Reporter service records both the ground-truth stream and the
+   Safety Core decision (plus perception events from Kafka) into a 30 Hz `parquet` file.
+3. **Clip splitting.** The recording is split into per-clip segments around each
+   forklift trailer (dock) crossing, where the hazard forms.
+4. **Aggregation and scoring.** Each clip is scored on two layers:
+
+   - **Phase 1 — the safety decision.** Expected MUTE / UNMUTE (from ground
+     truth) vs the actual Safety Core state, plus reaction latency and behavior-analytics event detection.
+   - **Phase 2 — perception quality.** Ground-truth positions vs the 3D
+     detections and tracking feeding the Safety Core (per class: detection and tracking quality). Present when the 3D pipeline is active.
+
+5. **Review artifacts.** Regression Testing Reporter renders the graded report, the failure list, and
+   per-clip review videos, and can package an evidence bundle for the synchronized [debug-viewer](/testing/srr/debug-viewer).
+
+## Key components
+
+| Component | Role |
+| --- | --- |
+| **Ground-truth publishers** | Isaac Sim `--srr-gt` action graph builds the `/gt/*` topics — the reference the decision is scored against. |
+| **Recorder** | Records ground truth + Safety Core state + perception Kafka events into a 30 Hz `parquet` log. |
+| **Clip splitter** | Splits the recording into per-clip segments at forklift trailer crossings. |
+| **Aggregator** | Scores each clip (Phase 1 decision + Phase 2 perception) and renders the reports. |
+| **Debug viewer** | Browser tool that replays the per-clip video with all evidence streams synchronized on one timeline (optional, for root-cause analysis). |
+
+## Next steps
+
+- [quickstart](/testing/srr/quickstart) — deploy checks and run your first regression test.
+- [architecture](/testing/srr/architecture) — the pipeline and data flow in detail.
+- [scenarios](/testing/srr/scenarios) — the pre-built test cases.
+- [interpret-results](/testing/srr/interpret-results) — how to read the report.
+- [debug-viewer](/testing/srr/debug-viewer) — root-cause analysis for failing clips.

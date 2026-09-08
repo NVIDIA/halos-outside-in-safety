@@ -1,0 +1,197 @@
+---
+title: "Release Notes"
+description: ""
+---
+These Release Notes describe the key features, software enhancements and improvements for NVIDIA Halos Outside-In Safety Blueprint releases.
+
+## 1.3 EA
+
+This early access (EA) release builds on 1.2.1 and includes major safety-path,
+perception-trust, event-ingestion, packaging, and deployment updates.
+The reference perception pipeline has been upgraded to VSS Warehouse Blueprint 3.2.1.
+Some features remain in an alpha state and should not be used in production.
+
+### Key Features and Enhancements
+
+#### Fail-safe SDM lockout and validated release
+
+- Added fault-safe SDM lockout and validated safe-release behavior for ATL and Proximity on CCPLEX and FSI.
+
+#### Perception Container Monitor *(Preview)*
+
+- Added Perception Monitor (PCM) to assess container and Kafka message data health and report status to SEI.
+- PCM is Preview in 1.3 and must not be used to trigger a safe state.
+- Its verdict does reach the decision path: when PCM reports the AI pipeline invalid, the reference SDMs treat perception as untrusted and log incoming events without processing them for decisions. A PCM fault therefore suppresses event-driven decisions rather than commanding a safe state, and the behavior is not validated for safety use in this release. Pass `--skip-pcm` to `launch_hoisa.sh` to leave PCM out.
+
+#### Safety AI Monitor improvements
+
+- Added PVA backend support for IGX.
+- Added GPU/PVA backend improvements, additional frame-quality checks.
+
+#### Command receiver logging
+
+- The reference command receivers now write their verbose per-packet log to
+  `/tmp/cmdrx.log` and reserve the console for safe-state latch, clear, and
+  release events, so the safe-release prompt is no longer buried in packet
+  output. Use `--log-file <PATH>` to redirect the detail, or
+  `--no-log-file` to restore the previous console behavior.
+
+#### Hardware-in-the-Loop (HIL) testing profile
+
+- Added the `hil` profile, which splits the closed loop across two hosts: NVIDIA
+  Isaac Sim, the communication layer, and the forklift controller run on an x86
+  stimulus host, while the VSS Warehouse perception stack and the Safety Core run
+  on an NVIDIA IGX Thor. See [/testing/hil/index](/testing/hil).
+- The safety decision returns to the simulation over UDP to the communication layer
+  on the stimulus host. The on-video VST overlay used by the `base` profile is
+  not driven in this profile.
+- Added a two-host preflight check that validates the address pairing, the command
+  port, ssh reachability, and clock synchronization before bring-up.
+
+#### Regression Testing Reporter *(Preview)*
+
+- Added the Regression Testing Reporter, a closed-loop regression-testing layer that
+  records NVIDIA Isaac Sim ground truth alongside the safety decision on one timeline,
+  then scores each test case on whether the alarm was raised and cleared at the right
+  moment. It runs on top of a deployed SIL stack and needs no manual labeling.
+  See [/testing/srr/index](/testing/srr).
+- Added its debug viewer, a browser tool that plays a graded test case back with the
+  video, ground truth, perception, behavior events, and Safety Core state on a shared
+  timeline. See [/testing/srr/debug-viewer](/testing/srr/debug-viewer).
+- Added the `hoisa-generate-regression-report` skill, which drives a multi-scenario run and produces the report.
+
+#### Closed-loop forklift controller
+
+- The `forklift-controller` service now drives the forklift against its odometry feed.
+  It steers toward the next point on the route, advances only once the forklift has
+  actually arrived, and publishes `cmd_vel`; the in-scene control graph converts what
+  it receives and nothing more. Earlier builds played back fixed segments — a duration
+  and a velocity per segment — from inside the Action Graph, with no position feedback.
+- Position feedback corrects wheel slip as it happens, so a long run holds its route
+  instead of drifting off it.
+- A `slow` or `stop` command scales the controller's velocity, and the forklift still
+  drives to the same point on the route, so a slow-down costs time rather than distance.
+  The safety decision itself does not change how the forklift drives — the controller is a
+  stimulus generator. See [/testing/sil/components/forklift-controller](/testing/sil/components/forklift-controller).
+- Routes are authored outside the simulation as JSON, so changing one no longer means
+  editing the Action Graph. Added the Forklift Waypoint Generator, a web tool that draws
+  a route over the warehouse floor plan and exports that JSON, including the origin that
+  fixes the odometry frame. See [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator).
+
+#### NVIDIA Isaac Sim 6.0
+
+- Upgraded the closed-loop testing harness from Isaac Sim 5.1 to 6.0.
+- **Breaking change.** Isaac Sim now serves its camera streams over RTSP directly, so the
+  separate streaming relay is gone: the harness no longer starts a `mediamtx` service,
+  and the stream URLs move from the relay to Isaac Sim's own ports. Existing sensor
+  registrations and any scripted stream URLs need updating.
+- **Breaking change.** Pedestrian behavior is authored as IRA 1.6 behavior trees; the
+  legacy text command files are no longer read.
+
+#### VSS Warehouse Blueprint 3.2.1 upgrade
+
+- Upgraded the reference AI perception source from VSS for Warehouse Operations 3.2.0 to 3.2.1, and updated every documentation reference to match.
+
+#### Agentic deployment
+
+- The `hoisa-deploy-profile` skill now covers the `hil` profile, the IGX Thor Safety Core, and the 3D perception backend alongside `base` and `sil`.
+- A second skill, `hoisa-generate-regression-report`, ships alongside it; see [Regression Testing Reporter (Preview)](/testing/srr).
+
+#### Cloud deployment on NVIDIA Brev
+
+- Added an NVIDIA Brev Launchable that provisions a cloud GPU instance with the driver, Docker, the NVIDIA Container Toolkit, and both repositories in place, then brings up the `sil` closed loop from a single notebook and prints the evidence that the safety decision is following the simulated scene. Evaluating the blueprint no longer requires a host of your own. See [/getting-started/brev-launchable](/getting-started/brev-launchable).
+
+#### 3D perception profile
+
+- Bug fixes and stability work on the 3D (BEV) perception profile. See [/testing/sil/sil-3d](/testing/sil/sil-3d).
+
+## 1.2.1 EA
+
+This early access (EA) update builds on 1.2.
+The NVIDIA Halos Outside-In Safety Blueprint source is published for
+integrators under NVIDIA license terms,
+the reference perception pipeline has been upgraded to VSS Warehouse Blueprint 3.2.0, and the packaging and deployment guidance has been refreshed.
+Some features remain in an alpha state and should not be used in production.
+
+### Key Features and Enhancements
+
+#### Source availability
+
+- The Safety Core source and packaging scripts are published so integrators
+  can build and extend the reference applications. The files carry
+  proprietary NVIDIA license headers: distribution and use are governed by
+  the applicable NVIDIA license terms, and publication does not place the
+  source under an open-source license.
+
+#### VSS Warehouse Blueprint 3.2.0 upgrade
+
+- Upgraded the reference AI perception source from NVIDIA Metropolis Blueprint for video search & summarization (VSS) for Warehouse Operations 3.1.0 to 3.2.0, including all related documentation references.
+- VSS Warehouse Operations Blueprint is deployed from its public GitHub repository. [/getting-started/inference-pipeline](/getting-started/inference-pipeline) and the closed-loop (SIL/HIL) testing guides have been updated for the new deployment flow, service names, environment settings, and 2D and 3D perception configuration.
+
+#### Deployment skill updates
+
+- The deployment skill for coding agents (such as Claude Code, Codex, and Cursor) is part of the published repository as a single `hoisa-deploy-profile` skill that deploys Halos by profile: `base` (Safety Core on an existing perception feed, on x86 or on NVIDIA IGX Thor with the decision maker on CCPLEX or FSI) and `sil` (full closed loop). The VSS Warehouse Operations Blueprint 3.2.0 as perception backend is deployed first via the separate `vss-deploy-profile` skill from the VSS Warehouse Blueprint.
+
+#### Packaging and distribution updates
+
+- Safety Core packages and container images are published in NGC under `nvidia/halos-outside-in` (with the gated FSI firmware package under `nvidia/outside-in-safety`), at version 1.2.1.
+- The `fsicom-agent` host bridge ships in the `psf-tegra-fsi.deb` package.
+
+#### Command receiver VST relay
+
+- The ATL reference command receiver can optionally relay validated decision packets to a VST display destination with `--vst_ip` and `--vst_port`. Both options are required together; relay delivery failures do not interrupt command reception or acknowledgement. The Proximity receiver does not implement this relay.
+
+#### Safety-flashed IGX Thor deployment guidance
+
+- Added guidance for deploying the VSS Warehouse Blueprint - 2D profile on safety-flashed IGX Thor systems, including container runtime and image pull workarounds. See [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor) for details.
+
+## 1.2 EA
+
+This is an early access (EA) release including a refactored architecture and new features. There are some features in an alpha state and should not be used in production.
+
+### Key Features and Enhancements
+
+#### Safety Decision Maker on FSI for IGX
+
+- Added support for running the Safety Decision Maker (SDM) on the Functional Safety Island (FSI) for IGX platforms.
+
+#### Safety AI Monitor *(Preview)*
+
+- Added Safety AI Monitor, supported on GPU only, to validate input video for Out-of-Distribution (OOD) and camera blockage detection.
+
+#### Proximity monitoring reference application
+
+- Added a new Proximity Monitoring reference application for proximity detection between a human operator and robot.
+
+#### Safety Core updates
+
+- Added performance and functional safety updates and bug fixes to the Safety Core components.
+
+#### Closed-loop testing harness updates
+
+- Added the groundwork for Hardware-in-the-Loop (HIL) testing *(Preview)*. The deployable `hil` profile arrived in 1.3.
+- Added support for deployment support via agentic skills and coding agent platforms (Claude, Codex, etc.) *(Preview)*
+- Added support for 3D vision AI perception pipeline *(Preview)*
+
+## 1.1 EA
+
+This is an early access (EA) release including a refactored architecture and new features. There are some features in an alpha state and should not be used in production.
+
+### Key Features and Enhancements
+
+#### New reference applications for safety control
+
+- Introduced a reference Automated Trailer Loading (ATL) application that uses the Safety Core to control a forklift's safety function based on outside-in perception of humans inside and around the trailer.
+
+#### Software-in-Loop (SIL) testing support
+
+- Added end-to-end Software-in-Loop (SIL) testing that validates the Halos Outside-In Safety Blueprint system using Isaac Sim.
+- SIL runs the real VSS Warehouse Operations Blueprint, Safety Event Integrator, Safety Decision Maker, and communication layer against simulated warehouse, forklift, humans, and camera streams to safely exercise safety logic and failure scenarios.
+
+#### Multi-camera and multi-pipeline fusion
+
+- Enhanced Safety Event Integrator (SEI) logic to support fusion of events from multiple cameras and redundant perception pipelines.
+
+#### Outside-In safety with VSS Blueprint
+
+- Leveraged the VSS Blueprint (Warehouse Operations 2D Vision AI profile) to use RT-DETR-based detection, tracking, and ROI/tripwire analytics as the primary safety perception source.

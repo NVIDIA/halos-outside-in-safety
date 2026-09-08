@@ -1,0 +1,185 @@
+---
+title: "Agentic Deployment"
+description: ""
+---
+Deploy Halos Outside-In Safety by **profile**, driven from natural language by a coding agent and the `hoisa-deploy-profile` skill instead of running the steps yourself. If no agent is available, the manual route for each profile is under [Fallback: manual bring-up](#fallback-manual-bring-up).
+
+The skill ships **in the repo you cloned**, at `skills/hoisa-deploy-profile/`. It is a developer-side tool following the [agentskills.io](https://agentskills.io/specification) specification: any agentskills.io-compatible coding agent loads it and operates the system for you. It reads the repo's compose files, profiles, and configs, and brings up the VSS Warehouse 3.2.1 perception backend first.
+
+## Profiles
+
+| Profile | What it deploys | Manual route |
+| --- | --- | --- |
+| `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop: the MUTE / UNMUTE decision renders as the VST `halo_safety` overlay. Runs on an x86 host, or on an IGX Thor with the decision maker on CCPLEX or FSI; a Thor here runs the Safety Core alone, not the two-host closed loop. | [Fallback: manual bring-up](#fallback-manual-bring-up) |
+| `sil` | The full single-host closed loop: NVIDIA Isaac Sim drives a forklift and the safety decision is fed back over ROS. Runs on the 2D or the 3D perception backend. | [/testing/sil/sil-2d](/testing/sil/sil-2d), or [/testing/sil/sil-3d](/testing/sil/sil-3d) for 3D |
+| `hil` | The closed loop split across two hosts: NVIDIA Isaac Sim, the communication layer, and the forklift controller on an x86 stimulus host, with perception and the Safety Core on an NVIDIA IGX Thor. | [/testing/hil/quickstart](/testing/hil/quickstart) |
+
+The `base` data path:
+
+```text
+VSS Warehouse 3.2.1 (perception)
+  -> Kafka (mdx-events)
+    -> Safety Core (MUTE / UNMUTE)
+      -> UDP 64-byte packet (port 12345)
+        -> VST halo_safety overlay
+```
+
+## Prerequisites
+
+- An agentskills.io-compatible coding agent on the host (for example Claude Code, Codex, or Cursor).
+- The Halos Outside-In Safety repo cloned on the host.
+- An NGC API key. `nvidia/halos-outside-in` is public — it carries the PSF image and the sil-data tarball for `sil` — but the pull still needs an authenticated account.
+- Docker 28.3.3 or later but below 29.5.0, with Compose. Docker Engine 29.5.0 and later breaks NGC image pulls, so pin to 28.3.3 if needed.
+- Hardware depends on the profile: `base` follows the [VSS Warehouse hardware requirements](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html), with no RT-core GPU needed since there is no Isaac Sim, `sil` adds an Isaac Sim GPU, and `hil` adds an IGX Thor safety host (see [/getting-started/prerequisites](/getting-started/prerequisites)).
+- The VSS calibration must include the monitored ROIs (see [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the [Deployment Guide ](/deployment)).
+
+Log in to NGC and clone the repository:
+
+```bash
+docker login nvcr.io -u '$oauthtoken' -p "$NGC_CLI_API_KEY"
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+cd halos-outside-in-safety
+```
+
+The perception backend is deployed first, either by the `vss-deploy-profile` skill on the agentic route or by you, from the public [VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization). Use the VSS Warehouse 3.2.1 2D Vision AI profile, with Kafka enabled.
+
+## Install (recommended: ask your coding agent)
+
+Open the cloned repo in your agent and paste this prompt. It reads the skill manifests and symlinks them into the right place for your host:
+
+```text
+Read skills/README.md and every SKILL.md under skills/, then install each skill
+for this host by symlinking its folder into the host's skills directory:
+  - Claude Code:    ~/.claude/skills/<name>/
+  - Codex:          ~/.codex/skills/<name>/
+  - agentskills.io: ~/.agents/skills/<name>/
+Symlink the folder rather than copying it, so a git pull here keeps installs
+current. Also install the vss-deploy-profile skill from the VSS Blueprint
+repository; the perception backend is deployed first. When done, list the
+skills you registered and the directory you used.
+```
+
+Verify with `/skills` in your agent: `hoisa-deploy-profile` (and `vss-deploy-profile`) should be listed.
+
+<Note>
+Prefer to do it by hand? Symlink the skill into your agent's skills directory yourself, using the absolute path to your checkout (`ln -s` resolves the target from the link's directory, not your current directory). Substitute the skills directory your agent reads, such as `~/.claude/skills`, `~/.codex/skills`, or `~/.agents/skills`:
+
+```bash
+SKILLS_DIR=~/.agents/skills          # your agent's skills directory
+mkdir -p "$SKILLS_DIR"
+ln -sfn /abs/path/to/halos-outside-in-safety/skills/hoisa-deploy-profile \
+  "$SKILLS_DIR/hoisa-deploy-profile"
+```
+
+Verify with `ls "$SKILLS_DIR"/hoisa-deploy-profile/SKILL.md`.
+</Note>
+
+## Run
+
+Ask your agent in natural language. Pick the profile you want.
+
+`base` (Safety Core on an existing VSS feed, overlay only):
+
+```text
+Deploy the Halos Outside-In Safety base profile on this machine: bring up VSS
+Warehouse 3.2.1 as the perception backend, deploy the base profile, and confirm
+the halo_safety overlay reacts.
+```
+
+`sil` (full single-host closed loop with Isaac Sim), on the 2D perception backend:
+
+```text
+Deploy the Halos Outside-In Safety sil profile on this machine: set up the VSS
+Warehouse 3.2.1 perception backend, deploy the closed-loop stack, run the test
+scenario, and show me the safety command output.
+```
+
+`sil` on the 3D backend — same Halos stack, different perception. Say so, because the
+model and the calibration change with it:
+
+```text
+Deploy the Halos Outside-In Safety sil profile with the 3D perception backend:
+set up VSS Warehouse 3.2.1 with the Sparse4D 3D profile including the R101 model
+and the 3-camera BEV calibration, deploy the closed-loop stack, run the test
+scenario, and show me the safety command output.
+```
+
+`hil` (two-host closed loop, Safety Core on IGX Thor):
+
+```text
+Deploy the Halos Outside-In Safety hil profile: bring up the x86 stimulus stack
+and the Isaac Sim scenario on this host, then over ssh deploy VSS Warehouse 3.2.1
+and the Safety Core on the IGX Thor, and show me the safety command output on the
+communication layer.
+```
+
+On an IGX Thor the `base` prompt is unchanged: the skill detects the platform and brings the Safety Core up through its launch script rather than Docker Compose, with the decision maker on the CCPLEX.
+
+Deployment is long-running (NGC image pulls, the perception TensorRT engine build, and for `sil` the Isaac Sim shader compile), so use a high-context model at maximum effort. The agent pauses for host-level input it cannot do for you: `sudo` / system installs, the NGC API key, and the GPU / profile choice. If it has been silent for more than two minutes, scroll up; there is a question waiting.
+
+<Info>
+"Complete" means the safety decision reacts to the scene, not merely that all containers are up: for `base` the VST `halo_safety` overlay flips between Standard and Efficient Mode; for `sil` sim-driven MUTE / UNMUTE transitions appear in the logs; for `hil` the same transitions appear in the communication layer log on the stimulus host.
+</Info>
+
+## Fallback: manual bring-up
+
+If a coding agent is not available or the skill fails on a step, run the profile yourself. The skill writes the same `.env` files the manual route uses, so a partial skill run can be resumed manually. For `sil`, follow [/testing/sil/sil-2d](/testing/sil/sil-2d). The `base` steps are below.
+
+### Enable the overlay
+
+The overlay is what `base` renders to. In the VSS 2D VST config (`.../warehouse-2d-app/vst/configs/vst_config.json`) set the `halo_safety` UDP port, which ships disabled (`-1`):
+
+```json
+"halo_safety_udp_port": 12345
+```
+
+This port must match `COMM_UDP_PORT` (x86) or `PSF_CMD_RX_PORT` (Thor) in the profile env, both `12345`. Restart VST after editing.
+
+### Deploy on x86
+
+Fill `deployments/profiles/base.env` (`HOST_IP`, `MDX_DATA_DIR`, `DOCKER_GID`; `PSF_IMAGE` and `COMM_UDP_PORT` are pre-set), then create the log directory and start the one service:
+
+```bash
+cd deployments
+../closed-loop-testing/scripts/setup.sh base
+docker compose --env-file profiles/base.env up -d
+```
+
+One service (`safety-core`) starts and consumes events from the VSS feed.
+
+### Deploy on IGX Thor
+
+On Thor the Safety Core is hybrid: an `nv-psf` container plus aarch64 host binaries, launched by a helper script rather than `docker compose`. The decision-maker runs on the **CCPLEX** (start here), or on the **Functional Safety Island (FSI)** for an advanced setup.
+
+Fill `deployments/profiles/base-thor.env` (`HOST_IP`, `SDM_TARGET=ccplex`), then install the host binaries:
+
+```bash
+set -a; source deployments/profiles/base-thor.env; set +a
+ngc registry resource download-version "$PSF_TEGRA_RESOURCE"
+sudo dpkg -i */psf-tegra.deb
+```
+
+Point the Safety Core at this host's VST streams by filling `sensor_config_thor.conf`. Its format is described in [Create the sensor configuration file](/deployment#sensor-configuration-file) in the [Deployment Guide ](/deployment). Then launch:
+
+```bash
+bash closed-loop-testing/scripts/launch_thor_safety.sh base-thor
+```
+
+`launch_thor_safety.sh` reads `base-thor.env` and invokes `launch_hoisa.sh` with the matching flags. For the `launch_hoisa.sh` modes and flags, see [Quick Start with launch_hoisa.sh](/deployment#launch-hoisa-quickstart) in the [Deployment Guide ](/deployment).
+
+To run the decision-maker on the FSI instead, set `SDM_TARGET=fsi` in `base-thor.env`. The one-time FSI firmware reflash and the `nvFsiCom` bridge are described in [Option C: SDM on FSI](/deployment#sdm-on-fsi) in the [Deployment Guide ](/deployment).
+
+### Verify
+
+Open the VST UI at `http://<HOST_IP>:30888/vst/` and confirm the `halo_safety` overlay reacts to the feed: "Standard Mode" when safety is active and "Efficient Mode" when loading is allowed, with a proximity bubble around the forklift. The Safety Core logs each decision: on x86 (compose) at `$MDX_DATA_DIR/psf-log/pss.log`; on IGX Thor (host binaries) under `/var/log/psf/`, see [Logs](/deployment#safety-core-logs) in the [Deployment Guide ](/deployment).
+
+### Troubleshooting
+
+See [Troubleshooting](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment).
+
+## Next Steps
+
+- [safety-core](/getting-started/safety-core) — Safety Core quick start on an existing perception feed
+- [/testing/sil/index](/testing/sil) — SIL closed-loop testing, 2D and 3D
+- [/testing/srr/quickstart](/testing/srr/quickstart) — score a deployed SIL stack with the second skill, `hoisa-generate-regression-report`
+- [/deployment/index](/deployment) — installation, configuration, and troubleshooting in full

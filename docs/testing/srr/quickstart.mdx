@@ -1,0 +1,369 @@
+---
+title: "Quick Start Guide"
+description: ""
+---
+Run a regression test on a deployed SIL stack.
+
+This quickstart shows **two ways to run a test**:
+
+- **Via the skill** — enable the `hoisa-generate-regression-report` skill in
+  your coding agent and describe the run in plain language. Recommended for demos: the agent orchestrates every phase and gates on readiness signals.
+- **Manually** — run `scripts/run_multi.sh` yourself (one command per test).
+
+<Note>
+Regression Testing Reporter runs **on top of** an already-deployed SIL stack. It does **not** deploy Halos or VSS — do that first (see [/testing/sil/sil-2d](/testing/sil/sil-2d)). See [overview](/testing/srr/overview) for what the Regression Testing Reporter is and what a run produces.
+</Note>
+
+Isaac Sim publishes ground truth; VSS + the Safety Core produce the MUTE / UNMUTE decision; the Regression Testing Reporter service records both at 30 Hz and grades the result. See [architecture](/testing/srr/architecture) for the architecture diagram and the full data flow.
+
+## Step 1: Prerequisites
+
+The SIL stack (VSS Warehouse 3.2.1 + the Halos `sil` profile) must be **deployed and healthy** before you run the Regression Testing Reporter. If it is not up yet, deploy it first:
+
+- [/testing/sil/sil-2d](/testing/sil/sil-2d) — manual SIL bring-up, or
+- [/getting-started/agentic-deployment](/getting-started/agentic-deployment) — agent-driven bring-up.
+
+Confirm the stack is healthy:
+
+```bash
+# All Halos SIL services Up
+docker ps --format '{{.Names}}' | grep -E 'safety-core|comm-layer|isaac-sim'
+
+# Safety Core decision chain is publishing (run inside the comm-layer
+# container so no host ROS 2 install is needed)
+docker exec comm-layer bash -lc 'source /opt/ros/jazzy/setup.bash && \
+  ros2 topic echo /safety/is_muted --once'
+
+# Perception is serving all 3 cameras with non-zero FPS
+docker logs --tail 200 vss-rtvi-cv 2>&1 | grep PERF -A1 | tail -5
+
+# Kafka is carrying perception events
+docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 \
+  --topic mdx-events --max-messages 1 --timeout-ms 30000
+```
+
+Host tooling: Docker + Compose (usable without `sudo`), `jq` (for the VST API checks), and `python3`. No host ROS 2 install is required — every `ros2` check in this guide runs inside a container (`comm-layer` here, `srr` from Step 5 on).
+
+<Note>
+Phase 2 (perception scoring) requires the 3D pipeline (`mdx-bev` + `mdx-behavior`, i.e. Sparse4D) to be flowing. A 2D-only feed still works and gives Phase 1 (the safety decision) only — that is expected, not a failure.
+</Note>
+
+## Step 2: Get the repo
+
+Regression Testing Reporter lives inside the Halos Outside-In Safety repo, which you already cloned when deploying the SIL stack:
+
+```text
+<repo>/closed-loop-testing/regression-reporter/     # Regression Testing Reporter
+<repo>/skills/hoisa-generate-regression-report/     # the report skill
+<repo>/tools/srr-debug-viewer/                      # browser viewer
+```
+
+If you are on a fresh machine and don't have it yet:
+
+```bash
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+cd halos-outside-in-safety
+```
+
+The rest of this guide runs from the Regression Testing Reporter directory:
+
+```bash
+cd closed-loop-testing/regression-reporter
+```
+
+Step 3: Configure the Regression Testing Reporter `.env`
+
+## Step 3: Configure the Regression Testing Reporter `.env`
+
+Regression Testing Reporter inherits shared values (`HOST_IP`, `ROS_DOMAIN_ID`, `VST_BASE_URL`, `MDX_DATA_DIR`, ...) from the Halos profile env, so its own `.env` only needs a few paths. Copy the example and fill it in:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+# REQUIRED: absolute path to the halos-outside-in-safety repo root. The
+# deployment dir, profile env, and Isaac SIL tree all derive from it.
+HOISA_ROOT_PATH=/path/to/halos-outside-in-safety
+
+# REQUIRED: root of the VSS (video-search-and-summarization) checkout that
+# provides the perception backend. The calibration path and the scene-ready
+# MODE probe below both derive from it.
+VSS_ROOT_PATH=/path/to/video-search-and-summarization
+
+# VSS warehouse env — source of MODE (2d|3d|mv3dt). The scene-ready gate reads
+# it to auto-pick its perception topic (2d -> mdx-raw, 3d/mv3dt -> mdx-bev), so
+# the same run works on a 2D or 3D host with no extra config. Pre-filled from
+# VSS_ROOT_PATH; leave as-is unless your VSS layout differs.
+ENV_VSS_PATH=${VSS_ROOT_PATH}/deploy/docker/industry-profiles/warehouse-operations/.env
+
+# REQUIRED (both 2D and 3D): VSS calibration JSON (mounts into the srr
+# container). tw_split reads the tripwire X to split clips; the aggregator
+# reads the ROI polygon + tripwire to score BA ROI/TW events (Phase 1). The
+# default below is the 2D warehouse sample; for 3D (Sparse4D) point it at the
+# warehouse-3d-app calibration instead.
+CALIBRATION_JSON=${VSS_ROOT_PATH}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+
+# VSS sensor names — must match the deployed scene topology.
+SENSORS=Camera,Camera_01,Camera_02
+
+# OPTIONAL: where test outputs land. Default: ./srr-service/runs
+# RUNS_HOST_DIR=./srr-service/runs
+
+# OPTIONAL: force the scene-ready perception topic. Normally auto-derived from
+# MODE via ENV_VSS_PATH — set only to override the auto-detection.
+# SCENE_READY_TOPIC=mdx-raw
+
+# OPTIONAL: host path to the Safety Core container's pss.log, so the evidence
+# bundle + debug viewer can attach the Safety Core internal-state log slice.
+# PSS_LOG_SRC=/path/to/sil-data/psf-log/pss.log
+```
+
+## Step 4: Sync Regression Testing Reporter fixtures into the Isaac SIL tree (one-time)
+
+Isaac Sim reads the scenario behavior trees + navmesh from its bind-mounted `sil/configs/` directory. The Regression Testing Reporter keeps the canonical copies under `scenarios/`, so copy them into the SIL tree once:
+
+```bash
+./halos-integration/sync_to_halos.sh
+# (with no argument it derives the SIL dir from HOISA_ROOT_PATH in .env)
+```
+
+This copies the IRA 1.6 behavior trees + `navmesh.json` into `sil/configs/`, the Script-Editor utilities into `sil/scripts/isaac/`, and installs the Regression Testing Reporter `default_config_ros.yaml` template. It is idempotent — safe to re-run.
+
+Re-run it after cloning on a new machine, or after regenerating behavior trees. See [scenarios](/testing/srr/scenarios) for the scenario fixtures and how to regenerate them.
+
+## Step 5: Build and start the Regression Testing Reporter service
+
+```bash
+cd srr-service
+docker compose --env-file ../.env up --build -d
+```
+
+<Note>
+Pass `--env-file ../.env` on every Compose command: the `.env` you filled in at Step 3 lives at the `regression-reporter` root, one level **above** `srr-service`. Compose only auto-loads `.env` from the current directory, so without the flag `${HOISA_ROOT_PATH}` / `${CALIBRATION_JSON}` resolve to empty strings and the container fails to start (`invalid spec: ... empty section between colons`).
+</Note>
+
+The container joins the host network so it can reach ROS 2 and Kafka directly. Verify it is up and can see ROS:
+
+```bash
+docker ps --format '{{.Names}}' | grep -x srr
+docker exec srr bash -lc 'source /opt/ros/*/setup.bash && ros2 topic list | grep /safety/is_muted'
+```
+
+You should see the `srr` container and the `/safety/is_muted` topic listed.
+
+## Step 6: Run a regression test
+
+Pick one of the two paths below. Both run the same pipeline; the skill adds automatic readiness checks and a demo-friendly log.
+
+The available scenarios (all 5 minutes by default):
+
+| Scenario | Stress focus |
+| --- | --- |
+| `in-roi` | Person constantly inside the work zone |
+| `psf-edge` | Person sits on the ROI boundary (hysteresis / debounce) |
+| `psf-clear` | Person clearly inside or clearly outside |
+| `balanced` | Mixed activity, baseline scenario |
+| `fast` | Motion-heavy, tests cumulative drift over a long run |
+
+See [scenarios](/testing/srr/scenarios) for full details on each case.
+
+### Option A — Via the skill
+
+Enable the `hoisa-generate-regression-report` skill in your coding agent, then describe the run in plain language. The skill parses the scenarios and durations, orchestrates each phase, and gates on readiness signals.
+
+Examples:
+
+```text
+Run a Regression Testing Reporter multi-test with the psf-edge case. Default 5 minutes. Show demo log.
+```
+
+```text
+Run a Regression Testing Reporter multi-test with in-roi, psf-edge, and balanced. Default duration.
+```
+
+```text
+Run a Regression Testing Reporter multi-test:
+- in-roi for 3 minutes
+- psf-edge for 5 minutes
+- balanced for 7 minutes
+```
+
+The skill does **not** deploy Halos/VSS, and always restarts both the Halos and Regression Testing Reporter compose stacks between scenarios (Safety Core counter drift otherwise carries across runs and corrupts the next result).
+
+### Option B — Manually
+
+Run one command from the Regression Testing Reporter directory. The script does the full plumbing — compose restart, scene load, record, split, aggregate, and per-clip video pull — for each scenario in turn:
+
+```bash
+# One scenario, default 5 minutes
+./scripts/run_multi.sh psf-edge
+
+# A subset with explicit durations (seconds): name:seconds
+./scripts/run_multi.sh in-roi:300 balanced:600
+
+# All 5 sweep scenarios at 5 minutes each
+./scripts/run_multi.sh all
+
+# Recommended full sweep (in-roi/psf-edge/psf-clear 5m, balanced 10m, fast 20m)
+./scripts/run_multi.sh full
+```
+
+When it finishes it prints the output location:
+
+```text
+Output: /app/runs/multi-test-<TIMESTAMP>/
+Top-level summary: /app/runs/multi-test-<TIMESTAMP>/summary.md
+```
+
+### Under the hood (optional)
+
+`run_multi.sh` performs these phases per scenario. Run them by hand only if you need to debug a single step — otherwise use Option A or B above.
+
+1. **Restart both stacks** for fresh Safety Core state:
+
+   ```bash
+   ( cd ${HOISA_ROOT_PATH}/deployments && \
+     docker compose --env-file profiles/sil.env down && \
+     docker compose --env-file profiles/sil.env up -d )
+   ( cd srr-service && docker compose --env-file ../.env down && \
+     docker compose --env-file ../.env up -d )
+   ```
+
+2. **Select the scenario's behavior trees + recording length.** Copy the three
+   `srr_<name>_char{0,1,2}.bt.json` onto the fixed active names in `sil/configs/`, then set `simulation_duration` in `default_config_ros.yaml`.
+
+3. **Start the scene** (`--srr-gt` wires the ground-truth publishers — see
+   [Regression Testing Reporter Ground-Truth Graph (opt-in)](/testing/sil/components/action-graph#regression-testing-reporter-ground-truth-graph-opt-in)):
+
+   ```bash
+   docker exec -d isaac-sim ./python.sh \
+     /isaac-sim/sil/scripts/run_actor_sdg.py \
+     -c /isaac-sim/sil/configs/default_config_ros.yaml \
+     --start --headless --enable-vst \
+     --cameras-config /isaac-sim/sil/configs/cameras.yaml --srr-gt
+   ```
+
+4. **Wait** for the 3 RTSP streams + perception FPS to come up, then give the
+   Safety Core ~30 s to warm up (avoids a cold-start outlier on the first clip).
+
+5. **Record**:
+
+   ```bash
+   docker exec srr bash -lc 'source /opt/ros/*/setup.bash && \
+     ros2 service call /srr/record std_srvs/srv/SetBool "{data: true}"'
+   # ... wait RECORD_S seconds ...
+   docker exec srr bash -lc 'source /opt/ros/*/setup.bash && \
+     ros2 service call /srr/record std_srvs/srv/SetBool "{data: false}"'
+   ```
+
+6. **Analyze** — split into clips, aggregate, and pull the per-clip videos:
+
+   ```bash
+   docker exec srr python3 -m srr.tw_split  <parquet> <scenes-dir> --source gt
+   docker exec srr python3 -m srr.aggregator --runs-dir /app/runs/multi-test-<TS> --top-level
+   docker exec srr python3 -m srr.utils.vst_video split-run --run-dir <run> --out-dir <run>/videos
+   ```
+
+See [architecture](/testing/srr/architecture) for what each phase does.
+
+## Step 7: Read the results
+
+Open the top-level summary first:
+
+```text
+runs/multi-test-<TIMESTAMP>/
+├── summary.md                 <- open this first (headline + per-run + per-clip)
+├── failures.json              <- the FAIL clips
+└── <scenario>/
+    ├── reports/scn_*.md       <- per-clip detail
+    └── videos/scn_*.mp4       <- per-clip review videos
+```
+
+What the headline metrics mean:
+
+| Metric | Meaning | Healthy |
+| --- | --- | --- |
+| **match%** | Frame-by-frame agreement (expected mute == actual mute) at 30 Hz | mean ≥ 90%, median ≥ 95% |
+| **Mute correct%** | Of frames GT said to mute, fraction the system muted | ≥ 90% |
+| **Unmute correct%** | Of frames GT said not to mute, fraction the system unmuted | ≥ 95% (safety-critical) |
+| **BA ROI / TW IN / TW OUT** | Per-event detection rate for person-in-ROI / forklift trailer crossings | ≥ 95% ROI, 100% TW |
+| **Phase 2 detect-fail%** | Per class, "was the object seen this frame?" (100 − recall in coverage) | lower is better |
+| **Phase 2 tracking-loss%** | Per class, "did it keep one identity?" (id-switch / fragmentation) | lower is better |
+
+Verdict buckets: **PASS** (≥ 95% match), **NEAR** (80–95%), **FAIL** (< 80%).
+
+For the full metric reference, drill-down workflow, and how to read a per-clip report, see [interpret-results](/testing/srr/interpret-results).
+
+## Step 8: Evidence bundle, debug viewer, heatmaps (optional)
+
+Package a self-contained evidence bundle (per-clip CSVs + manifest + Safety Core log slice + MP4):
+
+```bash
+docker exec srr python3 -m srr.clip_logs \
+  --runs-dir /app/runs/multi-test-<TIMESTAMP> --calib /app/calibration.json --zip
+# -> runs/multi-test-<TIMESTAMP>.zip
+```
+
+Open the browser viewer for scrub-synced per-clip drill-down (MP4 ↔ GT ↔ Safety Core state ↔ BA events ↔ Safety Core log). See [debug-viewer](/testing/srr/debug-viewer) for the full walkthrough:
+
+```bash
+ln -sfn <runs>/multi-test-<TIMESTAMP> <repo>/tools/srr-debug-viewer/data/multi-test-<TIMESTAMP>
+bash <repo>/tools/srr-debug-viewer/view.sh   # serves http://localhost:8765/
+```
+
+## Cleanup
+
+Leave the containers running to inspect results. To free disk space, drop old runs (videos live inside the run dir):
+
+```bash
+rm -rf <runs>/multi-test-<OLD-TIMESTAMP>
+```
+
+Stop the Regression Testing Reporter service when you're done:
+
+```bash
+cd srr-service && docker compose --env-file ../.env down
+```
+
+Tear down the SIL stack (Halos + VSS) via the deploy skills or [/testing/sil/sil-2d](/testing/sil/sil-2d) — not here.
+
+## Troubleshooting
+
+### Empty parquet / no BA events during recording
+
+Perception isn't feeding the Regression Testing Reporter. Usual causes: `nvstreamer` still running alongside Isaac (stop it — Isaac must be the sole camera source), stale VST `Camera` sensors piling up across restarts, or perception FPS at 0. Restart perception and re-check:
+
+```bash
+docker restart vss-rtvi-cv
+docker logs --tail 200 vss-rtvi-cv 2>&1 | grep PERF -A1 | tail -5   # all 3 FPS ≥ 5
+```
+
+`tw_split` reports 0 clips
+
+### `tw_split` reports 0 clips
+
+Either the recording is too short to contain a forklift trailer crossing (use ≥ 3 minutes), or the parquet footer wasn't flushed yet — wait a few seconds and re-run the split.
+
+VST record API returns 503, or `sensor/add` gets 400
+
+### VST record API returns 503, or `sensor/add` gets 400
+
+Stale VST state. Delete leftover online `Camera*` sensors, and if the record API is still 503 run the VSS reset recipe (see the `hoisa-generate-regression-report` skill's "When VSS is corrupted" section, or the `vss-deploy-profile` skill teardown).
+
+### Container runs stale code
+
+If `clip_logs` is missing, videos land in the wrong folder, or there is no Phase 2 section, the image is older than the host source — rebuild:
+
+```bash
+cd srr-service && docker compose --env-file ../.env build srr && \
+  docker compose --env-file ../.env up -d srr
+```
+
+Low `Mute correct%` on a long run, or alternating PASS/FAIL
+
+### Low `Mute correct%` on a long run, or alternating PASS/FAIL
+
+If PASS/FAIL alternates in step with the forklift entering the trailer, this is the known Safety Core counter-drift signature (fix planned upstream). Restart the Halos compose between runs; don't file it as a new regression. See [interpret-results](/testing/srr/interpret-results) for the full signature.

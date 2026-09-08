@@ -1,0 +1,399 @@
+---
+title: "Deploy the HIL Closed Loop"
+description: ""
+---
+Bring the Halos Hardware-in-the-Loop (HIL) closed loop up across two machines: NVIDIA Isaac Sim drives the scene on an x86 stimulus host, and the perception stack and the Safety Core run on an NVIDIA IGX Thor.
+
+<Note>
+This is a two-host profile. The x86 commands run on the stimulus host, the IGX Thor commands over ssh from the same seat, and both hosts need their own clone of the repository. Every command block below opens with a comment naming the host it belongs to.
+</Note>
+
+## Prerequisites
+
+See [/getting-started/prerequisites](/getting-started/prerequisites) for hardware and software requirements.
+
+## Deploy with Halos Deployment Skill (recommended)
+
+For an automated bring-up with a coding agent, use the `hoisa-deploy-profile` skill with the `hil` profile — see [/getting-started/agentic-deployment](/getting-started/agentic-deployment). The skill drives one host at a time; there is no single command that deploys both hosts in this release.
+
+The manual instructions below remain supported, and are the route to follow when no coding agent runs on the host.
+
+## Step 1: Get Access and the Repository
+
+Run both commands on both hosts. The IGX Thor needs its own clone: the Safety Core launch script, the Thor environment file, and the sensor configuration template all ship in the repository.
+
+```bash
+# Both hosts — authenticate to NGC
+docker login nvcr.io -u '$oauthtoken' -p "$NGC_CLI_API_KEY"
+
+# Both hosts — clone the Halos Outside-In Safety repo
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+cd halos-outside-in-safety
+```
+
+`Login Succeeded`, then `ls deployments/profiles/hil.env` returns the path. The Safety Core image and the IGX Thor host packages are pinned in `hil-thor.env`, and the NGC key used here must have access to them.
+
+## Step 2: Download the Artifacts
+
+### 2.1 Stimulus data (x86)
+
+```bash
+# x86 stimulus host — from the repository root
+set -a; source deployments/profiles/hil.env; set +a
+
+# x86 stimulus host — download outside the checkout; the directory is multi-gigabyte
+cd /tmp
+ngc registry resource download-version "$MDX_DATA_RESOURCE"
+tar -xzf sample-sil-data_v*/halos-outside-in-sil-data.tar.gz \
+  --directory="$HOME"   # the tarball expands into a directory named sil-data
+```
+
+`ls $HOME/sil-data/collected-assets` prints `Characters  Vehicles  Warehouse`. `/tmp/sample-sil-data_v*/` can be deleted once the extract succeeds.
+
+### 2.2 Safety Core packages (IGX Thor)
+
+```bash
+# IGX Thor safety host — from the repository root
+set -a; source deployments/profiles/hil-thor.env; set +a
+docker pull "$PSF_IMAGE"     # multi-arch tag; Docker selects arm64 here
+ngc registry resource download-version "$PSF_TEGRA_RESOURCE"
+sudo dpkg -i */psf-tegra.deb
+```
+
+`ls /opt/nvidia/psf/bin/` lists `atl_sdm`, `launch_hoisa.sh`, and `safety_monitor`. The launch script in Step 9 exits immediately if `launch_hoisa.sh` is not there.
+
+## Step 3: Configure Both Hosts
+
+### 3.1 x86 stimulus host
+
+Fill five of the six `change me` fields in `deployments/profiles/hil.env` — `DOCKER_GID` is only read by the `safety-core` service, which the `hil` profile never starts:
+
+```bash
+MDX_SAMPLE_APPS_DIR=<REPO_ROOT>   # this repo checkout root, absolute path
+MDX_DATA_DIR=$HOME/sil-data       # the directory extracted in Step 2.1
+HOST_IP='<X86_IP>'                # this host, as the IGX Thor reaches it
+PEER_HOST_IP='<THOR_IP>'          # the IGX Thor safety host
+ROS_DOMAIN_ID=0                   # set nonzero if other ROS hosts share the subnet
+```
+
+Everything else in the file is pre-set. This step has no check of its own — Step 5 verifies every field here except `ROS_DOMAIN_ID`.
+
+### 3.2 IGX Thor safety host
+
+Fill the two `change me` fields in `deployments/profiles/hil-thor.env`. They are the mirror image of the pair above:
+
+```bash
+HOST_IP='<THOR_IP>'      # this host
+PEER_HOST_IP='<X86_IP>'  # the x86 stimulus host; this is where decisions are sent
+```
+
+The launcher exits if either is empty, and the Step 9 banner prints `PEER_HOST_IP` back as the `Cmd sink`; `HOST_IP` is only checked for being set. Install the sensor configuration template that the launch script requires:
+
+```bash
+# IGX Thor safety host — from the repository root
+sudo cp closed-loop-testing/safety-core/configs/sensor_config_thor.conf /opt/nvidia/psf/bin/
+```
+
+`ls -l /opt/nvidia/psf/bin/sensor_config_thor.conf` returns the file.
+
+Copy the template unedited: the profile ships `PSF_LAUNCH_MODE=skip`, under which the file is checked only for existence. Leave that line in place — an unset value selects `active`, which reads the file. See [architecture](/testing/hil/architecture) for what the two modes change.
+
+## Step 4: Prepare the x86 Directories
+
+```bash
+# x86 stimulus host — stay in deployments/ for Steps 5 and 6
+cd deployments
+../closed-loop-testing/scripts/setup.sh hil
+../closed-loop-testing/scripts/cleanup_all_datalog.sh hil
+```
+
+`Setup complete (profile: hil)`.
+
+`setup.sh` creates the bind-mount targets and hands the Isaac Sim cache directories to the container's user; without it Docker creates them as root and every run pays a cold shader compile or fails outright. `cleanup_all_datalog.sh` prints `PSF log directory not found` under `hil` — expected, because the Safety Core logs live on the IGX Thor.
+
+## Step 5: Run the Two-Host Preflight Check
+
+```bash
+# x86 stimulus host — from deployments/
+bash ../closed-loop-testing/scripts/hil_preflight.sh profiles/hil.env --thor <user>@<THOR_IP>
+```
+
+The last line reads `preflight PASSED`. Fix every `FAIL` line before continuing.
+
+The check covers the address pairing, the command port, the repository and data paths, ssh reachability, and the clock skew between the two hosts. Warnings here are expected and advisory: `DOCKER_GID` may not match the host docker group — no service in the `hil` profile uses it — and the IGX Thor VST `:30888` and perception `:9000` probes each warn because VSS Warehouse is not up yet. Without `--thor` the script prints a manual checklist for the safety host instead of testing it.
+
+## Step 6: Start the x86 Stimulus Stack
+
+```bash
+# x86 stimulus host — from deployments/
+docker compose --env-file profiles/hil.env up -d
+```
+
+`docker ps` shows exactly three containers: `isaac-sim`, `comm-layer` (`healthy`), and `forklift-controller`. A first run builds all three images and takes several minutes. Two containers instead of three means the communication layer never became healthy and Isaac Sim is still waiting on it — see [Only Two Containers Start](#only-two-containers-start).
+
+## Step 7: Launch the Scenario
+
+### 7.1 Start the driver
+
+```bash
+# x86 stimulus host — no --enable-vst: the IGX Thor owns sensor registration
+docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
+  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
+  --start --headless \
+  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+```
+
+Poll the forklift controller until the scene is live:
+
+```bash
+# x86 stimulus host — re-run this to poll
+docker logs --tail 20 forklift-controller
+```
+
+Should show one `Odom received:` line, then a `pose=` line every two seconds whose pose index and `robot=` coordinates change from line to line. Changing coordinates are the only proof that the forklift is moving.
+
+The first run is quiet for 5-10 minutes while the scene loads and the render shaders compile, both of which are cached afterwards; poll for the log lines rather than waiting out a fixed time. For the driver's options, see [Execution Script](/testing/sil/components/isaac-sim#execution-script).
+
+### 7.2 Confirm the streams deliver frames
+
+```bash
+# x86 stimulus host — run inside the container, which carries ffprobe
+docker exec isaac-sim ffprobe -v error -rtsp_transport tcp -count_frames \
+  -read_intervals "%+2" -select_streams v:0 -show_entries stream=nb_read_frames \
+  -of csv=p=0 rtsp://localhost:8554/camera
+```
+
+A non-zero number. Probe the other two mounts the same way — `rtsp://localhost:8555/camera_01`, then `rtsp://localhost:8556/camera_02` — one at a time. Two clients describing the same cold mount at the same instant both get `no caps`, and the mount stays wedged until Isaac Sim restarts. All three must return a non-zero count. A listening port is not evidence either: a cold Isaac Sim accepts RTSP clients before its encoder has produced a first frame.
+
+<Info>
+Do not deploy VSS Warehouse until all three streams return a non-zero frame count. Sensor registration in file mode has no stream-readiness gate — VST describes all three mounts the moment it starts, and a mount wedged that way does not recover on its own.
+</Info>
+
+## Step 8: Deploy VSS Warehouse on the IGX Thor
+
+Deploy VSS Warehouse on the safety host following [/testing/sil/sil-2d](/testing/sil/sil-2d) Step 2, with four changes for HIL. Apply all four **before** the first `up`:
+
+- **Remote stream URLs** (`camera_configs/camera_info.json`): register the three streams against the x86 host — `rtsp://<X86_IP>:8554/camera`, `:8555/camera_01`, `:8556/camera_02` — and keep the sensor names exactly `Camera`, `Camera_01`, and `Camera_02`. Behavior analytics calibration and safety event matching key on those names.
+- **One registration owner** (warehouse profile `.env`): set `SENSOR_INFO_SOURCE=file` so the configurator registers from `camera_info.json`, which is why Step 7.1 launches the driver without `--enable-vst`. Two writers race on the same sensor names, the colliding adds fail, and perception can end up on the wrong source.
+- **Recording** (`blueprint_config.yml`, the configurator's input): set `always_recording: false` and keep event recording on. Continuous clips fill the safety host's disk. The configurator hard-writes `always_recording: true` into the generated `vst_config.json` on every `up`, so this one has to be set in its input file, not in what it generates.
+- **Fresh state**: on an IGX Thor that has run VSS Warehouse before, clear the Kafka volumes first (see [Cleanup and Teardown](#cleanup-and-teardown)), or the sensor distribution service replays old sensor history and perception stays at 0 fps.
+
+The single-host setup already sets `rtsp_streaming_over_tcp: true` in `vst_config.json`; it applies unchanged here, and is not optional. Over UDP the sensors report `online` and no media arrives.
+
+On a safety-flashed IGX Thor, apply the container runtime and image pull workarounds in [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor) as part of this step. Without the runtime fix `nvstreamer-2d` never starts and perception reports `Active sources : 0`.
+
+The first `up` spends 15-20 minutes building the TensorRT engine before any frame rate appears.
+
+```bash
+# IGX Thor safety host — confirm what was registered
+curl -s http://<THOR_IP>:30888/vst/api/v1/sensor/list
+```
+
+Three sensors, and every stream URL carries the x86 host address rather than `localhost`.
+
+```bash
+# IGX Thor safety host — re-run this to poll
+docker logs --tail 20 vss-rtvi-cv
+```
+
+Should show `Active sources : 3` and a `**PERF:` line carrying a non-zero current frame rate for each of `Camera`, `Camera_01`, and `Camera_02`. Read the latest rate per camera — the `**PERF:` lines keep printing for a source that has already fallen to 0.
+
+To watch the streams, open `http://<THOR_IP>:30888/vst/` and select the live streams view. The `Service Status` panel on that page reports router availability, not module health, so do not debug perception from it.
+
+## Step 9: Start the Safety Core on a Clear Scene
+
+The Safety Core initializes its decision state from the events present when it starts, so start it while the scene is clear — the forklift outside the trailer tripwire. Watch the forklift controller for the moment it leaves:
+
+```bash
+# x86 stimulus host — re-run this to poll
+docker logs --tail 20 forklift-controller
+```
+
+Wait for a `SEGMENT TRANSITION` line reading `FORWARD→REVERSE`, which is the forklift backing out of the trailer, and launch the Safety Core shortly after it appears.
+
+<Info>
+Starting the Safety Core mid-scenario, with the forklift already in the trailer, leaves the ATL scenario state stuck: commands keep flowing but `MUTE` never fires again. Stop it and start it again on a clear scene.
+
+This is not the fail-safe latch. The Safety Decision Maker latches a *safe state* when it detects a fault, re-asserts the fail-safe command, and clears only through the `release` handshake described in **safe-release**. The condition here needs no handshake — the scenario simply started from a state ATL cannot resolve, and a relaunch on a clear scene is the whole fix.
+</Info>
+
+```bash
+# IGX Thor safety host — tmux keeps it alive if the ssh session drops
+tmux new -s safety
+bash closed-loop-testing/scripts/launch_thor_safety.sh hil-thor
+```
+
+Expected output:
+
+```text
+Mode:       skip
+SDM target: ccplex
+Cmd sink:   <X86_IP>:12346
+```
+
+**Cmd sink**: where decisions are sent. It must be the x86 host on `12346`; a sink of `127.0.0.1:12345` means the `base` profile environment file was loaded by mistake.
+
+The launcher holds the foreground and takes the Safety Core down with it when it exits. From a second pane:
+
+```bash
+# IGX Thor safety host — second pane
+docker ps --filter name=nv-psf
+pgrep -x atl_sdm
+```
+
+`nv-psf` is `Up`, and `atl_sdm` prints a PID. The profile ships `SDM_TARGET=ccplex` and this guide covers that path only. Running the decision maker on the Functional Safety Island instead is a separate setup with its own gated-access packages and a firmware flash, described in [Option C: SDM on FSI](/deployment#sdm-on-fsi).
+
+## Step 10: Verify the Closed Loop
+
+On the safety host, confirm that decisions are leaving and being acknowledged:
+
+```bash
+# IGX Thor safety host
+sudo grep -E "Sending decision command|Received acknowledgment" /var/log/psf/atl_sdm.log | tail -4
+```
+
+Every `Sending decision command` line must be followed by a `Received acknowledgment` line carrying the same sequence number, and the destination must be the x86 host on `12346`. Commands sent with nothing coming back means the communication layer is not receiving — see [The Communication Layer Receives Nothing](#the-communication-layer-receives-nothing). No decisions at all means perception is not producing events, so re-check Step 8.
+
+On the stimulus host, read the decisions as they arrive:
+
+```bash
+# x86 stimulus host — re-run this to poll
+docker logs --tail 30 comm-layer
+```
+
+Expected output:
+
+```text
+INFO:udp_receiver.safety_receiver:Received: Seq#0 | HEARTBEAT | 💓 Heartbeat | ts=...
+INFO:udp_receiver.safety_receiver:Received: Seq#3 | MUTE (ALLOW OPERATION) | 🟢 Safety muted - Loading allowed | ts=...
+INFO:udp_receiver.safety_receiver:Received: Seq#9 | UNMUTE (PREVENT OPERATION) | 🟡 Safety active + Alarm on | ts=...
+```
+
+**HEARTBEAT**: Keep-alive — the safety host to communication layer link is live.
+
+**MUTE (ALLOW OPERATION)**: Forklift in the trailer, no humans detected — loading is allowed.
+
+**UNMUTE (PREVENT OPERATION)**: Human detected or forklift leaving — operation is prevented.
+
+Decisions are event-driven, so a quiet scene produces heartbeats and nothing else. That is not a fault.
+
+Confirm the decision reached ROS 2:
+
+```bash
+# x86 stimulus host
+docker exec comm-layer bash -lc \
+  "source /opt/ros/jazzy/setup.bash && ros2 topic echo --once /safety/is_muted"
+```
+
+The command returns a value instead of blocking. The loop is closed when the MUTE and UNMUTE transitions follow the forklift's own cycle and the in-scene safety indicator changes with them. The forklift itself keeps driving its fixed path — it is a stimulus generator and does not consume the safety command; the decision is observable through the in-scene indicator and this log (see [/known-limitations](/known-limitations)). Transitions seen before the Isaac Sim streams reached perception come from the sample feed VSS Warehouse starts with, and do not count.
+
+## 3D Perception Profile
+
+To run the loop against the 3D (BEV) perception profile, keep every step above as it is — the stimulus host runs the same three services, the same environment file, and the same scenario command. The differences are all on the safety host:
+
+- **Model artifacts**: the Sparse4D R101 deployable and trainable resources are pinned in `hil-thor.env` and are pulled onto the IGX Thor, where perception runs. Both must be the same version.
+- **Calibration**: the 3D profile needs the camera calibration and `camera_info.json` machinery. Follow [/testing/sil/sil-3d](/testing/sil/sil-3d) for it and for the rest of the VSS-side configuration.
+- **Frame rate**: the `IGX-THOR` platform profile ships `interval: 1`, which halves the 3D inference rate — a default tuned for real 30 fps cameras. A simulated source already renders below that rate, so set `interval: 0` in the configurator's `blueprint_config.yml` for HIL runs only. Leave the Thor default in place for real-camera deployments.
+
+## Restart the Scenario
+
+Restarting the scene is a two-host procedure, in this order:
+
+1. IGX Thor: `docker stop vss-vios-streamprocessing`, which detaches VST from the streams before they go away.
+2. x86: stop the driver and [start it again](/testing/hil/quickstart#71-start-the-driver), still without `--enable-vst`.
+3. x86: re-run the [frames gate](/testing/hil/quickstart#72-confirm-the-streams-deliver-frames).
+4. IGX Thor: `docker start vss-vios-streamprocessing`, then wait for three sensors online and `Active sources : 3` again.
+5. IGX Thor: `bash closed-loop-testing/scripts/stop_thor_safety.sh`, then relaunch the Safety Core at a [clear-scene moment](/testing/hil/quickstart#step-9-start-the-safety-core-on-a-clear-scene). A Safety Core left running holds decision state from a scene that no longer exists.
+
+Never stop or start the driver while VST is still pulling. Isaac Sim's in-process RTSP server fails to create a session when two clients describe a stream inside its cold bind window, and VST reconnects within milliseconds, so the mounts wedge with no way back except another restart. `restart_isaac.sh` does not apply to `hil` either: it pauses a local VST container, and under `hil` VST runs on the safety host.
+
+If perception does not come back after step 4, the safety host is holding stale sensors from the previous run. Delete them with `DELETE /vst/api/v1/sensor/{id}` or through the VST UI, and let the configurator register the streams again.
+
+## Cleanup and Teardown
+
+Teardown is the reverse of bring-up: the Safety Core, then the x86 stimulus stack, then VSS Warehouse. Stopping the Safety Core last leaves it logging connection errors against a Kafka broker that has already gone away.
+
+```bash
+# IGX Thor safety host — always through the script, never by killing the tmux session
+bash closed-loop-testing/scripts/stop_thor_safety.sh
+```
+
+`docker ps --filter name=nv-psf` returns no rows and `pgrep -x atl_sdm` returns nothing.
+
+```bash
+# x86 stimulus host — from deployments/
+docker compose --env-file profiles/hil.env down
+
+# x86 stimulus host — truncates the communication layer logs in place
+bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh hil
+```
+
+`docker ps` shows none of `isaac-sim`, `comm-layer`, or `forklift-controller`.
+
+Copy anything worth keeping out of the communication layer log directory before the cleanup script runs. VSS Warehouse can stay up between runs.
+
+<Warning>
+On the IGX Thor, tear VSS Warehouse down **without** `-v`, and never run `docker volume prune` while it is down. Either one destroys the built TensorRT engine and costs another full engine rebuild. To clear stale sensor history, remove only the Kafka volumes: take the stack down with `docker compose ... down --remove-orphans` (no `-v`), then `docker volume ls | grep -i kafka` and `docker volume rm` only those volumes.
+</Warning>
+
+## Troubleshooting
+
+### RTSP Streams Report No Caps and Perception Shows 0 Sources
+
+Sensors were registered, or described, against a cold Isaac Sim — the failure the [frames gate](/testing/hil/quickstart#72-confirm-the-streams-deliver-frames) in Step 7.2 exists to prevent.
+
+Stop the describe attempts first — `docker stop vss-vios-streamprocessing` on the safety host — then re-run the [frames gate](/testing/hil/quickstart#72-confirm-the-streams-deliver-frames) inside the `isaac-sim` container, one stream at a time and then all three at once; passing sequentially but failing concurrently is the concurrency race. Do not probe the x86 mounts while VST is still pulling them. Once Isaac Sim is warm, register the sensors again. Do not restart the configuration adaptor chain to recover: it duplicates sensors without re-pushing the source list.
+
+### VST Sensors Are Online but Perception Shows 0 FPS
+
+Three causes, in the order worth checking:
+
+- RTSP is being pulled over UDP. Set `rtsp_streaming_over_tcp: true` and restart VST.
+- An Isaac Sim restart wedged the mounts. Follow [Restart the Scenario](#restart-the-scenario) in full.
+- The IGX Thor is replaying stale sensor history from an earlier deployment. If it recurs after every restart, remove the Kafka volumes as described in [Cleanup and Teardown](#cleanup-and-teardown).
+
+### Forklift Never Moves
+
+ROS 2 discovery: the three x86 containers cannot see each other. [architecture](/testing/hil/architecture) explains why `LOCALHOST` scoping fails on a multi-interface host.
+
+```bash
+# x86 stimulus host
+docker exec forklift-controller bash -lc \
+  "source /opt/ros/jazzy/setup.bash && ros2 topic info -v /odom"
+```
+
+Should show a publisher. If it shows none, confirm `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` in `hil.env` and recreate all three containers together — from `deployments/`, `docker compose --env-file profiles/hil.env up -d --force-recreate`. A plain restart does not pick up the change.
+
+A `State: IDLE → MOVING` line is not evidence: the controller prints it unconditionally at startup, with no handshake with the simulation. The signal is the `pose=` line advancing.
+
+### Decisions Flow but MUTE Never Fires
+
+Either the forklift is not crossing the trailer tripwire, or the ATL scenario state is stuck from a mid-scenario start. Neither is the fail-safe latch of **safe-release**, which announces itself in the command receiver console and does not clear on a restart.
+
+Confirm the forklift is moving on the VST streams first. If it is, and events keep flowing while only `MUTE` has stopped, stop the Safety Core and relaunch it at a [clear-scene moment](/testing/hil/quickstart#step-9-start-the-safety-core-on-a-clear-scene).
+
+### The Communication Layer Receives Nothing
+
+The safety host shows decisions and the stimulus host shows none. Check in this order: the `comm-layer` container is running and `healthy`; `PSF_CMD_RX_IP` and `PSF_CMD_RX_PORT` in `hil-thor.env` name the x86 host and match `COMM_UDP_PORT` in `hil.env`; and the UDP path between the hosts is open in that direction.
+
+A send-side probe proves nothing on its own — the evidence is a packet arriving, which is what `docker logs --tail 30 comm-layer` shows. On the safety host, `Sending decision command` present with no matching `Received acknowledgment` means the packets leave and nothing comes back.
+
+### The Safety Core Stops When the SSH Session Drops
+
+The launch script runs in the foreground with a cleanup trap, so losing the session takes the Safety Core down with it: `nv-psf` and the SDM process disappear together.
+
+Run it inside `tmux` as in Step 9, and stop it only with `closed-loop-testing/scripts/stop_thor_safety.sh`. Killing the `tmux` session skips the script's ordering.
+
+### Only Two Containers Start
+
+`isaac-sim` waits on the communication layer's health check, which is an OPC UA connection to its own endpoint. Until that passes, Isaac Sim never starts and `docker ps` shows two containers.
+
+Check the `comm-layer` health state and its log directory: an unwritable log directory or a blocked port 4840 both keep the check failing. `setup.sh hil` in Step 4 creates that directory with the right ownership.
+
+For the Safety Core itself, see [Troubleshooting](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment). For IGX Thor container runtime and image pull workarounds, see [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor).
+
+## Next Steps
+
+- [architecture](/testing/hil/architecture) — Ports, packet format, and the configuration pairing between the two hosts
+- [/testing/sil/components/isaac-sim](/testing/sil/components/isaac-sim) — Scenario configuration and `run_sdg.sh` options
+- [/deployment/index](/deployment) — Safety Core installation, options, and troubleshooting in full

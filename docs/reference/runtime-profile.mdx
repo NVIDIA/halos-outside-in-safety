@@ -1,0 +1,299 @@
+---
+title: "Runtime Profile"
+description: ""
+---
+This page summarizes platform details and runtime resource usage for
+components on the IGX Thor reference platform.
+
+<Note>
+The runtime profile data reported in this section is representative of
+the **Control of safety function on a forklift (ATL)** use case running
+with a **3-camera RTSP input stream**, with the Safety AI Monitor (SAIM)
+using its **PVA** backend. Treat them as indicative of a
+healthy deployment, not as guaranteed limits.
+</Note>
+
+## Measurement Configuration
+
+| Field | Value |
+| --- | --- |
+| Halos release | 1.3 (aarch64 / Tegra release build) |
+| Host | NVIDIA IGX Thor, IGX SW GA release (GX rel-38.5) |
+| Deployment topology | Single host: AI Perception and the Safety Core run together on the same IGX Thor, sharing its CPU, GPU and hardware decoder |
+| AI Perception | VSS Warehouse Blueprint 3.2.1, warehouse-loading scenario, 3 camera streams |
+| Use case | Control of safety function on a forklift (ATL), with the ATL SDM application running on the CCPLEX |
+| SAIM backend | PVA. On IGX Thor SAIM analyzes frames on the PVA, not the GPU (see [/integration/components/ai-monitor](/integration/components/ai-monitor)) |
+| Clock configuration | Maximum clocks, pinned before sampling and restored afterwards. The rates measured during the run are in [Clock Configuration](#clock-configuration) |
+
+<Note>
+These figures come from a **co-located** deployment: VSS Warehouse perception
+and the Safety Core share one IGX Thor, with the ATL decision maker on the
+CCPLEX. That is why the NVDEC figure in [Shared Engine Utilization](#shared-engine-utilization) covers
+two independent decode consumers rather than SAIM alone.
+
+The split topology described in [/getting-started/prerequisites](/getting-started/prerequisites), where
+AI Perception runs on a separate x86-64 host, leaves the safety host with only
+the Safety Core. On that topology expect a substantially lower NVDEC figure on
+the safety host and more CPU headroom, while the per-process CPU, memory and
+PVA figures below should stay comparable.
+</Note>
+
+## Platform Details
+
+| Field | IGX-Thor |
+| --- | --- |
+| Architecture | aarch64 |
+| CPU vendor | ARM |
+| CPU model | Arm CPU on IGX-Thor |
+| CPU op-mode | 64-bit |
+| Physical cores | 14 cores per cluster |
+| Logical CPUs | 14 |
+| Threads per core | 1 |
+| Socket / cluster count | 1 socket |
+| CPU max frequency | 2601 MHz |
+| CPU min frequency | 54 MHz |
+| NUMA nodes | 1 |
+
+## GPU and Accelerator Details
+
+| Field | IGX-Thor |
+| --- | --- |
+| GPU model | NVIDIA Thor iGPU (Blackwell) |
+| Driver version | 580.00 |
+| CUDA version | 13.0 |
+| Vision accelerator | One PVA engine (PVA0) with two VPUs |
+
+## Clock Configuration
+
+The clocks were pinned to maximum before profiling and sampled every second
+throughout, so the values below are the rates that actually held during the run
+rather than the rates that were requested.
+
+| Field | IGX-Thor |
+| --- | --- |
+| Power mode | MAXN (mode 0) |
+| CPU scaling governor | schedutil |
+| CPU frequency during run | 2601 MHz average, 2601 MHz minimum, against a 2601 MHz maximum |
+| GPU graphics clock during run | 1575 MHz average, 1575 MHz minimum |
+| PVA clock during run | 1215 MHz average, 1215 MHz minimum, against a 1215 MHz maximum |
+| Sustained at maximum | Yes, for the whole run |
+
+<Note>
+Pinning clocks does not prevent thermal throttling, which is why the minimum
+matters more than the average here: a run that started pinned and later
+throttled would show a minimum below the maximum. None did.
+
+The PVA row confirms something worth stating explicitly, because the
+[Shared Engine Utilization](#shared-engine-utilization) figures depend on it: pinning the SoC clocks does
+reach the PVA on this platform, so the PVA duty-cycle numbers are comparable
+across runs. `nvidia-smi` does not expose a maximum graphics clock on Thor,
+so the GPU is corroborated by a flat trace rather than by comparison against
+a ceiling.
+</Note>
+
+## Runtime Usage Summary
+
+Every value in this section is **per process**, attributed to the named
+component. Engine-wide counters, which cannot be split per process, are reported
+separately in [Shared Engine Utilization](#shared-engine-utilization).
+
+CPU percentages follow the usual convention where 100% is one fully busy logical
+CPU. Because IGX Thor exposes 14 logical CPUs, the *Normalized CPU* row restates
+the same measurement as a share of the whole CPU complex, which is the figure to
+use when building a CPU budget for the host.
+
+`nvpsd_gateway`, `nvpss_daemon`, `mdx_client` and `atl_sdm` run no work
+on the GPU, the hardware decoder or the PVA, so no accelerator rows are listed
+for them.
+
+### Component nvpsd_gateway
+
+| Field | IGX-Thor |
+| --- | --- |
+| Process CPU avg / peak | 0.15% / 1.01% |
+| Normalized CPU avg / peak | 0.01% / 0.07% |
+| Threads avg / peak | 6 / 6 |
+| Average memory usage, RSS | 3.2 MB |
+| Peak memory usage, RSS | 3.6 MB |
+
+### Component nvpss_daemon
+
+| Field | IGX-Thor |
+| --- | --- |
+| Process CPU avg / peak | 2.25% / 4.01% |
+| Normalized CPU avg / peak | 0.16% / 0.29% |
+| Threads avg / peak | 10 / 10 |
+| Average memory usage, RSS | 14.0 MB |
+| Peak memory usage, RSS | 16.8 MB |
+
+### Component mdx_client
+
+| Field | IGX-Thor |
+| --- | --- |
+| Process CPU avg / peak | 2.37% / 4.01% |
+| Normalized CPU avg / peak | 0.17% / 0.29% |
+| Threads avg / peak | 16 / 16 |
+| Average memory usage, RSS | 134.3 MB |
+| Peak memory usage, RSS | 134.8 MB |
+
+### Component atl_sdm
+
+| Field | IGX-Thor |
+| --- | --- |
+| Process CPU avg / peak | 0.09% / 2.00% |
+| Normalized CPU avg / peak | 0.01% / 0.14% |
+| Threads avg / peak | 6 / 6 |
+| Average memory usage, RSS | 2.1 MB |
+| Peak memory usage, RSS | 2.1 MB |
+
+### Component safety_monitor
+
+| Field | IGX-Thor |
+| --- | --- |
+| Process CPU avg / peak | 2.65% / 4.02% |
+| Normalized CPU avg / peak | 0.19% / 0.29% |
+| Threads avg / peak | 13 / 13 |
+| Average memory usage, RSS | 249.6 MB |
+| Peak memory usage, RSS | 256.6 MB |
+| GPU context memory avg / peak | 228.0 MB / 228.0 MB |
+
+<Note>
+`safety_monitor` is the only component that touches an accelerator, and it
+touches two of them. Its per-frame image analysis runs on the two VPUs of the
+PVA0 engine, and its RTSP frame decode runs on the hardware decoder — see
+[Shared Engine Utilization](#shared-engine-utilization) for both.
+
+The *GPU context memory* row is a genuine `safety_monitor` value, even
+though SAIM runs no compute kernels on the GPU. Frame decode uses the CUDA
+video decode API, so the process holds a CUDA context and a pool of decode
+surfaces for each stream. On Tegra this memory comes out of system RAM, so it
+adds to the host memory budget on top of RSS: `safety_monitor` occupies
+about **478 MB** in total, not the 249.6 MB shown by RSS alone.
+
+The thread count is the visible knob when sizing for more cameras.
+`safety_monitor` runs one RTSP pipeline thread per stream, so expect this
+row to grow with camera count while the others stay fixed.
+</Note>
+
+### Aggregate Safety Core Footprint
+
+Summing the five components above gives the cost of the Safety Core as a whole
+on this host.
+
+| Field | IGX-Thor |
+| --- | --- |
+| Total CPU, all components | 7.51% of one logical CPU, or 0.54% of the 14-CPU complex |
+| Total average memory, RSS | 403.2 MB |
+| Total peak memory, RSS | 413.9 MB |
+| Total including GPU context memory | 631.2 MB average, 641.9 MB peak |
+
+<Note>
+These totals cover the Safety Core only. On the co-located topology measured
+here, the VSS Warehouse perception pipeline runs on the same host, and it is
+excluded from the totals above and from every per-process figure in
+[Runtime Usage Summary](#runtime-usage-summary).
+
+It is *included* in [Shared Engine Utilization](#shared-engine-utilization) and [Host Totals](#host-totals), which are
+whole-engine and whole-host by definition. The NVDEC row covers both decode
+consumers, and the host memory and CPU figures cover every process on the box.
+Those two sections are the ones to use for headroom; these totals are the ones
+to use for the Safety Core's own cost.
+</Note>
+
+## Shared Engine Utilization
+
+These counters are **whole-engine**: the hardware reports one number for the
+engine, with no per-process breakdown. They are listed separately from the
+component tables so they are not read as a single process's cost.
+
+| Metric | IGX-Thor |
+| --- | --- |
+| NVDEC utilization avg / peak | 4.48% / 35.00% |
+| PVA0 VPU0 utilization avg / peak | 46.15% / 46.87% |
+| PVA0 VPU1 utilization avg / peak | 23.50% / 25.82% |
+
+<Note>
+The two PVA0 rows are effectively SAIM's cost, because no other component in
+the stack uses the PVA. The work is not split evenly: VPU0 carries roughly
+twice the load of VPU1 because the per-VPU task mix differs. These are the
+rows to watch when sizing SAIM headroom for additional camera streams.
+
+The NVDEC row is genuinely shared. `safety_monitor` and the co-located
+perception pipeline each decode the same three RTSP streams, so this single
+figure covers two independent decode consumers and stopping either one lowers
+it.
+</Note>
+
+## Host Totals
+
+Whole-host figures covering every process on the box, including the co-located
+VSS perception pipeline. Use these for headroom, and [Runtime Usage Summary](#runtime-usage-summary)
+for attribution.
+
+| Metric | IGX-Thor |
+| --- | --- |
+| System CPU utilization avg / peak | 31.47% / 44.64% |
+| System memory total | 122.8 GB |
+| System memory used avg / peak | 15.3 GB / 15.7 GB |
+| System memory available, minimum | 107.1 GB |
+
+<Note>
+Comparing these against the Safety Core totals puts the split in perspective.
+The host was consuming the equivalent of roughly four and a half of its 14
+CPUs, of which the Safety Core accounted for 0.075 — under 2% of the host's CPU
+usage. The co-located VSS pipeline is responsible for essentially all the rest.
+</Note>
+
+## Usage Summary Field Notes
+
+- **Process CPU avg / peak**: Average and peak CPU usage of the profiled process, where 100% is one fully busy logical CPU. Measured per sampling interval, from the process's user and system CPU time consumed between consecutive samples.
+- **Normalized CPU avg / peak**: The same measurement expressed as a share of all 14 logical CPUs. Use this row when budgeting host CPU.
+- **Threads avg / peak**: Thread count for the process. Fixed for every component except `safety_monitor`, which adds a pipeline thread per camera stream.
+- **Average memory usage, RSS**: Average physical RAM resident for the process across the profiling run.
+- **Peak memory usage, RSS**: The largest resident set sampled during the profiling run. Unlike the kernel's lifetime high-water mark, this is confined to the measurement window, so it cannot be inflated by a spike that happened before profiling began.
+- **GPU context memory avg / peak**: Average and peak GPU context memory attributed to the process. On Tegra integrated GPUs this is system memory backing the process's CUDA context and its NVDEC decode surfaces, not dedicated GPU frame-buffer memory, so it must be added to the RSS figure when sizing host RAM. It is populated for `safety_monitor` on both SAIM backends because frame decode always goes through the CUDA video decode API.
+- **NVDEC utilization avg / peak**: Utilization of the hardware video decoder. This is a whole-engine value covering every decode client on the device.
+- **PVA0 VPU0 utilization avg / peak**: Average and peak utilization of VPU0 within the PVA0 engine, read from the PVA driver counter at `/sys/kernel/debug/pva0/vpu_stats`. IGX Thor exposes a single PVA engine (PVA0) with two VPUs, and each VPU is reported separately so per-VPU load is visible.
+- **PVA0 VPU1 utilization avg / peak**: As above, for VPU1 within the PVA0 engine.
+
+<Note>
+Use the PVA driver counter rather than `tegrastats` to confirm these
+numbers. On Thor's PVA generation the `tegrastats` VPU counter
+quantizes to 0% or 100% regardless of the sample interval, whereas
+`/sys/kernel/debug/pva0/vpu_stats` reports the true per-VPU duty cycle.
+</Note>
+
+<Note>
+CPU time is accounted in kernel clock ticks, and at this platform's tick rate
+one tick over a one-second sampling interval works out to 1% of one logical
+CPU. The peak CPU figures for the low-load components therefore land on whole
+percentages: `nvpsd_gateway` peaking at `1.01%` is a single tick landing in
+one interval and `atl_sdm` at `2.00%` is two, which is close enough to the
+measurement floor that the exact value should not be over-read.
+
+Their averages are the more meaningful figure. Both components are
+event-driven and spend most of a run waiting for safety events, doing work
+only in short bursts as messages arrive, so a low average with an occasional
+single-interval spike is the expected shape rather than a sign of inactivity.
+</Note>
+
+### Metric Attribution Scope
+
+Two scopes appear on this page, and they are kept in separate tables so that an
+engine-wide number is never listed under a component heading.
+
+**Per-process** — attributed to the named component, in [Runtime Usage Summary](#runtime-usage-summary): CPU, normalized CPU, threads, RSS and GPU context memory.
+
+**Whole-engine or whole-host** — not attributable to a single process, in
+[Shared Engine Utilization](#shared-engine-utilization) and [Host Totals](#host-totals): NVDEC utilization, the two PVA0
+VPU counters, and the system CPU and memory figures.
+
+GPU compute utilization is deliberately not reported on this page. On IGX Thor
+SAIM analyzes frames on the PVA and submits no CUDA compute kernels, so a
+device-wide GPU utilization figure measured on this host describes the
+co-located VSS perception pipeline rather than the Safety Core. It would not
+fall if the Safety Core were stopped, and it would drop to near zero on the
+split topology, so it is not a usable input for sizing the safety host. If you
+need genuine per-process CUDA kernel time or SM occupancy for a component, use
+`nsys profile -p <pid>` with `GPU_METRICS` rather than a device-wide
+counter.
