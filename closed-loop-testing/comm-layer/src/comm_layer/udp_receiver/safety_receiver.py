@@ -37,6 +37,7 @@ Backward-compatible API:
 import logging
 import socket
 import threading
+import time
 import sys
 import os
 from dataclasses import dataclass
@@ -64,6 +65,26 @@ from common.config import UdpReceiverConfig, get_config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Grace period after first contact with the SDM before the startup latch-clear
+# release goes out, so the SDM is ready to process it. Mirrors
+# kStartupReleaseSettleMs in proximity/udp_cmd_receiver/cmd_rx.cpp.
+STARTUP_SAFE_RELEASE_SETTLE_SEC = 0.5
+
+# Opcodes that mean the SDM is sitting in a latched safe state and will accept a
+# release request. SW_ERROR is the latch itself (it reaches the wire as "FAULT
+# SAFE STATE / ALARM"); DENIED is the SDM refusing a previous request because
+# the underlying cause was still live.
+_LATCH_OPCODES = frozenset((
+    ProximityCommandCode.SW_ERROR,
+    ProximityCommandCode.SAFE_RELEASE_DENIED,
+))
+# Opcodes that mean the latch is gone and normal operation resumed.
+_UNLATCH_OPCODES = frozenset((
+    ProximityCommandCode.SAFE_RELEASE_ACK,
+    ProximityCommandCode.NORMAL,
+    ProximityCommandCode.REDUCE,
+))
+
 
 @dataclass
 class ReceiverStats:
@@ -85,6 +106,12 @@ class ReceiverStats:
     proximity_invalid_crc: int = 0
     proximity_last_sequence: int = -1
     proximity_last_command: Optional[str] = None
+    # Safe-state latch handshake. `sent` counts requests we issued, so a latch
+    # that never clears can be told apart from one we never asked to clear.
+    safe_release_sent: int = 0
+    safe_release_acked: int = 0
+    safe_release_denied: int = 0
+    safe_state_latched: bool = False
 
 
 class SafetyReceiver:
@@ -120,6 +147,7 @@ class SafetyReceiver:
         verify_crc: bool = True,
         config: Optional[UdpReceiverConfig] = None,
         proximity_callback: Optional[Callable[["ProximityCmdPacket"], None]] = None,
+        startup_safe_release: bool = True,
     ):
         if config:
             self.host = config.host
@@ -137,6 +165,15 @@ class SafetyReceiver:
         # collision table in common/proximity_commands.py. Anyone wanting
         # proximity has to opt in and accept a ProximityCmdPacket.
         self.proximity_callback = proximity_callback
+        # Nothing in this deployment released the proximity safe-state latch, so
+        # once it fired the SDM stayed in FAULT SAFE STATE indefinitely. Turning
+        # SAIM on is enough to fire it: SAIM seeds every sensor SENSOR_INVALID
+        # before it has analysed a frame, all the sensors in
+        # kSafetyRelevantSensors go failed within ~100 ms, and the SDM latches
+        # even though they all recover a moment later. The SDM validates every
+        # request and answers DENIED while the cause is still live, so sending
+        # one on startup cannot clear a latch that still means something.
+        self.startup_safe_release = startup_safe_release
 
         self._socket: Optional[socket.socket] = None
         self._running = False
@@ -144,6 +181,14 @@ class SafetyReceiver:
         self._queue: "Queue[SafetyCommand]" = Queue(maxsize=queue_size)
         self._stats = ReceiverStats()
         self._lock = threading.Lock()
+        # Reply address is learned from the SDM's own packets rather than
+        # configured: the SDM picks an ephemeral source port, so there is no
+        # address to configure ahead of first contact.
+        self._sdm_addr: Optional[tuple] = None
+        self._first_contact_mono: Optional[float] = None
+        self._startup_release_done = False
+        self._release_ready = False
+        self._release_seq = 0
 
     # ---------------- lifecycle ----------------
 
@@ -290,6 +335,9 @@ class SafetyReceiver:
 
         is_known = isinstance(pkt.command, ProximityCommandCode)
         with self._lock:
+            self._sdm_addr = addr
+            if self._first_contact_mono is None:
+                self._first_contact_mono = time.monotonic()
             self._stats.proximity_received += 1
             self._stats.proximity_last_sequence = pkt.seq
             self._stats.proximity_last_command = (
@@ -310,6 +358,9 @@ class SafetyReceiver:
                            f"0x{int(pkt.command):02X} — not published")
             return
 
+        self._track_safe_state(pkt)
+        self._maybe_send_startup_release()
+
         # Heartbeats are the steady state at 10 Hz and would bury everything
         # else; only the motion levels and the error/handshake codes are worth a
         # line. The object dump rides along because the coordinates are the only
@@ -325,6 +376,99 @@ class SafetyReceiver:
                 self.proximity_callback(pkt)
             except Exception as e:
                 logger.error(f"Proximity callback error: {e}")
+
+    # ---------------- proximity safe-state latch ----------------
+
+    def _track_safe_state(self, pkt: "ProximityCmdPacket") -> None:
+        """Follow the latch from the opcodes, and log each edge exactly once.
+
+        Only the edges are logged: SW_ERROR arrives at the SDM's decision rate,
+        so logging every one buries the transition that matters.
+        """
+        if pkt.command in _LATCH_OPCODES:
+            if pkt.command == ProximityCommandCode.SAFE_RELEASE_DENIED:
+                with self._lock:
+                    self._stats.safe_release_denied += 1
+                logger.warning(
+                    f"Proximity safe-release DENIED (Seq#{pkt.seq}) — "
+                    "latch cause still active")
+            with self._lock:
+                first = not self._release_ready
+                self._release_ready = True
+                self._stats.safe_state_latched = True
+            if first:
+                logger.warning(
+                    f"Proximity SAFE-STATE LATCHED ({pkt.command.description}, "
+                    f"Seq#{pkt.seq}) — call request_safe_release() once the area "
+                    "is confirmed safe")
+        elif pkt.command in _UNLATCH_OPCODES:
+            if pkt.command == ProximityCommandCode.SAFE_RELEASE_ACK:
+                with self._lock:
+                    self._stats.safe_release_acked += 1
+            with self._lock:
+                was = self._release_ready
+                self._release_ready = False
+                self._stats.safe_state_latched = False
+            if was:
+                logger.info(
+                    f"Proximity safe-state CLEARED ({pkt.command.description}, "
+                    f"Seq#{pkt.seq}) — normal operation resumed")
+
+    def _maybe_send_startup_release(self) -> None:
+        """One forced release on first contact, to clear a latch left by a previous run.
+
+        Deliberately not conditional on the latch being visible: the latch can
+        predate this process, in which case the SDM keeps sending SW_ERROR and
+        we would be waiting for an edge that already happened.
+        """
+        if not self.startup_safe_release:
+            return
+        with self._lock:
+            if self._startup_release_done or self._first_contact_mono is None:
+                return
+            if time.monotonic() - self._first_contact_mono < STARTUP_SAFE_RELEASE_SETTLE_SEC:
+                return
+            self._startup_release_done = True
+        logger.info("Sending startup safe-release request to clear any stale latch")
+        self.request_safe_release(force=True)
+
+    def request_safe_release(self, force: bool = False) -> bool:
+        """Ask the SDM to leave its latched safe state.
+
+        force=False refuses to send unless the SDM has actually reported a
+        latched state, so an operator cannot arm a release against a healthy
+        system. force=True is the startup path. Either way the SDM has the final
+        say and answers SAFE_RELEASE_DENIED while the cause is still active.
+        """
+        with self._lock:
+            addr = self._sdm_addr
+            ready = self._release_ready
+            seq = self._release_seq
+            self._release_seq = (self._release_seq + 1) & 0xFFFF
+        if addr is None:
+            logger.warning("No SDM peer seen yet; cannot send safe-release request")
+            return False
+        if not force and not ready:
+            logger.warning(
+                "Safe-release request not sent; SDM has not reported a latched safe state")
+            return False
+
+        pkt = ProximityCmdPacket.now(
+            seq=seq, command=ProximityCommandCode.SAFE_RELEASE_REQUEST)
+        try:
+            self._socket.sendto(pkt.pack(), addr)
+        except Exception as e:
+            logger.error(f"Safe-release send error: {e}")
+            return False
+        with self._lock:
+            self._stats.safe_release_sent += 1
+        logger.info(f"Sent proximity SAFE RELEASE REQUEST Seq#{seq} to {addr[0]}:{addr[1]}")
+        return True
+
+    @property
+    def safe_state_latched(self) -> bool:
+        with self._lock:
+            return self._release_ready
 
     def _send_ack(self, received: CmdPacket, addr: tuple) -> None:
         """ACK echoes original seq+command with fresh timestamp + recomputed CRC."""

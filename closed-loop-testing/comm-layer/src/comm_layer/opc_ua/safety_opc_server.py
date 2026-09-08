@@ -24,7 +24,7 @@ import time
 import json
 from datetime import datetime
 from queue import Queue, Empty
-from typing import Optional
+from typing import Callable, Optional
 
 import sys
 import os
@@ -99,7 +99,8 @@ class SafetyOpcUaServer:
         server_name: str = "Safety OPC UA Server",
         namespace: str = "http://nvidia.com/safety",
         config: Optional[OpcUaConfig] = None,
-        proximity_queue: Optional[Queue] = None
+        proximity_queue: Optional[Queue] = None,
+        safe_release_handler: Optional[Callable[[], bool]] = None
     ):
         """
         Initialize OPC UA server
@@ -130,6 +131,13 @@ class SafetyOpcUaServer:
         
         self.input_queue = input_queue or Queue()
         self.proximity_queue = proximity_queue
+        # The proximity safe-state latch is only cleared by a request from this
+        # side of the link, and the SDM holds FAULT SAFE STATE until it gets one
+        # -- which also suppresses ProximityMode, so the whole proximity output
+        # goes quiet. Exposing it as a writable node is what lets an operator or
+        # PLC clear it; there is deliberately no automatic clear, because a latch
+        # that clears itself is not a latch.
+        self.safe_release_handler = safe_release_handler
         
         self._server: Optional[Server] = None
         self._running = False
@@ -399,6 +407,12 @@ class SafetyOpcUaServer:
         self._nodes['proximity_state_json'] = safety_folder.add_variable(
             idx, "ProximityStateJson", "", ua.VariantType.String
         )
+        # Write True to ask the SDM to leave its latched safe state. Reset to
+        # False as soon as the request is issued, so the node reads as "no
+        # request pending" rather than staying armed for the next latch.
+        self._nodes['proximity_safe_release_request'] = safety_folder.add_variable(
+            idx, "ProximitySafeReleaseRequest", False, ua.VariantType.Boolean
+        )
 
         # Make nodes readable
         for node in self._nodes.values():
@@ -406,6 +420,28 @@ class SafetyOpcUaServer:
         
         logger.info(f"OPC UA nodes created under namespace {idx}")
     
+    def _poll_safe_release_request(self) -> bool:
+        """Issue a safe-release if the node was written True. Returns True if it was."""
+        node = self._nodes.get('proximity_safe_release_request')
+        if node is None or self.safe_release_handler is None:
+            return False
+        try:
+            if not node.read_value():
+                return False
+            # Cleared before the request goes out, so a handler that raises
+            # cannot leave the node armed and re-fire on every loop pass.
+            node.write_value(False, ua.VariantType.Boolean)
+        except Exception as e:
+            logger.error(f"Safe-release node poll failed: {e}")
+            return False
+
+        logger.info("ProximitySafeReleaseRequest written; requesting safe release")
+        try:
+            self.safe_release_handler()
+        except Exception as e:
+            logger.error(f"Safe-release handler failed: {e}")
+        return True
+
     def _run_loop(self):
         """Main server loop"""
         try:
@@ -437,6 +473,9 @@ class SafetyOpcUaServer:
                         pass
                     except Exception as e:
                         logger.error(f"Error processing proximity packet: {e}")
+
+                if self._poll_safe_release_request():
+                    idle = False
 
                 if idle:
                     time.sleep(0.01)
@@ -499,7 +538,8 @@ def main():
     server = SafetyOpcUaServer(
         input_queue=receiver._queue,
         endpoint=args.endpoint,
-        proximity_queue=proximity_queue
+        proximity_queue=proximity_queue,
+        safe_release_handler=receiver.request_safe_release
     )
     
     try:
