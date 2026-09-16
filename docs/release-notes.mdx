@@ -41,7 +41,7 @@ Some features remain in an alpha state and should not be used in production.
 - Added the `hil` profile, which splits the closed loop across two hosts: NVIDIA
   Isaac Sim, the communication layer, and the forklift controller run on an x86
   stimulus host, while the VSS Warehouse perception stack and the Safety Core run
-  on an NVIDIA IGX Thor. See [/testing/hil/index](/testing/hil).
+  on an NVIDIA IGX Thor. See [Hardware-in-the-Loop Testing](/testing/hil).
 - The safety decision returns to the simulation over UDP to the communication layer
   on the stimulus host. The on-video VST overlay used by the `base` profile is
   not driven in this profile.
@@ -54,10 +54,10 @@ Some features remain in an alpha state and should not be used in production.
   records NVIDIA Isaac Sim ground truth alongside the safety decision on one timeline,
   then scores each test case on whether the alarm was raised and cleared at the right
   moment. It runs on top of a deployed SIL stack and needs no manual labeling.
-  See [/testing/srr/index](/testing/srr).
+  See [Regression Testing Reporter](/testing/srr).
 - Added its debug viewer, a browser tool that plays a graded test case back with the
   video, ground truth, perception, behavior events, and Safety Core state on a shared
-  timeline. See [/testing/srr/debug-viewer](/testing/srr/debug-viewer).
+  timeline. See [Debug Viewer](/testing/srr/debug-viewer).
 - Added the `hoisa-generate-regression-report` skill, which drives a multi-scenario run and produces the report.
 
 #### Closed-loop forklift controller
@@ -72,7 +72,7 @@ Some features remain in an alpha state and should not be used in production.
 - A `slow` or `stop` command scales the controller's velocity, and the forklift still
   drives to the same point on the route, so a slow-down costs time rather than distance.
   The safety decision itself does not change how the forklift drives — the controller is a
-  stimulus generator. See [/testing/sil/components/forklift-controller](/testing/sil/components/forklift-controller).
+  stimulus generator. See [Forklift Controller](/testing/sil/components/forklift-controller).
 - Routes are authored outside the simulation as JSON, so changing one no longer means
   editing the Action Graph. Added the Forklift Waypoint Generator, a web tool that draws
   a route over the warehouse floor plan and exports that JSON, including the origin that
@@ -99,11 +99,11 @@ Some features remain in an alpha state and should not be used in production.
 
 #### Cloud deployment on NVIDIA Brev
 
-- Added an NVIDIA Brev Launchable that provisions a cloud GPU instance with the driver, Docker, the NVIDIA Container Toolkit, and both repositories in place, then brings up the `sil` closed loop from a single notebook and prints the evidence that the safety decision is following the simulated scene. Evaluating the blueprint no longer requires a host of your own. See [/getting-started/brev-launchable](/getting-started/brev-launchable).
+- Added an NVIDIA Brev Launchable that provisions a cloud GPU instance with the driver, Docker, the NVIDIA Container Toolkit, and both repositories in place, then brings up the `sil` closed loop from a single notebook and prints the evidence that the safety decision is following the simulated scene. Evaluating the blueprint no longer requires a host of your own. See [Deploy on NVIDIA Brev](/getting-started/brev-launchable).
 
 #### 3D perception profile
 
-- Bug fixes and stability work on the 3D (BEV) perception profile. See [/testing/sil/sil-3d](/testing/sil/sil-3d).
+- Bug fixes and stability work on the 3D (BEV) perception profile. See [SIL — 3D Perception](/testing/sil/sil-3d).
 
 ## 1.2.1 EA
 
@@ -126,7 +126,7 @@ Some features remain in an alpha state and should not be used in production.
 #### VSS Warehouse Blueprint 3.2.0 upgrade
 
 - Upgraded the reference AI perception source from NVIDIA Metropolis Blueprint for video search & summarization (VSS) for Warehouse Operations 3.1.0 to 3.2.0, including all related documentation references.
-- VSS Warehouse Operations Blueprint is deployed from its public GitHub repository. [/getting-started/inference-pipeline](/getting-started/inference-pipeline) and the closed-loop (SIL/HIL) testing guides have been updated for the new deployment flow, service names, environment settings, and 2D and 3D perception configuration.
+- VSS Warehouse Operations Blueprint is deployed from its public GitHub repository. [Deploy AI Perception](/getting-started/inference-pipeline) and the closed-loop (SIL/HIL) testing guides have been updated for the new deployment flow, service names, environment settings, and 2D and 3D perception configuration.
 
 #### Deployment skill updates
 

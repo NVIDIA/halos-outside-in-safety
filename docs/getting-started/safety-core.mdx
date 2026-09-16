@@ -10,7 +10,7 @@ field devices.
 
 This page introduces the Safety Core components and walks the bring-up on a
 perception feed that is already publishing events. Each step links to the
-corresponding section of the [/deployment/index](/deployment), which holds the
+corresponding section of the [Deployment Guide](/deployment), which holds the
 commands, the full option set, and the Debian and Docker installation routes.
 
 ## Components
@@ -22,7 +22,7 @@ It independently observes the same RTSP streams consumed by the AI Perception pi
 When a stream degrades — for example, due to out-of-distribution frames, camera blockage or fogging, RTSP transport loss, or stream corruption — SAIM publishes a `SENSOR_INVALID` trust report to the Safety Event Integrator; when the stream recovers, it publishes a matching `SENSOR_VALID` report.
 This lets fusion and downstream decisions factor sensor integrity into the safety response, rather than relying on perception output from a sensor that can no longer be trusted.
 
-Refer to the [/integration/index](/integration) and [/integration/components/ai-monitor](/integration/components/ai-monitor) for more details.
+Refer to the [Integration Guide](/integration) and [Safety AI Monitor (SAIM)](/integration/components/ai-monitor) for more details.
 
 ### Perception Container Monitor
 
@@ -30,7 +30,7 @@ The Perception Container Monitor (PCM) assesses whether the AI perception pipeli
 It combines container health with data validation of the perception output and publishes an `AI_PIPELINE_VALID` or `AI_PIPELINE_INVALID` verdict to the Safety Event Integrator.
 The verdict is pipeline-wide: while it is invalid, events derived from that perception pipeline are treated as untrusted evidence.
 
-Refer to the [/integration/index](/integration) and [/integration/components/perception-monitor](/integration/components/perception-monitor) for more details.
+Refer to the [Integration Guide](/integration) and [Perception Container Monitor (PCM)](/integration/components/perception-monitor) for more details.
 
 ### Safety Event Integrator
 
@@ -38,7 +38,7 @@ The Safety Event Integrator (SEI) receives alerts from the VSS Warehouse Bluepri
 It groups and correlates alerts that represent the same underlying situation, whether they come from redundant detection pipelines or from multiple camera views of the same area.
 After validating and fusing these inputs into a single high-confidence safety event, Safety Event Integrator forwards the consolidated event to the Safety Decision Maker for action.
 
-Refer to the [/integration/index](/integration) and [/integration/components/event-integrator](/integration/components/event-integrator) for more details.
+Refer to the [Integration Guide](/integration) and [Safety Event Integrator (SEI)](/integration/components/event-integrator) for more details.
 
 ### Safety Decision Maker
 
@@ -46,7 +46,7 @@ The Safety Decision Maker (SDM) consumes validated safety events from the SEI an
 It applies use-case–specific logic to decide when to slow down or stop a vehicle or inhibit or enable a safety function.
 The blueprint provides a reference SDM implementation for the ATL (Automated Trailer Loading) scenario, which you are expected to extend or adapt to match your target equipment, safety policies, and integration requirements.
 
-Refer to the [/integration/index](/integration) and [/integration/components/decision-maker](/integration/components/decision-maker) for more details.
+Refer to the [Integration Guide](/integration) and [Safety Decision Maker (SDM)](/integration/components/decision-maker) for more details.
 
 ## Before you start
 
@@ -59,14 +59,14 @@ Refer to the [/integration/index](/integration) and [/integration/components/dec
   `sensor_config.conf`. If the camera or pipeline mapping changes in VSS,
   update `sensor_config.conf` before starting SEI and SDM.
 - Docker is logged in to `nvcr.io` and the image pull is validated, as
-  described in section 1.2 of the [/deployment/index](/deployment). NGC CLI
+  described in section 1.2 of the [Deployment Guide](/deployment). NGC CLI
   authentication alone is not enough.
 - The launcher runs as root or with passwordless `sudo`.
 
 ## Bring-up
 
 1. **Install.** Choose the Debian packages or the Docker container in section 1
-   of the [/deployment/index](/deployment). Docker is the recommended route; the Debian
+   of the [Deployment Guide](/deployment). Docker is the recommended route; the Debian
    package is needed either way, because it provides `launch_hoisa.sh` and
    the reference applications under `/opt/nvidia/psf`.
 
@@ -90,7 +90,7 @@ Refer to the [/integration/index](/integration) and [/integration/components/dec
    Functional Safety Island, and `--runtime host` to run without Docker. The
    invocations are in
    [Quick Start with launch_hoisa.sh](/deployment#launch-hoisa-quickstart), and every
-   option is listed in [/reference/launcher](/reference/launcher).
+   option is listed in [launch_hoisa.sh](/reference/launcher).
 
    Running the decision maker on the FSI adds three platform steps before the
    launch: install `psf-tegra-fsi`, flash the FSI firmware for the
@@ -100,10 +100,10 @@ Refer to the [/integration/index](/integration) and [/integration/components/dec
    [Option C: SDM on FSI](/deployment#sdm-on-fsi).
 
 5. **Verify.** Confirm that sensor verdicts and decisions are flowing, using
-   the log locations and the grep commands in [Logs](/deployment#safety-core-logs).
+   the log locations and the grep commands in [Deployment Guide](/deployment#safety-core-logs).
    The command receiver keeps its per-packet detail in `/tmp/cmdrx.log` and
    reserves its console for safe-state events, so watch both. When something
-   does not start, see [Troubleshooting](/deployment#safety-core-troubleshooting).
+   does not start, see [Deployment Guide](/deployment#safety-core-troubleshooting).
 
 <Note>
 When the Decision Maker enters a safe state it latches there and keeps
@@ -129,14 +129,14 @@ communication layer, but nothing appears on the video.
 
 This applies to the `base` profile. The `sil` and `hil` profiles leave the
 port at `-1` and drive the indicator over the communication layer and ROS 2
-instead — see [/testing/sil/sil-2d](/testing/sil/sil-2d).
+instead — see [SIL — 2D Perception](/testing/sil/sil-2d).
 
 ## Configure
 
 Fusion, bypass routing, transport, and heartbeat fail-safe behavior are set in
-`nvpss.conf`; see [/reference/sei-configuration](/reference/sei-configuration). How `mdx_client`
+`nvpss.conf`; see [SEI Configuration](/reference/sei-configuration). How `mdx_client`
 maps VSS messages onto safety events is covered in
-[/reference/event-mapping-configuration](/reference/event-mapping-configuration). Restart the Safety Core
+[Event Mapping Configuration](/reference/event-mapping-configuration). Restart the Safety Core
 processes, or the container, after any configuration change.
 
 ## Extend the decision maker
@@ -156,12 +156,12 @@ extracting the `psf-desktop-dev` Debian package.
 
 Technical details pertaining to implementation of Safety Decision Maker Logic
 from scratch, including the Safety Framework APIs and decision request call
-flows, are described in Chapter 4 of the [/integration/index](/integration).
+flows, are described in Chapter 4 of the [Integration Guide](/integration).
 
 ## Next steps
 
-- [agentic-deployment](/getting-started/agentic-deployment) — the same bring-up as a single Docker Compose
+- [Agentic Deployment](/getting-started/agentic-deployment) — the same bring-up as a single Docker Compose
   service under the `base` profile, rendering decisions as the VST
   `halo_safety` overlay, run either by a coding agent or by hand.
-- [/deployment/index](/deployment) — installation, configuration, runtime parameters,
+- [Deployment Guide](/deployment) — installation, configuration, runtime parameters,
   and error handling in full.

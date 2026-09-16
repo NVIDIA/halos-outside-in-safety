@@ -180,9 +180,9 @@ navigation:
     slug: eula
 
 redirects:
-  # Sphinx served HTML under /latest/, /1.3/, and /1.2.1/. Fern pages are
-  # unversioned, so strip the version prefix and the .html suffix in one hop
-  # (redirects do not chain). More specific rules come first.
+  # Sphinx HTML under /latest/, /1.3/, and /1.2.1/. Fern pages are
+  # unversioned. Redirects do not chain; more specific rules first.
+  # Paths starting with '_' (C API _static) are excluded from catch-alls.
   - source: /halos-outside-in/index.html
     destination: /halos-outside-in
   - source: /halos-outside-in/latest/index.html
@@ -191,31 +191,142 @@ redirects:
     destination: /halos-outside-in
   - source: /halos-outside-in/1.2.1/index.html
     destination: /halos-outside-in
-  - source: /halos-outside-in/latest/:path(.*)/index.html
-    destination: /halos-outside-in/:path(.*)
-  - source: /halos-outside-in/1.3/:path(.*)/index.html
-    destination: /halos-outside-in/:path(.*)
-  - source: /halos-outside-in/1.2.1/:path(.*)/index.html
-    destination: /halos-outside-in/:path(.*)
-  - source: /halos-outside-in/latest/:path(.*).html
-    destination: /halos-outside-in/:path(.*)
-  - source: /halos-outside-in/1.3/:path(.*).html
-    destination: /halos-outside-in/:path(.*)
-  - source: /halos-outside-in/1.2.1/:path(.*).html
-    destination: /halos-outside-in/:path(.*)
+
+  # v1.2.1 used Title-Case Sphinx filenames that do not match Fern slugs.
+  - source: /halos-outside-in/1.2.1/EULA.html
+    destination: /halos-outside-in/eula
+  - source: /halos-outside-in/1.2.1/EULA
+    destination: /halos-outside-in/eula
+  - source: /halos-outside-in/1.2.1/Glossary.html
+    destination: /halos-outside-in/reference/glossary
+  - source: /halos-outside-in/1.2.1/Glossary
+    destination: /halos-outside-in/reference/glossary
+  - source: /halos-outside-in/1.2.1/HOISA-Components-Runtime-Profile.html
+    destination: /halos-outside-in/reference/runtime-profile
+  - source: /halos-outside-in/1.2.1/HOISA-Components-Runtime-Profile
+    destination: /halos-outside-in/reference/runtime-profile
+  - source: /halos-outside-in/1.2.1/HOISA-Developer-Guide.html
+    destination: /halos-outside-in/integration
+  - source: /halos-outside-in/1.2.1/HOISA-Developer-Guide
+    destination: /halos-outside-in/integration
+  - source: /halos-outside-in/1.2.1/HOISA-Launcher.html
+    destination: /halos-outside-in/reference/launcher
+  - source: /halos-outside-in/1.2.1/HOISA-Launcher
+    destination: /halos-outside-in/reference/launcher
+  - source: /halos-outside-in/1.2.1/HOISA-Log-Viewer.html
+    destination: /halos-outside-in/reference/log-viewer
+  - source: /halos-outside-in/1.2.1/HOISA-Log-Viewer
+    destination: /halos-outside-in/reference/log-viewer
+  - source: /halos-outside-in/1.2.1/HOISA-Quick-Start-Guide.html
+    destination: /halos-outside-in/getting-started
+  - source: /halos-outside-in/1.2.1/HOISA-Quick-Start-Guide
+    destination: /halos-outside-in/getting-started
+  - source: /halos-outside-in/1.2.1/HOISA-User-Guide.html
+    destination: /halos-outside-in/deployment
+  - source: /halos-outside-in/1.2.1/HOISA-User-Guide
+    destination: /halos-outside-in/deployment
+  - source: /halos-outside-in/1.2.1/Known-Limitations.html
+    destination: /halos-outside-in/known-limitations
+  - source: /halos-outside-in/1.2.1/Known-Limitations
+    destination: /halos-outside-in/known-limitations
+  - source: /halos-outside-in/1.2.1/Release-Notes.html
+    destination: /halos-outside-in/release-notes
+  - source: /halos-outside-in/1.2.1/Release-Notes
+    destination: /halos-outside-in/release-notes
+  - source: /halos-outside-in/1.2.1/SEI-Configuration.html
+    destination: /halos-outside-in/reference/sei-configuration
+  - source: /halos-outside-in/1.2.1/SEI-Configuration
+    destination: /halos-outside-in/reference/sei-configuration
+  - source: /halos-outside-in/1.2.1/components/SAIM.html
+    destination: /halos-outside-in/integration/components/ai-monitor
+  - source: /halos-outside-in/1.2.1/components/SAIM
+    destination: /halos-outside-in/integration/components/ai-monitor
+  - source: /halos-outside-in/1.2.1/components/SBB.html
+    destination: /halos-outside-in/integration/components/black-box
+  - source: /halos-outside-in/1.2.1/components/SBB
+    destination: /halos-outside-in/integration/components/black-box
+  - source: /halos-outside-in/1.2.1/components/SDM.html
+    destination: /halos-outside-in/integration/components/decision-maker
+  - source: /halos-outside-in/1.2.1/components/SDM
+    destination: /halos-outside-in/integration/components/decision-maker
+  - source: /halos-outside-in/1.2.1/components/SEI.html
+    destination: /halos-outside-in/integration/components/event-integrator
+  - source: /halos-outside-in/1.2.1/components/SEI
+    destination: /halos-outside-in/integration/components/event-integrator
+  - source: /halos-outside-in/1.2.1/components/SIPP.html
+    destination: /halos-outside-in/integration/components/sensor-input-pipeline
+  - source: /halos-outside-in/1.2.1/components/SIPP
+    destination: /halos-outside-in/integration/components/sensor-input-pipeline
+  - source: /halos-outside-in/1.2.1/components/SUI.html
+    destination: /halos-outside-in/integration/components/user-interface
+  - source: /halos-outside-in/1.2.1/components/SUI
+    destination: /halos-outside-in/integration/components/user-interface
+  - source: /halos-outside-in/1.2.1/deployment/base.html
+    destination: /halos-outside-in/getting-started/safety-core
+  - source: /halos-outside-in/1.2.1/deployment/base
+    destination: /halos-outside-in/getting-started/safety-core
+  - source: /halos-outside-in/1.2.1/deployment/index.html
+    destination: /halos-outside-in/deployment
+  - source: /halos-outside-in/1.2.1/deployment/index
+    destination: /halos-outside-in/deployment
+  - source: /halos-outside-in/1.2.1/deployment/quickstart-deployment-skill.html
+    destination: /halos-outside-in/getting-started/agentic-deployment
+  - source: /halos-outside-in/1.2.1/deployment/quickstart-deployment-skill
+    destination: /halos-outside-in/getting-started/agentic-deployment
+  - source: /halos-outside-in/1.2.1/sil/architecture.html
+    destination: /halos-outside-in/testing/sil/architecture
+  - source: /halos-outside-in/1.2.1/sil/architecture
+    destination: /halos-outside-in/testing/sil/architecture
+  - source: /halos-outside-in/1.2.1/sil/components/action-graph.html
+    destination: /halos-outside-in/testing/sil/components/action-graph
+  - source: /halos-outside-in/1.2.1/sil/components/action-graph
+    destination: /halos-outside-in/testing/sil/components/action-graph
+  - source: /halos-outside-in/1.2.1/sil/components/isaac-sim.html
+    destination: /halos-outside-in/testing/sil/components/isaac-sim
+  - source: /halos-outside-in/1.2.1/sil/components/isaac-sim
+    destination: /halos-outside-in/testing/sil/components/isaac-sim
+  - source: /halos-outside-in/1.2.1/sil/index.html
+    destination: /halos-outside-in/testing/sil
+  - source: /halos-outside-in/1.2.1/sil/index
+    destination: /halos-outside-in/testing/sil
+  - source: /halos-outside-in/1.2.1/sil/overview.html
+    destination: /halos-outside-in/testing/sil/overview
+  - source: /halos-outside-in/1.2.1/sil/overview
+    destination: /halos-outside-in/testing/sil/overview
+  - source: /halos-outside-in/1.2.1/sil/prerequisites.html
+    destination: /halos-outside-in/getting-started/prerequisites
+  - source: /halos-outside-in/1.2.1/sil/prerequisites
+    destination: /halos-outside-in/getting-started/prerequisites
+  - source: /halos-outside-in/1.2.1/sil/quickstart-3d.html
+    destination: /halos-outside-in/testing/sil/sil-3d
+  - source: /halos-outside-in/1.2.1/sil/quickstart-3d
+    destination: /halos-outside-in/testing/sil/sil-3d
+  - source: /halos-outside-in/1.2.1/sil/quickstart.html
+    destination: /halos-outside-in/testing/sil/sil-2d
+  - source: /halos-outside-in/1.2.1/sil/quickstart
+    destination: /halos-outside-in/testing/sil/sil-2d
+
+  # /latest and /1.3 already use Fern paths. Skip underscore-prefixed
+  # Sphinx assets such as _static (C API).
+  - source: /halos-outside-in/latest/:path([A-Za-z0-9].*)/index.html
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
+  - source: /halos-outside-in/latest/:path([A-Za-z0-9].*).html
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
   - source: /halos-outside-in/latest
     destination: /halos-outside-in
-  - source: /halos-outside-in/latest/:path*
-    destination: /halos-outside-in/:path*
+  - source: /halos-outside-in/latest/:path([A-Za-z0-9].*)
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
+  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*)/index.html
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
+  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*).html
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
   - source: /halos-outside-in/1.3
     destination: /halos-outside-in
-  - source: /halos-outside-in/1.3/:path*
-    destination: /halos-outside-in/:path*
+  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*)
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
   - source: /halos-outside-in/1.2.1
     destination: /halos-outside-in
-  - source: /halos-outside-in/1.2.1/:path*
-    destination: /halos-outside-in/:path*
-  - source: /halos-outside-in/:path(.*)/index.html
-    destination: /halos-outside-in/:path(.*)
-  - source: /halos-outside-in/:path(.*).html
-    destination: /halos-outside-in/:path(.*)
+  - source: /halos-outside-in/:path([A-Za-z0-9].*)/index.html
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)
+  - source: /halos-outside-in/:path([A-Za-z0-9].*).html
+    destination: /halos-outside-in/:path([A-Za-z0-9].*)

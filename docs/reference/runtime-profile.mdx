@@ -22,7 +22,7 @@ healthy deployment, not as guaranteed limits.
 | Deployment topology | Single host: AI Perception and the Safety Core run together on the same IGX Thor, sharing its CPU, GPU and hardware decoder |
 | AI Perception | VSS Warehouse Blueprint 3.2.1, warehouse-loading scenario, 3 camera streams |
 | Use case | Control of safety function on a forklift (ATL), with the ATL SDM application running on the CCPLEX |
-| SAIM backend | PVA. On IGX Thor SAIM analyzes frames on the PVA, not the GPU (see [/integration/components/ai-monitor](/integration/components/ai-monitor)) |
+| SAIM backend | PVA. On IGX Thor SAIM analyzes frames on the PVA, not the GPU (see [Safety AI Monitor (SAIM)](/integration/components/ai-monitor)) |
 | Clock configuration | Maximum clocks, pinned before sampling and restored afterwards. The rates measured during the run are in [Clock Configuration](#clock-configuration) |
 
 <Note>
@@ -31,7 +31,7 @@ and the Safety Core share one IGX Thor, with the ATL decision maker on the
 CCPLEX. That is why the NVDEC figure in [Shared Engine Utilization](#shared-engine-utilization) covers
 two independent decode consumers rather than SAIM alone.
 
-The split topology described in [/getting-started/prerequisites](/getting-started/prerequisites), where
+The split topology described in [Prerequisites](/getting-started/prerequisites), where
 AI Perception runs on a separate x86-64 host, leaves the safety host with only
 the Safety Core. On that topology expect a substantially lower NVDEC figure on
 the safety host and more CPU headroom, while the per-process CPU, memory and

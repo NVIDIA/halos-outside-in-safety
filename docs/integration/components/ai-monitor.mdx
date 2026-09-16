@@ -63,7 +63,7 @@ SAIM reports two verdicts to SEI:
   trusted again.
 
 SEI consumes these verdicts to qualify per-sensor input integrity and
-propagates the resulting health state to SDM (see [event-integrator](/integration/components/event-integrator)). SAIM reports a
+propagates the resulting health state to SDM (see [Safety Event Integrator (SEI)](/integration/components/event-integrator)). SAIM reports a
 trust-state change only once a condition is sustained, so brief, transient
 glitches do not cause the verdict to flap back and forth. It also reasserts
 each sensor's current verdict every 30 seconds so SEI can recover the health
@@ -104,11 +104,11 @@ the remaining cameras continue to be monitored without interruption.
 
 <Info>
 - Deployment and launch instructions:
-  [/deployment/index](/deployment) Sections 2.1 and 2.4
+  [Deployment Guide](/deployment) Sections 2.1 and 2.4
 - Launcher modes, `--learn-duration`/`--baseline-dir`, and default
-  baselines: [/reference/launcher](/reference/launcher)
-- How SEI consumes SAIM's trust verdicts: [event-integrator](/integration/components/event-integrator)
-- Version changes for this release: [/release-notes](/release-notes)
-- Platform and accelerator resource notes: [/known-limitations](/known-limitations)
-- SAIM troubleshooting: [/deployment/index](/deployment) Sections 6.3, 6.7–6.9
+  baselines: [launch_hoisa.sh](/reference/launcher)
+- How SEI consumes SAIM's trust verdicts: [Safety Event Integrator (SEI)](/integration/components/event-integrator)
+- Version changes for this release: [Release Notes](/release-notes)
+- Platform and accelerator resource notes: [Known Limitations](/known-limitations)
+- SAIM troubleshooting: [Deployment Guide](/deployment) Sections 6.3, 6.7–6.9
 </Info>

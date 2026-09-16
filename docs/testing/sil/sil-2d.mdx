@@ -10,11 +10,11 @@ Halos SIL requires VSS Warehouse 3.2.1 as its perception backend. Deploy VSS War
 
 ## Prerequisites
 
-See [/getting-started/prerequisites](/getting-started/prerequisites) for hardware and software requirements.
+See [Prerequisites](/getting-started/prerequisites) for hardware and software requirements.
 
 ## Deploy with Halos Deployment Skill (recommended)
 
-For an automated bring-up with a coding agent (Claude Code, Codex, Cursor, and similar), use the `hoisa-deploy-profile` skill — it replaces Steps 1–6 below with a single agent prompt. See [/getting-started/agentic-deployment](/getting-started/agentic-deployment).
+For an automated bring-up with a coding agent (Claude Code, Codex, Cursor, and similar), use the `hoisa-deploy-profile` skill — it replaces Steps 1–6 below with a single agent prompt. See [Agentic Deployment](/getting-started/agentic-deployment).
 
 Manual instructions below remain supported and are required if you are not using a coding agent.
 
@@ -92,7 +92,7 @@ Isaac Sim 6.0 RTSP *does* embed SEI, but the Safety Core does not consume sim ti
 
 ### 2.3 Perception Model Config
 
-Nothing to change. 2D runs the RT-DETR R50 model that ships with `warehouse-2d-app`, and the shipped `warehouse-loading-dock-3cams-synthetic` calibration is used as-is. (3D is different — it needs the R101 Sparse4D model plus a `config.yaml`; see [sil-3d](/testing/sil/sil-3d).)
+Nothing to change. 2D runs the RT-DETR R50 model that ships with `warehouse-2d-app`, and the shipped `warehouse-loading-dock-3cams-synthetic` calibration is used as-is. (3D is different — it needs the R101 Sparse4D model plus a `config.yaml`; see [SIL — 3D Perception](/testing/sil/sil-3d).)
 
 ### 2.4 VST Config
 
@@ -359,7 +359,7 @@ Four upstream Isaac Sim and VST issues affect the stream path on Isaac Sim 6.0, 
 
 ## Next Steps
 
-- [architecture](/testing/sil/architecture) — System architecture and data flow
-- [components/isaac-sim](/testing/sil/components/isaac-sim) — Isaac Sim configuration
-- [components/action-graph](/testing/sil/components/action-graph) — Forklift control details
-- [/testing/srr/quickstart](/testing/srr/quickstart) — Once SIL is healthy, run the **Regression Testing Reporter** to score the safety decision
+- [SIL Architecture](/testing/sil/architecture) — System architecture and data flow
+- [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — Isaac Sim configuration
+- [Isaac Sim Action Graphs](/testing/sil/components/action-graph) — Forklift control details
+- [Quick Start Guide](/testing/srr/quickstart) — Once SIL is healthy, run the **Regression Testing Reporter** to score the safety decision

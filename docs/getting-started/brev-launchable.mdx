@@ -10,7 +10,7 @@ NVIDIA Isaac Sim — runs the forklift scenario, and prints the evidence that th
 safety decision is reacting to the simulated scene.
 
 Choose this route to watch the system react without provisioning a host. It
-applies the configuration of [/testing/sil/sil-2d](/testing/sil/sil-2d) plus cloud-specific
+applies the configuration of [SIL — 2D Perception](/testing/sil/sil-2d) plus cloud-specific
 additions; that page remains the reference for the configuration, the log
 vocabulary, and troubleshooting.
 
@@ -68,7 +68,7 @@ for the VST UI once the notebook has run.
 
 ## Prerequisites
 
-See [prerequisites](/getting-started/prerequisites) for the NGC enrollment steps and the CPU, RAM,
+See [Prerequisites](/getting-started/prerequisites) for the NGC enrollment steps and the CPU, RAM,
 storage, and GPU floors. Two of them read differently when you are choosing a
 cloud instance shape.
 
@@ -133,7 +133,7 @@ A first run takes about 30 to 45 minutes, measured on a two-GPU RTX 6000 Ada
 instance; other hardware differs. Beyond the deploy phases below, the balance
 is the NGC artifact download and the PSF and Isaac Sim image pre-pull in
 Section 5, the perception TensorRT engine build, and the Isaac Sim scene load
-and RT shader compile — [/testing/sil/sil-2d](/testing/sil/sil-2d) gives the first-run figures
+and RT shader compile — [SIL — 2D Perception](/testing/sil/sil-2d) gives the first-run figures
 for the last two. A second run reuses the artifacts, the images, and both build
 caches.
 
@@ -229,7 +229,7 @@ sections take to confirm their work is already in place.
 
 ## Next Steps
 
-- [/testing/sil/sil-2d](/testing/sil/sil-2d) — the manual runbook: VSS overrides, expected output, troubleshooting
-- [/testing/sil/architecture](/testing/sil/architecture) — what each container does and where data flows
-- [/testing/srr/quickstart](/testing/srr/quickstart) — score the safety decision of a healthy loop
-- [agentic-deployment](/getting-started/agentic-deployment) — the same bring-up on your own host, from a coding agent
+- [SIL — 2D Perception](/testing/sil/sil-2d) — the manual runbook: VSS overrides, expected output, troubleshooting
+- [SIL Architecture](/testing/sil/architecture) — what each container does and where data flows
+- [Quick Start Guide](/testing/srr/quickstart) — score the safety decision of a healthy loop
+- [Agentic Deployment](/getting-started/agentic-deployment) — the same bring-up on your own host, from a coding agent

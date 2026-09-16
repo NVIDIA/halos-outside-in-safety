@@ -84,7 +84,7 @@ ROS2Context ──────────────────────�
 ```
 
 <Note>
-**Where does the motion come from?** The control graph is *reactive* — it only converts whatever `cmd_vel` it receives. The route itself is authored outside Isaac Sim: the `forklift-controller` service follows a waypoint / segment path and publishes `cmd_vel`. See [forklift-controller](/testing/sil/components/forklift-controller) for how it follows that path, and the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) for authoring curved routes.
+**Where does the motion come from?** The control graph is *reactive* — it only converts whatever `cmd_vel` it receives. The route itself is authored outside Isaac Sim: the `forklift-controller` service follows a waypoint / segment path and publishes `cmd_vel`. See [Forklift Controller](/testing/sil/components/forklift-controller) for how it follows that path, and the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) for authoring curved routes.
 </Note>
 
 ### SwivelIK ScriptNode
@@ -238,7 +238,7 @@ Built **only** when `run_actor_sdg.py` is started with `--srr-gt` (default OFF).
 - each **pedestrian** via `ROS2PublishRawTransformTree` →
   `/gt/character_<i>/tf`, fed each frame from the character's live Fabric world transform (the IRA-spawned characters walk in Fabric only, so the USD-authored transform stays frozen at the spawn pose).
 
-On a normal Halos run the flag is absent and this module is never imported, so there is zero effect on the default pipeline. For how the ground truth is consumed, see [/testing/srr/architecture](/testing/srr/architecture).
+On a normal Halos run the flag is absent and this module is never imported, so there is zero effect on the default pipeline. For how the ground truth is consumed, see [Architecture](/testing/srr/architecture).
 
 ## Limitations
 
@@ -260,7 +260,7 @@ Because shape lives in YAML, most changes are config-only:
 
 ## See also
 
-- [isaac-sim](/testing/sil/components/isaac-sim) — scene, cameras, and motion authoring
-- [forklift-controller](/testing/sil/components/forklift-controller) — the service that publishes `cmd_vel` and consumes `/odom`
+- [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — scene, cameras, and motion authoring
+- [Forklift Controller](/testing/sil/components/forklift-controller) — the service that publishes `cmd_vel` and consumes `/odom`
 - [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) — author curved forklift routes
-- [/testing/srr/architecture](/testing/srr/architecture) — how `/gt/*` ground truth is scored
+- [Architecture](/testing/srr/architecture) — how `/gt/*` ground truth is scored

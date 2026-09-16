@@ -8,7 +8,7 @@ The **Regression Testing Reporter** is the closed-loop regression-testing layer 
 
 The Regression Testing Reporter builds on top of the Software-in-the-Loop (SIL) stack and turns a simulated hazard run into a *measurable* regression test. Its module, container, and directories use the short name `srr` (the source lives under `closed-loop-testing/regression-reporter/`), so the commands throughout these guides reference `srr` directly. The short name is retained from the tool's original name, Scenario Recorder + Reporter.
 
-SIL (see [/testing/sil/overview](/testing/sil/overview)) proves the production stack — AI Perception (VSS), Safety Core, and the communication layer — runs end to end against a simulated warehouse. The Regression Testing Reporter adds the **metric layer** on top: it scores whether the system raised and cleared the safety alarm at the **right time**, and how well perception fed that decision.
+SIL (see [SIL Overview](/testing/sil/overview)) proves the production stack — AI Perception (VSS), Safety Core, and the communication layer — runs end to end against a simulated warehouse. The Regression Testing Reporter adds the **metric layer** on top: it scores whether the system raised and cleared the safety alarm at the **right time**, and how well perception fed that decision.
 
 <Frame caption="Isaac Sim, the Halos Outside-In Safety stack, and the Regression Testing Reporter service run in lockstep, so ground truth, safety events, and decisions can be aligned frame by frame and converted into reports and review artifacts.">
   <img src="/assets/images/sil/srr/SRR-arch.png" alt="Regression Testing Reporter architecture — Isaac Sim, Halos Outside-In Safety, and the recorder in lockstep" />
@@ -34,7 +34,7 @@ The Regression Testing Reporter closes that validation gap:
 The Regression Testing Reporter is a **layer on top of an already-deployed SIL stack** — it is not a deployment path.
 
 <Note>
-Before running Regression Testing Reporter, the SIL stack (VSS Warehouse 3.2.1 + the Halos `sil` profile) must be deployed and healthy. Deploy it first — see [/testing/sil/sil-2d](/testing/sil/sil-2d) (manual) or [/getting-started/agentic-deployment](/getting-started/agentic-deployment) (agent-driven). The Regression Testing Reporter does **not** deploy Halos or VSS.
+Before running Regression Testing Reporter, the SIL stack (VSS Warehouse 3.2.1 + the Halos `sil` profile) must be deployed and healthy. Deploy it first — see [SIL — 2D Perception](/testing/sil/sil-2d) (manual) or [Agentic Deployment](/getting-started/agentic-deployment) (agent-driven). The Regression Testing Reporter does **not** deploy Halos or VSS.
 </Note>
 
 The relationship in one line:
@@ -57,7 +57,7 @@ A single Regression Testing Reporter run splits the recording into per-clip segm
   ready for triage.
 - An optional evidence bundle for the synchronized debug viewer.
 
-See [interpret-results](/testing/srr/interpret-results) for how to read each of these.
+See [Interpreting the Report](/testing/srr/interpret-results) for how to read each of these.
 
 ## How it works (high level)
 
@@ -77,7 +77,7 @@ Regression Testing Reporter evaluates one simulated hazard scenario at a time. T
      detections and tracking feeding the Safety Core (per class: detection and tracking quality). Present when the 3D pipeline is active.
 
 5. **Review artifacts.** Regression Testing Reporter renders the graded report, the failure list, and
-   per-clip review videos, and can package an evidence bundle for the synchronized [debug-viewer](/testing/srr/debug-viewer).
+   per-clip review videos, and can package an evidence bundle for the synchronized [Debug Viewer](/testing/srr/debug-viewer).
 
 ## Key components
 
@@ -91,8 +91,8 @@ Regression Testing Reporter evaluates one simulated hazard scenario at a time. T
 
 ## Next steps
 
-- [quickstart](/testing/srr/quickstart) — deploy checks and run your first regression test.
-- [architecture](/testing/srr/architecture) — the pipeline and data flow in detail.
-- [scenarios](/testing/srr/scenarios) — the pre-built test cases.
-- [interpret-results](/testing/srr/interpret-results) — how to read the report.
-- [debug-viewer](/testing/srr/debug-viewer) — root-cause analysis for failing clips.
+- [Quick Start Guide](/testing/srr/quickstart) — deploy checks and run your first regression test.
+- [Architecture](/testing/srr/architecture) — the pipeline and data flow in detail.
+- [Test Scenarios](/testing/srr/scenarios) — the pre-built test cases.
+- [Interpreting the Report](/testing/srr/interpret-results) — how to read the report.
+- [Debug Viewer](/testing/srr/debug-viewer) — root-cause analysis for failing clips.

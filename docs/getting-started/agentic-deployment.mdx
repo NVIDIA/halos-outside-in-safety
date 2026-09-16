@@ -11,8 +11,8 @@ The skill ships **in the repo you cloned**, at `skills/hoisa-deploy-profile/`. I
 | Profile | What it deploys | Manual route |
 | --- | --- | --- |
 | `base` | Safety Core on an existing perception feed. No Isaac Sim and no closed loop: the MUTE / UNMUTE decision renders as the VST `halo_safety` overlay. Runs on an x86 host, or on an IGX Thor with the decision maker on CCPLEX or FSI; a Thor here runs the Safety Core alone, not the two-host closed loop. | [Fallback: manual bring-up](#fallback-manual-bring-up) |
-| `sil` | The full single-host closed loop: NVIDIA Isaac Sim drives a forklift and the safety decision is fed back over ROS. Runs on the 2D or the 3D perception backend. | [/testing/sil/sil-2d](/testing/sil/sil-2d), or [/testing/sil/sil-3d](/testing/sil/sil-3d) for 3D |
-| `hil` | The closed loop split across two hosts: NVIDIA Isaac Sim, the communication layer, and the forklift controller on an x86 stimulus host, with perception and the Safety Core on an NVIDIA IGX Thor. | [/testing/hil/quickstart](/testing/hil/quickstart) |
+| `sil` | The full single-host closed loop: NVIDIA Isaac Sim drives a forklift and the safety decision is fed back over ROS. Runs on the 2D or the 3D perception backend. | [SIL — 2D Perception](/testing/sil/sil-2d), or [SIL — 3D Perception](/testing/sil/sil-3d) for 3D |
+| `hil` | The closed loop split across two hosts: NVIDIA Isaac Sim, the communication layer, and the forklift controller on an x86 stimulus host, with perception and the Safety Core on an NVIDIA IGX Thor. | [Deploy the HIL Closed Loop](/testing/hil/quickstart) |
 
 The `base` data path:
 
@@ -30,7 +30,7 @@ VSS Warehouse 3.2.1 (perception)
 - The Halos Outside-In Safety repo cloned on the host.
 - An NGC API key. `nvidia/halos-outside-in` is public — it carries the PSF image and the sil-data tarball for `sil` — but the pull still needs an authenticated account.
 - Docker 28.3.3 or later but below 29.5.0, with Compose. Docker Engine 29.5.0 and later breaks NGC image pulls, so pin to 28.3.3 if needed.
-- Hardware depends on the profile: `base` follows the [VSS Warehouse hardware requirements](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html), with no RT-core GPU needed since there is no Isaac Sim, `sil` adds an Isaac Sim GPU, and `hil` adds an IGX Thor safety host (see [/getting-started/prerequisites](/getting-started/prerequisites)).
+- Hardware depends on the profile: `base` follows the [VSS Warehouse hardware requirements](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html), with no RT-core GPU needed since there is no Isaac Sim, `sil` adds an Isaac Sim GPU, and `hil` adds an IGX Thor safety host (see [Prerequisites](/getting-started/prerequisites)).
 - The VSS calibration must include the monitored ROIs (see [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the [Deployment Guide ](/deployment)).
 
 Log in to NGC and clone the repository:
@@ -123,7 +123,7 @@ Deployment is long-running (NGC image pulls, the perception TensorRT engine buil
 
 ## Fallback: manual bring-up
 
-If a coding agent is not available or the skill fails on a step, run the profile yourself. The skill writes the same `.env` files the manual route uses, so a partial skill run can be resumed manually. For `sil`, follow [/testing/sil/sil-2d](/testing/sil/sil-2d). The `base` steps are below.
+If a coding agent is not available or the skill fails on a step, run the profile yourself. The skill writes the same `.env` files the manual route uses, so a partial skill run can be resumed manually. For `sil`, follow [SIL — 2D Perception](/testing/sil/sil-2d). The `base` steps are below.
 
 ### Enable the overlay
 
@@ -171,15 +171,15 @@ To run the decision-maker on the FSI instead, set `SDM_TARGET=fsi` in `base-thor
 
 ### Verify
 
-Open the VST UI at `http://<HOST_IP>:30888/vst/` and confirm the `halo_safety` overlay reacts to the feed: "Standard Mode" when safety is active and "Efficient Mode" when loading is allowed, with a proximity bubble around the forklift. The Safety Core logs each decision: on x86 (compose) at `$MDX_DATA_DIR/psf-log/pss.log`; on IGX Thor (host binaries) under `/var/log/psf/`, see [Logs](/deployment#safety-core-logs) in the [Deployment Guide ](/deployment).
+Open the VST UI at `http://<HOST_IP>:30888/vst/` and confirm the `halo_safety` overlay reacts to the feed: "Standard Mode" when safety is active and "Efficient Mode" when loading is allowed, with a proximity bubble around the forklift. The Safety Core logs each decision: on x86 (compose) at `$MDX_DATA_DIR/psf-log/pss.log`; on IGX Thor (host binaries) under `/var/log/psf/`, see [Deployment Guide](/deployment#safety-core-logs) in the [Deployment Guide ](/deployment).
 
 ### Troubleshooting
 
-See [Troubleshooting](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment).
+See [Deployment Guide](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment).
 
 ## Next Steps
 
-- [safety-core](/getting-started/safety-core) — Safety Core quick start on an existing perception feed
-- [/testing/sil/index](/testing/sil) — SIL closed-loop testing, 2D and 3D
-- [/testing/srr/quickstart](/testing/srr/quickstart) — score a deployed SIL stack with the second skill, `hoisa-generate-regression-report`
-- [/deployment/index](/deployment) — installation, configuration, and troubleshooting in full
+- [Deploy the Safety Core](/getting-started/safety-core) — Safety Core quick start on an existing perception feed
+- [Software-in-Loop Testing](/testing/sil) — SIL closed-loop testing, 2D and 3D
+- [Quick Start Guide](/testing/srr/quickstart) — score a deployed SIL stack with the second skill, `hoisa-generate-regression-report`
+- [Deployment Guide](/deployment) — installation, configuration, and troubleshooting in full

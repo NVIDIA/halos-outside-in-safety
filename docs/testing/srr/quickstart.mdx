@@ -11,17 +11,17 @@ This quickstart shows **two ways to run a test**:
 - **Manually** — run `scripts/run_multi.sh` yourself (one command per test).
 
 <Note>
-Regression Testing Reporter runs **on top of** an already-deployed SIL stack. It does **not** deploy Halos or VSS — do that first (see [/testing/sil/sil-2d](/testing/sil/sil-2d)). See [overview](/testing/srr/overview) for what the Regression Testing Reporter is and what a run produces.
+Regression Testing Reporter runs **on top of** an already-deployed SIL stack. It does **not** deploy Halos or VSS — do that first (see [SIL — 2D Perception](/testing/sil/sil-2d)). See [Overview](/testing/srr/overview) for what the Regression Testing Reporter is and what a run produces.
 </Note>
 
-Isaac Sim publishes ground truth; VSS + the Safety Core produce the MUTE / UNMUTE decision; the Regression Testing Reporter service records both at 30 Hz and grades the result. See [architecture](/testing/srr/architecture) for the architecture diagram and the full data flow.
+Isaac Sim publishes ground truth; VSS + the Safety Core produce the MUTE / UNMUTE decision; the Regression Testing Reporter service records both at 30 Hz and grades the result. See [Architecture](/testing/srr/architecture) for the architecture diagram and the full data flow.
 
 ## Step 1: Prerequisites
 
 The SIL stack (VSS Warehouse 3.2.1 + the Halos `sil` profile) must be **deployed and healthy** before you run the Regression Testing Reporter. If it is not up yet, deploy it first:
 
-- [/testing/sil/sil-2d](/testing/sil/sil-2d) — manual SIL bring-up, or
-- [/getting-started/agentic-deployment](/getting-started/agentic-deployment) — agent-driven bring-up.
+- [SIL — 2D Perception](/testing/sil/sil-2d) — manual SIL bring-up, or
+- [Agentic Deployment](/getting-started/agentic-deployment) — agent-driven bring-up.
 
 Confirm the stack is healthy:
 
@@ -132,7 +132,7 @@ Isaac Sim reads the scenario behavior trees + navmesh from its bind-mounted `sil
 
 This copies the IRA 1.6 behavior trees + `navmesh.json` into `sil/configs/`, the Script-Editor utilities into `sil/scripts/isaac/`, and installs the Regression Testing Reporter `default_config_ros.yaml` template. It is idempotent — safe to re-run.
 
-Re-run it after cloning on a new machine, or after regenerating behavior trees. See [scenarios](/testing/srr/scenarios) for the scenario fixtures and how to regenerate them.
+Re-run it after cloning on a new machine, or after regenerating behavior trees. See [Test Scenarios](/testing/srr/scenarios) for the scenario fixtures and how to regenerate them.
 
 ## Step 5: Build and start the Regression Testing Reporter service
 
@@ -168,7 +168,7 @@ The available scenarios (all 5 minutes by default):
 | `balanced` | Mixed activity, baseline scenario |
 | `fast` | Motion-heavy, tests cumulative drift over a long run |
 
-See [scenarios](/testing/srr/scenarios) for full details on each case.
+See [Test Scenarios](/testing/srr/scenarios) for full details on each case.
 
 ### Option A — Via the skill
 
@@ -267,7 +267,7 @@ Top-level summary: /app/runs/multi-test-<TIMESTAMP>/summary.md
    docker exec srr python3 -m srr.utils.vst_video split-run --run-dir <run> --out-dir <run>/videos
    ```
 
-See [architecture](/testing/srr/architecture) for what each phase does.
+See [Architecture](/testing/srr/architecture) for what each phase does.
 
 ## Step 7: Read the results
 
@@ -295,7 +295,7 @@ What the headline metrics mean:
 
 Verdict buckets: **PASS** (≥ 95% match), **NEAR** (80–95%), **FAIL** (< 80%).
 
-For the full metric reference, drill-down workflow, and how to read a per-clip report, see [interpret-results](/testing/srr/interpret-results).
+For the full metric reference, drill-down workflow, and how to read a per-clip report, see [Interpreting the Report](/testing/srr/interpret-results).
 
 ## Step 8: Evidence bundle, debug viewer, heatmaps (optional)
 
@@ -307,7 +307,7 @@ docker exec srr python3 -m srr.clip_logs \
 # -> runs/multi-test-<TIMESTAMP>.zip
 ```
 
-Open the browser viewer for scrub-synced per-clip drill-down (MP4 ↔ GT ↔ Safety Core state ↔ BA events ↔ Safety Core log). See [debug-viewer](/testing/srr/debug-viewer) for the full walkthrough:
+Open the browser viewer for scrub-synced per-clip drill-down (MP4 ↔ GT ↔ Safety Core state ↔ BA events ↔ Safety Core log). See [Debug Viewer](/testing/srr/debug-viewer) for the full walkthrough:
 
 ```bash
 ln -sfn <runs>/multi-test-<TIMESTAMP> <repo>/tools/srr-debug-viewer/data/multi-test-<TIMESTAMP>
@@ -328,7 +328,7 @@ Stop the Regression Testing Reporter service when you're done:
 cd srr-service && docker compose --env-file ../.env down
 ```
 
-Tear down the SIL stack (Halos + VSS) via the deploy skills or [/testing/sil/sil-2d](/testing/sil/sil-2d) — not here.
+Tear down the SIL stack (Halos + VSS) via the deploy skills or [SIL — 2D Perception](/testing/sil/sil-2d) — not here.
 
 ## Troubleshooting
 
@@ -366,4 +366,4 @@ Low `Mute correct%` on a long run, or alternating PASS/FAIL
 
 ### Low `Mute correct%` on a long run, or alternating PASS/FAIL
 
-If PASS/FAIL alternates in step with the forklift entering the trailer, this is the known Safety Core counter-drift signature (fix planned upstream). Restart the Halos compose between runs; don't file it as a new regression. See [interpret-results](/testing/srr/interpret-results) for the full signature.
+If PASS/FAIL alternates in step with the forklift entering the trailer, this is the known Safety Core counter-drift signature (fix planned upstream). Restart the Halos compose between runs; don't file it as a new regression. See [Interpreting the Report](/testing/srr/interpret-results) for the full signature.

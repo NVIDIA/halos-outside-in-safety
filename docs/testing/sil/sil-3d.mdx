@@ -7,7 +7,7 @@ Deploy Halos SIL with 3D perception (Sparse4D multi-view fusion + BEV tracking).
 <Note>
 Halos SIL 3D requires **VSS Warehouse 3.2.1** with the **3D Vision AI Profile** as its perception backend. Deploy VSS Warehouse first using the official [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html) documentation before proceeding with Halos SIL deployment.
 
-For 2D perception (simpler setup), see [sil-2d](/testing/sil/sil-2d) instead.
+For 2D perception (simpler setup), see [SIL — 2D Perception](/testing/sil/sil-2d) instead.
 </Note>
 
 The Halos stack itself (`safety-core`, `comm-layer`, `isaac-sim`, `forklift-controller`) and the Isaac Sim launch are **identical** to 2D. 3D changes only the VSS **perception** side — the model, the calibration, and the DeepStream timing config — so no safety-core change is needed to run 3D.
@@ -39,7 +39,7 @@ Older 3D guidance prescribed keeping **SEI enabled** — that was validated on I
 
 ## Prerequisites
 
-See [/getting-started/prerequisites](/getting-started/prerequisites) for hardware and software requirements.
+See [Prerequisites](/getting-started/prerequisites) for hardware and software requirements.
 
 **Additional 3D requirements**:
 
@@ -48,7 +48,7 @@ See [/getting-started/prerequisites](/getting-started/prerequisites) for hardwar
 
 ## Step 1: Download Packages
 
-Follow **Step 1** in [sil-2d](/testing/sil/sil-2d) to clone the Halos Outside-In Safety repository and download the SIL data. The same repo and SIL data are used for both 2D and 3D.
+Follow **Step 1** in [SIL — 2D Perception](/testing/sil/sil-2d) to clone the Halos Outside-In Safety repository and download the SIL data. The same repo and SIL data are used for both 2D and 3D.
 
 3D additionally needs the **R101 Sparse4D perception model** — a VSS-side artifact from the public NGC TAO catalog. It ships as **two** packages that must be paired at the **same version** (pinned in `deployments/profiles/sil.env`):
 
@@ -514,9 +514,9 @@ Four upstream Isaac Sim and VST issues affect the stream path on Isaac Sim 6.0, 
 
 ## Next Steps
 
-- [architecture](/testing/sil/architecture) — System architecture and data flow
-- [components/isaac-sim](/testing/sil/components/isaac-sim) — Isaac Sim configuration
-- [components/action-graph](/testing/sil/components/action-graph) — Forklift control details
+- [SIL Architecture](/testing/sil/architecture) — System architecture and data flow
+- [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — Isaac Sim configuration
+- [Isaac Sim Action Graphs](/testing/sil/components/action-graph) — Forklift control details
 - [VSS Warehouse 3D Profile Customization](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html) — Adding cameras, custom scenes
 - [Sparse4D Configuration](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html) — Tuning 3D perception
 - [VSS Configurator](https://docs.nvidia.com/vss/3.2.1/vss-configurator.html) — Sensor source configuration

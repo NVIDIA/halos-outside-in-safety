@@ -10,11 +10,11 @@ This is a two-host profile. The x86 commands run on the stimulus host, the IGX T
 
 ## Prerequisites
 
-See [/getting-started/prerequisites](/getting-started/prerequisites) for hardware and software requirements.
+See [Prerequisites](/getting-started/prerequisites) for hardware and software requirements.
 
 ## Deploy with Halos Deployment Skill (recommended)
 
-For an automated bring-up with a coding agent, use the `hoisa-deploy-profile` skill with the `hil` profile — see [/getting-started/agentic-deployment](/getting-started/agentic-deployment). The skill drives one host at a time; there is no single command that deploys both hosts in this release.
+For an automated bring-up with a coding agent, use the `hoisa-deploy-profile` skill with the `hil` profile — see [Agentic Deployment](/getting-started/agentic-deployment). The skill drives one host at a time; there is no single command that deploys both hosts in this release.
 
 The manual instructions below remain supported, and are the route to follow when no coding agent runs on the host.
 
@@ -96,7 +96,7 @@ sudo cp closed-loop-testing/safety-core/configs/sensor_config_thor.conf /opt/nvi
 
 `ls -l /opt/nvidia/psf/bin/sensor_config_thor.conf` returns the file.
 
-Copy the template unedited: the profile ships `PSF_LAUNCH_MODE=skip`, under which the file is checked only for existence. Leave that line in place — an unset value selects `active`, which reads the file. See [architecture](/testing/hil/architecture) for what the two modes change.
+Copy the template unedited: the profile ships `PSF_LAUNCH_MODE=skip`, under which the file is checked only for existence. Leave that line in place — an unset value selects `active`, which reads the file. See [HIL Architecture](/testing/hil/architecture) for what the two modes change.
 
 ## Step 4: Prepare the x86 Directories
 
@@ -171,7 +171,7 @@ Do not deploy VSS Warehouse until all three streams return a non-zero frame coun
 
 ## Step 8: Deploy VSS Warehouse on the IGX Thor
 
-Deploy VSS Warehouse on the safety host following [/testing/sil/sil-2d](/testing/sil/sil-2d) Step 2, with four changes for HIL. Apply all four **before** the first `up`:
+Deploy VSS Warehouse on the safety host following [SIL — 2D Perception](/testing/sil/sil-2d) Step 2, with four changes for HIL. Apply all four **before** the first `up`:
 
 - **Remote stream URLs** (`camera_configs/camera_info.json`): register the three streams against the x86 host — `rtsp://<X86_IP>:8554/camera`, `:8555/camera_01`, `:8556/camera_02` — and keep the sensor names exactly `Camera`, `Camera_01`, and `Camera_02`. Behavior analytics calibration and safety event matching key on those names.
 - **One registration owner** (warehouse profile `.env`): set `SENSOR_INFO_SOURCE=file` so the configurator registers from `camera_info.json`, which is why Step 7.1 launches the driver without `--enable-vst`. Two writers race on the same sensor names, the colliding adds fail, and perception can end up on the wrong source.
@@ -285,14 +285,14 @@ docker exec comm-layer bash -lc \
   "source /opt/ros/jazzy/setup.bash && ros2 topic echo --once /safety/is_muted"
 ```
 
-The command returns a value instead of blocking. The loop is closed when the MUTE and UNMUTE transitions follow the forklift's own cycle and the in-scene safety indicator changes with them. The forklift itself keeps driving its fixed path — it is a stimulus generator and does not consume the safety command; the decision is observable through the in-scene indicator and this log (see [/known-limitations](/known-limitations)). Transitions seen before the Isaac Sim streams reached perception come from the sample feed VSS Warehouse starts with, and do not count.
+The command returns a value instead of blocking. The loop is closed when the MUTE and UNMUTE transitions follow the forklift's own cycle and the in-scene safety indicator changes with them. The forklift itself keeps driving its fixed path — it is a stimulus generator and does not consume the safety command; the decision is observable through the in-scene indicator and this log (see [Known Limitations](/known-limitations)). Transitions seen before the Isaac Sim streams reached perception come from the sample feed VSS Warehouse starts with, and do not count.
 
 ## 3D Perception Profile
 
 To run the loop against the 3D (BEV) perception profile, keep every step above as it is — the stimulus host runs the same three services, the same environment file, and the same scenario command. The differences are all on the safety host:
 
 - **Model artifacts**: the Sparse4D R101 deployable and trainable resources are pinned in `hil-thor.env` and are pulled onto the IGX Thor, where perception runs. Both must be the same version.
-- **Calibration**: the 3D profile needs the camera calibration and `camera_info.json` machinery. Follow [/testing/sil/sil-3d](/testing/sil/sil-3d) for it and for the rest of the VSS-side configuration.
+- **Calibration**: the 3D profile needs the camera calibration and `camera_info.json` machinery. Follow [SIL — 3D Perception](/testing/sil/sil-3d) for it and for the rest of the VSS-side configuration.
 - **Frame rate**: the `IGX-THOR` platform profile ships `interval: 1`, which halves the 3D inference rate — a default tuned for real 30 fps cameras. A simulated source already renders below that rate, so set `interval: 0` in the configurator's `blueprint_config.yml` for HIL runs only. Leave the Thor default in place for real-camera deployments.
 
 ## Restart the Scenario
@@ -354,7 +354,7 @@ Three causes, in the order worth checking:
 
 ### Forklift Never Moves
 
-ROS 2 discovery: the three x86 containers cannot see each other. [architecture](/testing/hil/architecture) explains why `LOCALHOST` scoping fails on a multi-interface host.
+ROS 2 discovery: the three x86 containers cannot see each other. [HIL Architecture](/testing/hil/architecture) explains why `LOCALHOST` scoping fails on a multi-interface host.
 
 ```bash
 # x86 stimulus host
@@ -390,10 +390,10 @@ Run it inside `tmux` as in Step 9, and stop it only with `closed-loop-testing/sc
 
 Check the `comm-layer` health state and its log directory: an unwritable log directory or a blocked port 4840 both keep the check failing. `setup.sh hil` in Step 4 creates that directory with the right ownership.
 
-For the Safety Core itself, see [Troubleshooting](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment). For IGX Thor container runtime and image pull workarounds, see [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor).
+For the Safety Core itself, see [Deployment Guide](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment). For IGX Thor container runtime and image pull workarounds, see [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor).
 
 ## Next Steps
 
-- [architecture](/testing/hil/architecture) — Ports, packet format, and the configuration pairing between the two hosts
-- [/testing/sil/components/isaac-sim](/testing/sil/components/isaac-sim) — Scenario configuration and `run_sdg.sh` options
-- [/deployment/index](/deployment) — Safety Core installation, options, and troubleshooting in full
+- [HIL Architecture](/testing/hil/architecture) — Ports, packet format, and the configuration pairing between the two hosts
+- [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — Scenario configuration and `run_sdg.sh` options
+- [Deployment Guide](/deployment) — Safety Core installation, options, and troubleshooting in full

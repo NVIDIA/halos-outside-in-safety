@@ -4,7 +4,7 @@ description: ""
 ---
 Hardware, software, and access requirements for every Halos Outside-In Safety
 bring-up, gathered in one place. Work through this page once before you start:
-the quick starts and the [/deployment/index](/deployment) assume everything here is
+the quick starts and the [Deployment Guide](/deployment) assume everything here is
 already in place.
 
 Each section links to the guide that owns the detail, so you can go deeper on
@@ -107,7 +107,7 @@ paths. Depending on the method, Docker may also need `sudo` until you complete
 the Docker post-installation steps.
 </Note>
 
-See [/testing/hil/architecture](/testing/hil/architecture) for the ports each host must expose.
+See [HIL Architecture](/testing/hil/architecture) for the ports each host must expose.
 
 ## Software
 
@@ -135,7 +135,7 @@ but any host running AI Perception should be on 24.04.
 
 The IGX Thor driver looks like a downgrade and is not: 580.00 is the driver that
 ships with the Jetson BSP and is what `nvidia-smi` reports there. The figures
-in [/reference/runtime-profile](/reference/runtime-profile) were captured on exactly this combination.
+in [Runtime Profile](/reference/runtime-profile) were captured on exactly this combination.
 </Note>
 
 <Warning>
@@ -165,7 +165,7 @@ The clock settings are the ones to watch, for two reasons.
 They do not persist across a reboot, so a host configured correctly once will
 silently drop to a lower operating point after the next restart.
 
-And every figure in [/reference/runtime-profile](/reference/runtime-profile) was captured with MAXN
+And every figure in [Runtime Profile](/reference/runtime-profile) was captured with MAXN
 (mode 0) and clocks pinned. A host left at default clocks will not reproduce
 them. The PVA and NVDEC utilization percentages are especially sensitive: they
 are percentages of busy time, so the same work reports a *lower* number at a
@@ -265,26 +265,26 @@ up and correctly calibrated before it starts:
   accurately.
 
 See [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the
-[/deployment/index](/deployment).
+[Deployment Guide](/deployment).
 
 ## Per-profile additions
 
 ### 3D perception
 
-[/testing/sil/sil-3d](/testing/sil/sil-3d) assumes familiarity with:
+[SIL — 3D Perception](/testing/sil/sil-3d) assumes familiarity with:
 
 - [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html)
 - [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html)
 
 ### Agentic deployment
 
-[agentic-deployment](/getting-started/agentic-deployment) also needs an agentskills.io-compatible coding agent
+[Agentic Deployment](/getting-started/agentic-deployment) also needs an agentskills.io-compatible coding agent
 on the host, such as Claude Code, Codex, or Cursor.
 
 ## Next steps
 
-- [inference-pipeline](/getting-started/inference-pipeline) — Deploy AI Perception on live cameras
-- [safety-core](/getting-started/safety-core) — Deploy the Safety Core on an existing perception feed
-- [/testing/sil/sil-2d](/testing/sil/sil-2d) — Bring up the single-host closed loop
-- [/testing/hil/quickstart](/testing/hil/quickstart) — Bring up the two-host closed loop
-- [agentic-deployment](/getting-started/agentic-deployment) — Have a coding agent perform the bring-up for you
+- [Deploy AI Perception](/getting-started/inference-pipeline) — Deploy AI Perception on live cameras
+- [Deploy the Safety Core](/getting-started/safety-core) — Deploy the Safety Core on an existing perception feed
+- [SIL — 2D Perception](/testing/sil/sil-2d) — Bring up the single-host closed loop
+- [Deploy the HIL Closed Loop](/testing/hil/quickstart) — Bring up the two-host closed loop
+- [Agentic Deployment](/getting-started/agentic-deployment) — Have a coding agent perform the bring-up for you

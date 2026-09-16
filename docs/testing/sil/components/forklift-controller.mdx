@@ -6,7 +6,7 @@ Drives the simulated forklift. The `forklift-controller` service runs a single R
 
 ## Role in the Loop
 
-The controller is a stimulus generator. It keeps the forklift driving a fixed route so that perception always has a vehicle to detect, Behavior Analytics always has ROI and tripwire crossings to report, and the Safety Core always has a decision to make. Nothing else drives the forklift — character motion comes from the IRA behavior trees inside Isaac Sim (see [isaac-sim](/testing/sil/components/isaac-sim)).
+The controller is a stimulus generator. It keeps the forklift driving a fixed route so that perception always has a vehicle to detect, Behavior Analytics always has ROI and tripwire crossings to report, and the Safety Core always has a decision to make. Nothing else drives the forklift — character motion comes from the IRA behavior trees inside Isaac Sim (see [Isaac Sim Configuration](/testing/sil/components/isaac-sim)).
 
 ```text
 waypoints.json
@@ -114,7 +114,7 @@ Expected output:
 
 ## Waypoint File
 
-The controller reads one data file, `/app/waypoints/waypoints.json` by default, bind-mounted read-only from `closed-loop-testing/forklift-controller/waypoints/`. Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) on the [isaac-sim](/testing/sil/components/isaac-sim) page, which also documents the export format.
+The controller reads one data file, `/app/waypoints/waypoints.json` by default, bind-mounted read-only from `closed-loop-testing/forklift-controller/waypoints/`. Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) on the [Isaac Sim Configuration](/testing/sil/components/isaac-sim) page, which also documents the export format.
 
 Three top-level keys are read:
 
@@ -207,7 +207,7 @@ Expected output:
 
 ## Next Steps
 
-- [action-graph](/testing/sil/components/action-graph) — how `cmd_vel` becomes wheel commands, and the odometry that feeds back
-- [isaac-sim](/testing/sil/components/isaac-sim) — the scene, the `robots.yaml` robot block, and the waypoint generator
-- [/testing/sil/overview](/testing/sil/overview) — MUTE and UNMUTE, the vocabulary the safety decision is reported in
-- [/testing/sil/sil-2d](/testing/sil/sil-2d) — deploy the stack this service runs in
+- [Isaac Sim Action Graphs](/testing/sil/components/action-graph) — how `cmd_vel` becomes wheel commands, and the odometry that feeds back
+- [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — the scene, the `robots.yaml` robot block, and the waypoint generator
+- [SIL Overview](/testing/sil/overview) — MUTE and UNMUTE, the vocabulary the safety decision is reported in
+- [SIL — 2D Perception](/testing/sil/sil-2d) — deploy the stack this service runs in

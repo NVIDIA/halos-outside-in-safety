@@ -2,7 +2,7 @@
 title: "Architecture"
 description: ""
 ---
-How the Regression Testing Reporter records the closed loop and turns it into a graded report. Read [overview](/testing/srr/overview) first for the what and why.
+How the Regression Testing Reporter records the closed loop and turns it into a graded report. Read [Overview](/testing/srr/overview) first for the what and why.
 
 ## Data flow (one scenario)
 
@@ -55,7 +55,7 @@ Every recording is scored on two independent layers:
 | **Phase 1 — the safety decision** | Ground-truth-expected MUTE vs the actual Safety Core `is_muted` → `match%`, Mute/Unmute-correct%, reaction lag, and behavior-analytics ROI/TW event detection. |
 | **Phase 2 — perception quality** | Ground-truth TF vs the `mdx-bev` 3D detections and `mdx-behavior` positions → per-class detection and tracking quality, precision/recall/F1, position offset vs jitter, id-switches, coverage. |
 
-Phase 2 depends on the 3D pipeline (Sparse4D → `mdx-bev` + `mdx-behavior`) flowing. A 2D-only feed (only `mdx-events`) gives **Phase 1 only** — the Phase 2 section is simply omitted, which is expected, not a failure. See [interpret-results](/testing/srr/interpret-results) for what every metric means.
+Phase 2 depends on the 3D pipeline (Sparse4D → `mdx-bev` + `mdx-behavior`) flowing. A 2D-only feed (only `mdx-events`) gives **Phase 1 only** — the Phase 2 section is simply omitted, which is expected, not a failure. See [Interpreting the Report](/testing/srr/interpret-results) for what every metric means.
 
 ## Recording schema
 
@@ -92,7 +92,7 @@ All coordinates and zones come from the VSS `calibration.json`:
 
 The Regression Testing Reporter's scenario fixtures (behavior trees + navmesh) must reach the `isaac-sim` container before Isaac launches. The default approach is a one-time **sync** (Pattern A): `sync_to_halos.sh` copies the canonical `regression-reporter/scenarios/` fixtures (behavior trees + navmesh, plus the Script-Editor utilities and the `default_config_ros.yaml` template) into the Isaac SIL config tree. A planned follow-up (Pattern B) bind-mounts the `scenarios/` dir into the container so edits appear without copying, so Pattern A is the default until it lands. The `regression-reporter/scenarios/` copy is always **canonical** — edit there, then re-sync.
 
-The sync command itself lives in the runbook — see [quickstart](/testing/srr/quickstart) Step 4 — and [scenarios](/testing/srr/scenarios) for the fixtures themselves.
+The sync command itself lives in the runbook — see [Quick Start Guide](/testing/srr/quickstart) Step 4 — and [Test Scenarios](/testing/srr/scenarios) for the fixtures themselves.
 
 ## Orchestration: manual vs skill
 
@@ -113,6 +113,6 @@ The manual `run_multi.sh` always restarts both the Halos and Regression Testing 
 
 ## Next steps
 
-- [scenarios](/testing/srr/scenarios) — the pre-built test cases and how to regenerate them.
-- [interpret-results](/testing/srr/interpret-results) — how to read the graded report.
-- [debug-viewer](/testing/srr/debug-viewer) — root-cause analysis for failing clips.
+- [Test Scenarios](/testing/srr/scenarios) — the pre-built test cases and how to regenerate them.
+- [Interpreting the Report](/testing/srr/interpret-results) — how to read the graded report.
+- [Debug Viewer](/testing/srr/debug-viewer) — root-cause analysis for failing clips.

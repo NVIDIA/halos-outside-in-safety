@@ -2,7 +2,7 @@
 title: "Hardware-in-the-Loop Testing"
 description: ""
 ---
-Hardware-in-the-Loop (HIL) testing runs the same closed loop as the single-host harness, with the perception stack and the Safety Core on an NVIDIA IGX Thor while NVIDIA Isaac Sim drives the scene from an x86 host. Start from [quickstart](/testing/hil/quickstart), which brings both hosts up in order and ends with the safety decision arriving back in the simulation. [architecture](/testing/hil/architecture) covers the topology, the network interfaces, and the configuration that has to pair across the two hosts.
+Hardware-in-the-Loop (HIL) testing runs the same closed loop as the single-host harness, with the perception stack and the Safety Core on an NVIDIA IGX Thor while NVIDIA Isaac Sim drives the scene from an x86 host. Start from [Deploy the HIL Closed Loop](/testing/hil/quickstart), which brings both hosts up in order and ends with the safety decision arriving back in the simulation. [HIL Architecture](/testing/hil/architecture) covers the topology, the network interfaces, and the configuration that has to pair across the two hosts.
 
 ## What HIL testing adds
 
@@ -30,10 +30,10 @@ camera streams and it sends the decision.
 
 | Harness | What it runs where | When to choose it |
 | --- | --- | --- |
-| [SIL ](/testing/sil) | The simulation, perception, and the Safety Core on one x86 host | You are developing or regression-testing the safety logic and want the shortest setup and the fastest iteration. One machine, one environment file, one bring-up. |
-| [HIL ](/testing/hil/quickstart) | The simulation on an x86 host; perception and the Safety Core on an IGX Thor | You need the decision produced by the target platform and delivered over a real network, or you are rehearsing a deployment. Two machines, one environment file per host and a bring-up sequence on each. |
+| [Software-in-Loop Testing](/testing/sil) | The simulation, perception, and the Safety Core on one x86 host | You are developing or regression-testing the safety logic and want the shortest setup and the fastest iteration. One machine, one environment file, one bring-up. |
+| [Deploy the HIL Closed Loop](/testing/hil/quickstart) | The simulation on an x86 host; perception and the Safety Core on an IGX Thor | You need the decision produced by the target platform and delivered over a real network, or you are rehearsing a deployment. Two machines, one environment file per host and a bring-up sequence on each. |
 
-The Halos components and their decision logic are the same in both profiles. What changes is which host runs each one, and the handful of settings that follow from the split — see the profile comparison in [architecture](/testing/hil/architecture).
+The Halos components and their decision logic are the same in both profiles. What changes is which host runs each one, and the handful of settings that follow from the split — see the profile comparison in [HIL Architecture](/testing/hil/architecture).
 
 ## What runs where
 
@@ -81,10 +81,10 @@ Two hosts, driven from one seat: an x86 stimulus host and an IGX Thor safety hos
 
 The two hosts must reach each other directly, in both directions: the safety host pulls the camera streams from the stimulus host, and sends the safety decision back to it.
 
-See [/getting-started/prerequisites](/getting-started/prerequisites) for the hardware and software requirements of both hosts.
+See [Prerequisites](/getting-started/prerequisites) for the hardware and software requirements of both hosts.
 
 ## Next Steps
 
-- [quickstart](/testing/hil/quickstart) — The two-host bring-up, step by step, ending at a verified decision
-- [architecture](/testing/hil/architecture) — Ports, packet format, log paths, and the environment values that must pair
-- [/testing/sil/index](/testing/sil) — The single-host harness this profile splits in two
+- [Deploy the HIL Closed Loop](/testing/hil/quickstart) — The two-host bring-up, step by step, ending at a verified decision
+- [HIL Architecture](/testing/hil/architecture) — Ports, packet format, log paths, and the environment values that must pair
+- [Software-in-Loop Testing](/testing/sil) — The single-host harness this profile splits in two

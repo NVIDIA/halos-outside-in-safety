@@ -59,4 +59,4 @@ The reference use case is Automated Trailer Loading: fixed cameras and AI percep
   </Card>
 </Cards>
 
-The C API reference is not vendored in this Apache-2.0 repository. Until the Fern site replaces the Sphinx host, the published pages are at `https://docs.nvidia.com/halos-outside-in/latest/_static/index.html`.
+The C API reference is not vendored in this Apache-2.0 repository. While the Sphinx host still serves this domain, the Doxygen pages remain under `/latest/_static/` — this Fern config does not redirect `_static`, so those URLs are not rewritten to a missing path. After a full Fern cutover, use the headers in the `psf-desktop-dev` / `psf-tegra-dev` packages until a replacement is published.

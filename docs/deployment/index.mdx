@@ -10,7 +10,7 @@ Future releases will transition to the new naming convention.
 
 This guide covers installation, configuration, runtime parameters, and
 troubleshooting in detail. For the quickest bring-up on an existing perception
-feed, start from [/getting-started/safety-core](/getting-started/safety-core).
+feed, start from [Deploy the Safety Core](/getting-started/safety-core).
 
 ## AI Perception
 
@@ -22,7 +22,7 @@ Safety Core against it.
 The reference backend is the NVIDIA VSS Warehouse Operations Blueprint 3.2.1,
 which ships from its own repository:
 
-- [/getting-started/inference-pipeline](/getting-started/inference-pipeline) covers camera selection, placement,
+- [Deploy AI Perception](/getting-started/inference-pipeline) covers camera selection, placement,
   and calibration, then the VSS Warehouse installation, with sample data.
 - The [VSS Warehouse Blueprint quick start](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html)
   is the upstream procedure, and the `vss-deploy-profile` skill that ships with
@@ -37,11 +37,12 @@ Safety Core depends on:
   per-frame analysis such as proximity.
 - **Schema** — Metropolis MDX protobuf messages.
 
-[/integration/index](/integration) documents how those messages are mapped to the safety
+[Integration Guide](/integration) documents how those messages are mapped to the safety
 events the Safety Decision Maker acts on. That mapping is where to start when
 substituting a different perception backend.
 
 ## 1. Installation of the Safety Core
+<a id="installation-of-the-safety-core" />
 
 The Safety Core can be installed using one of two methods:
 
@@ -54,6 +55,7 @@ The Safety Core can be installed using one of two methods:
   application environment and is the recommended approach.
 
 ### 1.1 Debian Installation
+<a id="debian-installation" />
 
 The following Debian packages are available:
 
@@ -139,6 +141,7 @@ export LD_LIBRARY_PATH=/opt/nvidia/psf/lib:"${LD_LIBRARY_PATH}"
 ```
 
 ### 1.2 Docker Installation
+<a id="docker-installation" />
 
 You can install Safety Core as a Docker container by downloading it from NGC using the following command:
 
@@ -165,6 +168,7 @@ docker pull "${PSF_IMAGE}"
 ```
 
 ### 1.3 Safety Core Setup (Docker Runtime)
+<a id="safety-core-setup-docker-runtime" />
 
 <Note>
 Ensure the reference AI Perception (VSS stack) is fully up and running before starting the Safety Core (PSF) Docker container, with the calibration file including `"restrictedObjectTypes":["Person"]` for all relevant ROIs.
@@ -174,16 +178,20 @@ For dual-camera setups, all camera streams must be synchronized and named accura
 <a id="safety-core-prerequisites" />
 
 #### 1.3.1 Prerequisites
+<a id="prerequisites" />
 
 - VSS stack containers (analytics, UI, recorders, etc.) are running and reachable.
 - Calibration file for the monitored region is deployed and includes `"restrictedObjectTypes":["Person"]` for the ROIs, where relevant.
 - For dual camera configurations, ensure all camera streams are in sync.
 
 ## 2. Running Safety Core
+<a id="running-safety-core" />
 
 ### 2.1 Setup
+<a id="setup" />
 
 #### 2.1.1 Create shared log directory
+<a id="create-shared-log-directory" />
 
 Create a shared log directory on the host. All Safety Core deployment methods
 use `/var/log/psf/`, and the Docker launches in the sections below
@@ -205,11 +213,12 @@ Creating the directory does not mean every component writes to it. Under
 the Docker runtime `docker logs` is the authoritative live view, and
 files under `/var/log/psf/` can stay empty or hold only output from an
 earlier host-runtime run. An empty `psf.log` alongside a healthy
-container is expected, not a fault. See [Logs](/deployment#safety-core-logs) for
+container is expected, not a fault. See [Deployment Guide](/deployment#safety-core-logs) for
 which file each component writes and when.
 </Note>
 
 #### 2.1.2 Runtime library dependencies (Debian installation only)
+<a id="runtime-library-dependencies-debian-installation-only" />
 
 When using the Debian-based installation, the following shared libraries must be
 installed on the host system before launching Safety Core applications. These libraries
@@ -256,6 +265,7 @@ already includes all required runtime libraries.
 <a id="sensor-configuration-file" />
 
 #### 2.1.3 Create the sensor configuration file
+<a id="create-the-sensor-configuration-file" />
 
 Every Safety Core invocation consumes a sensor configuration file.
 It is the single source of truth mapping each physical camera stream
@@ -359,7 +369,7 @@ sudo apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-good
 
 On a host you would rather not add packages to, run the check from a
 container that already carries `ffmpeg` — this is what
-[/testing/hil/quickstart](/testing/hil/quickstart) does with the Isaac Sim container.
+[Deploy the HIL Closed Loop](/testing/hil/quickstart) does with the Isaac Sim container.
 </Note>
 
 <Note>
@@ -445,7 +455,7 @@ Trust gating and stale-event marking are applied either way, and the
 setting does not restore sensor attribution. Use the exact event-type
 names emitted by the mapping: an unrecognized name is logged as
 `Unknown event type '<name>', using EVENT_0` and bypasses `EVENT_0`
-instead of the intended type. See [/reference/sei-configuration](/reference/sei-configuration).
+instead of the intended type. See [SEI Configuration](/reference/sei-configuration).
 </Note>
 
 Safety Core is demonstrated by the following reference applications:
@@ -454,6 +464,7 @@ Safety Core is demonstrated by the following reference applications:
 - **Proximity monitoring** *(Preview)*
 
 ### 2.2 Launch 'Control of safety function on a forklift'
+<a id="launch-control-of-safety-function-on-a-forklift" />
 
 This application uses Safety Core to control a safety function on a forklift which is operating in a warehouse environment and performing loading and unloading of pallets to/from the trailer.
 The system responds to movement of the forklift when it approaches the trailer. The operation scenario appears below.
@@ -484,6 +495,7 @@ command receiver application is not necessary.
 **Execution Steps:**
 
 #### 2.2.1 Option A / B : x86-64 / aarch64 — SDM on CCPLEX
+<a id="option-a-b-x86-64-aarch64-sdm-on-ccplex" />
 
 This option applies to both x86-64 and aarch64 (IGX Thor) platforms when the Safety Decision Maker
 runs on the CCPLEX. The launch procedure is identical on both architectures.
@@ -616,6 +628,7 @@ The default values for IP and Port are 127.0.0.1 and 12345 respectively.
 <a id="sdm-on-fsi" />
 
 #### 2.2.2 Option C: aarch64 — SDM on FSI
+<a id="option-c-aarch64-sdm-on-fsi" />
 
 In this option, the Safety Decision Maker is offloaded to the Functional Safety Island (FSI) on
 IGX Thor based platforms. The SEI daemon, event ingestion pipeline, and NvPSD Gateway continue to
@@ -843,6 +856,7 @@ Both command and acknowledgment packets are 64 bytes, structured as follows:
 ![Packet Structure](/assets/images/Packet-Structure-64B.png)
 
 ### 2.3 Launch 'Proximity Monitoring' *(Preview)*
+<a id="launch-proximity-monitoring-preview" />
 
 This application uses Safety Core to monitor the distance between a human operator and an
 Agility Digit Humanoid robot operating in a warehouse environment. The system continuously
@@ -1155,6 +1169,7 @@ The command opcodes specific to this application are:
 <a id="launch-hoisa-quickstart" />
 
 ### 2.4 Quick Start with `launch_hoisa.sh`
+<a id="quick-start-with-launch-hoisa-sh" />
 
 As an alternative to the manual, per-component steps in sections 2.2 and
 2.3, the reference launcher `launch_hoisa.sh` can bring up the full
@@ -1193,6 +1208,7 @@ for any other camera or scene, run `learn` mode to generate accurate
 site-specific baselines.
 
 #### 2.4.1 Operating Modes
+<a id="operating-modes" />
 
 | Mode | Components launched | When to use |
 | --- | --- | --- |
@@ -1201,6 +1217,7 @@ site-specific baselines.
 | skip | Safety Core container + SDM (no SAIM). | AI-trust path validated separately, or no GPU/decoder budget available for SAIM. |
 
 #### 2.4.2 Typical Invocations
+<a id="typical-invocations" />
 
 **Learn** (first-time setup per camera install). `learn` mode only
 captures baselines, so it needs no threshold config or SDM application;
@@ -1310,18 +1327,19 @@ both steps. When `--baseline-dir` is omitted, SAIM uses the default
   `launch_hoisa.sh` selects the ATL or Proximity mapping from
   `/opt/nvidia/psf/apps/`. Its rules must match the deployed VSS topics,
   object labels, and ROI or tripwire identifiers. See
-  [/reference/event-mapping-configuration](/reference/event-mapping-configuration).
+  [Event Mapping Configuration](/reference/event-mapping-configuration).
 - Before `active` mode, confirm the SAIM baseline files generated by
   `learn` mode are present in the baseline directory. Baseline file
   names are derived from the configured `sensorName` values, for
   example `Camera_01_baseline.cfg`. If a learned baseline is missing for
   a sensor, SAIM falls back to the shipped default baseline template.
 - `nvpss.conf` must be present and readable (by default at
-  `/opt/nvidia/psf/bin/nvpss.conf`). See [/reference/sei-configuration](/reference/sei-configuration).
+  `/opt/nvidia/psf/bin/nvpss.conf`). See [SEI Configuration](/reference/sei-configuration).
 
 <a id="safety-core-logs" />
 
 #### 2.4.4 Logs
+<a id="logs" />
 
 Runtime logs are written under `/var/log/psf/`:
 
@@ -1366,10 +1384,12 @@ deployment health using VST sensor status, RTSP playback, SAIM logs,
 Safety Core logs, and Kafka events.
 </Note>
 
-For the full launcher option reference, see [/reference/launcher](/reference/launcher). For
-the browser-based log dashboard, see [/reference/log-viewer](/reference/log-viewer).
+For the full launcher option reference, see [launch_hoisa.sh](/reference/launcher). For
+the browser-based log dashboard, see [Log Viewer](/reference/log-viewer).
 
 ### 2.5 Clearing a Latched Safe State
+<a id="clearing-a-latched-safe-state" />
+<a id="safe-release" />
 
 When the Safety Decision Maker detects a safety-path fault, it latches the safe
 state: it sends `CMD_UNMUTE` (prevent operation) followed by `CMD_SW_ERROR`,
@@ -1439,25 +1459,29 @@ makes it obvious whether the SDM is still re-asserting the fail-safe pair.
 </Tip>
 
 ## 3. Safety Core Configuration
+<a id="safety-core-configuration" />
 
 This section describes the configuration files that control safety-event
 processing and event ingestion.
 
 ### 3.1 Safety Event Integrator Configuration
+<a id="safety-event-integrator-configuration" />
 
 The Safety Event Integrator (SEI) configuration defines fusion, bypass
 routing, inter-process transport, and heartbeat fail-safe behavior. Consult
 this reference whenever you modify `nvpss.conf` or adjust fusion behavior
-for a deployment. See [/reference/sei-configuration](/reference/sei-configuration).
+for a deployment. See [SEI Configuration](/reference/sei-configuration).
 
 ### 3.2 Event Mapping Configuration
+<a id="event-mapping-configuration" />
 
 This section documents how `mdx_client` maps VSS `mdx-events` and
 `mdx-frames` messages into HOISA safety events. It includes the ATL
 reference mapping and rules for validating custom mappings. See
-[/reference/event-mapping-configuration](/reference/event-mapping-configuration).
+[Event Mapping Configuration](/reference/event-mapping-configuration).
 
 ## 4. Runtime Profile
+<a id="runtime-profile" />
 
 This section documents the measured runtime profile of Safety Core
 components on the IGX Thor (aarch64) reference platform.
@@ -1465,11 +1489,13 @@ It captures CPU, GPU and PVA utilization, memory footprint (RSS / peak RSS),
 and NVDEC load under representative workloads.
 It serves as a reference for interpreting the per-component resource
 characteristics of the Safety AI Monitor, SEI daemon, SDM, and event
-ingestion pipeline. See [/reference/runtime-profile](/reference/runtime-profile).
+ingestion pipeline. See [Runtime Profile](/reference/runtime-profile).
 
 ## 5. Halos Outside-In Safety Error Handling
+<a id="halos-outside-in-safety-error-handling" />
 
 ### 5.1 Overview
+<a id="overview" />
 
 The Safety Core framework is designed to fail safe by detecting errors, logging them, and raising software failure events (`SW_FAIL`)
 to the SEI daemon when critical components such as the event ingestion pipeline, VSS services, or the Decision control logic fail.
@@ -1477,12 +1503,14 @@ to the SEI daemon when critical components such as the event ingestion pipeline,
 This section is a reference for that designed behavior: what each component
 does when a given class of error occurs, and what it reports. It is not a
 runbook. When you are working back from an observed symptom, go to
-[Troubleshooting](/deployment#safety-core-troubleshooting), which pairs symptoms with diagnosis and
+[Deployment Guide](/deployment#safety-core-troubleshooting), which pairs symptoms with diagnosis and
 resolution steps.
 
 ### 5.2 Kafka Connectivity Errors
+<a id="kafka-connectivity-errors" />
 
 #### 5.2.1 Initialization failures
+<a id="initialization-failures" />
 
   - The event-ingestion client attempts to create each required Kafka
     consumer once during initialization.
@@ -1490,6 +1518,7 @@ resolution steps.
     sent to the SEI daemon.
 
 #### 5.2.2 Runtime receive errors
+<a id="runtime-receive-errors" />
 
   - Receive errors are logged, followed by a 100 ms sleep before the client
     continues consuming.
@@ -1497,6 +1526,7 @@ resolution steps.
     `SW_FAIL` event for this path.
 
 #### 5.2.3 Message parsing errors
+<a id="message-parsing-errors" />
 
   - Malformed protobuf messages are silently dropped.
   - Repeated failures indicate schema/version mismatch; verify compatible protobuf versions.
@@ -1506,6 +1536,7 @@ schema problem surfaces as an absence of events rather than an error. For
 the procedure that isolates that case, see **no-ba-events**.
 
 ### 5.3 VSS Service Monitoring Errors
+<a id="vss-service-monitoring-errors" />
 
 A background thread verifies required Docker services (`mdx-deepstream`, `mdx-ui`, analytics, recorders etc.,) are running.
 
@@ -1514,13 +1545,16 @@ A background thread verifies required Docker services (`mdx-deepstream`, `mdx-ui
   **no-ba-events** for the container and topic checks.
 
 ### 5.4 SEI Client and Heartbeat Errors
+<a id="sei-client-and-heartbeat-errors" />
 
 #### 5.4.1 Registration/initialization
+<a id="registration-initialization" />
 
   - Failure to register SEI client or initialize logging causes startup failure.
   - Application exits with error message; system is non-operational.
 
 #### 5.4.2 Heartbeat failures
+<a id="heartbeat-failures" />
 
   - The event-ingestion client sends a heartbeat every 5 seconds. After 10
     consecutive failures it logs `PSS heartbeat ACK failure limit reached`
@@ -1531,22 +1565,27 @@ A background thread verifies required Docker services (`mdx-deepstream`, `mdx-ui
   - Indicates unreachable SEI daemon; check daemon logs and network connectivity.
 
 ### 5.5 Decision Maker Algorithm Errors
+<a id="decision-maker-algorithm-errors" />
 
 #### 5.5.1 SDM initialization
+<a id="sdm-initialization" />
 
   - Failure to create NvPSD context or register callbacks causes exit before controlling safety function.
 
 #### 5.5.2 UDP socket and PLC communication
+<a id="udp-socket-and-plc-communication" />
 
   - Socket creation/bind failures prevent communication; check IP/port configuration and network connectivity.
   - Send failures log errors but do not automatically retry.
 
 #### 5.5.3 Acknowledgment timeouts
+<a id="acknowledgment-timeouts" />
 
   - Decision Commands not acknowledged within 3 seconds generate warning logs.
   - Indicates PLC is unreachable or unresponsive; external safety measures required.
 
 #### 5.5.4 SEI error mode
+<a id="sei-error-mode" />
 
   - When SEI daemon signals error, SDM sends SOFTWARE ERROR commands to external system.
   - Ensures safe fail-to-alarm behavior.
@@ -1555,6 +1594,7 @@ A background thread verifies required Docker services (`mdx-deepstream`, `mdx-ui
     **safe-release**.
 
 ### 5.6 Software Failure Events (SW_FAIL)
+<a id="software-failure-events-sw-fail" />
 
 Sources:
 
@@ -1571,6 +1611,7 @@ Safety implications:
 <a id="safety-core-troubleshooting" />
 
 ## 6. Troubleshooting
+<a id="troubleshooting" />
 
 Each entry below starts from an observable symptom and gives the diagnosis
 and resolution. For the designed error behavior behind these symptoms —
@@ -1580,6 +1621,7 @@ terminate a component — see Section 5.
 Common Issues and Resolutions:
 
 ### 6.1 Events not being fused
+<a id="events-not-being-fused" />
 
 Symptoms:
 
@@ -1598,6 +1640,7 @@ Solutions:
    - Increase `timeWindowSize` to 250-300ms
 
 ### 6.2 SEI Daemon fails to start when launched directly
+<a id="sei-daemon-fails-to-start-when-launched-directly" />
 
 Symptoms:
 
@@ -1643,6 +1686,8 @@ every reboot. If the SEI daemon is launched directly after a reboot,
 </Note>
 
 ### 6.3 Safety AI Monitor exits with baseline file not found
+<a id="safety-ai-monitor-exits-with-baseline-file-not-found" />
+<a id="saim-baseline-missing" />
 
 Symptoms:
 
@@ -1677,6 +1722,8 @@ Solutions:
      `active` mode.
 
 ### 6.4 VST sensor is online but RTSP playback fails
+<a id="vst-sensor-is-online-but-rtsp-playback-fails" />
+<a id="vst-rtsp-playback" />
 
 Symptoms:
 
@@ -1705,6 +1752,7 @@ Solutions:
      `active` mode.
 
 ### 6.5 Duplicate VST sensor name
+<a id="duplicate-vst-sensor-name" />
 
 Symptoms:
 
@@ -1727,6 +1775,8 @@ Solutions:
 6.6 No Behavior Analytics (BA) events on `mdx-events`
 
 ### 6.6 No Behavior Analytics (BA) events on `mdx-events`
+<a id="no-behavior-analytics-ba-events-on-mdx-events" />
+<a id="no-ba-events" />
 
 Symptoms:
 
@@ -1757,6 +1807,7 @@ Solutions:
    - Relaunch the Safety Core components after updating the mapping.
 
 ### 6.7 Safety AI Monitor exits at startup with a GPU / decoder error
+<a id="safety-ai-monitor-exits-at-startup-with-a-gpu-decoder-error" />
 
 Symptoms:
 
@@ -1785,6 +1836,7 @@ Solutions:
      `--saim-mode skip`.
 
 ### 6.8 Safety AI Monitor exits with a baseline validation error
+<a id="safety-ai-monitor-exits-with-a-baseline-validation-error" />
 
 Symptoms:
 
@@ -1809,6 +1861,7 @@ Solutions:
 6.9 A single camera stays `SENSOR_INVALID` and does not recover
 
 ### 6.9 A single camera stays `SENSOR_INVALID` and does not recover
+<a id="a-single-camera-stays-sensor-invalid-and-does-not-recover" />
 
 Symptoms:
 
@@ -1833,6 +1886,7 @@ Solutions:
      is resolved.
 
 ### 6.10 No decisions reach the command receiver in SDM-on-FSI mode
+<a id="no-decisions-reach-the-command-receiver-in-sdm-on-fsi-mode" />
 
 Symptoms:
 
@@ -1873,6 +1927,7 @@ affect the decision, its sequence number, or its acknowledgement.
 6.11 Events dropped with `Failed to process reported SafetyEvent`
 
 ### 6.11 Events dropped with `Failed to process reported SafetyEvent`
+<a id="events-dropped-with-failed-to-process-reported-safetyevent" />
 
 Symptoms:
 
@@ -1898,11 +1953,12 @@ Solutions:
    - Make the sensor configuration, the event mapping, and the perception
      stack agree on both the pipeline IDs and the sensor names. See
      [2.1.3 Create the sensor configuration file](#sensor-configuration-file) and
-     [/reference/event-mapping-configuration](/reference/event-mapping-configuration).
+     [Event Mapping Configuration](/reference/event-mapping-configuration).
    - Confirm `maxPipelines` in `nvpss.conf` covers every configured
-     pipeline ID. See [/reference/sei-configuration](/reference/sei-configuration).
+     pipeline ID. See [SEI Configuration](/reference/sei-configuration).
 
 ### 6.12 Stale SAIM baselines after the perception stack is redeployed
+<a id="stale-saim-baselines-after-the-perception-stack-is-redeployed" />
 
 Symptoms:
 

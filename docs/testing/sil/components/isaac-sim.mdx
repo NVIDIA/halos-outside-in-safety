@@ -142,7 +142,7 @@ Two fields from the Isaac Sim 5.1 schema must **not** appear: per-camera `rtsp_p
 
 ## robots.yaml
 
-Drives the forklift Action Graph builders. One block per robot — adding a robot means adding a block here, with no code change. See [action-graph](/testing/sil/components/action-graph) for what each builder produces.
+Drives the forklift Action Graph builders. One block per robot — adding a robot means adding a block here, with no code change. See [Isaac Sim Action Graphs](/testing/sil/components/action-graph) for what each builder produces.
 
 ```yaml
 robots:
@@ -180,7 +180,7 @@ The `reverse_logic` flags exist because the forklift asset's vehicle frame is op
 
 Forklift motion is driven by the **forklift-controller** service, not by a node inside the Action Graph. The controller reads a waypoint file and publishes `cmd_vel` (`geometry_msgs/Twist`); the [Forklift Control Action Graph ](/testing/sil/components/action-graph) only converts that `cmd_vel` into wheel commands.
 
-Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) below. For the controller's ROS interface, route-following behavior, and the `FORKLIFT_*` environment variables, see [forklift-controller](/testing/sil/components/forklift-controller).
+Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) below. For the controller's ROS interface, route-following behavior, and the `FORKLIFT_*` environment variables, see [Forklift Controller](/testing/sil/components/forklift-controller).
 
 <Note>
 `sil/playback/segments.json` (a list of `duration` / `linear_x` / `angular_z` steps) is left over from the pre-6.0 pipeline, where a playback script node inside the Action Graph read it directly. Nothing in the current codebase loads it.
@@ -281,7 +281,7 @@ The exported JSON is the **input format of the SIL forklift controller**:
 
 ### Using the Path in SIL
 
-`closed-loop-testing/forklift-controller/robot_controller.py` loads the file via `--path <file>.json`. The simplest route into the deployment is to replace the default `closed-loop-testing/forklift-controller/waypoints/waypoints.json` with the export; to keep it elsewhere, see the `FORKLIFT_WAYPOINTS_DIR` and `FORKLIFT_WAYPOINT_FILE` pair in [forklift-controller](/testing/sil/components/forklift-controller).
+`closed-loop-testing/forklift-controller/robot_controller.py` loads the file via `--path <file>.json`. The simplest route into the deployment is to replace the default `closed-loop-testing/forklift-controller/waypoints/waypoints.json` with the export; to keep it elsewhere, see the `FORKLIFT_WAYPOINTS_DIR` and `FORKLIFT_WAYPOINT_FILE` pair in [Forklift Controller](/testing/sil/components/forklift-controller).
 
 ### Calibration for New Scenes
 
@@ -378,7 +378,7 @@ For the full IRA schema — character and robot groups, behavior trees, camera p
 
 ## Next Steps
 
-- [action-graph](/testing/sil/components/action-graph) - Action Graph details
-- [forklift-controller](/testing/sil/components/forklift-controller) - The service that drives the forklift along a route
-- [../architecture](/testing/sil/architecture) - System architecture
-- [/testing/sil/sil-2d](/testing/sil/sil-2d) - Deployment guide
+- [Isaac Sim Action Graphs](/testing/sil/components/action-graph) - Action Graph details
+- [Forklift Controller](/testing/sil/components/forklift-controller) - The service that drives the forklift along a route
+- [SIL Architecture](/testing/sil/architecture) - System architecture
+- [SIL — 2D Perception](/testing/sil/sil-2d) - Deployment guide

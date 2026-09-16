@@ -2,14 +2,14 @@
 title: "Interpreting the Report"
 description: ""
 ---
-A single Regression Testing Reporter run produces a tree of graded reports. This page explains what each file contains, what every headline metric means, and how to drill into a failing clip. Run a test first — see [quickstart](/testing/srr/quickstart).
+A single Regression Testing Reporter run produces a tree of graded reports. This page explains what each file contains, what every headline metric means, and how to drill into a failing clip. Run a test first — see [Quick Start Guide](/testing/srr/quickstart).
 
 <Note>
 The healthy ranges below are **operational guidance** for reading a run, not acceptance criteria or benchmark results. Read metrics per class and per scenario; a single blended number can hide a real problem.
 </Note>
 
 <Note>
-**2D vs 3D runs.** Every run scores **Phase 1** (the safety decision). **Phase 2** (perception quality) is added only when the 3D Sparse4D pipeline (`mdx-bev` + `mdx-behavior`) is active — a **2D-only** run (`mdx-events` only) produces a **Phase-1-only** report and simply omits the Phase 2 section, which is expected, not a failure. The scenario you ran shapes what to expect from each metric; see [scenarios](/testing/srr/scenarios) for the test cases.
+**2D vs 3D runs.** Every run scores **Phase 1** (the safety decision). **Phase 2** (perception quality) is added only when the 3D Sparse4D pipeline (`mdx-bev` + `mdx-behavior`) is active — a **2D-only** run (`mdx-events` only) produces a **Phase-1-only** report and simply omits the Phase 2 section, which is expected, not a failure. The scenario you ran shapes what to expect from each metric; see [Test Scenarios](/testing/srr/scenarios) for the test cases.
 </Note>
 
 ## Output layout
@@ -126,7 +126,7 @@ Drill-down workflow for a FAIL clip:
 5. Cross-check the BA detection table: did perception have valid input at that
    moment?
 6. If yes → Safety Core logic; if no → perception. For scrub-synced evidence, use
-   the [debug-viewer](/testing/srr/debug-viewer).
+   the [Debug Viewer](/testing/srr/debug-viewer).
 
 ## Known signatures
 
@@ -147,7 +147,7 @@ When you see this pattern, restart the Halos compose between runs (the runner an
 
 ### Perception dead
 
-A `PERCEPTION_LIKELY_DEAD` banner in `summary.md` means perception was dead during the run, so `match%` is untrustworthy. Fix perception and re-run — see [quickstart](/testing/srr/quickstart) Troubleshooting.
+A `PERCEPTION_LIKELY_DEAD` banner in `summary.md` means perception was dead during the run, so `match%` is untrustworthy. Fix perception and re-run — see [Quick Start Guide](/testing/srr/quickstart) Troubleshooting.
 
 ## Programmatic access
 
@@ -155,5 +155,5 @@ For CI / scripts, `failures.json` gives a clean list of the FAIL (and analyze-er
 
 ## Next steps
 
-- [debug-viewer](/testing/srr/debug-viewer) — scrub-synced root-cause analysis for a failing clip.
-- [scenarios](/testing/srr/scenarios) — what each scenario was designed to stress.
+- [Debug Viewer](/testing/srr/debug-viewer) — scrub-synced root-cause analysis for a failing clip.
+- [Test Scenarios](/testing/srr/scenarios) — what each scenario was designed to stress.

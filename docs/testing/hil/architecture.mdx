@@ -24,7 +24,7 @@ Built on `nvcr.io/nvidia/isaac-sim:6.0.0` (the `ISAAC_SIM_IMAGE` value in `hil.e
 
 ### 2. Communication layer (x86)
 
-Binds UDP `12346` on `0.0.0.0` with no source-address filter and acknowledges every packet to the sender's own address, so a remote safety host needs no configuration change here. Like the OPC UA endpoint, the command port is unauthenticated: run the harness on a trusted network segment (see [/known-limitations](/known-limitations)). It republishes each decision on `/safety/command` and `/safety/is_muted`, and serves OPC UA at `opc.tcp://0.0.0.0:4840/safety/`. That endpoint doubles as the container healthcheck, and `isaac-sim` waits on it through `depends_on: service_healthy` — an unhealthy communication layer stops Isaac Sim from starting at all.
+Binds UDP `12346` on `0.0.0.0` with no source-address filter and acknowledges every packet to the sender's own address, so a remote safety host needs no configuration change here. Like the OPC UA endpoint, the command port is unauthenticated: run the harness on a trusted network segment (see [Known Limitations](/known-limitations)). It republishes each decision on `/safety/command` and `/safety/is_muted`, and serves OPC UA at `opc.tcp://0.0.0.0:4840/safety/`. That endpoint doubles as the container healthcheck, and `isaac-sim` waits on it through `depends_on: service_healthy` — an unhealthy communication layer stops Isaac Sim from starting at all.
 
 ### 3. Forklift controller (x86)
 
@@ -36,7 +36,7 @@ VST is the RTSP **client**: it pulls the three x86 mounts and re-serves each one
 
 ### 5. Safety Core (IGX Thor)
 
-The `nv-psf` container plus a host-side Safety Decision Maker (SDM) binary, started by the launch script installed by the Thor package rather than by Docker Compose. The NvPSD Gateway and the SDM exchange over UDP on `127.0.0.1:50000`, with the SDM re-registering roughly every 30 seconds; see [/integration/index](/integration) for the gateway protocol. The target is selected by `SDM_TARGET`, and the profile ships `ccplex`: the SDM runs as a host process (`atl_sdm`) on the Thor application cores. Running it on the Functional Safety Island instead needs gated-access packages and is described in [SDM on FSI](/deployment#sdm-on-fsi) in the [Deployment Guide ](/deployment).
+The `nv-psf` container plus a host-side Safety Decision Maker (SDM) binary, started by the launch script installed by the Thor package rather than by Docker Compose. The NvPSD Gateway and the SDM exchange over UDP on `127.0.0.1:50000`, with the SDM re-registering roughly every 30 seconds; see [Integration Guide](/integration) for the gateway protocol. The target is selected by `SDM_TARGET`, and the profile ships `ccplex`: the SDM runs as a host process (`atl_sdm`) on the Thor application cores. Running it on the Functional Safety Island instead needs gated-access packages and is described in [SDM on FSI](/deployment#sdm-on-fsi) in the [Deployment Guide ](/deployment).
 
 ## Data flow
 
@@ -59,7 +59,7 @@ Two flows carry the safety loop across the host boundary; everything else in the
 | `22` | SSH over TCP | IGX Thor | x86 host, for the preflight check and safety-host commands | — |
 | `123` | NTP over UDP | External time source | Both hosts, outbound | — |
 
-The safety host pulls over TCP only when `rtsp_streaming_over_tcp: true` is set on its VST configuration; over UDP the sensors report `online` and no media arrives ([quickstart](/testing/hil/quickstart)).
+The safety host pulls over TCP only when `rtsp_streaming_over_tcp: true` is set on its VST configuration; over UDP the sensors report `online` and no media arrives ([Deploy the HIL Closed Loop](/testing/hil/quickstart)).
 
 The acknowledgment travels back on the flow the SDM already established, so the IGX Thor needs no inbound rule for `12346`. Firewall rules required: Thor to x86, TCP `8554`-`8556` and UDP `12346`; x86 to Thor, TCP `30888`, `9000` (optional), and `22`; both hosts outbound to NTP on UDP `123`.
 
@@ -69,7 +69,7 @@ ROS 2 and its DDS discovery never cross the host boundary — all three ROS part
 
 ## Safety command packet
 
-The command and its acknowledgment are both 64 bytes: the magic identifier `0xA2`, a `uint16` sequence number, the opcode, a UTC seconds and microseconds timestamp, a CRC-32 computed over bytes 0-19 and 24-63, and two 20-byte object records. For the byte-by-byte layout, see [/deployment/index](/deployment).
+The command and its acknowledgment are both 64 bytes: the magic identifier `0xA2`, a `uint16` sequence number, the opcode, a UTC seconds and microseconds timestamp, a CRC-32 computed over bytes 0-19 and 24-63, and two 20-byte object records. For the byte-by-byte layout, see [Deployment Guide](/deployment).
 
 The communication layer echoes the full packet back to the sender with a fresh timestamp and a recomputed CRC. The SDM warns when a packet has gone unacknowledged for more than three seconds, and does not retry. Occasional sequence-number gaps are benign, because the decision state is re-emitted idempotently; sustained loss is not.
 
@@ -120,7 +120,7 @@ Three values must mirror each other across the two files. When they do not, the 
 - `psf.log` — fusion, and the `DecisionRequest` lines that show perception is feeding events.
 - `atl_sdm.log` — decisions sent and acknowledgments received, paired by sequence number.
 
-For the full safety-host log set, see [Logs](/deployment#safety-core-logs) in the
+For the full safety-host log set, see [Deployment Guide](/deployment#safety-core-logs) in the
 [Deployment Guide ](/deployment).
 
 With the SDM on the safety island, its internal state and logs are not reachable from the host and its packets carry an epoch-zero timestamp. The communication layer log is then the only postmortem record of the decision stream, and latency must be computed receive-side.
@@ -163,6 +163,6 @@ The Safety Core is wall-clock only in HIL and in production alike. A simulated c
 
 ## Next Steps
 
-- [quickstart](/testing/hil/quickstart) — Bring the two-host closed loop up
-- [/testing/sil/architecture](/testing/sil/architecture) — The single-host architecture this one splits
-- [/deployment/index](/deployment) — Safety Core installation, options, and troubleshooting in full
+- [Deploy the HIL Closed Loop](/testing/hil/quickstart) — Bring the two-host closed loop up
+- [SIL Architecture](/testing/sil/architecture) — The single-host architecture this one splits
+- [Deployment Guide](/deployment) — Safety Core installation, options, and troubleshooting in full
