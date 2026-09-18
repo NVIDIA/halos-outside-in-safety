@@ -14,6 +14,10 @@
 # limitations under the License.
 
 # Validates Fern docs configuration on pull requests that touch docs or fern/.
+#
+# Requires the DOCS_FERN_TOKEN repo secret (from `fern token` for the nvidia
+# Fern org). Without it, `fern check` skips the authenticated missing-redirects
+# check.
 
 name: Fern Docs CI
 
@@ -115,6 +119,8 @@ jobs:
           fi
 
       - name: Fern check
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check
         run: fern check
 
       - name: Check MDX validity
