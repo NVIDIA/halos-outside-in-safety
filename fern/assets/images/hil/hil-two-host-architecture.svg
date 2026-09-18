@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1240" viewBox="0 0 2200 1240">
+  <!-- HIL two-host architecture. House style: NVIDIA blueprint diagram.
+       Grid: 8px. Margin 64. Containers 800 wide, gap 472. -->
+  <defs>
+    <style type="text/css"><![CDATA[
+      .sans  { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .mono  { font-family: Menlo, "DejaVu Sans Mono", "Courier New", monospace; }
+      .htitle{ font-size: 36px; font-weight: 700; fill: #1A1A1A; letter-spacing: 0.2px; }
+      .ctitle{ font-size: 28px; font-weight: 700; fill: #1A1A1A; }
+      .stitle{ font-size: 25px; font-weight: 700; fill: #1A1A1A; }
+      .detail{ font-size: 21px; fill: #3C3C3C; }
+      .note  { font-size: 21px; fill: #6A6A6A; }
+      .badge { font-size: 27px; font-weight: 700; fill: #FFFFFF; }
+      .hwbar { font-size: 26px; font-weight: 700; fill: #FFFFFF; letter-spacing: 0.4px; }
+      .flow  { font-size: 25px; font-weight: 700; fill: #1A1A1A; }
+      .flowd { font-size: 21px; fill: #3C3C3C; }
+      .open  { font-size: 20px; font-weight: 700; fill: #5C8A00; }
+      .small { font-size: 19px; fill: #6A6A6A; }
+      .lgtitle{ font-size: 24px; font-weight: 700; fill: #1A1A1A; }
+      .lgtext{ font-size: 21px; fill: #2B2B2B; }
+    ]]></style>
+    <marker id="arrowSolid" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="22"
+            refX="24" refY="11" orient="auto">
+      <path d="M0,0 L26,11 L0,22 z" fill="#111111"/>
+    </marker>
+    <marker id="arrowDash" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="22"
+            refX="24" refY="11" orient="auto">
+      <path d="M0,0 L26,11 L0,22 z" fill="#111111"/>
+    </marker>
+    <marker id="arrowMini" markerUnits="userSpaceOnUse" markerWidth="20" markerHeight="17"
+            refX="19" refY="8.5" orient="auto">
+      <path d="M0,0 L20,8.5 L0,17 z" fill="#111111"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="2200" height="1240" fill="#FFFFFF"/>
+
+  <!-- ================= LEFT CONTAINER : x86 stimulus host ================= -->
+  <rect x="64" y="88" width="800" height="905" rx="18" fill="#F4F4F4" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans htitle" x="96" y="150">x86 stimulus host</text>
+
+  <!-- 1 isaac-sim -->
+  <rect x="96" y="200" width="736" height="230" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="116" y="222" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="140" y="255" text-anchor="middle">1</text>
+  <text class="sans ctitle" x="184" y="258">isaac-sim</text>
+  <text class="mono detail" x="184" y="302">RTSP   :8554   :8555   :8556</text>
+  <text class="mono detail" x="184" y="344">/odom   /clock   /cmd_vel</text>
+  <text class="sans note"   x="184" y="386">warehouse scene, one RTSP server per camera</text>
+
+  <!-- 2 comm-layer -->
+  <rect x="96" y="470" width="736" height="225" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="116" y="492" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="140" y="525" text-anchor="middle">2</text>
+  <text class="sans ctitle" x="184" y="528">comm-layer</text>
+  <text class="mono detail" x="184" y="572">UDP   :12346</text>
+  <text class="mono detail" x="184" y="614">OPC UA   :4840</text>
+  <text class="mono detail" x="184" y="656">/safety/is_muted</text>
+
+  <!-- 3 forklift-controller -->
+  <rect x="96" y="735" width="736" height="140" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="116" y="757" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="140" y="790" text-anchor="middle">3</text>
+  <text class="sans ctitle" x="184" y="793">forklift-controller</text>
+  <text class="mono detail" x="184" y="837">/odom  &#8594;  /cmd_vel</text>
+
+  <rect x="96" y="905" width="736" height="56" rx="8" fill="#76B900"/>
+  <text class="sans hwbar" x="464" y="942" text-anchor="middle">x86 Host</text>
+
+  <!-- ================= RIGHT CONTAINER : IGX Thor safety host ================= -->
+  <rect x="1336" y="88" width="800" height="905" rx="18" fill="#F4F4F4" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans htitle" x="1368" y="150">IGX Thor safety host</text>
+
+  <!-- 4 VST / DeepStream / Behavior Analytics / Kafka -->
+  <rect x="1368" y="200" width="736" height="340" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="1388" y="222" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="1412" y="255" text-anchor="middle">4</text>
+  <text class="sans ctitle" x="1456" y="258">VST</text>
+  <text class="sans small" x="2084" y="256" text-anchor="end">VSS Warehouse perception</text>
+  <text class="mono detail" x="1488" y="304">re-serve   :30554-30556</text>
+  <text class="sans stitle" x="1456" y="360">DeepStream</text>
+  <text class="sans detail" x="1488" y="404">Behavior Analytics</text>
+  <text class="sans stitle" x="1456" y="458">Kafka</text>
+  <text class="mono detail" x="1488" y="500">:9092   mdx-events</text>
+
+  <!-- 5 nv-psf + SDM -->
+  <rect x="1368" y="580" width="736" height="270" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="1388" y="602" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="1412" y="635" text-anchor="middle">5</text>
+  <text class="sans ctitle" x="1456" y="638">nv-psf  +  SDM</text>
+  <text class="sans small" x="2084" y="636" text-anchor="end">Safety Core</text>
+  <text class="mono detail" x="1456" y="686">gateway   :50000</text>
+  <text class="mono detail" x="1456" y="728">SDM_TARGET   ccplex</text>
+  <text class="sans note"   x="1456" y="772">event fusion and safety decision</text>
+  <text class="sans note"   x="1456" y="814">SDM on the Thor application cores</text>
+
+  <rect x="1368" y="905" width="736" height="56" rx="8" fill="#76B900"/>
+  <text class="sans hwbar" x="1736" y="942" text-anchor="middle">IGX Thor</text>
+
+  <!-- ================= CROSS-HOST FLOWS ================= -->
+  <!-- A: camera video, x86 -> IGX Thor (solid) -->
+  <text class="sans flow"  x="1100" y="286" text-anchor="middle">Camera video</text>
+  <line x1="864" y1="315" x2="1326" y2="315" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <text class="mono flowd" x="1100" y="352" text-anchor="middle">RTSP over TCP</text>
+  <text class="sans open"  x="1100" y="384" text-anchor="middle">connection opened by IGX Thor</text>
+
+  <!-- B: 64-byte safety command, IGX Thor -> x86 (dashed) -->
+  <text class="sans flow"  x="1100" y="618" text-anchor="middle">64-byte safety command</text>
+  <line x1="1336" y1="650" x2="874" y2="650" stroke="#111111" stroke-width="6"
+        stroke-dasharray="20 14" marker-end="url(#arrowDash)"/>
+  <text class="mono flowd" x="1100" y="688" text-anchor="middle">UDP   :12346</text>
+  <text class="sans open"  x="1100" y="720" text-anchor="middle">connection opened by IGX Thor</text>
+  <text class="sans small" x="1100" y="752" text-anchor="middle">acknowledgment returns on the same flow</text>
+
+  <!-- ================= LEGEND ================= -->
+  <rect x="64" y="1030" width="2072" height="170" rx="14" fill="#F7F7F7" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans lgtitle" x="104" y="1076">Cross-host flows</text>
+
+  <line x1="104" y1="1116" x2="216" y2="1116" stroke="#111111" stroke-width="6" marker-end="url(#arrowMini)"/>
+  <text class="sans lgtext" x="248" y="1124">Camera video, x86 to IGX Thor. The IGX Thor opens the connection: VST is the RTSP client and pulls each mount.</text>
+
+  <line x1="216" y1="1164" x2="104" y2="1164" stroke="#111111" stroke-width="6" stroke-dasharray="20 14" marker-end="url(#arrowMini)"/>
+  <text class="sans lgtext" x="248" y="1172">64-byte safety command, IGX Thor to x86. The IGX Thor opens the connection; the acknowledgment returns on the same flow.</text>
+</svg>

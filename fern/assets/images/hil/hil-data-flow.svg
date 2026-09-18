@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="2244" viewBox="0 0 2200 2244">
+  <!-- HIL data flow, hop by hop, drawn as one closed loop.
+       House style: NVIDIA blueprint diagram (see diagram-drafts/v4-svg-house-style).
+       Grid 8px. Canvas margin 64. Two card columns:
+         col A  x=110  w=760  (centre 490)   stimulus path, top to bottom
+         col B  x=1330 w=760  (centre 1710)  decision path, bottom to top
+         gutter 870..1330
+       Host zones: x86 container y=80..438, IGX Thor container y=534..1852.
+       The green dashed line at y=486 is the host boundary; a green ring marks
+       every arrow that crosses it. -->
+  <defs>
+    <style type="text/css"><![CDATA[
+      .sans  { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .mono  { font-family: Menlo, "DejaVu Sans Mono", "Courier New", monospace; }
+      .htitle{ font-size: 36px; font-weight: 700; fill: #1A1A1A; letter-spacing: 0.2px; }
+      .ctitle{ font-size: 28px; font-weight: 700; fill: #1A1A1A; }
+      .detail{ font-size: 21px; fill: #3C3C3C; }
+      .note  { font-size: 21px; fill: #6A6A6A; }
+      .badge { font-size: 27px; font-weight: 700; fill: #FFFFFF; }
+      .hwbar { font-size: 24px; font-weight: 700; fill: #FFFFFF; letter-spacing: 0.4px; }
+      .pill  { font-size: 20px; fill: #3C3C3C; }
+      .chip  { font-size: 20px; fill: #1A1A1A; }
+      .chipn { font-size: 20px; fill: #4A4A4A; }
+      .ptitle{ font-size: 28px; font-weight: 700; fill: #1A1A1A; }
+      .bound { font-size: 22px; font-weight: 700; fill: #5C8A00; letter-spacing: 0.3px; }
+      .lgtitle{ font-size: 24px; font-weight: 700; fill: #1A1A1A; }
+      .ntitle{ font-size: 24px; font-weight: 700; fill: #5C8A00; }
+      .lgtext{ font-size: 21px; fill: #2B2B2B; }
+    ]]></style>
+    <marker id="arrowSolid" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="22"
+            refX="24" refY="11" orient="auto">
+      <path d="M0,0 L26,11 L0,22 z" fill="#111111"/>
+    </marker>
+    <marker id="arrowDash" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="22"
+            refX="24" refY="11" orient="auto">
+      <path d="M0,0 L26,11 L0,22 z" fill="#111111"/>
+    </marker>
+    <marker id="arrowMini" markerUnits="userSpaceOnUse" markerWidth="20" markerHeight="17"
+            refX="19" refY="8.5" orient="auto">
+      <path d="M0,0 L20,8.5 L0,17 z" fill="#111111"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="2200" height="2244" fill="#FFFFFF"/>
+
+  <!-- =========================== HOST ZONE : x86 =========================== -->
+  <rect x="64" y="80" width="2072" height="358" rx="18" fill="#F4F4F4" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans htitle" x="96" y="138">Stimulus host</text>
+  <rect x="96" y="154" width="240" height="52" rx="8" fill="#76B900"/>
+  <text class="sans hwbar" x="216" y="189" text-anchor="middle">x86 Host</text>
+
+  <!-- card 1 : isaac-sim -->
+  <rect x="110" y="236" width="760" height="170" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="132" y="254" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="156" y="287" text-anchor="middle">1</text>
+  <text class="sans ctitle" x="200" y="292">isaac-sim</text>
+  <rect x="764" y="256" width="84" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="806" y="286" text-anchor="middle">x86</text>
+  <text class="mono detail" x="200" y="340">RTSP servers</text>
+  <text class="sans note"   x="200" y="378">safety indicator follows the state</text>
+
+  <!-- card 8 : comm-layer -->
+  <rect x="1330" y="236" width="760" height="170" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="1352" y="254" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="1376" y="287" text-anchor="middle">8</text>
+  <text class="sans ctitle" x="1420" y="292">comm-layer</text>
+  <rect x="1984" y="256" width="84" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="2026" y="286" text-anchor="middle">x86</text>
+  <text class="sans detail" x="1420" y="340">acknowledges the 64-byte command</text>
+  <text class="sans note"   x="1420" y="378">republishes the state to isaac-sim</text>
+
+  <!-- ===================== HOST BOUNDARY ===================== -->
+  <line x1="64" y1="486" x2="2136" y2="486" stroke="#76B900" stroke-width="4" stroke-dasharray="20 14"/>
+  <text class="sans bound" x="1100" y="468" text-anchor="middle">host boundary</text>
+
+  <!-- =========================== HOST ZONE : IGX Thor =========================== -->
+  <rect x="64" y="534" width="2072" height="1318" rx="18" fill="#F4F4F4" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans htitle" x="96" y="592">Safety host</text>
+  <rect x="96" y="606" width="240" height="52" rx="8" fill="#76B900"/>
+  <text class="sans hwbar" x="216" y="641" text-anchor="middle">IGX Thor</text>
+
+  <!-- card 2 : VST pull -->
+  <rect x="110" y="690" width="760" height="130" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="132" y="708" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="156" y="741" text-anchor="middle">2</text>
+  <text class="sans ctitle" x="200" y="744">VST</text>
+  <rect x="708" y="710" width="140" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="778" y="740" text-anchor="middle">IGX Thor</text>
+  <text class="sans detail" x="200" y="790">pulls each mount</text>
+
+  <!-- card 3 : VST re-serve -->
+  <rect x="110" y="940" width="760" height="130" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="132" y="958" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="156" y="991" text-anchor="middle">3</text>
+  <text class="sans ctitle" x="200" y="994">VST</text>
+  <rect x="708" y="960" width="140" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="778" y="990" text-anchor="middle">IGX Thor</text>
+  <text class="mono detail" x="200" y="1040">re-serves /live/&lt;UUID&gt;</text>
+
+  <!-- card 4 : DeepStream -->
+  <rect x="110" y="1190" width="760" height="130" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="132" y="1208" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="156" y="1241" text-anchor="middle">4</text>
+  <text class="sans ctitle" x="200" y="1244">DeepStream</text>
+  <rect x="708" y="1210" width="140" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="778" y="1240" text-anchor="middle">IGX Thor</text>
+  <text class="sans detail" x="200" y="1290">perception</text>
+
+  <!-- card 5 : Behavior Analytics (single line, vertically centred) -->
+  <rect x="110" y="1440" width="760" height="130" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="132" y="1481" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="156" y="1514" text-anchor="middle">5</text>
+  <text class="sans ctitle" x="200" y="1517">Behavior Analytics</text>
+  <rect x="708" y="1483" width="140" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="778" y="1513" text-anchor="middle">IGX Thor</text>
+
+  <!-- card 6 : nv-psf -->
+  <rect x="110" y="1690" width="760" height="130" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="132" y="1708" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="156" y="1741" text-anchor="middle">6</text>
+  <text class="sans ctitle" x="200" y="1744">nv-psf</text>
+  <rect x="708" y="1710" width="140" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="778" y="1740" text-anchor="middle">IGX Thor</text>
+  <text class="sans detail" x="200" y="1790">event integrator, fusion</text>
+
+  <!-- card 7 : NvPSD Gateway -> SDM -->
+  <rect x="1330" y="1690" width="760" height="130" rx="12" fill="#FFFFFF" stroke="#D2D2D2" stroke-width="2"/>
+  <rect x="1352" y="1708" width="48" height="48" rx="10" fill="#76B900"/>
+  <text class="sans badge" x="1376" y="1741" text-anchor="middle">7</text>
+  <text class="sans ctitle" x="1420" y="1744">NvPSD Gateway &#8594; SDM</text>
+  <rect x="1928" y="1710" width="140" height="44" rx="10" fill="#F2F2F2" stroke="#DADADA" stroke-width="2"/>
+  <text class="mono pill" x="1998" y="1740" text-anchor="middle">IGX Thor</text>
+  <text class="sans note" x="1420" y="1790">the decision path starts at SDM</text>
+
+  <!-- =========================== LOOP ARROWS =========================== -->
+
+  <!-- hop 1 : isaac-sim -> VST, crosses the boundary -->
+  <line x1="490" y1="406" x2="490" y2="600" stroke="#111111" stroke-width="6"/>
+  <line x1="490" y1="640" x2="490" y2="690" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="392" y="600" width="196" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip" x="490" y="627" text-anchor="middle">RTSP over TCP</text>
+
+  <!-- hop 2 : VST pull -> VST re-serve -->
+  <line x1="490" y1="820" x2="490" y2="860" stroke="#111111" stroke-width="6"/>
+  <line x1="490" y1="900" x2="490" y2="940" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="446" y="860" width="88" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip" x="490" y="887" text-anchor="middle">RTSP</text>
+
+  <!-- hop 3 : VST re-serve -> DeepStream -->
+  <line x1="490" y1="1070" x2="490" y2="1110" stroke="#111111" stroke-width="6"/>
+  <line x1="490" y1="1150" x2="490" y2="1190" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="446" y="1110" width="88" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip" x="490" y="1137" text-anchor="middle">RTSP</text>
+
+  <!-- hop 4 : DeepStream -> Behavior Analytics -->
+  <line x1="490" y1="1320" x2="490" y2="1360" stroke="#111111" stroke-width="6"/>
+  <line x1="490" y1="1400" x2="490" y2="1440" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="412" y="1360" width="156" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip" x="490" y="1387" text-anchor="middle">in-process</text>
+
+  <!-- hop 5 : Behavior Analytics -> nv-psf -->
+  <line x1="490" y1="1570" x2="490" y2="1610" stroke="#111111" stroke-width="6"/>
+  <line x1="490" y1="1650" x2="490" y2="1690" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="374" y="1610" width="232" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip" x="490" y="1637" text-anchor="middle">Kafka mdx-events</text>
+
+  <!-- hop 6 : nv-psf -> NvPSD Gateway, the turn at the bottom of the loop -->
+  <line x1="870" y1="1755" x2="966" y2="1755" stroke="#111111" stroke-width="6"/>
+  <line x1="1234" y1="1755" x2="1330" y2="1755" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="966" y="1735" width="268" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip" x="1100" y="1762" text-anchor="middle">UDP 127.0.0.1:50000</text>
+
+  <!-- hop 7 : SDM -> comm-layer, crosses the boundary -->
+  <line x1="1430" y1="1690" x2="1430" y2="1048" stroke="#111111" stroke-width="6"/>
+  <line x1="1430" y1="972" x2="1430" y2="406" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="1335" y="972" width="190" height="76" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip"  x="1430" y="1004" text-anchor="middle">UDP 12346</text>
+  <text class="sans chipn" x="1430" y="1036" text-anchor="middle">64-byte command</text>
+
+  <!-- hop 8 : comm-layer -> SDM acknowledgment, crosses the boundary -->
+  <line x1="1990" y1="406" x2="1990" y2="1212" stroke="#111111" stroke-width="6" stroke-dasharray="20 14"/>
+  <line x1="1990" y1="1288" x2="1990" y2="1690" stroke="#111111" stroke-width="6"
+        stroke-dasharray="20 14" marker-end="url(#arrowDash)"/>
+  <rect x="1915" y="1212" width="150" height="76" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chip"  x="1990" y="1244" text-anchor="middle">UDP reply</text>
+  <text class="sans chipn" x="1990" y="1276" text-anchor="middle">64-byte ack</text>
+
+  <!-- hop 9 : comm-layer -> isaac-sim, host-local, closes the loop -->
+  <line x1="1330" y1="321" x2="1215" y2="321" stroke="#111111" stroke-width="6"/>
+  <line x1="985" y1="321" x2="870" y2="321" stroke="#111111" stroke-width="6" marker-end="url(#arrowSolid)"/>
+  <rect x="985" y="283" width="230" height="76" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="sans chip" x="1100" y="315" text-anchor="middle">ROS 2</text>
+  <text class="mono chipn" x="1100" y="347" text-anchor="middle">/safety/is_muted</text>
+
+  <!-- boundary crossings : one ring per arrow that leaves its host -->
+  <circle cx="490"  cy="486" r="17" fill="none" stroke="#76B900" stroke-width="5"/>
+  <circle cx="1430" cy="486" r="17" fill="none" stroke="#76B900" stroke-width="5"/>
+  <circle cx="1990" cy="486" r="17" fill="none" stroke="#76B900" stroke-width="5"/>
+
+  <!-- =========================== PATH LABELS =========================== -->
+  <rect x="886" y="828" width="6" height="104" rx="3" fill="#76B900"/>
+  <text class="sans ptitle" x="912" y="860">Stimulus path</text>
+  <text class="sans note"   x="912" y="898">the rendered scene to a</text>
+  <text class="sans note"   x="912" y="926">validated safety event</text>
+
+  <rect x="1486" y="828" width="6" height="104" rx="3" fill="#76B900"/>
+  <text class="sans ptitle" x="1512" y="860">Decision path</text>
+  <text class="sans note"   x="1512" y="898">the decision back to</text>
+  <text class="sans note"   x="1512" y="926">the simulated scene</text>
+
+  <!-- annotation : hop tally, sits inside the return lane, between the two arrows -->
+  <rect x="1480" y="1360" width="460" height="190" rx="12" fill="#FFFFFF" stroke="#C9C9C9"
+        stroke-width="2" stroke-dasharray="8 6"/>
+  <text class="sans ntitle" x="1512" y="1406">Hop tally</text>
+  <text class="sans detail" x="1512" y="1450">9 hops close the loop</text>
+  <text class="sans detail" x="1512" y="1488">6 stay inside one host</text>
+  <text class="sans detail" x="1512" y="1526">3 cross the boundary, on 2 flows</text>
+
+  <!-- =========================== LEGEND =========================== -->
+  <rect x="64" y="1900" width="2072" height="280" rx="14" fill="#F7F7F7" stroke="#DEDEDE" stroke-width="2"/>
+  <text class="sans lgtitle" x="104" y="1946">How to read the loop</text>
+
+  <line x1="104" y1="1996" x2="216" y2="1996" stroke="#111111" stroke-width="6" marker-end="url(#arrowMini)"/>
+  <text class="sans lgtext" x="248" y="2004">Primary flow. The stimulus path runs down the left column; the decision path runs up the right column and closes the loop on isaac-sim.</text>
+
+  <line x1="104" y1="2044" x2="216" y2="2044" stroke="#111111" stroke-width="6" stroke-dasharray="20 14" marker-end="url(#arrowMini)"/>
+  <text class="sans lgtext" x="248" y="2052">Acknowledgment. The 64-byte ack returns to SDM on the same UDP flow that carried the command.</text>
+
+  <rect x="104" y="2072" width="112" height="40" rx="10" fill="#FFFFFF" stroke="#C8C8C8" stroke-width="2"/>
+  <text class="mono chipn" x="160" y="2099" text-anchor="middle">UDP</text>
+  <text class="sans lgtext" x="248" y="2100">Transport of the hop. Every arrow carries the transport that moves the data, and the payload where the source names one.</text>
+
+  <line x1="104" y1="2140" x2="216" y2="2140" stroke="#111111" stroke-width="6"/>
+  <circle cx="160" cy="2140" r="17" fill="none" stroke="#76B900" stroke-width="5"/>
+  <text class="sans lgtext" x="248" y="2148">Host boundary crossing. Only two flows leave a host: <tspan class="mono">RTSP over TCP</tspan> and <tspan class="mono">UDP 12346</tspan>, whose ack rides the same flow. Every other hop is host-local.</text>
+</svg>
