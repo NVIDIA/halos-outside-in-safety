@@ -4,9 +4,9 @@
 # VST Sensor Manager - Python wrapper for VST Sensor Management API
 #
 # This module provides functions to manage sensors in VST (Video Storage Toolkit)
-# for use with Isaac Sim 6.0 Actor SDG RTSP streaming.
+# for use with Isaac Sim 6.1 Actor SDG RTSP streaming.
 #
-# Schema requirement: cameras.yaml v6.0 (per-camera port + mount_path).
+# Schema requirement: cameras.yaml v6.1 (per-camera port + mount_path).
 # Legacy 5.1 schema (rtsp_path + global rtsp.port) is REJECTED with a
 # migration hint.
 #
@@ -15,7 +15,7 @@
 #
 #   vst = VSTSensorManager(base_url="http://10.0.0.1:30888/vst/api")
 #   vst.delete_all_sensors()
-#   # 6.0 URL form: rtsp://<host>:<per-cam-port><per-cam-mount-path>
+#   # 6.1 URL form: rtsp://<host>:<per-cam-port><per-cam-mount-path>
 #   vst.add_sensor(url="rtsp://10.0.0.1:8554/camera", name="Camera")
 
 import os
@@ -440,7 +440,7 @@ class VSTSensorManager:
         return deleted
 
     # ------------------------------------------------------------------
-    # cameras.yaml 6.0 schema parsing — REWRITTEN for Isaac Sim 6.0
+    # cameras.yaml 6.1 schema parsing — REWRITTEN for Isaac Sim 6.1
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -449,7 +449,7 @@ class VSTSensorManager:
         Detect Isaac Sim 5.1 cameras.yaml schema and return a migration hint.
 
         Triggers on either:
-          - Top-level `rtsp.port` present (mediamtx broker — dropped in 6.0).
+          - Top-level `rtsp.port` present (mediamtx broker — dropped in 6.1).
           - Any camera entry carrying `rtsp_path` (legacy RTSPWriter mount).
 
         Returns:
@@ -482,7 +482,7 @@ class VSTSensorManager:
         return (
             "5.1 schema detected: "
             + " AND ".join(legacy_signals)
-            + ". This script requires the Isaac Sim 6.0 cameras.yaml schema "
+            + ". This script requires the Isaac Sim 6.1 cameras.yaml schema "
               "(per-camera `port` + `mount_path`, no global `rtsp.port`, no "
               "`rtsp_path`)."
         )
@@ -490,7 +490,7 @@ class VSTSensorManager:
     @staticmethod
     def _validate_camera_config(camera: Dict[str, Any], idx: int) -> Optional[str]:
         """
-        Validate one camera entry against the 6.0 schema.
+        Validate one camera entry against the 6.1 schema.
 
         Required fields:
           - name        : non-empty string
@@ -517,7 +517,7 @@ class VSTSensorManager:
         # port
         port = camera.get("port")
         if port is None:
-            return f"camera #{idx} ({label}): `port` is required (Isaac Sim 6.0 in-process RTSP server port)"
+            return f"camera #{idx} ({label}): `port` is required (Isaac Sim 6.1 in-process RTSP server port)"
         if not isinstance(port, int) or isinstance(port, bool):
             return f"camera #{idx} ({label}): `port` must be int, got {type(port).__name__} ({port!r})"
         if port < 1024 or port > 65535:
@@ -554,9 +554,9 @@ class VSTSensorManager:
         host_ip: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Add sensors from an Isaac Sim 6.0 cameras.yaml config file.
+        Add sensors from an Isaac Sim 6.1 cameras.yaml config file.
 
-        Schema (6.0 only — NO 5.1 backward compat):
+        Schema (6.1 only — NO 5.1 backward compat):
 
             cameras:
               - name: Camera
@@ -678,13 +678,13 @@ class VSTSensorManager:
             port = camera["port"]
             mount_path = camera["mount_path"]
 
-            # Duplicate-port / duplicate-mount detection: in Isaac Sim 6.0 each
+            # Duplicate-port / duplicate-mount detection: in Isaac Sim 6.1 each
             # camera spawns its own in-process RTSP server, so a port collision
             # means one camera will silently lose its stream.
             if port in seen_ports:
                 err = (
                     f"camera #{idx} ({name}): port {port} already claimed by "
-                    f"{seen_ports[port]!r} — each Isaac Sim 6.0 camera needs a unique port"
+                    f"{seen_ports[port]!r} — each Isaac Sim 6.1 camera needs a unique port"
                 )
                 logger.error(err)
                 result["errors"].append(err)
@@ -699,7 +699,7 @@ class VSTSensorManager:
             seen_ports[port] = name
             seen_mounts.setdefault(mount_path, name)
 
-            # 6.0 URL build: rtsp://{rtsp.host}:{cam.port}{cam.mount_path}
+            # 6.1 URL build: rtsp://{rtsp.host}:{cam.port}{cam.mount_path}
             # Note: no "/" between port and mount_path — mount_path already has it.
             rtsp_url = f"rtsp://{rtsp_host}:{port}{mount_path}"
 
@@ -724,12 +724,12 @@ def main():
     import argparse
     import sys
 
-    parser = argparse.ArgumentParser(description="VST Sensor Manager CLI (Isaac Sim 6.0 schema)")
+    parser = argparse.ArgumentParser(description="VST Sensor Manager CLI (Isaac Sim 6.1 schema)")
     parser.add_argument("--base-url", help="VST API base URL")
     parser.add_argument("--list", action="store_true", help="List all sensors")
     parser.add_argument("--delete-all", action="store_true", help="Delete all sensors")
     parser.add_argument("--add-url", help="Add sensor by RTSP URL")
-    parser.add_argument("--add-from-config", help="Add sensors from cameras.yaml (6.0 schema)")
+    parser.add_argument("--add-from-config", help="Add sensors from cameras.yaml (6.1 schema)")
     parser.add_argument("--host-ip", help="Host IP for RTSP URLs (overrides HOST_IP / rtsp.host)")
     parser.add_argument("--name", help="Sensor name (for --add-url)")
 

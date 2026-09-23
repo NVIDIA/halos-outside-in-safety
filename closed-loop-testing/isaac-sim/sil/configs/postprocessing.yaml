@@ -109,7 +109,7 @@ presets:
       tv_noise.scanlines.spread: 1.0
 
   # CRT/analog artefacts: the five sub-effects of the tvNoise pass that are not
-  # grain and not scanlines. Every one of them renders on Isaac Sim 6.0.0.
+  # grain and not scanlines. Every one of them renders on Isaac Sim 6.1.0.
   #
   # READ THIS BEFORE CONCLUDING ONE IS BROKEN. Two of them fire on a fraction of
   # frames, not continuously: the vertical roll on roughly a quarter of frames

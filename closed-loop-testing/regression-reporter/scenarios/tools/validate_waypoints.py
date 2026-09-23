@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """
-Validate that every MoveTo waypoint in the IRA 1.6 behavior trees falls inside
+Validate that every MoveTo waypoint in the IRA 1.7 behavior trees falls inside
 the baked NavMesh. Run on host (stdlib only) AFTER export_navmesh.py has been
 run inside Isaac Sim.
 

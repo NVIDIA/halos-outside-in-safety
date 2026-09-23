@@ -17,7 +17,7 @@ If user did not specify, **ask which scenarios** before proceeding (do NOT defau
 
 ## 5 available scenarios
 
-| Name | RECORD_S | Behavior trees (IRA 1.6) |
+| Name | RECORD_S | Behavior trees (IRA 1.7) |
 |---|---:|---|
 | `in-roi`    |  300 | `srr_in-roi_char{0,1,2}.bt.json` |
 | `psf-edge`  |  300 | `srr_psf-edge_char{0,1,2}.bt.json` |
@@ -27,7 +27,7 @@ If user did not specify, **ask which scenarios** before proceeding (do NOT defau
 
 > Plus an opt-in **`fixed`** — a deterministic baseline (hand-authored, always-in-ROI; **excluded from `all` / `full`**, select it explicitly). See `SKILL.md`.
 
-Each scenario is 3 IRA 1.6 behavior trees `srr_<name>_char{0,1,2}.bt.json` at
+Each scenario is 3 IRA 1.7 behavior trees `srr_<name>_char{0,1,2}.bt.json` at
 `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/` (GitHub layout:
 `<halos-repo>/closed-loop-testing/isaac-sim/sil/configs/`), emitted directly by
 `scenarios/tools/randomize_paths.py` (canonical source: `scenarios/behavior-trees/`).

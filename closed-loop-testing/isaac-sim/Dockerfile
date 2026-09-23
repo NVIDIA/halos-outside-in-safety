@@ -13,7 +13,7 @@
 #   - ffmpeg is kept for RTSP streaming (the streaming.rtsp extension may bundle
 #     it; left installed to stay safe).
 
-ARG ISAAC_SIM_IMAGE=nvcr.io/nvidia/isaac-sim:6.0.0
+ARG ISAAC_SIM_IMAGE=nvcr.io/nvidia/isaac-sim:6.1.0
 FROM ${ISAAC_SIM_IMAGE}
 
 # Switch to root to install packages

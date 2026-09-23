@@ -1,4 +1,4 @@
-# Halos SIL forklift / robot Action Graph config (6.0) — 40x20 TWO-DOCK variant.
+# Halos SIL forklift / robot Action Graph config (6.1) — 40x20 TWO-DOCK variant.
 #
 # The two-robot fleet. Both trucks are spawned from this file. To
 # run this variant:
@@ -61,7 +61,7 @@ models:
   forklift_b:
     # Where the truck comes from. Used by `spawn:` below; a scene with the prim
     # already baked in ignores it.
-    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.1/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
 
     # Which control graph gets built — a choice of topology, not a label. The
     # swivel builder drives one steered wheel and one driven wheel; a

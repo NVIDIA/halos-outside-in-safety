@@ -15,7 +15,7 @@ standard deploy flow — this file specifies only what must be **different** for
 > `--env-file industry-profiles/warehouse-operations/.env`. Edit the override files
 > below in place, then let `vss-deploy-profile` bring VSS up.
 
-Isaac 6.0 RTSP *does* embed SEI, but **PSF currently doesn't support sim time** — so these
+Isaac 6.1 RTSP *does* embed SEI, but **PSF currently doesn't support sim time** — so these
 overrides **disable SEI extraction** and use **system (wall-clock) timestamps**. Feeding
 Isaac's SEI sim-time as the frame timestamp makes PSF drop events as STALE; system time
 keeps decisions flowing.
@@ -72,7 +72,7 @@ attach-sys-ts-as-ntp=1       # change from 0 to 1
 ```
 
 **Why**: `attach-sys-ts-as-ntp=1` tags each frame with the host's system (wall-clock) time.
-Isaac 6.0 RTSP embeds SEI (which carries a sim-time value), but **PSF currently doesn't
+Isaac 6.1 RTSP embeds SEI (which carries a sim-time value), but **PSF currently doesn't
 support sim time** — using it as the frame timestamp makes PSF drop events as STALE, so
 system time keeps the perception → PSF decisions flowing. (`bbox_tolerance_ms` below handles
 residual VST bbox flicker.)

@@ -13,7 +13,7 @@ provides the tooling to keep them in sync.
 | safety-core / comm-layer / Isaac docker images + compose | `deployments/`, `closed-loop-testing/` | Canonical SIL infra |
 | `default_config_ros.yaml`, `cameras.yaml`, `robots.yaml` | `closed-loop-testing/isaac-sim/sil/configs/` | SIL runtime config |
 | Warehouse scene `indicator_warehouse_*.usd` | `closed-loop-testing/isaac-sim/sil/scenes/` | Stock shipping asset (SRR uses it as-is) |
-| Per-scenario behavior trees (`srr_<name>_char{0,1,2}.bt.json`) | **`regression-reporter/scenarios/behavior-trees/`** | Isaac 6.0 / IRA 1.6 form — the canonical source fixtures, emitted directly by `tools/randomize_paths.py` |
+| Per-scenario behavior trees (`srr_<name>_char{0,1,2}.bt.json`) | **`regression-reporter/scenarios/behavior-trees/`** | Isaac 6.1 / IRA 1.7 form — the canonical source fixtures, emitted directly by `tools/randomize_paths.py` |
 | Exported NavMesh JSON | **`regression-reporter/scenarios/scenes/navmesh.json`** | Input to `randomize_paths.py` — derived from the stock scene |
 | Waypoint generator + validator | **`regression-reporter/scenarios/tools/`** | `randomize_paths.py`, `validate_waypoints.py` |
 | Runtime `/gt/*` publisher (OmniGraph builder) | **`closed-loop-testing/isaac-sim/sil/scripts/action_graphs/srr_ground_truth.py`** | Built at run time behind the `--srr-gt` flag; no scene edits |
@@ -120,7 +120,7 @@ For now we ship Pattern A as the default — Pattern B is a planned follow-up.
 ## Templates
 
 [`default_config_ros.yaml.template`](default_config_ros.yaml.template) is the
-SRR-shaped version of the SIL config (IRA 1.6) — `simulation_duration` (seconds;
+SRR-shaped version of the SIL config (IRA 1.7) — `simulation_duration` (seconds;
 the runner sets it per scenario), three `character.groups` binding the fixed
 `behavior_tree` files `srr_char{0,1,2}.bt.json`, and
 `environment.base_stage_asset_path` pointing at the stock warehouse scene. It's a
