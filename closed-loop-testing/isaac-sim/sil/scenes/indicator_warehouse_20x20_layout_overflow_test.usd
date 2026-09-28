@@ -47,8 +47,6 @@
             }
             dictionary "/World/SM_Forklift_B01_Red_01_physics" = {
             }
-            dictionary "/World/SM_HeavyDutyPalletTruck_A01_01" = {
-            }
             dictionary "/World/SM_PrintersBox_A10_01_physics" = {
             }
             dictionary "/World/WarehousePile_A1_physics" = {
@@ -34125,19 +34123,18 @@ def Xform "World"
         }
     }
 
-    def "SM_HeavyDutyPalletTruck_A01_01" (
+    def "SM_CardBox_A1_01" (
         active = true
         prepend apiSchemas = ["SemanticsLabelsAPI:class"]
-        prepend payload = @/isaac-sim/collected-assets/Vehicles/SM_HeavyDutyPalletTruck_A01_01/SM_HeavyDutyPalletTruck_A01_01.usd@
+        prepend payload = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/simready_content/common_assets/props/cardbox_a1/cardbox_a1.usd@
     )
     {
-        token[] semantics:labels:class = ["pallettruck"]
+        token[] semantics:labels:class = ["cardbox"]
         token visibility = "inherited"
         double3 xformOp:rotateZYX = (0, 0, -65.30000097304583)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:scale:unitsResolve = (0.01, 0.01, 0.01)
-        double3 xformOp:translate = (7.5037501880972375, -9.400364645142483, 0.0000014476929663942422)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZYX", "xformOp:scale", "xformOp:scale:unitsResolve"]
+        double3 xformOp:translate = (7.5037501880972375, -9.400364645142483, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZYX", "xformOp:scale"]
     }
 
     def "SM_Forklift_A01_Blue_01" (
