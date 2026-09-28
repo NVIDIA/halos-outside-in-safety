@@ -1,4 +1,4 @@
-# Halos SIL forklift / robot Action Graph config (6.0) — DEFAULT: single robot.
+# Halos SIL forklift / robot Action Graph config (6.1) — DEFAULT: single robot.
 #
 # Drives the Python OmniGraph builders in
 # sil/scripts/action_graphs/forklift_control.py:

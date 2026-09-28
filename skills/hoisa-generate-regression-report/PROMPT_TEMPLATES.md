@@ -168,5 +168,5 @@ The skill parses these from the natural-language prompt — no rigid syntax requ
 ## What the skill does NOT do
 
 - **Does not deploy Halos / VSS** — that's the `hoisa-deploy-profile` (Halos SIL) and `vss-deploy-profile` (VSS Warehouse) skills. Run those first if the SIL is not already up.
-- **Does not edit scenarios** — the IRA 1.6 behavior trees in `../scenarios/behavior-trees/` are pre-built. To create a new stress scenario, re-run `../scenarios/tools/randomize_paths.py --name <name>` with different flags (this writes `srr_<name>_char{0,1,2}.bt.json` into `../scenarios/behavior-trees/`), run `../halos-integration/sync_to_halos.sh` (copies the trees into the Halos SIL dir), then add the name to `SCENARIO_DURATIONS` mental model + the skill's scenario list.
+- **Does not edit scenarios** — the IRA 1.7 behavior trees in `../scenarios/behavior-trees/` are pre-built. To create a new stress scenario, re-run `../scenarios/tools/randomize_paths.py --name <name>` with different flags (this writes `srr_<name>_char{0,1,2}.bt.json` into `../scenarios/behavior-trees/`), run `../halos-integration/sync_to_halos.sh` (copies the trees into the Halos SIL dir), then add the name to `SCENARIO_DURATIONS` mental model + the skill's scenario list.
 - **Does not send reports anywhere** — output is filesystem only. Wire up notifications later if needed.

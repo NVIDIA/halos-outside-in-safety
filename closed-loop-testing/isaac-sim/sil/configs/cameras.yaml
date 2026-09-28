@@ -1,8 +1,8 @@
-# Camera Configuration — Halos SIL on Isaac Sim 6.0
+# Camera Configuration — Halos SIL on Isaac Sim 6.1
 # ----------------------------------------------------
 # New schema for `isaacsim.streaming.rtsp` extension (replaces legacy `RTSPWriter`).
 # Each camera spawns its own in-process RTSP server -> port must be unique per camera.
-# Legacy `mediamtx` broker is dropped entirely (Isaac Sim 6.0 self-hosts RTSP).
+# Legacy `mediamtx` broker is dropped entirely (Isaac Sim 6.1 self-hosts RTSP).
 #
 # Per-camera fields:
 #   - name        : display name in VST

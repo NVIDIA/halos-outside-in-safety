@@ -120,7 +120,7 @@ could not create SDP
 The encoder looks idle even though the RTSP server is accepting connections.
 Warmer / lighter scenes that pre-roll quickly don't hit this.
 
-**Cause** (not a network problem): Isaac Sim 6.0 self-hosts RTSP **in-process**, one
+**Cause** (not a network problem): Isaac Sim 6.1 self-hosts RTSP **in-process**, one
 server per camera. Two things provoke "no caps":
 
 1. **Cold pre-roll** — on a cold run the RTX render + encoder pre-roll is slow; the RTSP

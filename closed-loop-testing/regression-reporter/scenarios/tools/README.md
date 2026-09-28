@@ -1,6 +1,6 @@
 # Tools — behavior-tree generator + validator
 
-Host-side Python tools that **produce** the IRA 1.6 character behavior trees in
+Host-side Python tools that **produce** the IRA 1.7 character behavior trees in
 [`../behavior-trees/`](../behavior-trees/) and **check** that their waypoints are
 walkable on the baked NavMesh in [`../scenes/navmesh.json`](../scenes/navmesh.json).
 
@@ -9,7 +9,7 @@ the repo*. Everything in [`../host-scripts/`](../host-scripts/) is for
 inspecting live state at run time; the two folders sit on opposite
 sides of the test-fixture lifecycle.
 
-> **IRA 1.6 note:** Isaac Sim 6.0 / IRA 1.6 dropped the legacy
+> **IRA 1.7 note:** Isaac Sim 6.1 / IRA 1.7 dropped the legacy
 > `omni.anim.people` text command files (`default_command.<name>.txt`). Each
 > pedestrian is now a behavior tree. The old command-file layer and its
 > `command_to_bt.py` converter have been removed — `randomize_paths.py` emits
@@ -19,7 +19,7 @@ sides of the test-fixture lifecycle.
 
 | Script | Purpose |
 |---|---|
-| [`randomize_paths.py`](randomize_paths.py) | Generator. Reads polygon zones (ZONE_CHAR0/1/2 — per-character spawn + wander areas, defined as constants in the script) + the baked NavMesh (`../scenes/navmesh.json`), samples reachable waypoints per character, and emits **IRA 1.6 behavior trees** `srr_<name>_char{0,1,2}.bt.json` into `../behavior-trees/` (`GoTo → MoveTo`, `Idle → Wait`; each `MoveTo` wrapped in a `ForceStatus→success` modifier so an unreachable waypoint is skipped rather than freezing the character). |
+| [`randomize_paths.py`](randomize_paths.py) | Generator. Reads polygon zones (ZONE_CHAR0/1/2 — per-character spawn + wander areas, defined as constants in the script) + the baked NavMesh (`../scenes/navmesh.json`), samples reachable waypoints per character, and emits **IRA 1.7 behavior trees** `srr_<name>_char{0,1,2}.bt.json` into `../behavior-trees/` (`GoTo → MoveTo`, `Idle → Wait`; each `MoveTo` wrapped in a `ForceStatus→success` modifier so an unreachable waypoint is skipped rather than freezing the character). |
 | [`validate_waypoints.py`](validate_waypoints.py) | Post-hoc check that every `MoveTo` target in a `.bt.json` (or a whole dir of them) lands on the NavMesh AND the agent body (16-point circle of radius `--agent-radius`) doesn't overlap unwalkable areas. Mostly a pre-flight gate — `randomize_paths.py` produces walkable waypoints by construction, and `ForceStatus` makes any stragglers non-fatal at runtime. |
 
 ## Why these aren't with the data they produce

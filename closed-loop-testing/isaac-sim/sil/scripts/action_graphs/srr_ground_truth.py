@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Halos SIL SRR ground-truth `/gt/*/tf` publisher Action Graph — Isaac Sim 6.0 / IRA 1.6.x.
+"""Halos SIL SRR ground-truth `/gt/*/tf` publisher Action Graph — Isaac Sim 6.1 / IRA 1.7.x.
 
 Opt-in graph for the SRR closed-loop regression harness
 (`closed-loop-testing/regression-reporter/`). OFF by default; enabled with
@@ -18,7 +18,7 @@ Builds `/World/SRRGraph`: one `OnPlaybackTick` + one `ROS2Context`, then
     FABRIC world transform (see the pump below).
 
 Why the characters need the RAW node + a FABRIC-fed pump:
-  IRA 6.0 spawns the walking pedestrians at RUNTIME under
+  IRA 6.1 spawns the walking pedestrians at RUNTIME under
   `/World/Characters/<group>/<group>_0`. Their locomotion (MoveTo + motion
   library) is applied in FABRIC only — the USD *authored* transform stays at
   the spawn pose, so `UsdGeom.ComputeLocalToWorldTransform(Default)` reads a
@@ -64,7 +64,7 @@ DEFAULT_CHAR_GROUPS = ["inspect_workers", "gather_workers", "pickup_workers"]
 # Container path to the IRA spawned-character root for a given group.
 _CHAR_ROOT_FMT = "/World/Characters/{group}/{group}_0"
 
-# Skeleton-root prim name to target under each character root (6.0 == "ManRoot").
+# Skeleton-root prim name to target under each character root (6.1 == "ManRoot").
 _SKEL_ROOT_NAME = "ManRoot"
 
 # Forklift ground-truth publisher.

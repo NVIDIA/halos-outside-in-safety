@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Decode H.264 SEI NAL units to extract Isaac Sim 6.0 RTSP sim-time metadata.
+"""Decode H.264 SEI NAL units to extract Isaac Sim 6.1 RTSP sim-time metadata.
 
 Each frame carries an SEI user_data_unregistered NAL with UUID
 `aa71e48f-0711-5d80-a247-cd31ca6fa49c` and a JSON payload:

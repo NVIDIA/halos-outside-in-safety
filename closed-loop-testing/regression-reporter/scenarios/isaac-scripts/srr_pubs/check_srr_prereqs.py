@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""SRR — read-only pre-flight check for the /gt/* publishers (Isaac Sim 6.0 / IRA 1.6.x).
+"""SRR — read-only pre-flight check for the /gt/* publishers (Isaac Sim 6.1 / IRA 1.7.x).
 
 Paste into Isaac Sim's Script Editor with the scene loaded AND RUNNING (press
 Play first): IRA spawns the pedestrians at runtime, so the target prims only
@@ -20,7 +20,7 @@ as a lightweight "prim resolves + has been spawned (non-zero pose)" sanity check
 
 Checks:
   1. isaacsim.ros2.bridge extension enabled (else publishers won't work).
-  2. Each SRR char group's ManRoot (the animated 6.0 skeleton root that BT
+  2. Each SRR char group's ManRoot (the animated 6.1 skeleton root that BT
      MoveTo drives) is discovered under /World/Characters/<group>/<group>_0,
      is xformable, and reports a non-zero world pose (a zero pose usually means
      the char has not spawned / not been repositioned yet).
@@ -98,7 +98,7 @@ def _check_pose(stage, label, path):
 
 def main():
     print("=" * 60)
-    print("SRR pre-flight check (IRA 6.0) — read-only, no graph created")
+    print("SRR pre-flight check (IRA 6.1) — read-only, no graph created")
     print("=" * 60)
 
     ros2_ok = _check_ext()

@@ -82,6 +82,25 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Changed
 
+- **Isaac Sim 6.0.0 → 6.1.0.** Both profiles, the compose default and the
+  Dockerfile `ARG` name `nvcr.io/nvidia/isaac-sim:6.1.0`; both IRA configs
+  declare `version: 1.7.0`; and the asset-root override plus the pinned
+  `forklift_b.usd` URL move to `Assets/Isaac/6.1`.
+
+  IRA goes 1.6.7 → 1.7.9 and its config schema is additive over 1.6 —
+  `spawn_positions` / `spawn_orientations` on character and robot groups, and a
+  sensor group that takes `num` on its own. Nothing was renamed or removed, so
+  the shipped configs validate against the 1.7 schema unchanged.
+  `SimulationManager` exposes the same methods, the ROS 2 bridge still ships
+  `jazzy` at the same path, and the 6.1 asset root is a superset of 6.0.
+
+  One behaviour changed without affecting anything shipped here: a relative
+  robot `config_file_path` now resolves against the IRA config's own directory
+  before the IAR sample dir. No config in this repo uses one, but a deployment
+  that does should check which file it is about to pick up.
+
+  **Needs `up -d --build`** — the `isaac-sim-sil` image rebuilds on the new base.
+
 - **comm-layer derives its mute mirrors from the fleet file.** `COMM_ROBOT_IDS`
   was a fourth list of robot names kept by hand, and the only way to get it
   wrong was silent: a truck missing from it listens on a topic nobody publishes,
@@ -133,7 +152,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Fixed
 
-- `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.0 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
+- `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.1 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
 - `robots*.yaml` `drive:` was the only block in this config family that accepted

@@ -68,7 +68,7 @@ All 6 use the stock scene `indicator_warehouse_20x20_layout_overflow_test.usd` a
 > in the prompt). It's excluded from `all`/`full` because the person is always in
 > ROI (mute untestable → inflates the blended headline).
 
-Scenario waypoints — IRA 1.6 behavior trees (Isaac 6.0 dropped command files):
+Scenario waypoints — IRA 1.7 behavior trees (Isaac 6.1 dropped command files):
 - Canonical trees: `../scenarios/behavior-trees/srr_{name}_char{0,1,2}.bt.json`
   (emitted directly by `../scenarios/tools/randomize_paths.py`)
 - Synced (Isaac reads from here): `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/srr_char{0,1,2}.bt.json`

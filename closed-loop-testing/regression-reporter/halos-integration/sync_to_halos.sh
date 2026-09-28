@@ -55,11 +55,11 @@ echo "  SRR : $SRR_ROOT/scenarios"
 echo "  SIL : $SIL"
 echo
 
-# 1. Behavior trees (IRA 1.6) + navmesh
+# 1. Behavior trees (IRA 1.7) + navmesh
 echo "[1/3] behavior-trees/*.bt.json + scenes/navmesh.json  →  $SIL/configs/"
 mkdir -p "$SIL/configs"
 BT_DIR="$SRR_ROOT/scenarios/behavior-trees"
-# behavior-trees/*.bt.json is the canonical source of truth (IRA 1.6 dropped the
+# behavior-trees/*.bt.json is the canonical source of truth (IRA 1.7 dropped the
 # legacy command-file layer). Author/regenerate them with randomize_paths.py;
 # here we just copy them into the Isaac SIL configs the container bind-mounts.
 if ! ls "$BT_DIR"/*.bt.json >/dev/null 2>&1; then
