@@ -1,0 +1,14 @@
+# Opt-in: ATL and proximity in one PSF container. Use with PSF_APP=both.
+#
+#   docker compose -f compose.yaml \
+#     -f ../closed-loop-testing/safety-core/atl-pxc-override.yaml \
+#     --env-file profiles/sil.env up -d safety-core
+#
+# A -f file resolves relative paths against the project directory, not its own,
+# so the mounts are spelled from MDX_SAMPLE_APPS_DIR.
+services:
+  safety-core:
+    entrypoint: ["/usr/bin/tini", "-g", "-s", "--", "bash", "/opt/hoisa/atl_pxc_entrypoint.sh"]
+    volumes:
+      - ${MDX_SAMPLE_APPS_DIR:?set MDX_SAMPLE_APPS_DIR to the repo checkout}/closed-loop-testing/safety-core/scripts:/opt/hoisa:ro
+      - ${PSF_LOG_DIR}/atl_sdm.log:/home/nvidia/atl_sdm.log

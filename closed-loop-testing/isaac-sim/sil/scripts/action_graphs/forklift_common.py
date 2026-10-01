@@ -366,14 +366,20 @@ DEFAULT_COLOR_MUTED = (0.0, 1.0, 0.0)
 DEFAULT_COLOR_ALARM = (1.0, 0.3, 0.0)
 
 # Proximity palette (PSF_APP=pxc): one colour per motion level the truck is in.
-# REDUCE at G=0.5 renders as yellow under the scene's tonemapping; 0.3 reads orange.
+# displayColor is linear and the scene's exposure lifts it hard: G=0.3 renders
+# as (244, 241, 16), the same yellow as G=0.85, so orange needs G near 0.1.
 DEFAULT_COLOR_NORMAL = (0.0, 1.0, 0.0)
-DEFAULT_COLOR_REDUCE = (1.0, 0.3, 0.0)
+DEFAULT_COLOR_REDUCE = (1.0, 0.1, 0.0)
 DEFAULT_COLOR_STOP = (1.0, 0.0, 0.0)
 
+# ATL's alarm colour when the same disk also shows proximity (PSF_APP=both): the
+# default alarm orange would be indistinguishable from REDUCE.
+DEFAULT_COLOR_ALARM_WITH_PROXIMITY = (1.0, 0.85, 0.0)
+
 # What a disk can show. `mute` is the ATL decision on a Bool topic; `proximity`
-# is the motion level the forklift-controller is applying, on a String topic.
-INDICATOR_SOURCES = ("mute", "proximity")
+# is the motion level the forklift-controller is applying, on a String topic;
+# `both` shows STOP / REDUCE when proximity asks for one and the mute otherwise.
+INDICATOR_SOURCES = ("mute", "proximity", "both")
 PROXIMITY_MODES = ("normal", "reduce_speed", "stop")
 
 
@@ -431,7 +437,7 @@ def resolve_proximity_state_topic(robot: dict) -> str:
 
 
 def resolve_indicator_source(robot: dict) -> str:
-    """Which decision this robot's disk shows: `mute` (ATL) or `proximity`.
+    """Which decision this robot's disk shows: `mute` (ATL), `proximity`, or `both`.
 
     An explicit `safety_indicator.source` wins. Otherwise it follows PSF_APP, the
     variable that picks the app safety-core runs: an atl run publishes no
@@ -442,7 +448,7 @@ def resolve_indicator_source(robot: dict) -> str:
     source = cfg.get("source")
     if source is None:
         app = os.environ.get("PSF_APP", "atl").strip().lower()
-        source = "proximity" if app == "pxc" else "mute"
+        source = {"pxc": "proximity", "both": "both"}.get(app, "mute")
     if source not in INDICATOR_SOURCES:
         raise ValueError(
             f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.source must be "
@@ -555,6 +561,14 @@ def resolve_proximity_colors(robot: dict) -> tuple[tuple[float, float, float],
     return (_resolve_indicator_color(robot, "color_normal", DEFAULT_COLOR_NORMAL),
             _resolve_indicator_color(robot, "color_reduce", DEFAULT_COLOR_REDUCE),
             _resolve_indicator_color(robot, "color_stop", DEFAULT_COLOR_STOP))
+
+
+def resolve_combined_colors(robot: dict) -> tuple[tuple[float, float, float], ...]:
+    """(muted, alarm, reduce, stop) RGB for a disk showing both decisions."""
+    _, reduce, stop = resolve_proximity_colors(robot)
+    return (_resolve_indicator_color(robot, "color_muted", DEFAULT_COLOR_MUTED),
+            _resolve_indicator_color(robot, "color_alarm", DEFAULT_COLOR_ALARM_WITH_PROXIMITY),
+            reduce, stop)
 
 
 def _resolve_indicator_color(robot: dict, key: str,

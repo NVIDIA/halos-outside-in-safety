@@ -150,6 +150,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - 40x20 two-dock scene and its config trio. **Experimental / internal-only** — no calibration is published with it, so VSS runs 20x20 geometry against it and the safety numbers do not mean anything.
 - `deployments/scripts/preflight.py` — cross-checks the robots config, controller services, waypoint files and `COMM_ROBOT_IDS` before Isaac boots, and compares each waypoint origin against where its truck stands.
 - PSF proximity in the SIL loop (`PSF_APP=pxc`). comm-layer decodes the `0xA5` packets onto `/safety/proximity/mode` and `/safety/proximity/pair` (opcodes 0x02/0x07 mean the opposite of ATL's, so nothing touches `/safety/is_muted`). The forklift-controller caps the truck at `proximity.reduce_speed` on REDUCE and stops it on STOP, each held past the last packet; the indicator disk shows the level it applies — green / orange / red. `proximity_event_mapping.pb.txt` scores Forklift × Person for the 20x20 scene (STOP ≤ 2 m, REDUCE ≤ 3.5 m). A 3D feed also needs `PSF_SENSOR_CONFIG=./configs/sensor_config_bev.conf`.
+- `PSF_APP=both` with `-f closed-loop-testing/safety-core/atl-pxc-override.yaml`: ATL and proximity in one PSF container — one gateway, one daemon, one `mdx_client` on the two mappings concatenated, and both SDMs (two containers would collide on the gateway port and split mdx_client's fixed Kafka consumer groups). The disk shows red / orange while proximity acts on the truck, otherwise green muted / yellow alarm.
 
 ### Fixed
 

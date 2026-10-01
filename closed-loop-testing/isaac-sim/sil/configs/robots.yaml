@@ -112,12 +112,14 @@ robots:
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
       # indicator_prim comes from the model: /World/forklift_b/body/body/safety_indicator
       #
-      # Under PSF_APP=pxc the disk shows the proximity level instead
-      # (`source:` follows PSF_APP; set it to mute|proximity to pin it). It then
-      # listens on /forklift_b/proximity/state, the level the controller is
-      # applying, holds included:
+      # Under PSF_APP=pxc the disk shows the proximity level instead, and under
+      # PSF_APP=both it shows STOP / REDUCE while proximity acts and the mute
+      # otherwise, with the alarm in yellow (1.0, 0.85, 0.0) unless color_alarm
+      # is set. `source:` follows PSF_APP; set it to mute|proximity|both to pin
+      # it. The proximity level is read from /forklift_b/proximity/state, the
+      # level the controller is applying, holds included:
       color_normal: [0.0, 1.0, 0.0]   # green  full speed
-      color_reduce: [1.0, 0.3, 0.0]   # orange capped at proximity.reduce_speed
+      color_reduce: [1.0, 0.1, 0.0]   # orange capped at proximity.reduce_speed (linear; 0.3 renders yellow)
       color_stop: [1.0, 0.0, 0.0]     # red    stopped
 
 # Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,

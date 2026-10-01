@@ -25,7 +25,7 @@ services:
       - VST_BASE_URL=${VST_BASE_URL}
       - PERCEPTION_BASE_URL=${PERCEPTION_BASE_URL:-http://localhost:9000}
       - SCENARIO=${SCENARIO:-}          # names the ira/robots/cameras trio; a flag still wins
-      - PSF_APP=${PSF_APP:-atl}         # which PSF decision the indicator disks show (mute | proximity)
+      - PSF_APP=${PSF_APP:-atl}         # which PSF decision the indicator disks show (atl | pxc | both)
       - ROS_DISTRO=jazzy
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/jazzy/lib
