@@ -39,6 +39,13 @@ DRIVE_DEFAULTS = {
     "spiral_timeout": 10.0,   # s circling a missed waypoint before giving up
 }
 
+PROXIMITY_DEFAULTS = {
+    "enabled": True,          # follow PSF proximity decisions; nothing arrives on an atl run
+    "reduce_speed": 0.5,      # m/s cap while PSF says reduce_speed
+    "stop_hold_s": 2.0,       # s a STOP outlives the last packet that asked for it
+    "reduce_hold_s": 1.0,     # s the same for REDUCE
+}
+
 
 def _loader():
     """The Isaac-side module both this file and the graph builders read."""
@@ -66,6 +73,12 @@ def load_fleet(robots_config_path: str) -> list[dict]:
         raise RuntimeError(
             f"drive knobs disagree: forklift_common knows {sorted(KNOWN_DRIVE_KEYS)}, "
             f"fleet_config defaults {sorted(DRIVE_DEFAULTS)}"
+        )
+    if set(common.KNOWN_PROXIMITY_KEYS) != set(PROXIMITY_DEFAULTS):
+        raise RuntimeError(
+            f"proximity knobs disagree: forklift_common knows "
+            f"{sorted(common.KNOWN_PROXIMITY_KEYS)}, fleet_config defaults "
+            f"{sorted(PROXIMITY_DEFAULTS)}"
         )
     robots, _ = load_and_validate_robots_yaml(robots_config_path)
     return robots
@@ -103,6 +116,20 @@ def resolve_drive(cli: dict[str, Any], robot: Optional[dict]) -> tuple[dict, dic
     return values, sources
 
 
+def resolve_proximity(robot: Optional[dict]) -> tuple[dict, dict]:
+    """(values, source-of-each-value) for the proximity knobs. No flags: one
+    run-wide value would set every truck in the fleet at once."""
+    fleet = (robot or {}).get("proximity") or {}
+    values: dict[str, Any] = {}
+    sources: dict[str, str] = {}
+    for key, fallback in PROXIMITY_DEFAULTS.items():
+        if key in fleet:
+            values[key], sources[key] = fleet[key], "robots.yaml"
+        else:
+            values[key], sources[key] = fallback, "default"
+    return values, sources
+
+
 def format_sources(values: dict, sources: dict) -> str:
     """One line naming every value and where it came from."""
     return " ".join(f"{k}={values[k]}({sources[k]})" for k in sorted(values))
@@ -126,11 +153,16 @@ def resolve_topics(robot: Optional[dict], robot_id: str) -> dict:
     file — a run started by hand — the namespaced convention still applies.
     """
     if robot is None:
-        names = {"cmd_vel": f"{robot_id}/cmd_vel", "odom": f"{robot_id}/odom"}
+        names = {"cmd_vel": f"{robot_id}/cmd_vel", "odom": f"{robot_id}/odom",
+                 "proximity_pair": "/safety/proximity/pair",
+                 "proximity_state": f"/{robot_id}/proximity/state"}
     else:
         common = _loader()
+        # Isaac's disk subscribes the state topic, so it comes from the same resolver.
         names = {"cmd_vel": common.resolve_cmd_vel_topic(robot),
-                 "odom": common.resolve_odom_topic(robot)}
+                 "odom": common.resolve_odom_topic(robot),
+                 "proximity_pair": common.PROXIMITY_PAIR_TOPIC,
+                 "proximity_state": common.resolve_proximity_state_topic(robot)}
     return {k: v if v.startswith("/") else f"/{v}" for k, v in names.items()}
 
 

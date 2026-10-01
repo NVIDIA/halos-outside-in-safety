@@ -37,6 +37,7 @@ from typing import Optional
 from datetime import datetime
 
 from state_machine import StateMachine, RobotState
+from proximity_gate import ProximityGate, NORMAL as PXC_NORMAL, STOP as PXC_STOP
 
 
 class RobotController(Node):
@@ -55,7 +56,8 @@ class RobotController(Node):
                  topics: Optional[dict] = None,
                  end_tolerance: float = 1.5,
                  end_pose_count: int = 3,
-                 spiral_timeout: float = 15.0):
+                 spiral_timeout: float = 15.0,
+                 proximity: Optional[dict] = None):
         # Node name must be unique per robot: N controller instances (one
         # container per robot) with the same name collide on parameter
         # services and rosout.
@@ -146,6 +148,26 @@ class RobotController(Node):
         # Simulation clock (detect stop/play/reset)
         self.clock_sub = self.create_subscription(
             Clock, '/clock', self._clock_callback, 10)
+
+        # PSF proximity (--app pxc). Unlike /safety/command above, this one does
+        # drive the truck: a proximity decision is a motion level for the machine
+        # next to the person, and the point of the run is to watch the truck obey
+        # it. On an atl run nothing is published here and the gate stays NORMAL.
+        self._proximity: Optional[ProximityGate] = None
+        self._proximity_level_seen = PXC_NORMAL
+        self._last_cmd_linear = 0.0
+        proximity = proximity or {}
+        if proximity.get('enabled', True):
+            self._proximity = ProximityGate(
+                reduce_speed=proximity.get('reduce_speed', 0.5),
+                stop_hold_s=proximity.get('stop_hold_s', 2.0),
+                reduce_hold_s=proximity.get('reduce_hold_s', 1.0))
+            self.proximity_sub = self.create_subscription(
+                String, topics.get('proximity_pair', '/safety/proximity/pair'),
+                self._proximity_callback, qos)
+        # The level actually applied, for Isaac's indicator disk.
+        self.proximity_state_pub = self.create_publisher(
+            String, topics.get('proximity_state', f'/{robot_id}/proximity/state'), qos)
         
         # ===== Timers =====
         # Control loop (20Hz)
@@ -168,6 +190,15 @@ class RobotController(Node):
         self.get_logger().info(f'  Cmd_vel topic: {cmd_vel_topic}')
         self.get_logger().info(f'  End tolerance: {self.end_tolerance}m for last {self.end_pose_count} poses')
         self.get_logger().info(f'  Spiral timeout: {self._spiral_timeout}s')
+        if self._proximity is not None:
+            self.get_logger().info(
+                f'  Proximity: {self.proximity_sub.topic_name} -> '
+                f'reduce cap {self._proximity.reduce_speed} m/s, '
+                f'stop hold {self._proximity.stop_hold_s}s, '
+                f'reduce hold {self._proximity.reduce_hold_s}s, '
+                f'state on {self.proximity_state_pub.topic_name}')
+        else:
+            self.get_logger().info('  Proximity: disabled (PSF decisions ignored)')
         if self.poses:
             self.get_logger().info(f'  Loaded {len(self.poses)} poses')
         self.get_logger().info(f'═══════════════════════════════════════')
@@ -273,6 +304,47 @@ class RobotController(Node):
             self.get_logger().error(f'Invalid command JSON: {e}')
         except Exception as e:
             self.get_logger().error(f'Command error: {e}')
+
+    def _proximity_callback(self, msg: String):
+        """One PSF proximity decision from comm-layer's /safety/proximity/pair."""
+        try:
+            decision = json.loads(msg.data)
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f'Invalid proximity JSON: {e}')
+            return
+        # robot_id is always null on this topic: the wire carries a VSS object id,
+        # not a robot name. PSF decides for the machine it saw next to a person,
+        # and with one truck in the scene that is this one.
+        self._proximity.on_decision(decision)
+        self._proximity_level()
+
+    def _proximity_level(self) -> str:
+        """The level in force now; logs and publishes each change once."""
+        if self._proximity is None:
+            return PXC_NORMAL
+        level = self._proximity.level()
+        if level != self._proximity_level_seen:
+            sep = self._proximity.separation_m
+            sep_txt = f'{sep:.2f}m' if sep is not None else 'n/a'
+            if level == PXC_STOP:
+                action = 'speed -> 0'
+            elif level == PXC_NORMAL:
+                action = f'speed -> {self.base_linear_speed:.2f} m/s'
+            else:
+                action = f'speed cap {self._proximity.reduce_speed:.2f} m/s'
+            fault = f' fault={self._proximity.fault}' if self._proximity.fault else ''
+            self.get_logger().info(
+                f'🦺 PXC [{self.robot_id}] {self._proximity_level_seen} -> {level} '
+                f'| sep={sep_txt} | was {abs(self._last_cmd_linear):.2f} m/s, '
+                f'{action}{fault}')
+            self._proximity_level_seen = level
+            self._publish_proximity_state()
+        return level
+
+    def _publish_proximity_state(self):
+        msg = String()
+        msg.data = self._proximity_level_seen
+        self.proximity_state_pub.publish(msg)
     
     def _clock_callback(self, msg: Clock):
         """Monitor /clock to detect simulation stop/play/reset"""
@@ -381,6 +453,10 @@ class RobotController(Node):
     
     def _control_loop(self):
         """Main control loop - follows waypoints with speed factor applied"""
+        # Before the early returns, so a hold expiring while the sim is paused
+        # still logs and still reaches the disk.
+        pxc_level = self._proximity_level()
+
         # Check if simulation is running (via /clock)
         if self._last_clock_wall_time > 0:
             clock_age = time.time() - self._last_clock_wall_time
@@ -398,6 +474,16 @@ class RobotController(Node):
             return  # Don't move if paused or idle
         
         if self.completed or not self.poses:
+            return
+
+        if pxc_level == PXC_STOP:
+            # Every tick rather than once: a single zero Twist lost on the way to
+            # Isaac would leave the truck on its last velocity.
+            self._stop_robot()
+            self._last_cmd_linear = 0.0
+            # The spiral timer measures time spent failing to reach a pose; time
+            # held by PSF is not that, and would end the path early.
+            self._pose_start_time = None
             return
         
         if self.current_pose_idx >= len(self.poses):
@@ -595,8 +681,12 @@ class RobotController(Node):
         else:
             if cmd.linear.x < min_forward:
                 cmd.linear.x = min_forward
+
+        if self._proximity is not None:
+            cmd.linear.x, cmd.angular.z = self._proximity.limit(cmd.linear.x, cmd.angular.z)
         
         self.cmd_pub.publish(cmd)
+        self._last_cmd_linear = cmd.linear.x
         
         # Periodic status log (every 2 seconds)
         current_sec = int(self.get_clock().now().nanoseconds / 1e9)
@@ -606,6 +696,7 @@ class RobotController(Node):
                 self.get_logger().info(
                     f'📍 pose={self.current_pose_idx} {"🔙REV" if is_reverse else "▶FWD"} '
                     f'dist={distance:.2f}m cmd=({cmd.linear.x:.2f},{cmd.angular.z:.2f}) '
+                    f'pxc={pxc_level} '
                     f'robot=({self.robot_x:.2f},{self.robot_y:.2f},{math.degrees(self.robot_theta):.0f}°)')
     
     def _get_segment_for_pose(self, pose_idx: int) -> dict:
@@ -643,9 +734,14 @@ class RobotController(Node):
             'pose_idx': self.current_pose_idx,
             'total_poses': len(self.poses),
             'completed': self.completed,
+            'proximity': self._proximity_level_seen,
+            'proximity_separation_m': (self._proximity.separation_m
+                                       if self._proximity is not None else None),
         }
         state_msg.data = json.dumps(state_data)
         self.state_pub.publish(state_msg)
+        # Periodic too, so a disk built after the last change still gets it.
+        self._publish_proximity_state()
     
     def _publish_visualization(self):
         """Publish visualization markers"""
@@ -757,9 +853,14 @@ def main():
         'spiral_timeout': args.spiral_timeout,
     }, robot_block)
     print(f"[drive] {fleet_config.format_sources(drive, drive_sources)}", flush=True)
+    proximity, proximity_sources = fleet_config.resolve_proximity(robot_block)
+    print(f"[proximity] {fleet_config.format_sources(proximity, proximity_sources)}",
+          flush=True)
 
     topics = fleet_config.resolve_topics(robot_block, args.robot_id)
-    print(f"[topics] cmd_vel={topics['cmd_vel']} odom={topics['odom']}", flush=True)
+    print(f"[topics] cmd_vel={topics['cmd_vel']} odom={topics['odom']} "
+          f"proximity_pair={topics['proximity_pair']} "
+          f"proximity_state={topics['proximity_state']}", flush=True)
 
     path_file = args.path
     if not path_file and waypoints_map:
@@ -790,7 +891,8 @@ def main():
             topics=topics,
             end_tolerance=drive['end_tolerance'],
             end_pose_count=drive['end_pose_count'],
-            spiral_timeout=drive['spiral_timeout']
+            spiral_timeout=drive['spiral_timeout'],
+            proximity=proximity,
         )
         
         # Auto-start moving

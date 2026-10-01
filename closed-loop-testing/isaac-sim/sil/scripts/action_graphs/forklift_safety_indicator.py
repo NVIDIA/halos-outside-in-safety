@@ -2,14 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Halos SIL forklift safety indicator Action Graph builder.
 
-Replaces the baked Safety_indicator_Graph: a std_msgs/Bool mute topic
--> indicator disk display color (green when muted, red/orange otherwise).
+Replaces the baked Safety_indicator_Graph. Each disk shows one of two sources
+(`safety_indicator.source`, defaulting from PSF_APP):
 
-The topic defaults to the per-robot `/<name>/safety/is_muted` that comm-layer
-mirrors; scenes still on the single global `/safety/is_muted` name it explicitly.
+- mute (atl): a std_msgs/Bool mute topic -> green when muted, red/orange
+  otherwise. The topic defaults to the per-robot `/<name>/safety/is_muted` that
+  comm-layer mirrors; scenes still on the single global `/safety/is_muted` name
+  it explicitly.
+- proximity (pxc): the std_msgs/String `/<name>/proximity/state` the
+  forklift-controller publishes -> green normal, orange reduce_speed, red stop.
 
-Builds /World/<name>_SafetyGraph per robot in robots.yaml.
-Shared helpers live in forklift_common.py.
+Builds /World/<name>_SafetyGraph per robot in robots.yaml, one graph per disk
+whichever the source. Shared helpers live in forklift_common.py.
 """
 
 from __future__ import annotations
@@ -24,7 +28,10 @@ from .forklift_common import (
     load_and_validate_robots_yaml,
     resolve_indicator_colors,
     resolve_indicator_prim,
+    resolve_indicator_source,
     resolve_muted_topic,
+    resolve_proximity_colors,
+    resolve_proximity_state_topic,
     verify_prim_exists,
 )
 
@@ -94,6 +101,118 @@ def compute(db):
     return True
 '''
 
+# Same rules as _SAFETY_SCRIPT_BODY: everything from `db` or the node's own
+# path, colour written only on a transition.
+_PROXIMITY_SCRIPT_BODY = '''
+from pxr import UsdGeom, Gf
+import omni.graph.core as og
+import omni.usd
+
+
+def compute(db):
+    indicator_prim = db.inputs.indicator_prim
+    if not indicator_prim:
+        return False
+    graph_path = db.node.get_prim_path().rsplit("/", 1)[0]
+    sub_data_attr = graph_path + "/SubscribeProximity.outputs:data"
+    try:
+        mode = str(og.Controller.get(og.Controller.attribute(sub_data_attr)) or "")
+    except Exception:
+        mode = str(db.inputs.mode or "")
+
+    if mode == "stop":
+        rgb = db.inputs.color_stop
+    elif mode == "reduce_speed":
+        rgb = db.inputs.color_reduce
+    elif mode == "normal":
+        rgb = db.inputs.color_normal
+    else:
+        # Nothing received yet: the authored colour stays until the controller
+        # says which level the truck is in.
+        return True
+
+    stage = omni.usd.get_context().get_stage()
+    disk_prim = stage.GetPrimAtPath(indicator_prim)
+    if not disk_prim.IsValid():
+        return False
+
+    color_attr = UsdGeom.Mesh(disk_prim).GetDisplayColorAttr()
+    target = Gf.Vec3f(float(rgb[0]), float(rgb[1]), float(rgb[2]))
+    current = color_attr.Get()
+    if current and len(current) and Gf.IsClose(Gf.Vec3f(current[0]), target, 1e-6):
+        return True
+
+    color_attr.Set([target])
+    print("[forklift-safety] " + graph_path + " -> PROXIMITY " + mode.upper()
+          + " rgb=" + str(tuple(round(float(c), 3) for c in target))
+          + " disk=" + indicator_prim, flush=True)
+    return True
+'''
+
+
+def _build_one_proximity_graph(robot: dict) -> None:
+    import omni.graph.core as og
+    import omni.usd
+    from pxr import Sdf
+
+    name = robot["name"]
+    graph_path = f"/World/{name}_SafetyGraph"
+    state_topic = resolve_proximity_state_topic(robot)
+    indicator_prim = resolve_indicator_prim(robot)
+    color_normal, color_reduce, color_stop = resolve_proximity_colors(robot)
+
+    stage = omni.usd.get_context().get_stage()
+    verify_prim_exists(stage, indicator_prim, "safety indicator")
+    clear_existing_graph(stage, graph_path)
+
+    keys = og.Controller.Keys
+    og.Controller.edit(
+        {"graph_path": graph_path, "evaluator_name": "execution"},
+        {
+            keys.CREATE_NODES: [
+                ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+                ("ROS2Context", "isaacsim.ros2.bridge.ROS2Context"),
+                ("SubscribeProximity", "isaacsim.ros2.bridge.ROS2Subscriber"),
+                ("Indicator", "omni.graph.scriptnode.ScriptNode"),
+            ],
+            keys.CREATE_ATTRIBUTES: [
+                ("Indicator.inputs:mode", "string"),
+                ("Indicator.inputs:indicator_prim", "string"),
+                ("Indicator.inputs:color_normal", "colorf[3]"),
+                ("Indicator.inputs:color_reduce", "colorf[3]"),
+                ("Indicator.inputs:color_stop", "colorf[3]"),
+            ],
+            keys.SET_VALUES: [
+                ("SubscribeProximity.inputs:messageName", "String"),
+                ("SubscribeProximity.inputs:messagePackage", "std_msgs"),
+                ("SubscribeProximity.inputs:topicName", state_topic),
+                ("Indicator.inputs:script", _PROXIMITY_SCRIPT_BODY),
+                ("Indicator.inputs:indicator_prim", indicator_prim),
+                ("Indicator.inputs:color_normal", color_normal),
+                ("Indicator.inputs:color_reduce", color_reduce),
+                ("Indicator.inputs:color_stop", color_stop),
+                ("Indicator.inputs:usePath", False),
+            ],
+            keys.CONNECT: [
+                ("OnPlaybackTick.outputs:tick", "SubscribeProximity.inputs:execIn"),
+                ("ROS2Context.outputs:context", "SubscribeProximity.inputs:context"),
+                ("SubscribeProximity.outputs:execOut", "Indicator.inputs:execIn"),
+            ],
+        },
+    )
+
+    # Same pre-authoring as the mute graph, with the dynamic output resolved to
+    # a string: std_msgs/String.data.
+    sub_prim = stage.GetPrimAtPath(f"{graph_path}/SubscribeProximity")
+    if not sub_prim.GetAttribute("outputs:data"):
+        sub_prim.CreateAttribute("outputs:data", Sdf.ValueTypeNames.String)
+
+    mode_attr = stage.GetAttributeAtPath(f"{graph_path}/Indicator.inputs:mode")
+    mode_attr.AddConnection(Sdf.Path(f"{graph_path}/SubscribeProximity.outputs:data"))
+
+    print(f"[forklift-safety] Proximity graph built at {graph_path} "
+          f"(disk={indicator_prim}, topic={state_topic})", flush=True)
+
 
 def _build_one_safety_graph(robot: dict) -> None:
     import omni.graph.core as og
@@ -101,6 +220,9 @@ def _build_one_safety_graph(robot: dict) -> None:
 
     cfg = robot.get("safety_indicator", {}) or {}
     if not is_section_enabled(robot, "safety_indicator"):
+        return
+    if resolve_indicator_source(robot) == "proximity":
+        _build_one_proximity_graph(robot)
         return
 
     name = robot["name"]
@@ -185,8 +307,11 @@ def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
         # Parse the colours and the topic here too, so a malformed palette or a
         # relative topic name fails before any graph is built rather than on the
         # robot that happens to be last.
-        resolve_indicator_colors(robot)
-        resolve_muted_topic(robot)
+        if resolve_indicator_source(robot) == "proximity":
+            resolve_proximity_colors(robot)
+        else:
+            resolve_indicator_colors(robot)
+            resolve_muted_topic(robot)
         prim = resolve_indicator_prim(robot)
         if prim in claims:
             raise RuntimeError(

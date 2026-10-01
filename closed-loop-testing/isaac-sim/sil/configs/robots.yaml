@@ -4,7 +4,8 @@
 # sil/scripts/action_graphs/forklift_control.py:
 #   - build_control_graph    (cmd_vel -> swivel IK -> articulation)
 #   - build_odometry_graph   (IsaacComputeOdometry -> odom + TF tree)
-#   - build_safety_graph     (/safety/is_muted -> indicator disk color)
+#   - build_safety_graph     (/safety/is_muted, or the proximity level under
+#                             PSF_APP=pxc -> indicator disk color)
 #
 # This file is the default for EVERY profile (sil and hil): one forklift,
 # matching the stock scene. run_actor_sdg fails fast if a listed
@@ -75,6 +76,18 @@ robots:
       speed: 1.5              # m/s along the path
       loop: true              # replay forever; needs a closed path
 
+    # --- how this truck answers PSF proximity (forklift-controller, PSF_APP=pxc) ---
+    # Read from /safety/proximity/pair. Nothing arrives there on an atl run, so
+    # the block is inert unless safety-core runs the proximity app. The tiers
+    # (which distance means stop / reduce) are PSF's, in
+    # safety-core/configs/proximity_event_mapping.pb.txt; these say what the
+    # truck does about them.
+    proximity:
+      enabled: true
+      reduce_speed: 0.5       # m/s cap while PSF says reduce_speed
+      stop_hold_s: 2.0        # s a STOP outlives the last packet that asked for it
+      reduce_hold_s: 1.0      # s the same for REDUCE
+
     # --- control (ROS_Forklift_Control_Graph) ---
     # Joints and geometry come from the model; what is left is this truck's own.
     control:
@@ -98,6 +111,14 @@ robots:
       # mirror it. This scene stays on the global topic.
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
       # indicator_prim comes from the model: /World/forklift_b/body/body/safety_indicator
+      #
+      # Under PSF_APP=pxc the disk shows the proximity level instead
+      # (`source:` follows PSF_APP; set it to mute|proximity to pin it). It then
+      # listens on /forklift_b/proximity/state, the level the controller is
+      # applying, holds included:
+      color_normal: [0.0, 1.0, 0.0]   # green  full speed
+      color_reduce: [1.0, 0.3, 0.0]   # orange capped at proximity.reduce_speed
+      color_stop: [1.0, 0.0, 0.0]     # red    stopped
 
 # Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
 # so it lives in its own builder (action_graphs/clock.py).
