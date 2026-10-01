@@ -106,6 +106,16 @@ echo "DeepStream producing FPS on 3 Isaac cameras — handoff complete"
 > it via `troubleshooting.md` → "DeepStream Stuck at ≤2/3 Active Sources (Zombie Source
 > Bins)". A bare `added - removed` count would have hidden this (it stays 3).
 
+> **Right after a fresh VSS deploy the poll above can pass on the sample videos.** The
+> bootstrap registers `Camera` / `Camera_01` / `Camera_02` from the dataset's MP4s at ~30 FPS,
+> under the same names, before Isaac's warm-up gate swaps them for its own streams. Gate on
+> the swap itself, then re-run the FPS poll — Isaac's streams run at the sim rate (~15 FPS on
+> an L40S), not 30:
+> ```bash
+> until docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); \
+>       grep -q "Registered 3/3 camera(s) with VST" "$KL"'; do sleep 15; done
+> ```
+
 > **`--start` runs until externally stopped.** (The 5.1 `simulation_length` frame-count
 > auto-stop no longer applies on Isaac Sim 6.1 — the renamed `simulation_duration` only
 > extends the timeline end time.) Stopping the run with SIGINT/kill leaves the Isaac VST
@@ -279,13 +289,36 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 - **EVENT_0 / EVENT_1**: tripwire crossings reported by perception (forklift OUT / IN the trailer). The full ATL event map (`EVENT_0`–`EVENT_5` → forklift/person tripwire + person ROI) is documented in `closed-loop-testing/safety-core/configs/nvpss.conf` (the `bypassFusionEvents` block).
 - **DecisionRequest**: the PSF decision-maker is invoked — it produces the corresponding MUTE/UNMUTE command shown in the OPC log above.
 
+### Proximity (`PSF_APP=pxc` / `both`)
+
+PSF events — `EVENT_8` no violation, `EVENT_9` REDUCE tier, `EVENT_10` STOP tier:
+```bash
+grep -a "Safety event reported: EVENT_\(8\|9\|10\) " "$MDX_DATA_DIR/psf-log/pss.log" | tail -5
+grep -a "Sending decision command" "$MDX_DATA_DIR/psf-log/pxc_sdm.log" | tail -3   # NORMAL 0x07 / REDUCE 0x05 / STOP 0x02
+```
+comm-layer decodes each `0xA5` packet with the pair and its separation:
+```
+INFO:udp_receiver.safety_receiver:Proximity: Seq#2591 | REDUCE (SAFE SPEED OPERATION) | machine[id=40 OBJECT] (7.83, -13.45, 0.00) | person[id=13 PERSON] (9.26, -11.66, 0.00) | sep=2.29m | ts=2026-10-01T10:00:00.018852+00:00
+```
+and republishes it on `/safety/proximity/pair` (JSON) and `/safety/proximity/mode`. Nothing
+proximity touches `/safety/is_muted`: opcodes 0x02 and 0x07 mean the opposite of ATL's.
+
+The forklift-controller logs every change of the level it applies:
+```bash
+docker logs forklift-controller 2>&1 | grep "PXC \[" | tail -5
+# 🦺 PXC [forklift_b] normal -> reduce_speed | sep=3.33m | was 1.50 m/s, speed cap 0.50 m/s
+# 🦺 PXC [forklift_b] reduce_speed -> stop | sep=1.96m | was 0.50 m/s, speed -> 0
+```
+and publishes it on `/<robot>/proximity/state`, which the disc follows.
+
 ---
 
 ## View camera streams
 
 `http://<HOST_IP>:30888/vst/` — live Isaac Sim camera feeds with detection overlays.
-The forklift's safety disc colour follows MUTE/UNMUTE and is visible in the feeds even
-in headless mode.
+The forklift's safety disc colour follows MUTE/UNMUTE (`atl`), the proximity level (`pxc`:
+green / orange / red) or both (`both`: red / orange first, else green / yellow), and is
+visible in the feeds even in headless mode.
 
 ---
 
@@ -299,6 +332,11 @@ The system is working when:
 3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
 4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
 5. The VST UI shows the camera streams with bounding boxes
+6. (`pxc` / `both`) `pss.log` carries `EVENT_8` / `EVENT_9` / `EVENT_10`, the comm-layer
+   `Proximity:` lines show STOP only at `sep ≤ 2 m` and REDUCE at `2–3.5 m`, and the
+   controller logs `PXC [...] -> reduce_speed` / `-> stop` and back. The three workers on the
+   20x20 scene cross the forklift's lane often: one 16-minute run had 42 REDUCE and 17 STOP
+   episodes, the truck slowed 31% and stopped 10% of the time.
 
 > "Working" means **sim-driven** transitions (the forklift cycle) — not the VSS
 > sample-video bootstrap traffic that appears before Isaac streams come up.

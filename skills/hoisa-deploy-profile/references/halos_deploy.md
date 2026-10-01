@@ -74,6 +74,27 @@ fill the `# change me` placeholders (keep your filled copy local — don't commi
 
 `PSF_IMAGE` and `ISAAC_SIM_IMAGE` are pre-set in the template.
 
+### Safety app — `PSF_APP` (`sil`)
+
+| `PSF_APP` | PSF runs | Forklift | Indicator disc |
+|---|---|---|---|
+| `atl` (default) | ATL: MUTE / UNMUTE for the trailer | keeps driving its loop (stimulus only) | green muted / alarm |
+| `pxc` | Proximity: NORMAL / REDUCE / STOP for a forklift next to a person | capped at `proximity.reduce_speed` on REDUCE, stopped on STOP | green / orange / red |
+| `both` | the two side by side in one container | as `pxc` (ATL does not drive the truck) | red / orange while proximity acts, else green muted / yellow alarm |
+
+What else each needs:
+
+- **`pxc` / `both`** — the proximity mapping is `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt`, mounted over the image's (which only knows `Agility_Digit_Humanoid` × `Person`). It scores `Forklift` × `Person`: STOP ≤ 2 m, REDUCE ≤ 3.5 m, centre to centre. Every threshold must stay ≤ the VSS behavior-analytics `proximityDetectionThreshold` (4 m in the 3D app config) — above it mdx-client drops the whole rule group, STOP included, without a log line.
+- **3D (Sparse4D) feed** — `PSF_SENSOR_CONFIG=./configs/sensor_config_bev.conf`. The BEV app reports every camera as one sensor, `bev-sensor-1`; the per-camera default names none of what arrives.
+- **`both`** — add the override file to every compose command:
+  ```bash
+  docker compose -f compose.yaml -f ../closed-loop-testing/safety-core/atl-pxc-override.yaml \
+    --env-file profiles/<profile>.env up -d --build
+  ```
+  It starts one gateway, one daemon and one mdx_client on the ATL and proximity mappings concatenated, plus both SDMs. Two PSF containers do not work: they collide on the gateway port, and mdx_client's fixed Kafka consumer groups would split the frames between them. SAIM: `skip` only.
+
+The truck's reaction lives in the robot's `proximity:` block in `robots.yaml` (`reduce_speed`, `stop_hold_s`, `reduce_hold_s`). A STOP holds `stop_hold_s` past the last packet asking for one, and silence keeps the last level — no person in view means no decision, not NORMAL.
+
 ### GPU selection (`sil` / `hil`)
 
 Isaac Sim needs a GPU with **RT cores** and **> 20 GB VRAM**:
@@ -133,6 +154,12 @@ proximity bubble. (`<wh_ops>` = the VSS `warehouse-operations` dir — see `vss_
 ```bash
 until [ -s "$MDX_DATA_DIR/comm-layer/opc_server.log" ]; do sleep 5; done
 echo "PSF → comm-layer wired"
+```
+
+### PSF app came up as configured (`pxc` / `both`)
+```bash
+grep -a "registered client" "$MDX_DATA_DIR/psf-log/pss.log" | tail -2   # both: client 0 AND client 1
+grep -a "Loaded event mapping config" "$MDX_DATA_DIR/psf-log/pss.log" | tail -1   # pxc: 3 rules; both: 9 (6 ATL + 3 proximity)
 ```
 
 ### ROS isolation (`sil` / `hil`) — MUST be 1
