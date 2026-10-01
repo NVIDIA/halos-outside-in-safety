@@ -1,40 +1,60 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Proximity mapping mounted over the image's
-# /opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt, so a run can
-# change the pairs and tiers without rebuilding PSF. Starts as the image's own
-# rules (safety-core/adapters/vss/event-mappings/proximity/).
+# Proximity mapping for SCENARIO=warehouse_20x20_1fl (PSF_APP=pxc), mounted over
+# the image's /opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt.
+#
+# The image ships Agility_Digit_Humanoid x Person only. This scene has one
+# Forklift and three walking workers and no humanoid, so the image's rules
+# match nothing here and PSF stays silent for the whole run.
+#
+# Output events are the three the proximity SDM subscribes to (EVENT_8/9/10 ->
+# CMD_NORMAL/CMD_REDUCE/CMD_STOP, ProximityControl.cpp). The event id is the
+# only channel the SDM has: it does not see the object classes.
+#
+# Tiers, centre to centre, measured from the 3D BEV box centres:
+#   d <= 2.0 m        STOP     the forklift's front is ~1.3 m from its centre,
+#                              so 2 m leaves ~0.7 m in front of the forks
+#   2.0 < d <= 3.5 m  REDUCE   at 1.5 m/s the truck covers the 1.5 m band in
+#                              about one perception round trip, and arrives at
+#                              the STOP tier already slowed
+#   d > 3.5 m         NORMAL
+#
+# Every distance_threshold_meters must stay <= the behavior-analytics
+# proximityDetectionThreshold (4 m in the 3D app config). Above it,
+# mdx-client drops the WHOLE rule group, STOP included, and logs nothing.
+#
+# Rules are scanned in file order, first match wins; keep no-violation first.
 
 rules {
-  name: "Proximity no violation (safe distance, >2m or SD false)"
+  name: "Forklift/Person no violation (> 3.5 m or SD false)"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
-  rule_id: "agility_digit_person_no_violation"
-  object_type_primary: "Agility_Digit_Humanoid"
+  rule_id: "forklift_person_no_violation"
+  object_type_primary: "Forklift"
   object_type_secondary: "Person"
   proximity_violation: false
   output_event: "EVENT_8"
 }
 rules {
-  name: "Proximity 2m > distance > 1m"
+  name: "Forklift/Person 3.5 m >= distance > 2 m"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
-  rule_id: "agility_digit_person_lt_2m"
-  object_type_primary: "Agility_Digit_Humanoid"
+  rule_id: "forklift_person_reduce"
+  object_type_primary: "Forklift"
   object_type_secondary: "Person"
   proximity_violation: true
-  distance_threshold_meters: 2.0
+  distance_threshold_meters: 3.5
   output_event: "EVENT_9"
 }
 rules {
-  name: "Proximity distance < 1m"
+  name: "Forklift/Person distance <= 2 m"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
-  rule_id: "agility_digit_person_lt_1m"
-  object_type_primary: "Agility_Digit_Humanoid"
+  rule_id: "forklift_person_stop"
+  object_type_primary: "Forklift"
   object_type_secondary: "Person"
   proximity_violation: true
-  distance_threshold_meters: 1.0
+  distance_threshold_meters: 2.0
   output_event: "EVENT_10"
 }
