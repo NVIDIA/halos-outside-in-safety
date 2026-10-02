@@ -58,10 +58,10 @@ _LINE_Z_M = 0.02
 # around it, its gap from the line, and the glyph raster the atlas is drawn at.
 # Large on purpose: the cameras see the floor from 5-15 m away at a grazing
 # angle, which shortens it to a fraction of its depth.
-_LABEL_HEIGHT_M = 0.6
-_PLATE_PAD_M = 0.15
-_PLATE_RADIUS_M = 0.15
-_LABEL_GAP_M = 0.12
+_LABEL_HEIGHT_M = 0.35
+_PLATE_PAD_M = 0.08
+_PLATE_RADIUS_M = 0.08
+_LABEL_GAP_M = 0.1
 _LABEL_Z_M = 0.035
 _PLATE_Z_M = -0.006
 _GLYPH_PX = 128
