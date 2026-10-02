@@ -33,6 +33,7 @@ COPY robot_controller.py /app/
 COPY state_machine.py /app/
 COPY command_handler.py /app/
 COPY fleet_config.py /app/
+COPY proximity_gate.py /app/
 
 # Copy test utilities
 COPY test/ /app/test/

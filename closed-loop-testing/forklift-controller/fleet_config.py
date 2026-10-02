@@ -39,6 +39,14 @@ DRIVE_DEFAULTS = {
     "spiral_timeout": 10.0,   # s circling a missed waypoint before giving up
 }
 
+PROXIMITY_DEFAULTS = {
+    "enabled": None,          # follow PSF proximity decisions; None = PSF_APP is pxc or both
+    "reduce_speed": 0.5,      # m/s cap while PSF says reduce_speed
+    "stop_hold_s": 2.0,       # s a STOP outlives the last packet that asked for it
+    "reduce_hold_s": 1.0,     # s the same for REDUCE
+    "stale_s": 10.0,          # s of silence, heartbeats included, before the link counts as dead
+}
+
 
 def _loader():
     """The Isaac-side module both this file and the graph builders read."""
@@ -66,6 +74,13 @@ def load_fleet(robots_config_path: str) -> list[dict]:
         raise RuntimeError(
             f"drive knobs disagree: forklift_common knows {sorted(KNOWN_DRIVE_KEYS)}, "
             f"fleet_config defaults {sorted(DRIVE_DEFAULTS)}"
+        )
+    proximity_knobs = set(common.KNOWN_PROXIMITY_KEYS) - set(common.PROXIMITY_TOPIC_KEYS)
+    if proximity_knobs != set(PROXIMITY_DEFAULTS):
+        raise RuntimeError(
+            f"proximity knobs disagree: forklift_common knows "
+            f"{sorted(proximity_knobs)}, fleet_config defaults "
+            f"{sorted(PROXIMITY_DEFAULTS)}"
         )
     robots, _ = load_and_validate_robots_yaml(robots_config_path)
     return robots
@@ -103,6 +118,45 @@ def resolve_drive(cli: dict[str, Any], robot: Optional[dict]) -> tuple[dict, dic
     return values, sources
 
 
+def resolve_proximity(robot: Optional[dict]) -> tuple[dict, dict]:
+    """(values, source-of-each-value) for the proximity knobs. No flags: one
+    run-wide value would set every truck in the fleet at once."""
+    fleet = (robot or {}).get("proximity") or {}
+    values: dict[str, Any] = {}
+    sources: dict[str, str] = {}
+    for key, fallback in PROXIMITY_DEFAULTS.items():
+        if key in fleet:
+            values[key], sources[key] = fleet[key], "robots.yaml"
+        elif key == "enabled":
+            values[key], sources[key] = _psf_app() in ("pxc", "both"), "PSF_APP"
+        else:
+            values[key], sources[key] = fallback, "default"
+    return values, sources
+
+
+def _psf_app() -> str:
+    try:
+        return _loader().resolve_psf_app()
+    except RuntimeError:
+        # No Isaac tree mounted (a run started by hand): read it unvalidated.
+        return os.environ.get("PSF_APP") or "atl"
+
+
+def robots_sharing_proximity_topic(robots: list[dict]) -> dict[str, list[str]]:
+    """Pair topic -> robots obeying it, for topics more than one robot obeys.
+
+    PSF names no robot, so every truck on one topic stops for a person standing
+    next to any of them.
+    """
+    common = _loader()
+    by_topic: dict[str, list[str]] = {}
+    for robot in robots:
+        if resolve_proximity(robot)[0]["enabled"]:
+            by_topic.setdefault(common.resolve_proximity_pair_topic(robot), []).append(
+                robot["name"])
+    return {t: names for t, names in by_topic.items() if len(names) > 1}
+
+
 def format_sources(values: dict, sources: dict) -> str:
     """One line naming every value and where it came from."""
     return " ".join(f"{k}={values[k]}({sources[k]})" for k in sorted(values))
@@ -126,11 +180,16 @@ def resolve_topics(robot: Optional[dict], robot_id: str) -> dict:
     file — a run started by hand — the namespaced convention still applies.
     """
     if robot is None:
-        names = {"cmd_vel": f"{robot_id}/cmd_vel", "odom": f"{robot_id}/odom"}
+        names = {"cmd_vel": f"{robot_id}/cmd_vel", "odom": f"{robot_id}/odom",
+                 "proximity_pair": "/safety/proximity/pair",
+                 "proximity_state": f"/{robot_id}/proximity/state"}
     else:
         common = _loader()
+        # Isaac's disk subscribes the state topic, so it comes from the same resolver.
         names = {"cmd_vel": common.resolve_cmd_vel_topic(robot),
-                 "odom": common.resolve_odom_topic(robot)}
+                 "odom": common.resolve_odom_topic(robot),
+                 "proximity_pair": common.resolve_proximity_pair_topic(robot),
+                 "proximity_state": common.resolve_proximity_state_topic(robot)}
     return {k: v if v.startswith("/") else f"/{v}" for k, v in names.items()}
 
 

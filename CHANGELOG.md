@@ -125,6 +125,28 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
   **Needs `up -d --build`** — the comm-layer image changes.
 
+- **Proximity support touches every run, `atl` included.** Re-run `setup.sh`,
+  then `up -d --build`: the controller image now copies `proximity_gate.py`,
+  and without a rebuild the old controller ignores proximity while Isaac, from
+  the mounted tree, subscribes to a state topic nobody publishes.
+  - safety-core always mounts `pxc_sdm.log` and the proximity mapping;
+    `setup.sh` creates the log files and refuses to continue if Docker has
+    already turned one into a directory, and `cleanup_all_datalog.sh` truncates
+    all three instead of deleting two of them.
+  - `nvpss.conf` bypasses fusion for `EVENT_8/9/10` as well.
+  - comm-layer adds the `Proximity*` OPC UA nodes. Of these only
+    `ProximitySafeReleaseRequest` is writable: writing `True` asks the SDM to
+    leave a latched safe state. The receiver no longer sends a release request
+    by itself; `COMM_PXC_STARTUP_RELEASE=1` restores one automatic request,
+    sent only after the SDM has reported a latch.
+  - The forklift-controller publishes `/<robot>/proximity/state`, and
+    `/<robot>/state` gains `proximity`, `proximity_separation_m` and
+    `proximity_fault`. Its proximity gate is on only when `PSF_APP` is `pxc` or
+    `both`, unless the robot's `proximity.enabled` says otherwise.
+  - `PSF_APP` must be `atl`, `pxc` or `both`, exactly; anything else is an
+    error where Isaac and the controller read it, instead of a quiet fallback
+    to ATL.
+
 ### Removed
 
 - **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file
@@ -157,6 +179,9 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `COMM_ROBOT_IDS` — comm-layer mirrors the mute decision onto `/<robot>/safety/is_muted` for each listed robot. Every mirror carries the same value: the decision is made for a camera-covered zone, not for a named truck.
 - 40x20 two-dock scene and its config trio. **Experimental / internal-only** — no calibration is published with it, so VSS runs 20x20 geometry against it and the safety numbers do not mean anything.
 - `deployments/scripts/preflight.py` — cross-checks the robots config, controller services, waypoint files and `COMM_ROBOT_IDS` before Isaac boots, and compares each waypoint origin against where its truck stands.
+- PSF proximity in the SIL loop (`PSF_APP=pxc`, 3D feed, SIL only). comm-layer decodes the `0xA5` packets onto `/safety/proximity/mode` and `/safety/proximity/pair` (opcodes 0x02/0x07 mean the opposite of ATL's, so nothing touches `/safety/is_muted`). The OPC node keeps the most severe decision visible for 0.3 s, so a STOP followed at once by a NORMAL or a heartbeat still reaches the 10 Hz bridge; unknown opcodes are published as a fault. The forklift-controller caps the truck at `proximity.reduce_speed` on REDUCE and stops it on STOP, each held past the last packet, and stops it with fault `psf_link_stale` when nothing at all (heartbeats included) has arrived for `proximity.stale_s` (10 s). The indicator disk shows the level it applies — green / orange / red, grey before PSF's first decision or with proximity disabled. `proximity_event_mapping.pb.txt` scores Forklift × Person for the 20x20 scene (STOP ≤ 2 m, REDUCE ≤ 3.5 m). A 3D feed also needs `PSF_SENSOR_CONFIG_SRC=./configs/sensor_config_bev.conf`. One truck per decision stream: PSF names no robot, so the controller warns when several obey the same `proximity.pair_topic`. `send_packet.py --proximity` injects 0xA5 packets without PSF.
+- `PSF_APP=both` with `-f closed-loop-testing/safety-core/atl-pxc-override.yaml` (or `COMPOSE_FILE`, see `sil.env`): ATL and proximity in one PSF container — one gateway, one daemon, one `mdx_client` on the two mappings concatenated, and both SDMs (two containers would collide on the gateway port and split mdx_client's fixed Kafka consumer groups). The disk shows red / orange while proximity acts on the truck, otherwise green muted / yellow alarm.
+- `comm-layer/tests/test_proximity_chain.py`: the 0xA5 path from bytes to the bridge — decoder split, ACKs, latch handling, the decision hold, OPC payload. Runs in the comm-layer image (command in the file header).
 
 ### Fixed
 

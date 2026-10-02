@@ -7,12 +7,16 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PSF_LOG_DIR}/pss.log:/var/log/pss.log
+      - ${PSF_LOG_DIR}/pxc_sdm.log:/home/nvidia/pxc_sdm.log
       - ./configs/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro
-      - ./configs/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro
+      # sensor_config.conf names the per-camera 2D sensors; a 3D (BEV) feed
+      # needs configs/sensor_config_bev.conf. Relative to this file's directory.
+      - ${PSF_SENSOR_CONFIG_SRC:-./configs/sensor_config.conf}:/opt/nvidia/psf/bin/sensor_config.conf:ro
+      - ./configs/proximity_event_mapping.pb.txt:/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt:ro
     group_add:
       - ${DOCKER_GID}
     command: >
-      --app atl
+      --app ${PSF_APP:-atl}
       --saim-mode ${PSF_LAUNCH_MODE:-skip}
       --cmd_rx_ip ${PSF_CMD_RX_IP}
       --cmd_rx_port ${COMM_UDP_PORT}

@@ -536,3 +536,5 @@ using the same domain ID.
 | CUDA errors on restart | Full container recreate, not restart |
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
 | No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
+| `PSF_APP=pxc`: no `EVENT_8/9/10` at all | Mapping pairs a class the scene lacks (the image's own maps only `Agility_Digit_Humanoid`), a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), or a 3D feed without `PSF_SENSOR_CONFIG_SRC=./configs/sensor_config_bev.conf` — `halos_deploy.md` → "Safety app" |
+| `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |
