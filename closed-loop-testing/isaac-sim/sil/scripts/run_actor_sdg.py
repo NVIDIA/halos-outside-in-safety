@@ -267,7 +267,8 @@ class ActorSDGRunner:
             if self.robots_config_path:
                 try:
                     from action_graphs import build_proximity_line
-                    build_proximity_line(self.robots_config_path)
+                    build_proximity_line(self.robots_config_path,
+                                         self.cameras_config_path)
                 except Exception as e:
                     print(f"WARNING: proximity line not drawn ({e})")
             #   5. action_graphs.build_srr_gt_graph publishes /gt/*/tf for the

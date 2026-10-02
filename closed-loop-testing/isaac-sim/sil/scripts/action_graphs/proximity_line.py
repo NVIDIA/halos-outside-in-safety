@@ -8,9 +8,9 @@ publishes /safety/proximity/pair.
 
 For the latest motion decision on that topic it draws a line on the floor
 between the two positions PSF sent (machine, person), in the decision's colour
-— green NORMAL, orange REDUCE, red STOP — and, with `show_distance`, a label
-such as "STOP 1.97 m" lying flat beside it, turned to read upright from the
-scene's cameras.
+— green NORMAL, amber REDUCE, red STOP — and, with `show_distance`, a label
+such as "STOP 1.97 m" lying flat beside it, turned to face one camera
+(`label_camera`, default the first in cameras.yaml).
 
 The positions are drawn as they arrive: PSF reports them in the scene's world
 frame (x, y in metres), so nothing is matched to the stage. They lag a moving
@@ -76,10 +76,12 @@ _line = None
 _update_sub = None
 
 
-def build_proximity_line(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
+def build_proximity_line(config_path: str = DEFAULT_ROBOTS_YAML,
+                         cameras_config_path: str | None = None) -> None:
     """Subscribe the pair topic, author the line, arm the per-frame update.
 
     No-op unless robots.yaml says `proximity_line: {enabled: true}`.
+    `cameras_config_path` names the default camera the label faces.
     """
     global _line, _update_sub
     import omni.graph.core as og
@@ -125,7 +127,8 @@ def build_proximity_line(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     if not sub_prim.GetAttribute("outputs:data"):
         sub_prim.CreateAttribute("outputs:data", Sdf.ValueTypeNames.String)
 
-    _line = _PairLine(stage, cfg)
+    camera = cfg["label_camera"] or _first_camera(cameras_config_path)
+    _line = _PairLine(stage, cfg, camera)
     _line.build()
     _update_sub = (
         omni.kit.app.get_app()
@@ -134,11 +137,11 @@ def build_proximity_line(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
     )
     print(f"[pxc-line] armed: topic={cfg['topic']}, "
           f"label={'on' if _line.has_label else 'off'}, label faces "
-          f"({_line._view_dir[0]:.2f}, {_line._view_dir[1]:.2f})", flush=True)
+          f"{camera if _line.camera_xy else 'world +Y (no camera)'}", flush=True)
 
 
 class _PairLine:
-    def __init__(self, stage, cfg: dict):
+    def __init__(self, stage, cfg: dict, camera: str | None):
         from pxr import UsdGeom
 
         self._stage = stage
@@ -152,10 +155,10 @@ class _PairLine:
         self._shown_text = None
         self._last_log = 0.0
         self._atlas = None
+        self._label_width = 0.0
         self.has_label = False
-        # Floor-plane direction the scene's cameras look along; the label's top
-        # points along it so the streams show it upright.
-        self._view_dir = _camera_view_dir(stage)
+        # Where the camera the label faces stands, in stage units.
+        self.camera_xy = _camera_xy(stage, camera)
 
     # ---------------------------------------------------------------- authoring
 
@@ -329,31 +332,51 @@ class _PairLine:
         if self._shown_mode != mode:
             self._line_color.Set(Gf.Vec3f(*self._cfg["colors"][mode]))
         if self.has_label:
-            self._draw_label(mid, heading, mode, f"{_LABEL[mode]} {sep:.2f} m", k)
+            self._draw_label(mid, (math.cos(heading), math.sin(heading)), mode,
+                             f"{_LABEL[mode]} {sep:.2f} m", k)
         if self._shown_mode is None:
             self._set_visible(True)
         self._shown_mode = mode
 
-    def _draw_label(self, mid, heading: float, mode: str, text: str, k: float) -> None:
+    def _draw_label(self, mid, along, mode: str, text: str, k: float) -> None:
         from pxr import Gf
 
-        # Along the line, turned so the letters' tops point the way the cameras
-        # look (upright in the streams), and beside it on that side.
-        angle = heading
-        if -math.sin(angle) * self._view_dir[0] + math.cos(angle) * self._view_dir[1] < 0:
-            angle += math.pi
-        off = (_LINE_WIDTH_M / 2 + _LABEL_GAP_M + _LABEL_HEIGHT_M / 2) * k
-        self._label_ops["t"].Set(Gf.Vec3d(mid[0] - math.sin(angle) * off,
-                                          mid[1] + math.cos(angle) * off, _LABEL_Z_M * k))
-        self._label_ops["r"].Set(float(math.degrees(angle)))
+        if text != self._shown_text:
+            self._label_width = self._lay_out(text, _LABEL_HEIGHT_M * k)
+            self._shown_text = text
         if self._shown_mode != mode:
             self._label_binding.Bind(self._label_mats[mode])
-        if text != self._shown_text:
-            self._lay_out(text, _LABEL_HEIGHT_M * k)
-            self._shown_text = text
 
-    def _lay_out(self, text: str, height: float) -> None:
-        """One quad per glyph, centred on the label's origin, in the floor plane."""
+        # Facing the camera: the letters' tops point along its line of sight to
+        # the label, so the text reads straight across that camera's frame.
+        if self.camera_xy:
+            up = (mid[0] - self.camera_xy[0], mid[1] - self.camera_xy[1])
+            norm = math.hypot(*up)
+            up = (up[0] / norm, up[1] / norm) if norm > 1e-6 else (0.0, 1.0)
+        else:
+            up = (0.0, 1.0)
+        right = (up[1], -up[0])
+
+        # Beside the line, never across it: step off along the line's normal by
+        # the label's own half-extent in that direction, on the side above the
+        # line in the camera's frame, or right of it when the line runs at the
+        # camera.
+        normal = (-along[1], along[0])
+        if (normal[0] * (up[0] + 0.5 * right[0])
+                + normal[1] * (up[1] + 0.5 * right[1])) < 0:
+            normal = (-normal[0], -normal[1])
+        half = (abs(normal[0] * right[0] + normal[1] * right[1]) * self._label_width / 2
+                + abs(normal[0] * up[0] + normal[1] * up[1]) * _LABEL_HEIGHT_M * k / 2)
+        off = (_LINE_WIDTH_M / 2 + _LABEL_GAP_M) * k + half
+        self._label_ops["t"].Set(Gf.Vec3d(mid[0] + normal[0] * off,
+                                          mid[1] + normal[1] * off, _LABEL_Z_M * k))
+        self._label_ops["r"].Set(float(math.degrees(math.atan2(right[1], right[0]))))
+
+    def _lay_out(self, text: str, height: float) -> float:
+        """One quad per glyph, centred on the label's origin, in the floor plane.
+
+        Returns the label's width.
+        """
         from pxr import Gf, Vt
 
         cells, cell_h = self._atlas
@@ -380,6 +403,7 @@ class _PairLine:
         mesh.GetExtentAttr().Set(Vt.Vec3fArray([Gf.Vec3f(-width / 2, y0, 0),
                                                 Gf.Vec3f(width / 2, y1, 0)]))
         self._label_st.Set(Vt.Vec2fArray(st))
+        return width
 
     def _hide(self) -> None:
         if self._shown_mode is not None:
@@ -404,21 +428,31 @@ class _PairLine:
             pass
 
 
-def _camera_view_dir(stage) -> tuple[float, float]:
-    """Mean floor-plane forward of the scene's cameras; +Y if there are none."""
-    from pxr import Gf, Usd, UsdGeom
+def _first_camera(cameras_config_path: str | None) -> str | None:
+    """camera_prim of the first camera in cameras.yaml, the stream VST lists first."""
+    if not cameras_config_path or not os.path.isfile(cameras_config_path):
+        return None
+    import yaml
 
-    fx = fy = 0.0
-    for prim in stage.Traverse():
-        if not prim.IsA(UsdGeom.Camera) or prim.GetPath().pathString.startswith("/OmniverseKit"):
-            continue
-        xf = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-        fwd = xf.TransformDir(Gf.Vec3d(0.0, 0.0, -1.0))
-        norm = math.hypot(fwd[0], fwd[1])
-        if norm > 1e-6:
-            fx, fy = fx + fwd[0] / norm, fy + fwd[1] / norm
-    norm = math.hypot(fx, fy)
-    return (fx / norm, fy / norm) if norm > 1e-6 else (0.0, 1.0)
+    with open(cameras_config_path) as f:
+        cameras = (yaml.safe_load(f) or {}).get("cameras") or []
+    first = cameras[0] if cameras and isinstance(cameras[0], dict) else {}
+    return first.get("camera_prim")
+
+
+def _camera_xy(stage, camera: str | None):
+    """World (x, y) of the camera prim, or None if there is no such camera."""
+    from pxr import Usd, UsdGeom
+
+    if not camera:
+        return None
+    prim = stage.GetPrimAtPath(camera)
+    if not prim or not prim.IsValid():
+        print(f"[pxc-line] label camera {camera} not on the stage", flush=True)
+        return None
+    pos = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+        Usd.TimeCode.Default()).ExtractTranslation()
+    return (float(pos[0]), float(pos[1]))
 
 
 def _render_atlas(path: str, rgb_linear) -> tuple[dict, int]:

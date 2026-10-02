@@ -72,7 +72,7 @@ KNOWN_PROXIMITY_KEYS = ("enabled", "reduce_speed", "stop_hold_s", "reduce_hold_s
 
 # The top-level `proximity_line:` block: the pair PSF scored, drawn on the
 # floor by proximity_line.py. Read here so a misspelt key fails like any other.
-KNOWN_PROXIMITY_LINE_KEYS = ("enabled", "topic", "show_distance",
+KNOWN_PROXIMITY_LINE_KEYS = ("enabled", "topic", "show_distance", "label_camera",
                              "color_normal", "color_reduce", "color_stop")
 
 # What safety-core runs. Every reader goes through resolve_psf_app(), so a typo
@@ -659,11 +659,12 @@ def _parse_rgb(where: str, value) -> tuple[float, float, float]:
     return tuple(float(c) for c in value)
 
 
-# Linear RGB of the line, as emitted. Emission is not lifted by the scene's
-# exposure the way the disk's displayColor is, so these are not the disk's values.
+# Linear RGB of the line, as emitted: sRGB (28, 160, 72) green, (222, 150, 20)
+# amber, (214, 38, 38) red. Emission is not lifted by the scene's exposure the
+# way the disk's displayColor is, so these are not the disk's values.
 DEFAULT_LINE_COLORS = {
     "normal": (0.012, 0.352, 0.065),
-    "reduce_speed": (0.831, 0.141, 0.007),
+    "reduce_speed": (0.730, 0.305, 0.007),
     "stop": (0.672, 0.019, 0.019),
 }
 
@@ -671,8 +672,9 @@ DEFAULT_LINE_COLORS = {
 def load_proximity_line_cfg(yaml_path: str) -> dict:
     """The top-level `proximity_line:` block, validated, defaults applied.
 
-    Returns enabled, topic, show_distance, and colors keyed by mode. Absent
-    means off: the line is geometry, so the cameras and perception see it.
+    Returns enabled, topic, show_distance, label_camera (None: the first
+    camera in cameras.yaml), and colors keyed by mode. Absent means off: the
+    line is geometry, so the cameras and perception see it.
     """
     try:
         import yaml
@@ -694,6 +696,12 @@ def load_proximity_line_cfg(yaml_path: str) -> dict:
         if key in cfg and not isinstance(cfg[key], bool):
             raise ValueError(
                 f"{yaml_path}: proximity_line.{key} must be true or false, got {cfg[key]!r}")
+    label_camera = cfg.get("label_camera")
+    if label_camera is not None and not (
+            isinstance(label_camera, str) and label_camera.startswith("/")):
+        raise ValueError(
+            f"{yaml_path}: proximity_line.label_camera must be an absolute prim path, "
+            f"got {label_camera!r}")
     colors = {
         mode: (_parse_rgb(f"proximity_line.color_{name}", cfg[f"color_{name}"])
                if f"color_{name}" in cfg else default)
@@ -708,6 +716,7 @@ def load_proximity_line_cfg(yaml_path: str) -> dict:
         "topic": _check_absolute_topic("proximity_line", "topic",
                                        cfg.get("topic", PROXIMITY_PAIR_TOPIC)),
         "show_distance": cfg.get("show_distance", True),
+        "label_camera": label_camera,
         "colors": colors,
     }
 
