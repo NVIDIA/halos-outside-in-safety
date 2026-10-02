@@ -32,6 +32,10 @@ Modules:
        harness /gt/*/tf publisher (/World/SRRGraph). Resolves the
        IRA-spawned characters + forklift from the live stage and pumps
        their Fabric world transforms each frame. No effect on a normal run.
+  - proximity_line.py -> build_proximity_line(yaml_path)
+       OPT-IN (robots.yaml `proximity_line: {enabled: true}`, default OFF).
+       The pair PSF proximity scored, drawn on the floor at the positions
+       it sent, with its separation in metres.
   - (future) <name>.py -> build_<name>_graph(...)
 
 For non-graph stage tweaks (deactivate prims, set xform, etc),
@@ -72,6 +76,7 @@ from .forklift_odometry import build_odometry_graph
 from .forklift_safety_indicator import build_safety_graph
 from .clock import build_clock_graph
 from .srr_ground_truth import build_srr_gt_graph
+from .proximity_line import build_proximity_line
 
 __all__ = [
     "build_rtsp_graph",
@@ -82,4 +87,5 @@ __all__ = [
     "strip_baked_scene_graphs",
     "build_clock_graph",
     "build_srr_gt_graph",
+    "build_proximity_line",
 ]

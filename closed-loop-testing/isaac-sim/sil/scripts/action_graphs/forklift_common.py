@@ -70,6 +70,11 @@ PROXIMITY_TOPIC_KEYS = ("pair_topic", "state_topic")
 KNOWN_PROXIMITY_KEYS = ("enabled", "reduce_speed", "stop_hold_s", "reduce_hold_s",
                         "stale_s") + PROXIMITY_TOPIC_KEYS
 
+# The top-level `proximity_line:` block: the pair PSF scored, drawn on the
+# floor by proximity_line.py. Read here so a misspelt key fails like any other.
+KNOWN_PROXIMITY_LINE_KEYS = ("enabled", "topic", "show_distance",
+                             "color_normal", "color_reduce", "color_stop")
+
 # What safety-core runs. Every reader goes through resolve_psf_app(), so a typo
 # fails in one place instead of quietly selecting the ATL defaults everywhere.
 PSF_APPS = ("atl", "pxc", "both")
@@ -634,28 +639,77 @@ def resolve_combined_colors(robot: dict) -> tuple[tuple[float, float, float], ..
 def _resolve_indicator_color(robot: dict, key: str,
                              default: tuple[float, float, float]) -> tuple[float, float, float]:
     cfg = robot.get("safety_indicator", {}) or {}
-    name = robot.get("name", "?")
     value = cfg.get(key)
     if value is None:
         return default
+    return _parse_rgb(f"'{robot.get('name', '?')}'.safety_indicator.{key}", value)
+
+
+def _parse_rgb(where: str, value) -> tuple[float, float, float]:
     if not isinstance(value, (list, tuple)) or len(value) != 3:
-        raise ValueError(
-            f"robots.yaml: '{name}'.safety_indicator.{key} must be [r, g, b], "
-            f"got {value!r}"
-        )
+        raise ValueError(f"robots.yaml: {where} must be [r, g, b], got {value!r}")
     for component in value:
         # bool is an int subclass; `true` in YAML must not read as 1.0.
         if isinstance(component, bool) or not isinstance(component, (int, float)):
             raise ValueError(
-                f"robots.yaml: '{name}'.safety_indicator.{key} components must be "
-                f"numbers, got {value!r}"
-            )
+                f"robots.yaml: {where} components must be numbers, got {value!r}")
         if not 0.0 <= float(component) <= 1.0:
             raise ValueError(
-                f"robots.yaml: '{name}'.safety_indicator.{key} components are "
-                f"0..1, not 0..255, got {value!r}"
-            )
+                f"robots.yaml: {where} components are 0..1, not 0..255, got {value!r}")
     return tuple(float(c) for c in value)
+
+
+# Linear RGB of the line, as emitted. Emission is not lifted by the scene's
+# exposure the way the disk's displayColor is, so these are not the disk's values.
+DEFAULT_LINE_COLORS = {
+    "normal": (0.012, 0.352, 0.065),
+    "reduce_speed": (0.831, 0.141, 0.007),
+    "stop": (0.672, 0.019, 0.019),
+}
+
+
+def load_proximity_line_cfg(yaml_path: str) -> dict:
+    """The top-level `proximity_line:` block, validated, defaults applied.
+
+    Returns enabled, topic, show_distance, and colors keyed by mode. Absent
+    means off: the line is geometry, so the cameras and perception see it.
+    """
+    try:
+        import yaml
+    except ImportError as e:
+        raise RuntimeError(
+            "pyyaml not available; ensure the Isaac Sim python env has it") from e
+    if not os.path.isfile(yaml_path):
+        raise FileNotFoundError(f"robots yaml not found: {yaml_path}")
+    with open(yaml_path) as f:
+        cfg = (yaml.safe_load(f) or {}).get("proximity_line") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"{yaml_path}: proximity_line must be a mapping, got {cfg!r}")
+    unknown = set(cfg) - set(KNOWN_PROXIMITY_LINE_KEYS)
+    if unknown:
+        raise ValueError(
+            f"{yaml_path}: proximity_line has unknown keys: {', '.join(sorted(unknown))}. "
+            f"Known keys are {', '.join(KNOWN_PROXIMITY_LINE_KEYS)}.")
+    for key in ("enabled", "show_distance"):
+        if key in cfg and not isinstance(cfg[key], bool):
+            raise ValueError(
+                f"{yaml_path}: proximity_line.{key} must be true or false, got {cfg[key]!r}")
+    colors = {
+        mode: (_parse_rgb(f"proximity_line.color_{name}", cfg[f"color_{name}"])
+               if f"color_{name}" in cfg else default)
+        for mode, name, default in (
+            ("normal", "normal", DEFAULT_LINE_COLORS["normal"]),
+            ("reduce_speed", "reduce", DEFAULT_LINE_COLORS["reduce_speed"]),
+            ("stop", "stop", DEFAULT_LINE_COLORS["stop"]),
+        )
+    }
+    return {
+        "enabled": cfg.get("enabled", False),
+        "topic": _check_absolute_topic("proximity_line", "topic",
+                                       cfg.get("topic", PROXIMITY_PAIR_TOPIC)),
+        "show_distance": cfg.get("show_distance", True),
+        "colors": colors,
+    }
 
 
 def ensure_extensions_enabled() -> None:
