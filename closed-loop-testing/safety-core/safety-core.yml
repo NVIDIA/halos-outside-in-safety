@@ -11,7 +11,7 @@ services:
       - ./configs/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro
       # sensor_config.conf names the per-camera 2D sensors; a 3D (BEV) feed
       # needs configs/sensor_config_bev.conf. Relative to this file's directory.
-      - ${PSF_SENSOR_CONFIG:-./configs/sensor_config.conf}:/opt/nvidia/psf/bin/sensor_config.conf:ro
+      - ${PSF_SENSOR_CONFIG_SRC:-./configs/sensor_config.conf}:/opt/nvidia/psf/bin/sensor_config.conf:ro
       - ./configs/proximity_event_mapping.pb.txt:/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt:ro
     group_add:
       - ${DOCKER_GID}

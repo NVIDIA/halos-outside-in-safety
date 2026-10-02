@@ -303,13 +303,28 @@ INFO:udp_receiver.safety_receiver:Proximity: Seq#2591 | REDUCE (SAFE SPEED OPERA
 and republishes it on `/safety/proximity/pair` (JSON) and `/safety/proximity/mode`. Nothing
 proximity touches `/safety/is_muted`: opcodes 0x02 and 0x07 mean the opposite of ATL's.
 
-The forklift-controller logs every change of the level it applies:
+The forklift-controller logs every change of the level it applies (under the `multi-robot`
+profile check `forklift-controller-b2` too):
 ```bash
-docker logs forklift-controller 2>&1 | grep "PXC \[" | tail -5
+for c in forklift-controller forklift-controller-b2; do
+  docker logs "$c" 2>&1 | grep "PXC \[" | tail -5
+done
+# 🦺 PXC [forklift_b] inactive -> normal | sep=4.10m | was 1.50 m/s, speed -> 1.50 m/s
 # 🦺 PXC [forklift_b] normal -> reduce_speed | sep=3.33m | was 1.50 m/s, speed cap 0.50 m/s
 # 🦺 PXC [forklift_b] reduce_speed -> stop | sep=1.96m | was 0.50 m/s, speed -> 0
 ```
-and publishes it on `/<robot>/proximity/state`, which the disc follows.
+and publishes it on `/<robot>/proximity/state`, which the disc follows (grey while `inactive`).
+`separation_m` / `sep=` is the 2D (x, y) distance between the two object records; PSF scores
+the pair in 3D, so the two can differ by the height difference.
+
+Without PSF or VSS, inject packets straight into comm-layer (`<seq> <ignored cmd> <COMM_UDP_PORT>`;
+give each decision a new sequence number, the controller ignores a repeated one). End on
+`normal`: silence keeps the last level.
+```bash
+SEND="docker exec comm-layer python3 /app/comm_layer/scripts/send_packet.py"
+$SEND 101 0 12346 --proximity stop   --machine 40,7.8,-13.4 --person 13,9.2,-12.1
+$SEND 102 0 12346 --proximity normal --machine 40,7.8,-13.4 --person 13,12.0,-10.5
+```
 
 ---
 

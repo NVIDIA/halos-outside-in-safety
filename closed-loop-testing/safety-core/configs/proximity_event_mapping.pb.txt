@@ -24,7 +24,8 @@
 # proximityDetectionThreshold (4 m in the 3D app config). Above it,
 # mdx-client drops the WHOLE rule group, STOP included, and logs nothing.
 #
-# Rules are scanned in file order, first match wins; keep no-violation first.
+# File order does not matter: for each pair the rule with the smallest
+# distance_threshold_meters at or above the measured distance is selected.
 
 rules {
   name: "Forklift/Person no violation (> 3.5 m or SD false)"

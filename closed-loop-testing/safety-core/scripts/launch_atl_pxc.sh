@@ -80,6 +80,9 @@ SDM_ARGS=(--decision_interval_ms 0 --hb_stale_ms "$HB_STALE_MS" --hb_period_ms "
 MDX_ARGS=(--config "$MAPPING" --sensor-config "$SENSOR_CONFIG")
 [[ -n "$KAFKA_BROKER" ]] && MDX_ARGS+=(--broker "$KAFKA_BROKER")
 
+# Gateway before daemon, the order the image's launch_psf.sh uses. Written
+# against nv-psf-halos-1.3-6932895; atl_pxc_entrypoint.sh refuses to start if the
+# image paths it relies on have moved.
 echo "Starting ATL + Proximity Control applications..."
 start $PSF/bin/nvpsd_gateway
 start $PSF/bin/nvpss_daemon

@@ -77,18 +77,20 @@ echo "Cleaning PSF log files..."
 PSF_LOG_DIR="${PSF_LOG_DIR:-$MDX_DATA_DIR/psf-log}"
 
 if [ -d "$PSF_LOG_DIR" ]; then
-    PSF_LOG_FILE="$PSF_LOG_DIR/pss.log"
-    if [ -f "$PSF_LOG_FILE" ]; then
-        echo "  Clearing data in: $PSF_LOG_FILE"
-        sudo truncate -s 0 "$PSF_LOG_FILE"
-        echo "  PSF log file cleared"
-    else
-        echo "  PSF log file not found: $PSF_LOG_FILE"
-    fi
+    # Truncated, never deleted: safety-core.yml bind-mounts each as a FILE, and
+    # Docker recreates a missing bind source as a directory.
+    for PSF_LOG_FILE in "$PSF_LOG_DIR/pss.log" "$PSF_LOG_DIR/pxc_sdm.log" "$PSF_LOG_DIR/atl_sdm.log"; do
+        if [ -f "$PSF_LOG_FILE" ]; then
+            echo "  Clearing data in: $PSF_LOG_FILE"
+            sudo truncate -s 0 "$PSF_LOG_FILE"
+        else
+            echo "  PSF log file not found: $PSF_LOG_FILE"
+        fi
+    done
     
     # Remove any other files in PSF log directory
     echo "  Removing other files in: $PSF_LOG_DIR"
-    sudo find "$PSF_LOG_DIR" -type f ! -name "pss.log" -delete
+    sudo find "$PSF_LOG_DIR" -type f ! -name "pss.log" ! -name "pxc_sdm.log" ! -name "atl_sdm.log" -delete
     echo "  Other PSF files removed"
 else
     echo "  PSF log directory not found: $PSF_LOG_DIR"

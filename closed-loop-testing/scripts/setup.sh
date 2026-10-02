@@ -65,10 +65,10 @@ echo ""
 
 sudo mkdir -p "$MDX_DATA_DIR"
 
-# PSF logs (base, sil) — safety-core.yml mounts each as a FILE, so both must
-# pre-exist. Docker silently creates a DIRECTORY for a missing bind-mount
+# PSF logs (base, sil) — safety-core.yml mounts each as a FILE, so all three
+# must pre-exist. Docker silently creates a DIRECTORY for a missing bind-mount
 # source, and PSF then fails to open its own log with no useful error.
-# pxc_sdm.log is only written when PSF_APP=pxc (proximity) and atl_sdm.log only
+# pxc_sdm.log is only written when PSF_APP is pxc or both, and atl_sdm.log only
 # mounted by atl-pxc-override.yaml (PSF_APP=both), but creating them
 # unconditionally costs nothing and keeps the profiles from needing different
 # setup steps.
@@ -76,6 +76,13 @@ if [ -n "$NEED_PSF" ]; then
     PSF_LOG_DIR="${PSF_LOG_DIR:-$MDX_DATA_DIR/psf-log}"
     echo "PSF: $PSF_LOG_DIR (+ pss.log, pxc_sdm.log, atl_sdm.log)"
     sudo mkdir -p "$PSF_LOG_DIR"
+    for f in pss.log pxc_sdm.log atl_sdm.log; do
+        if [ -d "$PSF_LOG_DIR/$f" ]; then
+            echo "ERROR: $PSF_LOG_DIR/$f is a directory (Docker created it for a missing bind source)."
+            echo "       Stop safety-core, remove it (sudo rmdir \"$PSF_LOG_DIR/$f\") and re-run setup.sh."
+            exit 1
+        fi
+    done
     sudo touch "$PSF_LOG_DIR/pss.log" "$PSF_LOG_DIR/pxc_sdm.log" "$PSF_LOG_DIR/atl_sdm.log"
     sudo chmod -R 777 "$PSF_LOG_DIR"
 fi
