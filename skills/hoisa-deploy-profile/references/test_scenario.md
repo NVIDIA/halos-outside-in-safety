@@ -320,7 +320,8 @@ the pair in 3D, so the two can differ by the height difference.
 To see which pair PSF scored, set `proximity_line: {enabled: true}` in `robots.yaml` and
 restart the Isaac scenario. Each motion decision is drawn as a line on the floor between the
 two positions PSF sent (its world frame is the scene's), green / amber / red, with
-"REDUCE 2.95 m" lying flat beside it, facing the first camera in `cameras.yaml`
+the separation ("2.95 m", white on a plate of the same colour) lying flat beside it, on the
+camera's side, facing the first camera in `cameras.yaml`
 (`label_camera:` to pick another); it disappears 1 s after the last decision. It is
 geometry, so the streams carry it and perception sees it: keep it off for measured runs.
 ```bash

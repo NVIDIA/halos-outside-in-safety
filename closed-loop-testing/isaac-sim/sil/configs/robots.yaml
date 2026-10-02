@@ -127,12 +127,12 @@ robots:
 
 # The pair PSF proximity scored (action_graphs/proximity_line.py): a line on the
 # floor between the two positions of each decision, green / amber / red, with
-# "STOP 1.97 m" lying flat beside it. PSF_APP=pxc or both. Off by default: it is
-# geometry, so the cameras and perception see it too.
+# the separation ("1.97 m") on a plate of that colour beside it. PSF_APP=pxc or
+# both. Off by default: it is geometry, so the cameras and perception see it too.
 proximity_line:
   enabled: false
   topic: /safety/proximity/pair       # comm-layer's pair topic
-  show_distance: true                 # the "MODE x.xx m" label
+  show_distance: true                 # the "x.xx m" plate
   # label_camera: /World/Cameras/Camera   # the camera the label faces; default the first in cameras.yaml
   # color_normal / color_reduce / color_stop: linear [r, g, b] 0..1, emitted
 

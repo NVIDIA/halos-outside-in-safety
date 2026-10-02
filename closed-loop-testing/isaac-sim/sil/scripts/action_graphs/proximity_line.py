@@ -8,9 +8,10 @@ publishes /safety/proximity/pair.
 
 For the latest motion decision on that topic it draws a line on the floor
 between the two positions PSF sent (machine, person), in the decision's colour
-— green NORMAL, amber REDUCE, red STOP — and, with `show_distance`, a label
-such as "STOP 1.97 m" lying flat beside it, turned to face one camera
-(`label_camera`, default the first in cameras.yaml).
+— green NORMAL, amber REDUCE, red STOP — and, with `show_distance`, the
+separation ("1.97 m", white on a plate in the same colour) lying flat beside
+it, turned to face one camera (`label_camera`, default the first in
+cameras.yaml).
 
 The positions are drawn as they arrive: PSF reports them in the scene's world
 frame (x, y in metres), so nothing is matched to the stage. They lag a moving
@@ -53,16 +54,22 @@ _LINE_WIDTH_M = 0.08
 _LINE_HEIGHT_M = 0.02
 _LINE_Z_M = 0.02
 
-# The label: letter height on the floor, its gap from the line, and the glyph
-# raster the atlas is drawn at.
-_LABEL_HEIGHT_M = 0.4
+# The label: digit height on the floor, the plate's margin and corner radius
+# around it, its gap from the line, and the glyph raster the atlas is drawn at.
+# Large on purpose: the cameras see the floor from 5-15 m away at a grazing
+# angle, which shortens it to a fraction of its depth.
+_LABEL_HEIGHT_M = 0.6
+_PLATE_PAD_M = 0.15
+_PLATE_RADIUS_M = 0.15
 _LABEL_GAP_M = 0.12
-_LABEL_Z_M = 0.025
-_GLYPH_PX = 96
-_GLYPH_STROKE_PX = 5
+_LABEL_Z_M = 0.035
+_PLATE_Z_M = -0.006
+_GLYPH_PX = 128
+_GLYPH_PAD_PX = 3
 
 _LABEL = {"normal": "NORMAL", "reduce_speed": "REDUCE", "stop": "STOP"}
-_GLYPHS = "".join(sorted(set("".join(_LABEL.values()) + "0123456789.m")))
+# The mode is the plate's colour, so the label is the distance alone.
+_GLYPHS = "0123456789.m"
 
 _FONTS = (
     os.path.join(os.environ.get("ISAAC_PATH", "/isaac-sim"),
@@ -155,7 +162,6 @@ class _PairLine:
         self._shown_text = None
         self._last_log = 0.0
         self._atlas = None
-        self._label_width = 0.0
         self.has_label = False
         # Where the camera the label faces stands, in stage units.
         self.camera_xy = _camera_xy(stage, camera)
@@ -202,24 +208,31 @@ class _PairLine:
         return mat, color
 
     def _build_label(self) -> None:
-        """One glyph atlas per mode colour, and an empty mesh the text is laid into."""
+        """A white glyph atlas, an empty mesh the text is laid into, and its plate.
+
+        The plate shares the line's material, so it is always the line's colour.
+        """
         from pxr import Sdf, UsdGeom, UsdShade
 
-        out_dir = tempfile.mkdtemp(prefix="halos_proximity_line_")
-        self._label_mats = {}
-        for mode, rgb in self._cfg["colors"].items():
-            path = os.path.join(out_dir, f"glyphs_{mode}.png")
-            self._atlas = _render_atlas(path, rgb)
-            self._label_mats[mode] = self._texture_material(f"{_LOOKS}/label_{mode}", path)
+        path = os.path.join(tempfile.mkdtemp(prefix="halos_proximity_line_"), "glyphs.png")
+        self._atlas = _render_atlas(path)
+        text_mat = self._texture_material(f"{_LOOKS}/label", path)
 
         self._label_ops = self._xform(f"{_ROOT}/label")
-        mesh = UsdGeom.Mesh.Define(self._stage, f"{_ROOT}/label/geom")
+        mesh = UsdGeom.Mesh.Define(self._stage, f"{_ROOT}/label/text")
         mesh.CreateDoubleSidedAttr(True)
         mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
         self._label_mesh = mesh
         self._label_st = UsdGeom.PrimvarsAPI(mesh).CreatePrimvar(
             "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.faceVarying)
-        self._label_binding = UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim())
+        UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(text_mat)
+
+        plate = UsdGeom.Mesh.Define(self._stage, f"{_ROOT}/label/plate")
+        plate.CreateDoubleSidedAttr(True)
+        plate.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+        UsdShade.MaterialBindingAPI.Apply(plate.GetPrim()).Bind(self._line_mat)
+        self._plate_mesh = plate
+        self._plate_size = (0.0, 0.0)
 
     def _texture_material(self, path: str, texture: str):
         from pxr import Gf, Sdf, UsdShade
@@ -332,20 +345,21 @@ class _PairLine:
         if self._shown_mode != mode:
             self._line_color.Set(Gf.Vec3f(*self._cfg["colors"][mode]))
         if self.has_label:
-            self._draw_label(mid, (math.cos(heading), math.sin(heading)), mode,
-                             f"{_LABEL[mode]} {sep:.2f} m", k)
+            self._draw_label(mid, (math.cos(heading), math.sin(heading)),
+                             f"{sep:.2f} m", k)
         if self._shown_mode is None:
             self._set_visible(True)
         self._shown_mode = mode
 
-    def _draw_label(self, mid, along, mode: str, text: str, k: float) -> None:
+    def _draw_label(self, mid, along, text: str, k: float) -> None:
         from pxr import Gf
 
         if text != self._shown_text:
-            self._label_width = self._lay_out(text, _LABEL_HEIGHT_M * k)
+            width = self._lay_out(text, _LABEL_HEIGHT_M * k)
+            self._lay_out_plate(width + 2 * _PLATE_PAD_M * k,
+                                (_LABEL_HEIGHT_M + 2 * _PLATE_PAD_M) * k, k)
             self._shown_text = text
-        if self._shown_mode != mode:
-            self._label_binding.Bind(self._label_mats[mode])
+        plate_w, plate_h = self._plate_size
 
         # Facing the camera: the letters' tops point along its line of sight to
         # the label, so the text reads straight across that camera's frame.
@@ -358,15 +372,16 @@ class _PairLine:
         right = (up[1], -up[0])
 
         # Beside the line, never across it: step off along the line's normal by
-        # the label's own half-extent in that direction, on the side above the
-        # line in the camera's frame, or right of it when the line runs at the
-        # camera.
+        # the plate's own half-extent in that direction, on the camera's side
+        # of the line (below it in the frame, where the truck and the people
+        # standing on the line cannot hide it), or right of it when the line
+        # runs at the camera.
         normal = (-along[1], along[0])
-        if (normal[0] * (up[0] + 0.5 * right[0])
-                + normal[1] * (up[1] + 0.5 * right[1])) < 0:
+        if (normal[0] * (0.5 * right[0] - up[0])
+                + normal[1] * (0.5 * right[1] - up[1])) < 0:
             normal = (-normal[0], -normal[1])
-        half = (abs(normal[0] * right[0] + normal[1] * right[1]) * self._label_width / 2
-                + abs(normal[0] * up[0] + normal[1] * up[1]) * _LABEL_HEIGHT_M * k / 2)
+        half = (abs(normal[0] * right[0] + normal[1] * right[1]) * plate_w / 2
+                + abs(normal[0] * up[0] + normal[1] * up[1]) * plate_h / 2)
         off = (_LINE_WIDTH_M / 2 + _LABEL_GAP_M) * k + half
         self._label_ops["t"].Set(Gf.Vec3d(mid[0] + normal[0] * off,
                                           mid[1] + normal[1] * off, _LABEL_Z_M * k))
@@ -404,6 +419,26 @@ class _PairLine:
                                                 Gf.Vec3f(width / 2, y1, 0)]))
         self._label_st.Set(Vt.Vec2fArray(st))
         return width
+
+    def _lay_out_plate(self, width: float, height: float, k: float) -> None:
+        """A rounded rectangle under the text, one polygon, just below it."""
+        from pxr import Gf, Vt
+
+        r = min(_PLATE_RADIUS_M * k, width / 2, height / 2)
+        cx, cy = width / 2 - r, height / 2 - r
+        points = []
+        for qx, qy, start in ((cx, cy, 0), (-cx, cy, 90), (-cx, -cy, 180), (cx, -cy, 270)):
+            for i in range(7):
+                a = math.radians(start + 15 * i)
+                points.append(Gf.Vec3f(qx + r * math.cos(a), qy + r * math.sin(a),
+                                       _PLATE_Z_M * k))
+        mesh = self._plate_mesh
+        mesh.GetPointsAttr().Set(Vt.Vec3fArray(points))
+        mesh.GetFaceVertexCountsAttr().Set(Vt.IntArray([len(points)]))
+        mesh.GetFaceVertexIndicesAttr().Set(Vt.IntArray(list(range(len(points)))))
+        mesh.GetExtentAttr().Set(Vt.Vec3fArray([Gf.Vec3f(-width / 2, -height / 2, _PLATE_Z_M * k),
+                                                Gf.Vec3f(width / 2, height / 2, _PLATE_Z_M * k)]))
+        self._plate_size = (width, height)
 
     def _hide(self) -> None:
         if self._shown_mode is not None:
@@ -455,8 +490,8 @@ def _camera_xy(stage, camera: str | None):
     return (float(pos[0]), float(pos[1]))
 
 
-def _render_atlas(path: str, rgb_linear) -> tuple[dict, int]:
-    """Write the label glyphs, one row, in this colour with a dark outline.
+def _render_atlas(path: str) -> tuple[dict, int]:
+    """Write the label glyphs in white, one row, cropped to the digits' height.
 
     Returns ({char: (u0, u1, width_px)}, cell height px). Rendered once at build
     time, so a label change only rewrites mesh points and UVs.
@@ -471,25 +506,20 @@ def _render_atlas(path: str, rgb_linear) -> tuple[dict, int]:
     if font is None:
         font = ImageFont.load_default(size=_GLYPH_PX)
 
-    pad = _GLYPH_STROKE_PX + 2
-    ascent, descent = font.getmetrics()
-    cell_h = ascent + descent + 2 * pad
+    # The cell spans the glyphs' own ink, not the font's ascent and descent, so
+    # _LABEL_HEIGHT_M is the height of a digit on the floor.
+    pad = _GLYPH_PAD_PX
+    boxes = [font.getbbox(c) for c in _GLYPHS]
+    top = min(b[1] for b in boxes)
+    cell_h = max(b[3] for b in boxes) - top + 2 * pad
     widths = {c: int(math.ceil(font.getlength(c))) + 2 * pad for c in _GLYPHS}
     total = sum(widths.values())
     img = Image.new("RGBA", (total, cell_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    fill = tuple(int(round(_to_srgb(c) * 255)) for c in rgb_linear) + (255,)
     cells, x = {}, 0
     for c in _GLYPHS:
-        draw.text((x + pad, pad), c, font=font, fill=fill,
-                  stroke_width=_GLYPH_STROKE_PX, stroke_fill=(10, 10, 10, 255))
+        draw.text((x + pad, pad - top), c, font=font, fill=(255, 255, 255, 255))
         cells[c] = (x / total, (x + widths[c]) / total, widths[c])
         x += widths[c]
     img.save(path)
     return cells, cell_h
-
-
-def _to_srgb(c: float) -> float:
-    """Linear 0-1 to the sRGB-encoded value a texture stores."""
-    c = min(max(float(c), 0.0), 1.0)
-    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
