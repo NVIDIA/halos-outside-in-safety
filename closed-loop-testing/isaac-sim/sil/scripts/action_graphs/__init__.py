@@ -22,8 +22,8 @@ Modules:
        Per-robot IsaacComputeOdometry -> ROS2 odom/tf AG, replacing the
        baked Odometry_Graph.
   - forklift_safety_indicator.py -> build_safety_graph(yaml_path)
-       Per-robot /safety/is_muted -> indicator color AG, replacing the
-       baked Safety_indicator_Graph.
+       Per-robot mute and/or proximity-state topic -> indicator color AG,
+       replacing the baked Safety_indicator_Graph.
   - clock.py -> build_clock_graph(yaml_path)
        ROS 2 /clock publisher AG, replacing the baked
        Clock_Publisher_Graph. Driven by robots.yaml `clock:` block.

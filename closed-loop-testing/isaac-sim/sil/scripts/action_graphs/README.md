@@ -12,7 +12,7 @@ For one-shot USD prim tweaks (deactivate prims, set xform attributes, etc) see t
 | `forklift_common.py` | `build_forklift_graphs(config_path)`, `strip_baked_scene_graphs()` | Shared helpers + orchestrator that builds the three per-robot forklift graphs below. Driven by `robots.yaml`. |
 | `forklift_control.py` | `build_control_graph(config_path)` | Per-robot `cmd_vel` → swivel-IK → articulation graph. Replaces the baked `ROS_Forklift_Control_Graph`. |
 | `forklift_odometry.py` | `build_odometry_graph(config_path)` | Per-robot `IsaacComputeOdometry` → ROS 2 odom/tf graph. Replaces the baked `Odometry_Graph`. |
-| `forklift_safety_indicator.py` | `build_safety_graph(config_path)` | Per-robot mute-topic → indicator-color graph. Replaces the baked `Safety_indicator_Graph`. See [Mute topic contract](#mute-topic-contract). |
+| `forklift_safety_indicator.py` | `build_safety_graph(config_path)` | Per-robot indicator-color graph from the mute topic, the proximity state topic or both (`safety_indicator.source`, defaulting from `PSF_APP`). Replaces the baked `Safety_indicator_Graph`. See [Mute topic contract](#mute-topic-contract). |
 | `clock.py` | `build_clock_graph(config_path)` | ROS 2 `/clock` publisher graph. Replaces the baked `Clock_Publisher_Graph`. Driven by `robots.yaml` `clock:` block. |
 | `srr_ground_truth.py` | `build_srr_gt_graph()` | **Opt-in** (`run_actor_sdg.py --srr-gt`, default OFF). SRR regression-harness ground-truth `/gt/*/tf` publisher (`/World/SRRGraph`). Resolves the IRA-spawned characters + forklift from the live stage and pumps their Fabric world transforms each frame. No effect on a normal Halos run. |
 

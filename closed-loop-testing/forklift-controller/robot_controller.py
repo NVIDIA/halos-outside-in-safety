@@ -37,7 +37,8 @@ from typing import Optional
 from datetime import datetime
 
 from state_machine import StateMachine, RobotState
-from proximity_gate import ProximityGate, NORMAL as PXC_NORMAL, STOP as PXC_STOP
+from proximity_gate import (ProximityGate, NORMAL as PXC_NORMAL, STOP as PXC_STOP,
+                            INACTIVE as PXC_INACTIVE, DISABLED as PXC_DISABLED)
 
 
 class RobotController(Node):
@@ -149,25 +150,26 @@ class RobotController(Node):
         self.clock_sub = self.create_subscription(
             Clock, '/clock', self._clock_callback, 10)
 
-        # PSF proximity (--app pxc). Unlike /safety/command above, this one does
-        # drive the truck: a proximity decision is a motion level for the machine
-        # next to the person, and the point of the run is to watch the truck obey
-        # it. On an atl run nothing is published here and the gate stays NORMAL.
+        # PSF proximity (PSF_APP=pxc or both). Unlike /safety/command above, this
+        # one does drive the truck: a proximity decision is a motion level for the
+        # machine next to the person, and the point of the run is to watch the
+        # truck obey it. `proximity` is fleet_config.resolve_proximity()'s output;
+        # None leaves the gate off.
         self._proximity: Optional[ProximityGate] = None
-        self._proximity_level_seen = PXC_NORMAL
         self._last_cmd_linear = 0.0
-        proximity = proximity or {}
-        if proximity.get('enabled', True):
+        if proximity and proximity['enabled']:
             self._proximity = ProximityGate(
-                reduce_speed=proximity.get('reduce_speed', 0.5),
-                stop_hold_s=proximity.get('stop_hold_s', 2.0),
-                reduce_hold_s=proximity.get('reduce_hold_s', 1.0))
+                reduce_speed=proximity['reduce_speed'],
+                stop_hold_s=proximity['stop_hold_s'],
+                reduce_hold_s=proximity['reduce_hold_s'],
+                stale_s=proximity['stale_s'])
             self.proximity_sub = self.create_subscription(
-                String, topics.get('proximity_pair', '/safety/proximity/pair'),
-                self._proximity_callback, qos)
-        # The level actually applied, for Isaac's indicator disk.
+                String, topics['proximity_pair'], self._proximity_callback, qos)
+        # What is applied, for Isaac's indicator disk: a level, or inactive until
+        # PSF first speaks, or disabled when the gate is off.
+        self._proximity_level_seen = PXC_DISABLED if self._proximity is None else PXC_INACTIVE
         self.proximity_state_pub = self.create_publisher(
-            String, topics.get('proximity_state', f'/{robot_id}/proximity/state'), qos)
+            String, topics['proximity_state'], qos)
         
         # ===== Timers =====
         # Control loop (20Hz)
@@ -196,6 +198,7 @@ class RobotController(Node):
                 f'reduce cap {self._proximity.reduce_speed} m/s, '
                 f'stop hold {self._proximity.stop_hold_s}s, '
                 f'reduce hold {self._proximity.reduce_hold_s}s, '
+                f'link stale after {self._proximity.stale_s}s, '
                 f'state on {self.proximity_state_pub.topic_name}')
         else:
             self.get_logger().info('  Proximity: disabled (PSF decisions ignored)')
@@ -309,26 +312,32 @@ class RobotController(Node):
         """One PSF proximity decision from comm-layer's /safety/proximity/pair."""
         try:
             decision = json.loads(msg.data)
-        except json.JSONDecodeError as e:
-            self.get_logger().error(f'Invalid proximity JSON: {e}')
+            if not isinstance(decision, dict):
+                raise ValueError(f'expected a JSON object, got {type(decision).__name__}')
+            # robot_id is null today: the wire carries a VSS object id, not a
+            # robot name, so every truck on this topic obeys every decision
+            # (main() warns when more than one does). Honour it once it is set.
+            target = decision.get('robot_id')
+            if target is not None and target != self.robot_id:
+                self._proximity.note_heard()
+                return
+            self._proximity.on_decision(decision)
+        except (ValueError, TypeError) as e:
+            self.get_logger().error(f'Invalid proximity message: {e}')
             return
-        # robot_id is always null on this topic: the wire carries a VSS object id,
-        # not a robot name. PSF decides for the machine it saw next to a person,
-        # and with one truck in the scene that is this one.
-        self._proximity.on_decision(decision)
         self._proximity_level()
 
     def _proximity_level(self) -> str:
         """The level in force now; logs and publishes each change once."""
         if self._proximity is None:
             return PXC_NORMAL
-        level = self._proximity.level()
+        level = self._proximity.level() if self._proximity.active else PXC_INACTIVE
         if level != self._proximity_level_seen:
             sep = self._proximity.separation_m
             sep_txt = f'{sep:.2f}m' if sep is not None else 'n/a'
             if level == PXC_STOP:
                 action = 'speed -> 0'
-            elif level == PXC_NORMAL:
+            elif level in (PXC_NORMAL, PXC_INACTIVE):
                 action = f'speed -> {self.base_linear_speed:.2f} m/s'
             else:
                 action = f'speed cap {self._proximity.reduce_speed:.2f} m/s'
@@ -737,6 +746,8 @@ class RobotController(Node):
             'proximity': self._proximity_level_seen,
             'proximity_separation_m': (self._proximity.separation_m
                                        if self._proximity is not None else None),
+            'proximity_fault': (self._proximity.fault
+                                if self._proximity is not None else None),
         }
         state_msg.data = json.dumps(state_data)
         self.state_pub.publish(state_msg)
@@ -856,6 +867,13 @@ def main():
     proximity, proximity_sources = fleet_config.resolve_proximity(robot_block)
     print(f"[proximity] {fleet_config.format_sources(proximity, proximity_sources)}",
           flush=True)
+
+    if robot_block is not None and proximity['enabled']:
+        for topic, names in fleet_config.robots_sharing_proximity_topic(fleet).items():
+            print(f"[proximity] WARNING: {', '.join(names)} all obey {topic}; PSF names "
+                  f"no robot, so each stops for a person next to any of them. Give each "
+                  f"robot its own proximity.pair_topic, or keep one robot on it.",
+                  flush=True)
 
     topics = fleet_config.resolve_topics(robot_block, args.robot_id)
     print(f"[topics] cmd_vel={topics['cmd_vel']} odom={topics['odom']} "

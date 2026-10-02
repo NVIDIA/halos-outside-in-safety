@@ -61,10 +61,20 @@ KNOWN_DRIVE_KEYS = (
     "end_tolerance", "end_pose_count", "spiral_timeout",
 )
 
-# How a truck answers a PSF proximity decision (PSF_APP=pxc). Read by the
-# forklift-controller only; named here for the same reason as the drive keys.
-# fleet_config.PROXIMITY_DEFAULTS gives them values.
-KNOWN_PROXIMITY_KEYS = ("enabled", "reduce_speed", "stop_hold_s", "reduce_hold_s")
+# How a truck answers a PSF proximity decision (PSF_APP=pxc or both). Read by
+# the forklift-controller, apart from the topics, which the indicator also
+# follows; named here for the same reason as the drive keys.
+# fleet_config.PROXIMITY_DEFAULTS gives the knobs their values, the resolvers
+# below the topics.
+PROXIMITY_TOPIC_KEYS = ("pair_topic", "state_topic")
+KNOWN_PROXIMITY_KEYS = ("enabled", "reduce_speed", "stop_hold_s", "reduce_hold_s",
+                        "stale_s") + PROXIMITY_TOPIC_KEYS
+
+# What safety-core runs. Every reader goes through resolve_psf_app(), so a typo
+# fails in one place instead of quietly selecting the ATL defaults everywhere.
+PSF_APPS = ("atl", "pxc", "both")
+# SDM heartbeat period: a stale_s at or under it would trip between heartbeats.
+PSF_HEARTBEAT_S = 5.0
 
 # Model keys that describe how the truck drives, and therefore land in the
 # robot's `control` block. Everything here follows from the asset: two trucks
@@ -182,6 +192,12 @@ def _apply_model(robot: dict, model: dict, yaml_path: str) -> None:
     if drive:
         _merge_under(robot, "drive", drive)
 
+    # How a truck of this model answers PSF, e.g. how slow it can safely crawl.
+    proximity = model.get("proximity") or {}
+    _validate_proximity("model", proximity, yaml_path)
+    if proximity:
+        _merge_under(robot, "proximity", proximity)
+
 
 def _validate_drive(where: str, drive, yaml_path: str) -> None:
     """Refuse a `drive:` block that names something no one reads.
@@ -214,12 +230,25 @@ def _validate_proximity(name: str, proximity, yaml_path: str) -> None:
             f"{', '.join(sorted(unknown))}. Known keys are "
             f"{', '.join(KNOWN_PROXIMITY_KEYS)}."
         )
-    for key in ("reduce_speed", "stop_hold_s", "reduce_hold_s"):
-        if key in proximity and not (is_number(proximity[key]) and proximity[key] >= 0):
+    if "enabled" in proximity and not isinstance(proximity["enabled"], bool):
+        raise ValueError(
+            f"{yaml_path}: '{name}'.proximity.enabled must be true or false, "
+            f"got {proximity['enabled']!r}"
+        )
+    for key in ("reduce_speed", "stop_hold_s", "reduce_hold_s", "stale_s"):
+        if key in proximity and not (is_number(proximity[key]) and proximity[key] > 0):
             raise ValueError(
-                f"{yaml_path}: '{name}'.proximity.{key} must be a number >= 0, "
+                f"{yaml_path}: '{name}'.proximity.{key} must be a number > 0, "
                 f"got {proximity[key]!r}"
             )
+    if "stale_s" in proximity and proximity["stale_s"] <= PSF_HEARTBEAT_S:
+        raise ValueError(
+            f"{yaml_path}: '{name}'.proximity.stale_s must exceed the "
+            f"{PSF_HEARTBEAT_S:g} s PSF heartbeat, got {proximity['stale_s']!r}"
+        )
+    for key in PROXIMITY_TOPIC_KEYS:
+        if key in proximity:
+            _check_absolute_topic(name, f"proximity.{key}", proximity[key])
 
 
 def _validate_models(cfg: dict, yaml_path: str) -> dict:
@@ -367,20 +396,26 @@ DEFAULT_COLOR_ALARM = (1.0, 0.3, 0.0)
 
 # Proximity palette (PSF_APP=pxc): one colour per motion level the truck is in.
 # displayColor is linear and the scene's exposure lifts it hard: G=0.3 renders
-# as (244, 241, 16), the same yellow as G=0.85, so orange needs G near 0.1.
+# as (244, 241, 16), the same yellow as G=0.85, so orange needs G near 0.1. The
+# ATL alarm above is that G=0.3, and so already reads yellow on screen.
 DEFAULT_COLOR_NORMAL = (0.0, 1.0, 0.0)
 DEFAULT_COLOR_REDUCE = (1.0, 0.1, 0.0)
 DEFAULT_COLOR_STOP = (1.0, 0.0, 0.0)
+# The controller is not applying proximity: PSF has not spoken yet, or the
+# robot's proximity block is disabled.
+DEFAULT_COLOR_INACTIVE = (0.35, 0.35, 0.35)
 
-# ATL's alarm colour when the same disk also shows proximity (PSF_APP=both): the
-# default alarm orange would be indistinguishable from REDUCE.
+# ATL's alarm colour when the same disk also shows proximity (PSF_APP=both):
+# yellow by name, so it stays clear of REDUCE even where color_alarm is retuned.
 DEFAULT_COLOR_ALARM_WITH_PROXIMITY = (1.0, 0.85, 0.0)
 
 # What a disk can show. `mute` is the ATL decision on a Bool topic; `proximity`
 # is the motion level the forklift-controller is applying, on a String topic;
 # `both` shows STOP / REDUCE when proximity asks for one and the mute otherwise.
 INDICATOR_SOURCES = ("mute", "proximity", "both")
+# The levels the controller publishes, plus the two meaning it applies none.
 PROXIMITY_MODES = ("normal", "reduce_speed", "stop")
+PROXIMITY_INACTIVE_STATES = ("inactive", "disabled")
 
 
 def resolve_indicator_prim(robot: dict) -> str:
@@ -422,8 +457,33 @@ def resolve_muted_topic(robot: dict) -> str:
 
 
 # Published by comm-layer's ROS bridge, one per PSF proximity decision: JSON with
-# the mode, the separation and whether the opcode is a fault.
+# the mode, the separation and whether the opcode is a fault. One topic for the
+# whole site: comm-layer has one OPC endpoint and PSF names no robot.
 PROXIMITY_PAIR_TOPIC = f"{DEFAULT_SAFETY_TOPIC_PREFIX}/proximity/pair"
+
+
+def _check_absolute_topic(name: str, key: str, topic) -> str:
+    if not isinstance(topic, str) or not topic.startswith("/"):
+        raise ValueError(
+            f"robots.yaml: '{name}'.{key} must be an absolute topic name "
+            f"starting with '/', got {topic!r}"
+        )
+    return topic
+
+
+def resolve_psf_app() -> str:
+    """PSF_APP, the app safety-core runs: `atl` (default), `pxc` or `both`."""
+    app = os.environ.get("PSF_APP") or "atl"
+    if app not in PSF_APPS:
+        raise ValueError(f"PSF_APP must be one of {', '.join(PSF_APPS)}, got {app!r}")
+    return app
+
+
+def resolve_proximity_pair_topic(robot: dict) -> str:
+    """Which PSF decision stream this robot's controller obeys."""
+    cfg = robot.get("proximity", {}) or {}
+    return _check_absolute_topic(robot.get("name", "?"), "proximity.pair_topic",
+                                 cfg.get("pair_topic", PROXIMITY_PAIR_TOPIC))
 
 
 def resolve_proximity_state_topic(robot: dict) -> str:
@@ -433,7 +493,9 @@ def resolve_proximity_state_topic(robot: dict) -> str:
     holds a STOP past the last packet that asked for one, and a disk reading the
     raw decision would turn green while the truck is still standing.
     """
-    return f"/{robot['name']}/proximity/state"
+    cfg = robot.get("proximity", {}) or {}
+    return _check_absolute_topic(robot.get("name", "?"), "proximity.state_topic",
+                                 cfg.get("state_topic", f"/{robot['name']}/proximity/state"))
 
 
 def resolve_indicator_source(robot: dict) -> str:
@@ -447,8 +509,7 @@ def resolve_indicator_source(robot: dict) -> str:
     cfg = robot.get("safety_indicator", {}) or {}
     source = cfg.get("source")
     if source is None:
-        app = os.environ.get("PSF_APP", "atl").strip().lower()
-        source = {"pxc": "proximity", "both": "both"}.get(app, "mute")
+        source = {"pxc": "proximity", "both": "both"}.get(resolve_psf_app(), "mute")
     if source not in INDICATOR_SOURCES:
         raise ValueError(
             f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.source must be "
@@ -554,18 +615,17 @@ def resolve_indicator_colors(robot: dict) -> tuple[tuple[float, float, float],
             _resolve_indicator_color(robot, "color_alarm", DEFAULT_COLOR_ALARM))
 
 
-def resolve_proximity_colors(robot: dict) -> tuple[tuple[float, float, float],
-                                                   tuple[float, float, float],
-                                                   tuple[float, float, float]]:
-    """(normal, reduce, stop) RGB for a disk showing the proximity level."""
+def resolve_proximity_colors(robot: dict) -> tuple[tuple[float, float, float], ...]:
+    """(normal, reduce, stop, inactive) RGB for a disk showing the proximity level."""
     return (_resolve_indicator_color(robot, "color_normal", DEFAULT_COLOR_NORMAL),
             _resolve_indicator_color(robot, "color_reduce", DEFAULT_COLOR_REDUCE),
-            _resolve_indicator_color(robot, "color_stop", DEFAULT_COLOR_STOP))
+            _resolve_indicator_color(robot, "color_stop", DEFAULT_COLOR_STOP),
+            _resolve_indicator_color(robot, "color_inactive", DEFAULT_COLOR_INACTIVE))
 
 
 def resolve_combined_colors(robot: dict) -> tuple[tuple[float, float, float], ...]:
     """(muted, alarm, reduce, stop) RGB for a disk showing both decisions."""
-    _, reduce, stop = resolve_proximity_colors(robot)
+    _, reduce, stop, _ = resolve_proximity_colors(robot)
     return (_resolve_indicator_color(robot, "color_muted", DEFAULT_COLOR_MUTED),
             _resolve_indicator_color(robot, "color_alarm", DEFAULT_COLOR_ALARM_WITH_PROXIMITY),
             reduce, stop)

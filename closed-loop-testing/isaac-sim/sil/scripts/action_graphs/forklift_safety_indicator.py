@@ -10,7 +10,8 @@ Replaces the baked Safety_indicator_Graph. Each disk shows one of two sources
   comm-layer mirrors; scenes still on the single global `/safety/is_muted` name
   it explicitly.
 - proximity (pxc): the std_msgs/String `/<name>/proximity/state` the
-  forklift-controller publishes -> green normal, orange reduce_speed, red stop.
+  forklift-controller publishes -> green normal, orange reduce_speed, red stop,
+  grey while the controller applies none (inactive / disabled).
 - both (PSF_APP=both): both subscriptions on one disk; red / orange while the
   truck is stopped / slowed for a person, otherwise the mute colours with the
   alarm in yellow.
@@ -130,6 +131,8 @@ def compute(db):
         rgb = db.inputs.color_reduce
     elif mode == "normal":
         rgb = db.inputs.color_normal
+    elif mode in ("inactive", "disabled"):
+        rgb = db.inputs.color_inactive
     else:
         # Nothing received yet: the authored colour stays until the controller
         # says which level the truck is in.
@@ -163,7 +166,7 @@ def _build_one_proximity_graph(robot: dict) -> None:
     graph_path = f"/World/{name}_SafetyGraph"
     state_topic = resolve_proximity_state_topic(robot)
     indicator_prim = resolve_indicator_prim(robot)
-    color_normal, color_reduce, color_stop = resolve_proximity_colors(robot)
+    color_normal, color_reduce, color_stop, color_inactive = resolve_proximity_colors(robot)
 
     stage = omni.usd.get_context().get_stage()
     verify_prim_exists(stage, indicator_prim, "safety indicator")
@@ -185,6 +188,7 @@ def _build_one_proximity_graph(robot: dict) -> None:
                 ("Indicator.inputs:color_normal", "colorf[3]"),
                 ("Indicator.inputs:color_reduce", "colorf[3]"),
                 ("Indicator.inputs:color_stop", "colorf[3]"),
+                ("Indicator.inputs:color_inactive", "colorf[3]"),
             ],
             keys.SET_VALUES: [
                 ("SubscribeProximity.inputs:messageName", "String"),
@@ -195,6 +199,7 @@ def _build_one_proximity_graph(robot: dict) -> None:
                 ("Indicator.inputs:color_normal", color_normal),
                 ("Indicator.inputs:color_reduce", color_reduce),
                 ("Indicator.inputs:color_stop", color_stop),
+                ("Indicator.inputs:color_inactive", color_inactive),
                 ("Indicator.inputs:usePath", False),
             ],
             keys.CONNECT: [
@@ -428,7 +433,7 @@ def _build_one_safety_graph(robot: dict) -> None:
 
 
 def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
-    """Build the mute-topic -> indicator color graph per robot."""
+    """Build one indicator colour graph per robot, from its mute and/or proximity topic."""
     robots, _ = load_and_validate_robots_yaml(config_path)
 
     # Two robots resolving to the same disk is the signature of the bug this
@@ -445,9 +450,11 @@ def build_safety_graph(config_path: str = DEFAULT_ROBOTS_YAML) -> None:
         source = resolve_indicator_source(robot)
         if source == "proximity":
             resolve_proximity_colors(robot)
+            resolve_proximity_state_topic(robot)
         elif source == "both":
             resolve_combined_colors(robot)
             resolve_muted_topic(robot)
+            resolve_proximity_state_topic(robot)
         else:
             resolve_indicator_colors(robot)
             resolve_muted_topic(robot)
