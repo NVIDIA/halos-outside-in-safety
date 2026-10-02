@@ -21,7 +21,7 @@ import threading
 import time
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from queue import Queue, Empty
 from typing import List, Optional, Callable
 
@@ -82,7 +82,7 @@ class SafetyCommand:
 # Proximity is a separate type from SafetyCommand for the same reason the OPC
 # nodes are separate: `is_muted` above is `command_code == 2`, and 0x02 is STOP
 # in the proximity table. Reusing SafetyCommand would publish is_muted=True for a
-# person inside 1 m, on a topic whose consumers read it as "loading allowed".
+# person in the STOP tier, on a topic whose consumers read it as "loading allowed".
 @dataclass
 class ProximityDecision:
     """One 0xA5 decision as it arrives from the OPC snapshot."""
@@ -97,6 +97,10 @@ class ProximityDecision:
     objects: Optional[List[dict]] = None
     timestamp: str = ""
     source: str = "unknown"
+    # The latest packet of ANY kind, heartbeats included: the subscriber's link
+    # watchdog. Changes while `sequence_number` stays on a held decision.
+    heard_sequence: Optional[int] = None
+    heard_at: str = ""
 
     @property
     def is_motion_decision(self) -> bool:
@@ -257,6 +261,9 @@ class SafetyRosBridge:
         assume every message it receives is a motion decision, and a fault has to
         be visible somewhere the consumer cannot mistake for permission to move.
         """
+        # The same decision again, republished because a heartbeat arrived.
+        repeat = (self._last_proximity is not None
+                  and self._last_proximity.sequence_number == decision.sequence_number)
         self._last_proximity = decision
 
         for callback in self._proximity_callbacks:
@@ -285,8 +292,10 @@ class SafetyRosBridge:
                 # guess here would tell every other controller to ignore a STOP.
                 'robot_id': None,
                 'timestamp': decision.timestamp,
+                'heard_sequence': decision.heard_sequence,
+                'heard_at': decision.heard_at,
                 'source': decision.source,
-                'ros_time': datetime.now().isoformat(),
+                'ros_time': datetime.now(timezone.utc).isoformat(),
             })
             msg_pair = String()
             msg_pair.data = pair_json
@@ -296,7 +305,7 @@ class SafetyRosBridge:
                 msg_mode = String()
                 msg_mode.data = decision.mode
                 self._publishers['proximity_mode'].publish(msg_mode)
-            elif decision.safety_critical:
+            elif decision.safety_critical and not repeat:
                 # HW_ERROR / SW_ERROR. Not mapped to a mode here: choosing what a
                 # faulted PSF means for a moving robot is a safety decision, and it
                 # belongs to the consumer that owns the drive, not to this bridge.
@@ -531,8 +540,8 @@ class SafetyRosBridge:
         """Read the proximity snapshot node and publish it if it is new.
 
         Absence is downgraded to one warning rather than an error, unlike the ATL
-        StateJson check: a deployment running only `--app atl` legitimately never
-        has these nodes, so a hard error would cry wolf on every ATL run.
+        StateJson check: only an OPC server older than proximity support lacks
+        the node, and that is no reason to stop publishing ATL.
         """
         node = opcua_nodes.get('ProximityStateJson')
         if node is None:
@@ -574,6 +583,8 @@ class SafetyRosBridge:
             objects=st.get('objects') or [],
             timestamp=st.get('timestamp', ""),
             source="opcua",
+            heard_sequence=st.get('heard_sequence'),
+            heard_at=st.get('heard_at') or "",
         ))
         self._prox_last_seq = seq
         self._prox_last_update = last_update
@@ -671,9 +682,14 @@ class SafetyRosBridge:
                                     last_timestamp = last_update
 
                 # Independent of the ATL block above, and reached whether or not
-                # StateJson had anything: only one of the two apps is ever running,
-                # so gating proximity on ATL traffic would publish nothing.
-                self._poll_proximity(opcua_nodes)
+                # StateJson had anything: under PSF_APP=pxc ATL is silent, so
+                # gating proximity on ATL traffic would publish nothing. Its own
+                # try: a bad proximity payload must not count towards the
+                # errors that end this loop, or slow ATL polling down.
+                try:
+                    self._poll_proximity(opcua_nodes)
+                except Exception as e:
+                    logger.warning(f"Skipping proximity poll: {e}")
 
                 time.sleep(interval)
                 

@@ -29,16 +29,20 @@ have no ATL counterpart.
 
 WHAT THE OBJECT RECORDS ACTUALLY CARRY
 --------------------------------------
-Unlike ATL — which passes nullptr at every sendDecisionCommand call site — the
-proximity app fills both records, in copyObjectRecordFromMetadata()
-(ProximityControl.cpp:436). Three consequences worth knowing before trusting a
-field:
+The proximity app fills both records, in copyObjectRecordFromMetadata()
+(ProximityControl.cpp:436). ATL fills objects[0] too, with the last forklift
+record, for MUTE/UNMUTE (sendDecisionCommandWithObject1, ATLControl.cpp:2182),
+but comm-layer's ATL path drops it: StateJson and SafetyCommand carry no
+objects. Three consequences worth knowing before trusting a proximity field:
 
   - ROLES ARE NORMALISED BY SLOT. fillRoleNormalizedObjectRecords() puts the
     first non-person in objects[0] and the first person in objects[1], so slot
     order is a contract: machine then person. Every rule in
     proximity_event_mapping.pb.txt is <machine> x Person, so a scored pair
-    always fills both.
+    always fills both. A machine x machine rule (Forklift x AMR) would leave
+    slot 1 empty: separation_m is then None and the OPC payload labels that
+    slot `person` with `empty: true`. Do not add one expecting both machines on
+    the wire.
 
   - z IS ALWAYS ZERO. `object->z = 0.0f;` is hardcoded, so the packet carries a
     ground-plane position only. Whatever PSF used internally to compute the
@@ -121,15 +125,81 @@ class ProximityCommandCode(IntEnum):
 # The three motion levels ordered by severity, so a consumer merging several
 # pairs can take a worst-case rather than a last-writer-wins result. PSF's own
 # computeProximityCommandFromBatch() does the latter: it assigns unconditionally
-# in all three branches, so the winner is the last qualifying event by index. On
-# this scene that downgraded 17.6% of windows containing EVENT_10 (a person
-# inside 1 m) to something less than STOP, 13.0% of them all the way to NORMAL.
+# in all three branches, so the winner is the last qualifying event by index, and
+# an EVENT_10 (the STOP tier) can lose to a later EVENT_8 in the same batch.
 # Anything reducing multiple commands to one should sort by this, not by arrival.
 PROXIMITY_SEVERITY = {
     ProximityCommandCode.NORMAL: 0,
     ProximityCommandCode.REDUCE: 1,
     ProximityCommandCode.STOP: 2,
 }
+
+# A fault outranks every motion level: a truck must not move on a decision the
+# decoder cannot read or PSF has declared unsafe.
+FAULT_SEVERITY = 3
+# Heartbeats and the safe-release handshake carry no decision at all.
+NO_DECISION = -1
+
+
+def packet_severity(pkt: "ProximityCmdPacket") -> int:
+    """How much this packet asks of the machine; NO_DECISION for liveness only."""
+    cmd = pkt.command
+    if not isinstance(cmd, ProximityCommandCode):
+        return FAULT_SEVERITY
+    if cmd in (ProximityCommandCode.HW_ERROR, ProximityCommandCode.SW_ERROR):
+        return FAULT_SEVERITY
+    return PROXIMITY_SEVERITY.get(cmd, NO_DECISION)
+
+
+class ProximityHold:
+    """The decision a periodic reader should see: never overwritten unseen by a milder one.
+
+    The OPC node holds one decision and the ROS bridge samples it at 10 Hz, while
+    PSF decides at the frame rate. Written by arrival, a STOP followed by a
+    NORMAL, or by a mere heartbeat, inside one poll never reaches the gate.
+
+    So a decision at least as severe as the one shown replaces it at once, and a
+    milder one waits until the shown one has been visible for `min_visible_s`
+    (several polls); `tick()` then promotes the latest decision so a released
+    STOP does not outlive PSF's own NORMAL. Heartbeats and the safe-release
+    handshake never replace a decision: they are liveness, reported separately.
+    """
+
+    def __init__(self, min_visible_s: float = 0.3, clock=None):
+        import time as _time
+
+        self.min_visible_s = float(min_visible_s)
+        self._clock = clock or _time.monotonic
+        self.shown: Optional["ProximityCmdPacket"] = None
+        self._shown_sev = NO_DECISION
+        self._shown_at = 0.0
+        self._latest: Optional["ProximityCmdPacket"] = None
+
+    def offer(self, pkt: "ProximityCmdPacket") -> bool:
+        """Take one packet; True if it is now the shown decision."""
+        sev = packet_severity(pkt)
+        if sev == NO_DECISION:
+            return False
+        self._latest = pkt
+        now = self._clock()
+        if (self.shown is None or sev >= self._shown_sev
+                or now - self._shown_at >= self.min_visible_s):
+            self._show(pkt, sev, now)
+            return True
+        return False
+
+    def tick(self) -> bool:
+        """Promote the latest decision once the shown one has had its time."""
+        if self._latest is None or self._latest is self.shown:
+            return False
+        now = self._clock()
+        if now - self._shown_at < self.min_visible_s:
+            return False
+        self._show(self._latest, packet_severity(self._latest), now)
+        return True
+
+    def _show(self, pkt, sev: int, now: float) -> None:
+        self.shown, self._shown_sev, self._shown_at = pkt, sev, now
 
 
 class ObjectClass(IntEnum):
@@ -231,9 +301,10 @@ class ProximityCmdPacket:
     def build_ack(self) -> "ProximityCmdPacket":
         """ACK echoing seq+command with a fresh timestamp.
 
-        Must carry 0xA5: cmd_rx.cpp:886 drops any ACK whose identifier is not
-        PROXIMITY_PACKET_IDENTIFIER, so an ACK built by the ATL path would be
-        discarded and every command would look unacknowledged.
+        Must carry 0xA5: the SDM drops any ACK whose identifier is not
+        PROXIMITY_PACKET_IDENTIFIER (ProximityControl.cpp:886), so an ACK built
+        by the ATL path would be discarded and every command would look
+        unacknowledged.
         """
         return ProximityCmdPacket.now(seq=self.seq, command=self.command, objects=[])
 
