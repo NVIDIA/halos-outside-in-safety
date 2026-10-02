@@ -317,6 +317,19 @@ and publishes it on `/<robot>/proximity/state`, which the disc follows (grey whi
 `separation_m` / `sep=` is the 2D (x, y) distance between the two object records; PSF scores
 the pair in 3D, so the two can differ by the height difference.
 
+To see which pair PSF scored, set `proximity_line: {enabled: true}` in `robots.yaml` and
+restart the Isaac scenario. Each motion decision is drawn as a line on the floor between the
+two positions PSF sent (its world frame is the scene's), green / amber / red, with
+the separation ("2.95 m", white on a plate of the same colour) lying flat beside it, on the
+camera's side, facing the first camera in `cameras.yaml`
+(`label_camera:` to pick another); it disappears 1 s after the last decision. It is
+geometry, so the streams carry it and perception sees it: keep it off for measured runs.
+```bash
+docker exec isaac-sim grep -a "pxc-line" /tmp/run_sdg.log | tail -3
+# [pxc-line] armed: topic=/safety/proximity/pair, label=on, label faces /World/Cameras/Camera
+# [pxc-line] REDUCE 2.95 m machine=(7.19, -13.52) person=(6.35, -16.35)
+```
+
 Without PSF or VSS, inject packets straight into comm-layer (`<seq> <ignored cmd> <COMM_UDP_PORT>`;
 give each decision a new sequence number, the controller ignores a repeated one). End on
 `normal`: silence keeps the last level.

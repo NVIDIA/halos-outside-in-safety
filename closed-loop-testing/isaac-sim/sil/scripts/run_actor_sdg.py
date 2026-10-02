@@ -261,6 +261,16 @@ class ActorSDGRunner:
             if self.enable_clock and self.robots_config_path:
                 from action_graphs import build_clock_graph
                 build_clock_graph(self.robots_config_path)
+            #   4b. action_graphs.build_proximity_line draws the pair PSF
+            #      proximity scored (robots.yaml `proximity_line:`, default
+            #      off). A debug aid: a failure here is a warning.
+            if self.robots_config_path:
+                try:
+                    from action_graphs import build_proximity_line
+                    build_proximity_line(self.robots_config_path,
+                                         self.cameras_config_path)
+                except Exception as e:
+                    print(f"WARNING: proximity line not drawn ({e})")
             #   5. action_graphs.build_srr_gt_graph publishes /gt/*/tf for the
             #      SRR regression harness (opt-in via --srr-gt, default OFF).
             #      Runs LAST — after IRA spawned the chars + runtime_patches
