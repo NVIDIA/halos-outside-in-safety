@@ -99,6 +99,14 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   before the IAR sample dir. No config in this repo uses one, but a deployment
   that does should check which file it is about to pick up.
 
+  Known limitations it touches: the concurrent-DESCRIBE "has no caps" race
+  (NVBug 6478845) is fixed upstream and measured gone — see `troubleshooting.md`.
+  6.1 also carries fixes for RTP delivery being interrupted by another client's
+  DESCRIBE/PAUSE/TEARDOWN (6477478) and for NVENC sessions leaking when
+  compressed annotators detach (6478175); neither original repro (the multi-hour
+  RTSP-over-UDP wedge, UI stop/play on a GeForce 8-session cap) has been rerun, so
+  VST ingest stays on TCP.
+
   **Needs `up -d --build`** — the `isaac-sim-sil` image rebuilds on the new base.
 
 - **comm-layer derives its mute mirrors from the fleet file.** `COMM_ROBOT_IDS`

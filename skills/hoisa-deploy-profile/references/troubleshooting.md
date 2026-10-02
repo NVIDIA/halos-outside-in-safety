@@ -109,6 +109,13 @@ GPU crash dump is successfully written
 
 ## RTSP Streams "no caps / could not create SDP" (Cold-Start Race)
 
+> **Isaac Sim 6.1 ships the upstream fix for the concurrent-DESCRIBE trigger below**
+> (`omni.kit.livestream.rtsp`, NVBug 6478845). Measured on 6.1.0-rc.26: a boot with the
+> previous run's VST sensors still registered — the churn condition this section describes —
+> logged **0** `could not create SDP` and **0** `no media`, against hundreds and 64-150 per
+> boot on 6.0. The warm-up gate and `restart_isaac.sh` stay in place: they cost about a second
+> and two minutes, and the section remains the recovery path if the symptom comes back.
+
 **Symptom**: after a **cold** Isaac restart on a heavy scene, the perception client
 can't pull Isaac Sim's self-hosted RTSP streams; DeepStream stays at `Active sources : 0`:
 
@@ -257,8 +264,8 @@ curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: applic
 ```
 
 > ℹ️ **Separate issue** — the Isaac **cold**-DESCRIBE wedge (`Active sources : 0`, "no caps") is
-> the section above; its upstream fix is an Isaac RFE: gate the RTSP server's DESCRIBE response on
-> the **first encoded frame** so caps are cached before VST's concurrent DESCRIBEs arrive.
+> the section above; its concurrent-DESCRIBE trigger is fixed upstream in Isaac Sim 6.1
+> (NVBug 6478845). This zombie-bin gap is on the VSS side and is unaffected by that fix.
 
 ---
 
@@ -520,7 +527,7 @@ using the same domain ID.
 | Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
-| RTSP "no caps / could not create SDP" | Cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
+| RTSP "no caps / could not create SDP" | Fixed upstream in Isaac Sim 6.1 (NVBug 6478845). On 6.0: cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
 | DeepStream stuck ≤2/3 active (zombie bins) | Stale-identity: purge the 0-fps zombie (`value.change`, **exact old proxy url**) then add the live uuid via `:9000` |
 | No cameras in VST | Use `--enable-vst` flag |
 | NGC 403 | Re-authenticate NGC + docker login |
