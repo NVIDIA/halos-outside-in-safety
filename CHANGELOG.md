@@ -18,6 +18,8 @@
 - `atl-dual-override.yaml` runs safety-core as `--app atl_dual`: one ATL SDM per bay, zone 2 on `EVENT_6..11` (`configs/atl_sdm_zone2.conf`) and its own port, `COMM_UDP_PORT_ZONE2`.
 - comm-layer listens on that port too and keeps zone 2 in its own OPC UA nodes (`Zone2IsMuted`, `Zone2StateJson`). `/<robot>/safety/is_muted` now carries the zone set by the robot's `safety_indicator.zone` (default 1); `/safety/is_muted` stays zone 1.
 - `robots-40x20.yaml` puts `forklift_b2` on zone 2. Without `COMM_UDP_PORT_ZONE2` it keeps mirroring zone 1, as before, with a WARNING.
+- `nvpss.conf` lets `EVENT_6..11` bypass fusion like zone 1's, so zone 2 no longer reacts about 6 s late.
+- `closed-loop-testing/isaac-sim/sil/calibration/build_vss_calibration.py` builds the VSS 2D dataset of a SIL scene from its cameras config, loading zones and waypoint map; `warehouse_40x20/zones.yaml` gives the two bays (`roi-id-1` / `tripwire-id-1`, `roi-id-2` / `tripwire-id-2`). Run `warehouse_40x20` on the 2D app: there the 3D (Sparse4D) app stops detecting after seconds to minutes.
 
 ### Breaking — ROS surface is namespaced per robot
 
