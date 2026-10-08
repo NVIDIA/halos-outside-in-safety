@@ -291,9 +291,9 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 
 ### Proximity (`PSF_APP=pxc` / `both`)
 
-PSF events — `EVENT_8` no violation, `EVENT_9` REDUCE tier, `EVENT_10` STOP tier:
+PSF events — `EVENT_12` no violation, `EVENT_13` REDUCE tier, `EVENT_14` STOP tier:
 ```bash
-grep -a "Safety event reported: EVENT_\(8\|9\|10\) " "$MDX_DATA_DIR/psf-log/pss.log" | tail -5
+grep -a "Safety event reported: EVENT_\(12\|13\|14\) " "$MDX_DATA_DIR/psf-log/pss.log" | tail -5
 grep -a "Sending decision command" "$MDX_DATA_DIR/psf-log/pxc_sdm.log" | tail -3   # NORMAL 0x07 / REDUCE 0x05 / STOP 0x02
 ```
 comm-layer decodes each `0xA5` packet with the pair and its separation:
@@ -360,7 +360,7 @@ The system is working when:
 3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
 4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
 5. The VST UI shows the camera streams with bounding boxes
-6. (`pxc` / `both`) `pss.log` carries `EVENT_8` / `EVENT_9` / `EVENT_10`, the comm-layer
+6. (`pxc` / `both`) `pss.log` carries `EVENT_12` / `EVENT_13` / `EVENT_14`, the comm-layer
    `Proximity:` lines show STOP only at `sep ≤ 2 m` and REDUCE at `2–3.5 m`, and the
    controller logs `PXC [...] -> reduce_speed` / `-> stop` and back. The three workers on the
    20x20 scene cross the forklift's lane often: one 16-minute run had 42 REDUCE and 17 STOP

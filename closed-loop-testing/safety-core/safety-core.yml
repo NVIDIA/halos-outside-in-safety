@@ -7,12 +7,19 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PSF_LOG_DIR}/pss.log:/var/log/pss.log
-      - ${PSF_LOG_DIR}/pxc_sdm.log:/home/nvidia/pxc_sdm.log
+      - ${PSF_LOG_DIR}/pxc_sdm.log:/var/log/psf/pxc_sdm.log
       - ./configs/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro
       # sensor_config.conf names the per-camera 2D sensors; a 3D (BEV) feed
       # needs configs/sensor_config_bev.conf. Relative to this file's directory.
       - ${PSF_SENSOR_CONFIG_SRC:-./configs/sensor_config.conf}:/opt/nvidia/psf/bin/sensor_config.conf:ro
+      # The same split for the identities events arrive under; it must name the
+      # sensors of the sensor_config above (configs/sensor_pipelines_config_bev.conf
+      # for the 3D feed).
+      - ${PSF_SENSOR_PIPELINES_CONFIG_SRC:-./configs/sensor_pipelines_config.conf}:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro
       - ./configs/proximity_event_mapping.pb.txt:/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt:ro
+      # Event bindings of the decision-maker, one file per PSF_APP.
+      - ./configs/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro
+      - ./configs/pxc_sdm.conf:/opt/nvidia/psf/bin/pxc_sdm.conf:ro
     group_add:
       - ${DOCKER_GID}
     command: >
@@ -21,6 +28,6 @@ services:
       --cmd_rx_ip ${PSF_CMD_RX_IP}
       --cmd_rx_port ${COMM_UDP_PORT}
       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+      --sdm-config /opt/nvidia/psf/bin/${PSF_APP:-atl}_sdm.conf
     restart: unless-stopped
     # Note: Connects to Kafka from warehouse deployment (localhost:9092)
-
