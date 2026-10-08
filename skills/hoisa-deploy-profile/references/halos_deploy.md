@@ -103,6 +103,31 @@ Limits:
 - **SRR scores ATL only.** It subscribes to `/safety/command` and `/safety/is_muted`; on a `pxc` run it prints `PSF_FEED_DEAD` and scores every frame as UNMUTED.
 - **Startup safe-latch.** If the SDM comes up latched (SW_ERROR), comm-layer logs it and waits; `COMM_PXC_STARTUP_RELEASE=1` sends one automatic release request instead. A manual release is a write of `True` to the OPC UA node `Safety.ProximitySafeReleaseRequest`.
 
+### SAIM — `PSF_LAUNCH_MODE=learn` / `active` (`sil`)
+
+`skip` (the default) runs PSF without its AI monitor. To run SAIM, add
+`../closed-loop-testing/safety-core/saim-override.yaml` to `COMPOSE_FILE` and set
+`PSF_SAIM_GPU_DEVICE` (any GPU with NVDEC; SAIM decodes the streams itself) and
+`PSF_SAIM_BASELINE_DIR` (a host directory uid 1001 can write, e.g. `mkdir -p "$DIR" && chmod 777 "$DIR"`).
+SAIM watches the RTSP URLs in the sensor config PSF loads (`sensor_config.conf`, or
+`sensor_config_bev.conf` on the 3D feed).
+
+1. **Learn** — `PSF_LAUNCH_MODE=learn`, with Isaac's cameras streaming. It is done when the
+   directory holds a `<sensor>_baseline.cfg` per sensor. The launcher's 300 s window is counted
+   as frames at a nominal 60 fps (18000), so at Isaac's sim rate (~15 fps) it takes about 20
+   minutes. The `safety_monitor` log is block-buffered: no progress line does not mean stuck.
+2. **Active** — `PSF_LAUNCH_MODE=active` against the same directory, then
+   `docker compose --env-file profiles/sil.env up -d safety-core` to recreate the container.
+   The mount hides the image's `*_baseline.cfg.default` templates, so active needs step 1.
+
+Limits:
+
+- **Active latches on a clean stream.** On a 3D (`bev-sensor-1`) SIL run with `PSF_APP=pxc`,
+  SAIM reported `pipelineID=1 state=FAILED cause=2` with no distortion applied, and the SDM went
+  to STOP, then FAULT SAFE STATE, latched. `cause=2` is not documented. Keep `skip` for demos.
+- **One SAIM per PSS.** A second `safety_monitor` (e.g. a debug copy) is refused registration.
+- Run so far with `PSF_APP=pxc` on the 3D feed only.
+
 ### GPU selection (`sil` / `hil`)
 
 Isaac Sim needs a GPU with **RT cores** and **> 20 GB VRAM**:

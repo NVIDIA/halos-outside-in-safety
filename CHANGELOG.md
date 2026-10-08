@@ -21,6 +21,11 @@
 - `nvpss.conf` lets `EVENT_6..11` bypass fusion like zone 1's, so zone 2 no longer reacts about 6 s late.
 - `closed-loop-testing/isaac-sim/sil/calibration/build_vss_calibration.py` builds the VSS 2D dataset of a SIL scene from its cameras config, loading zones and waypoint map; `warehouse_40x20/zones.yaml` gives the two bays (`roi-id-1` / `tripwire-id-1`, `roi-id-2` / `tripwire-id-2`). Run `warehouse_40x20` on the 2D app: there the 3D (Sparse4D) app stops detecting after seconds to minutes.
 
+### SAIM on SIL (opt-in)
+
+- `saim-override.yaml` gives safety-core what `PSF_LAUNCH_MODE=learn` / `active` needs on x86: an NVDEC GPU (`PSF_SAIM_GPU_DEVICE`, `NVIDIA_DRIVER_CAPABILITIES` with `video`) and a host directory for the per-sensor baselines (`PSF_SAIM_BASELINE_DIR`), so learn's output survives the switch to active. `skip` stays the default.
+- Known: `active` latched STOP + FAULT on a clean 3D stream (`cause=2`); see `halos_deploy.md` → "SAIM".
+
 ### Breaking — ROS surface is namespaced per robot
 
 Multi-forklift support renamed the topics, TF frames and node name of the **default single-forklift run**. A deployment that does nothing still works; anything that subscribes by name does not.

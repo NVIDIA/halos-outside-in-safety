@@ -577,6 +577,8 @@ plus one sensor re-registration clears the NaN, until it comes back.
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
 | No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
 | `PSF_APP=pxc`: no `EVENT_12/13/14` at all | Mapping pairs a class the scene lacks, a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), codes that differ from `configs/pxc_sdm.conf`, or a 3D feed without `PSF_SENSOR_CONFIG_SRC=./configs/sensor_config_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` — `halos_deploy.md` → "Safety app" |
+| `PSF_LAUNCH_MODE=active`: STOP + FAULT latch with clean streams | SAIM reports `cause=2` on a healthy feed — known; use `skip` (`halos_deploy.md` → "SAIM") |
+| `PSF_LAUNCH_MODE=learn` seems stuck | It counts 18000 frames at a nominal 60 fps (~20 min at Isaac's sim rate) and its log is block-buffered; watch `PSF_SAIM_BASELINE_DIR` for `*_baseline.cfg` |
 | ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
 | 3D on `warehouse_40x20`: detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene |
 | `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |
