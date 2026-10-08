@@ -37,9 +37,15 @@ trap cleanup SIGTERM SIGINT
 # Start OPC UA Server (includes UDP receiver)
 echo "[1/2] Starting OPC UA Server + UDP Receiver..."
 cd /app/comm_layer
+ZONE2_ARGS=()
+if [ -n "${UDP_PORT_ZONE2:-}" ]; then
+    echo "  UDP Port zone 2: $UDP_PORT_ZONE2"
+    ZONE2_ARGS=(--zone2-port "$UDP_PORT_ZONE2")
+fi
 python3 scripts/run_opc_server.py \
     -p $UDP_PORT \
     -e $OPCUA_ENDPOINT \
+    "${ZONE2_ARGS[@]}" \
     2>&1 | tee /app/logs/opc_server.log &
 
 OPC_PID=$!

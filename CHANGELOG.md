@@ -13,6 +13,12 @@
 - `PSF_APP=both` is not ported: its launcher starts the SDMs without `--config`, which this image refuses.
 - The Thor profiles stay on 1.3 until an aarch64 host package of the same build is published.
 
+### ATL per trailer bay (two zones)
+
+- `atl-dual-override.yaml` runs safety-core as `--app atl_dual`: one ATL SDM per bay, zone 2 on `EVENT_6..11` (`configs/atl_sdm_zone2.conf`) and its own port, `COMM_UDP_PORT_ZONE2`.
+- comm-layer listens on that port too and keeps zone 2 in its own OPC UA nodes (`Zone2IsMuted`, `Zone2StateJson`). `/<robot>/safety/is_muted` now carries the zone set by the robot's `safety_indicator.zone` (default 1); `/safety/is_muted` stays zone 1.
+- `robots-40x20.yaml` puts `forklift_b2` on zone 2. Without `COMM_UDP_PORT_ZONE2` it keeps mirroring zone 1, as before, with a WARNING.
+
 ### Breaking — ROS surface is namespaced per robot
 
 Multi-forklift support renamed the topics, TF frames and node name of the **default single-forklift run**. A deployment that does nothing still works; anything that subscribes by name does not.
