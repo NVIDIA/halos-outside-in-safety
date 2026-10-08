@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Breaking — PSF image with configured SDMs
+
+`sil` and `base` move to the PSF build `83564f4` (`psf-dev-safeai-release-83564f4-2026-10-06_20-16`), whose launcher no longer starts an SDM without its event binding.
+
+- `safety-core.yml` passes `--sdm-config configs/<PSF_APP>_sdm.conf` (`atl_sdm.conf`, `pxc_sdm.conf`) and mounts `sensor_pipelines_config.conf`, the identities events arrive under. The 3D feed sets `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` next to `PSF_SENSOR_CONFIG_SRC`.
+- `nvpss.conf` states the now-mandatory `deploymentMode = 2D` and `enableFusion = true`, adds the PSS-to-PSD delivery and queue keys, and drops `PSSDToPSDComBackend`.
+- Proximity events move from `EVENT_8/9/10` to `EVENT_12/13/14`: `EVENT_0..11` are reserved for ATL.
+- `pxc_sdm.log` is written to `/var/log/psf/pxc_sdm.log` in the container; the host file is unchanged.
+- `PSF_APP=both` is not ported: its launcher starts the SDMs without `--config`, which this image refuses.
+- The Thor profiles stay on 1.3 until an aarch64 host package of the same build is published.
+
 ### Breaking — ROS surface is namespaced per robot
 
 Multi-forklift support renamed the topics, TF frames and node name of the **default single-forklift run**. A deployment that does nothing still works; anything that subscribes by name does not.
