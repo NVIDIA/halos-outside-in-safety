@@ -102,7 +102,8 @@ class SafetyOpcUaServer:
         namespace: str = "http://nvidia.com/safety",
         config: Optional[OpcUaConfig] = None,
         proximity_queue: Optional[Queue] = None,
-        safe_release_handler: Optional[Callable[[], bool]] = None
+        safe_release_handler: Optional[Callable[[], bool]] = None,
+        zone2_queue: Optional[Queue] = None
     ):
         """
         Initialize OPC UA server
@@ -118,6 +119,8 @@ class SafetyOpcUaServer:
                 proximity packet drained through update_command() would write
                 IsMuted=True for a person in the STOP tier. See the collision table in
                 common/proximity_commands.py.
+            zone2_queue: SafetyCommand objects from the second ATL zone's SDM
+                (atl_dual), written to the Zone2* nodes only.
         """
         if not HAS_OPCUA:
             raise ImportError("asyncua library not installed. Install with: pip install asyncua")
@@ -133,6 +136,7 @@ class SafetyOpcUaServer:
         
         self.input_queue = input_queue or Queue()
         self.proximity_queue = proximity_queue
+        self.zone2_queue = zone2_queue
         # The proximity safe-state latch is only cleared by a request from this
         # side of the link, and the SDM holds FAULT SAFE STATE until it gets one
         # -- which also suppresses ProximityMode, so the whole proximity output
@@ -186,9 +190,24 @@ class SafetyOpcUaServer:
         
         logger.info("OPC UA server stopped")
     
-    def update_command(self, command: SafetyCommand):
+    @staticmethod
+    def _state_json(command: SafetyCommand) -> str:
+        return json.dumps({
+            'sequence': int(command.sequence_number),
+            'command': int(command.command.value),
+            'command_name': str(command.command.description),
+            'status': int(command.status.value),
+            'status_name': str(command.status.description),
+            'timestamp': f"{command.timestamp}.{command.microseconds}",
+            'last_update': datetime.now().isoformat(),
+        })
+
+    def update_command(self, command: SafetyCommand, zone: int = 1):
         """Update OPC UA nodes with new command"""
         if not self._running or not self._nodes:
+            return
+        if zone == 2:
+            self._update_zone2(command)
             return
         
         try:
@@ -223,15 +242,7 @@ class SafetyOpcUaServer:
             # Atomic commit point: one coherent snapshot the bridge reads as a unit.
             # Written AFTER the per-field nodes so its content is always consistent.
             self._nodes['state_json'].write_value(
-                ua.Variant(json.dumps({
-                    'sequence': int(command.sequence_number),
-                    'command': int(command.command.value),
-                    'command_name': str(command.command.description),
-                    'status': int(command.status.value),
-                    'status_name': str(command.status.description),
-                    'timestamp': f"{command.timestamp}.{command.microseconds}",
-                    'last_update': datetime.now().isoformat(),
-                }), ua.VariantType.String)
+                ua.Variant(self._state_json(command), ua.VariantType.String)
             )
 
             self._last_command = command
@@ -239,6 +250,19 @@ class SafetyOpcUaServer:
             
         except Exception as e:
             logger.error(f"Failed to update OPC UA nodes: {e}")
+
+    def _update_zone2(self, command: SafetyCommand):
+        """Second ATL zone: its own IsMuted and atomic snapshot, nothing shared with zone 1."""
+        try:
+            self._nodes['zone2_is_muted'].write_value(
+                ua.Variant(command.command == CommandCode.MUTE, ua.VariantType.Boolean)
+            )
+            self._nodes['zone2_state_json'].write_value(
+                ua.Variant(self._state_json(command), ua.VariantType.String)
+            )
+            logger.debug(f"Updated zone 2 OPC UA nodes: {command}")
+        except Exception as e:
+            logger.error(f"Failed to update zone 2 OPC UA nodes: {e}")
 
     @staticmethod
     def _object_payload(role: str, obj) -> dict:
@@ -400,6 +424,15 @@ class SafetyOpcUaServer:
         self._nodes['state_json'] = safety_folder.add_variable(
             idx, "StateJson", "", ua.VariantType.String
         )
+        # Second ATL zone (atl_dual). Present only when comm-layer listens on a
+        # zone 2 port, so the bridge can tell a one-zone server by their absence.
+        if self.zone2_queue is not None:
+            self._nodes['zone2_is_muted'] = safety_folder.add_variable(
+                idx, "Zone2IsMuted", False, ua.VariantType.Boolean
+            )
+            self._nodes['zone2_state_json'] = safety_folder.add_variable(
+                idx, "Zone2StateJson", "", ua.VariantType.String
+            )
 
         # --- Proximity (0xA5) ------------------------------------------------
         # Flat under Safety, like the ATL nodes: the ROS bridge finds its nodes by
@@ -493,6 +526,15 @@ class SafetyOpcUaServer:
                 except Exception as e:
                     logger.error(f"Error processing command: {e}")
 
+                if self.zone2_queue is not None:
+                    try:
+                        self.update_command(self.zone2_queue.get_nowait(), zone=2)
+                        idle = False
+                    except Empty:
+                        pass
+                    except Exception as e:
+                        logger.error(f"Error processing zone 2 command: {e}")
+
                 if self.proximity_queue is not None:
                     try:
                         packet = self.proximity_queue.get_nowait()
@@ -526,6 +568,8 @@ def main():
     parser = argparse.ArgumentParser(description='OPC UA Server (Non-Safe)')
     parser.add_argument('-e', '--endpoint', default='opc.tcp://0.0.0.0:4840/safety/', help='OPC UA endpoint')
     parser.add_argument('-p', '--port', type=int, default=12345, help='UDP port')
+    parser.add_argument('--zone2-port', type=int, default=0,
+                        help='UDP port of the second ATL zone SDM (atl_dual); 0 = one zone')
     args = parser.parse_args()
     
     print("""
@@ -566,13 +610,20 @@ def main():
         startup_safe_release=os.environ.get("COMM_PXC_STARTUP_RELEASE", "0") == "1")
     receiver.start()
     print(f"UDP Receiver listening on port {args.port}")
+
+    zone2_receiver = None
+    if args.zone2_port:
+        zone2_receiver = SafetyReceiver(port=args.zone2_port)
+        zone2_receiver.start()
+        print(f"UDP Receiver (ATL zone 2) listening on port {args.zone2_port}")
     
     # Start OPC UA server
     server = SafetyOpcUaServer(
         input_queue=receiver._queue,
         endpoint=args.endpoint,
         proximity_queue=proximity_queue,
-        safe_release_handler=receiver.request_safe_release
+        safe_release_handler=receiver.request_safe_release,
+        zone2_queue=zone2_receiver._queue if zone2_receiver else None
     )
     
     try:
@@ -581,6 +632,8 @@ def main():
         print("\nShutting down...")
         server.stop()
         receiver.stop()
+        if zone2_receiver:
+            zone2_receiver.stop()
 
 
 if __name__ == '__main__':

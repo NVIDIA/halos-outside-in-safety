@@ -9,6 +9,7 @@ services:
     network_mode: host
     environment:
       - UDP_PORT=${COMM_UDP_PORT}
+      - UDP_PORT_ZONE2=${COMM_UDP_PORT_ZONE2:-}   # second ATL zone's SDM (atl-dual override); empty = one zone
       - OPCUA_ENDPOINT=${COMM_OPCUA_ENDPOINT:-opc.tcp://0.0.0.0:4840/safety/}
       - ROS_TOPIC_PREFIX=${COMM_ROS_TOPIC_PREFIX:-/safety}
       - SCENARIO=${SCENARIO:-}   # its fleet file says which robots want a /<id>/safety/is_muted mirror
