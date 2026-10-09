@@ -23,5 +23,5 @@
     "trackWidth": 0.99,
     "forkLength": 1.0
   },
-  "note": "Formula: pixelX = (worldX + transX) * scale, pixelY = (-worldY + transY) * scale. Values derived from the VSS blueprint sample calibration (warehouse-loading-dock-3cams-synthetic), converted from its pixelY = imageHeight - (worldY + transY) * scale convention. defaultForkliftStart matches /World/forklift_b in the scene USD, which sits at (1, -13.39)."
+  "note": "Formula: pixelX = (worldX + transX) * scale, pixelY = (-worldY + transY) * scale. Values derived from the VSS blueprint sample calibration (warehouse-loading-dock-3cams-synthetic), converted from its pixelY = imageHeight - (worldY + transY) * scale convention. defaultForkliftStart is forklift_b's spawn: block in robots.yaml, which puts the truck at (1, -13.39)."
 }

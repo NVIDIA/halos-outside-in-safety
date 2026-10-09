@@ -31,16 +31,17 @@ So this reads all three and says which one disagrees, before Isaac spends three
 minutes booting. It answers "did I finish adding the robot", not "is the system
 healthy" — it starts nothing and talks to nothing that is running.
 
-    ./preflight.py --robots-config ../closed-loop-testing/isaac-sim/sil/configs/robots-40x20.yaml \
-        --scene ../closed-loop-testing/isaac-sim/sil/scenes/warehouse_40x20_two_loading_dock.usd
+    ./preflight.py --robots-config ../closed-loop-testing/isaac-sim/sil/configs/robots-40x20.yaml
 
 Names are checked, and so is the one number that has actually broken: a
 waypoint file's `origin` against where the truck stands. The controller
 subtracts that origin from every world pose, so a file from another scene stays
 "valid" and the truck simply drives a lane nobody validated. For a robot with a
-`spawn:` block both numbers are in configs this script already reads; for a
-truck baked into the scene USD the pose is in the scene, which is what
-`--scene` is for.
+`spawn:` block both numbers are in configs this script already reads, which is
+every robot in every fleet file that ships — so `--scene` is not needed for any
+of them. It stays for the path the refactor kept open: drop a `spawn:` block to
+go back to a truck baked into the scene USD, and its pose is then in the scene
+rather than in a config, which is what `--scene` reads.
 
 `--robots-config` has no default on purpose. Which config Isaac is launched
 with is a choice made on the command line and recorded nowhere else, so a

@@ -101,6 +101,21 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Changed
 
+- **The 20x20 scene describes the warehouse and nothing else.** `forklift_b` and
+  its safety disc are declared in `robots.yaml` — a `spawn:` block at
+  `(1, -13.39)` facing 180°, and the `indicator:` size the baked disc used to
+  state as geometry — the way `robots-40x20.yaml` has declared its trucks since
+  they stopped being baked. No scene in `sil/scenes/` carries a forklift prim
+  now, so adding or moving a truck is a config change that can be reviewed as a
+  diff instead of a 35k-line USD edit.
+
+  The `spawn:` block names the `6.1` ForkliftB URL that `robots-40x20.yaml` pins
+  since the Isaac 6.1 move, where the deleted prim named the `5.1` one, so both
+  fleet files now say the same thing. The 6.1 file is not byte-identical to the
+  5.1 one (5.1 and 6.0 are), but what the SIL relies on is: the articulation
+  still authors 16 TGS velocity iterations, so the runtime patch's rebalance is
+  load-bearing, and the `lift_joint` limits and the 0.16 m wheel collider match.
+
 - **Isaac Sim 6.0.0 → 6.1.0.** Both profiles, the compose default and the
   Dockerfile `ARG` name `nvcr.io/nvidia/isaac-sim:6.1.0`; both IRA configs
   declare `version: 1.7.0`; and the asset-root override plus the pinned
@@ -168,6 +183,22 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Removed
 
+- **The three 5.1 baked `Character` prims and their shared `Biped_Setup` rig,
+  from the 20x20 scene.** They carried no Behavior Tree in the 6.x stack, so
+  every run showed six workers of which three stood still, and
+  `halos_runtime_patches.py` deactivated them on each launch to hide it. The
+  three IRA-spawned characters are unaffected — the patch still moves them to
+  the canonical positions. The navmesh bake is unchanged: the three `Character`
+  prims declared `NavMeshExcludeAPI`, and `Biped_Setup` — which declares no api
+  schemas and does compose real geometry — is `invisible`, carries no collider,
+  and sits on a patch of `scenarios/scenes/navmesh.json` that is already fully
+  walkable.
+
+- **The disabled `forklift_c` prim, from both the 20x20 and 40x20 scenes.** It
+  was `active = false` and `invisible` in both, referencing a
+  `collected-assets` payload nothing loaded, and its only remaining mentions
+  were in the `HALOS_*` bisection lists in `scene_component_isolation.py`.
+
 - **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file
   behind it.** It existed because there was no two-truck scene; `warehouse_40x20`
   is one, and it carries its second truck as a `spawn:` block rather than as a
@@ -198,6 +229,16 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `COMM_ROBOT_IDS` — comm-layer mirrors the mute decision onto `/<robot>/safety/is_muted` for each listed robot. Every mirror carries the same value: the decision is made for a camera-covered zone, not for a named truck.
 - 40x20 two-dock scene and its config trio. **Experimental / internal-only** — no calibration is published with it, so VSS runs 20x20 geometry against it and the safety numbers do not mean anything.
 - `deployments/scripts/preflight.py` — cross-checks the robots config, controller services, waypoint files and `COMM_ROBOT_IDS` before Isaac boots, and compares each waypoint origin against where its truck stands.
+- **Optional `scene:` key in `robots*.yaml`, checked before the stage opens.**
+  A `spawn.position` is world-space, so the 40x20 fleet in the 20x20 warehouse
+  parks `forklift_b2` at y = -21.63, outside the walls, while the prim is
+  authored, the payload loads, the control graph binds and the truck drives its
+  waypoints through it. Until the trucks left the scene USDs this pairing was
+  enforced by accident — a mismatched fleet died on "already authored in …" —
+  and `run_multi.sh` passes no `--robots-config`, so a stale `SCENARIO` is
+  enough to hit it. Same shape and same path-suffix matching as
+  `cameras.yaml`'s own `scene:`; a fleet file that names none keeps working and
+  says so at launch.
 - PSF proximity in the SIL loop (`PSF_APP=pxc`, 3D feed, SIL only). comm-layer decodes the `0xA5` packets onto `/safety/proximity/mode` and `/safety/proximity/pair` (opcodes 0x02/0x07 mean the opposite of ATL's, so nothing touches `/safety/is_muted`). The OPC node keeps the most severe decision visible for 0.3 s, so a STOP followed at once by a NORMAL or a heartbeat still reaches the 10 Hz bridge; unknown opcodes are published as a fault. The forklift-controller caps the truck at `proximity.reduce_speed` on REDUCE and stops it on STOP, each held past the last packet, and stops it with fault `psf_link_stale` when nothing at all (heartbeats included) has arrived for `proximity.stale_s` (10 s). The indicator disk shows the level it applies — green / orange / red, grey before PSF's first decision or with proximity disabled. `proximity_event_mapping.pb.txt` scores Forklift × Person for the 20x20 scene (STOP ≤ 2 m, REDUCE ≤ 3.5 m). A 3D feed also needs `PSF_SENSOR_CONFIG_SRC=./configs/sensor_config_bev.conf`. One truck per decision stream: PSF names no robot, so the controller warns when several obey the same `proximity.pair_topic`. `send_packet.py --proximity` injects 0xA5 packets without PSF.
 - `PSF_APP=both` with `-f closed-loop-testing/safety-core/atl-pxc-override.yaml` (or `COMPOSE_FILE`, see `sil.env`): ATL and proximity in one PSF container — one gateway, one daemon, one `mdx_client` on the two mappings concatenated, and both SDMs (two containers would collide on the gateway port and split mdx_client's fixed Kafka consumer groups). The disk shows red / orange while proximity acts on the truck, otherwise green muted / yellow alarm.
 - `robots.yaml` `proximity_line:` (off by default): Isaac draws the pair of each PSF proximity decision as a line on the floor between the two positions PSF sent, in the decision's colour, with the separation ("1.97 m", white on a plate of that colour) lying flat beside it, facing the first camera in `cameras.yaml` (`label_camera` to pick another). PSF's coordinates are the scene's world frame, so nothing is matched to the stage. Geometry: the streams carry it and perception sees it.
@@ -208,6 +249,19 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.1 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
+- The generated forklift overlay copied the 20x20 scene's
+  `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
+  scene's directory, landing in a file one level below it in
+  `scenes/generated/`. Dropped rather than rewritten: it is a Kit hint for which
+  layer the layer editor writes into, and its default is the root layer, which
+  is the overlay. `navmeshSettings` and `defaultPrim`, the two load-bearing
+  entries, are copied as before. First run to reach this would have been the
+  first default 20x20 run after the truck moved out of the scene.
+- Two `HALOS_REMOVE_*` bisection toggles called `stage.RemovePrim` directly and
+  printed `Removed` whatever it returned. Now that the overlay is the root
+  layer, `RemovePrim` deletes the spec in the edit target rather than where the
+  prim is defined, so those two could report success while the prim kept
+  composing. Both go through `_remove_prims`, which checks the return value.
 - `robots*.yaml` `drive:` was the only block in this config family that accepted
   unknown keys. `robots-40x20.yaml` had already lost the disc's `segments:` and
   `height_offset:` to it, one indentation level too far — merged, never read,

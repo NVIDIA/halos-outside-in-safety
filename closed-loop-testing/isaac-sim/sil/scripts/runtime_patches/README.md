@@ -9,7 +9,7 @@ the sibling `sil/scripts/action_graphs/` package.)
 
 | Module | Public entry point | Purpose |
 |---|---|---|
-| `halos_runtime_patches.py` | `apply_halos_runtime_patches()` | Deactivate 3 legacy 5.1 baked Character prims + move 3 IRA-spawned chars to canonical positions. The only path today to deterministically place IRA chars. |
+| `halos_runtime_patches.py` | `apply_halos_runtime_patches()` | Move 3 IRA-spawned chars to canonical positions + re-balance the forklift TGS solver iterations. The move is the only path today to deterministically place IRA chars. |
 | *(future)* `<your_name>_patches.py` | `apply_<your_name>_patches()` | New patch — see "Adding a new patch" below. |
 
 ## Invocation contract

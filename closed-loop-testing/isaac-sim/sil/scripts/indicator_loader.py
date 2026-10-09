@@ -41,21 +41,26 @@ block are world metres. Leaving it in parent-local units would make
 
 Colours are configured one level up, as `safety_indicator.color_muted` /
 `color_alarm`, not inside `mesh:`: they are read by the Action Graph on every
-state change, and a scene whose disc is still baked into the USD has no `mesh:`
-block yet may well want a different palette. This loader only uses the alarm
-colour, as the initial value of `displayColor`.
+state change, so they stay meaningful for a disc this loader did not author.
+This loader only uses the alarm colour, as the initial value of `displayColor`.
 
-Robots without a `mesh:` block are left untouched (disc assumed baked in the
-scene USD) — the loader is a no-op for them, which is what keeps the 20x20
-scenes working unchanged.
+Robots without a `mesh:` block are left untouched — the loader is a no-op for
+them. No scene in `sil/scenes/` carries a baked disc any more, so for a robot
+whose `safety_indicator` is enabled that no-op is a launch failure rather than a
+supported configuration: nothing authors the disc, and `verify_prim_exists` in
+`forklift_safety_indicator.py` then fails on a prim path with no hint that a
+`mesh:` block is what is missing. Every enabled robot states a size (`indicator:`
+on its model, or `safety_indicator.mesh:` on itself). Omitting the block is only
+safe alongside `safety_indicator.enabled: false`.
 
 Invoked from `run_actor_sdg.py` BEFORE `build_forklift_graphs()`, whose
 `verify_prim_exists` fail-fasts on a missing disc.
 
 Idempotency: created prims carry a `halos:spawnedBy` marker. On re-run a
 marked prim is removed and re-created. An EXISTING UNMARKED prim at the target
-path is an error — the baked disc is still in the scene USD while the config
-claims the same path; delete the baked def or drop the `mesh:` block.
+path is an error — something other than this loader authored a disc where the
+config claims one, so both claim the same prim. No scene ships one today; a
+hand-added def in a scene USD or an overlay is what would put one there.
 """
 
 from __future__ import annotations
@@ -184,8 +189,10 @@ def _create_one(stage, robot: dict) -> str:
         else:
             raise RuntimeError(
                 f"[indicator-loader] Prim already exists at {path} and was NOT "
-                f"created by this loader (baked disc still in the scene USD?). "
-                f"Delete the baked def, or remove the 'mesh:' block for '{name}'."
+                f"created by this loader. Something else authors a disc there — "
+                f"no scene in sil/scenes ships one, so look for a hand-added def "
+                f"in the scene USD or an overlay. Delete it, or remove the "
+                f"'mesh:' block for '{name}'."
             )
 
     radius = float(mesh_cfg.get("radius", _DEFAULT_RADIUS))

@@ -8,10 +8,10 @@ Opt-in graph for the SRR closed-loop regression harness
 module is never imported, so there is zero effect on the default pipeline.
 
 Builds `/World/SRRGraph`: one `OnPlaybackTick` + one `ROS2Context`, then
-  - the FORKLIFT (scene prim `/World/forklift_b`) on a `ROS2PublishTransformTree`
-    (reads the prim transform straight from Fabric — works because the payload is
-    present in Fabric from load), publishing `/gt/forklift/tf` (child frames
-    body + lift);
+  - the FORKLIFT (`/World/forklift_b`, authored by `forklift_overlay.py` from the
+    `spawn:` block in the fleet file) on a `ROS2PublishTransformTree` (reads the
+    prim transform straight from Fabric — works because the payload is present in
+    Fabric from load), publishing `/gt/forklift/tf` (child frames body + lift);
   - each SRR PEDESTRIAN on a `ROS2PublishRawTransformTree`, publishing
     `/gt/character_<i>/tf` (parent "world"). The raw node takes an EXPLICIT
     translation input, which we feed each frame from the character's live
@@ -28,9 +28,9 @@ Why the characters need the RAW node + a FABRIC-fed pump:
   live pose lives on the skinned render meshes' `omni:fabric:worldMatrix`.
   `ROS2PublishTransformTree` (PoseTree) can't resolve these runtime-spawned
   prims (`getObjectType` eInvalid), so we read the Fabric world transform
-  ourselves via usdrt and push it onto the raw node each frame. The baked
-  forklift IS in Fabric for PoseTree, so it keeps the simpler
-  ROS2PublishTransformTree.
+  ourselves via usdrt and push it onto the raw node each frame. The forklift is
+  on the root layer before IRA opens the stage, so it IS in Fabric for PoseTree
+  and keeps the simpler ROS2PublishTransformTree.
 
 Lifecycle (same shape as the sibling builders in this package):
   `run_actor_sdg.py` calls `build_srr_gt_graph()` from its
@@ -124,7 +124,10 @@ def _resolve_targets(stage, char_groups: list[str]) -> tuple[list[tuple[str, str
         char_targets.append((f"/gt/character_{i}", skel))
 
     if not stage.GetPrimAtPath(_FORKLIFT_PRIM):
-        missing.append(_FORKLIFT_PRIM)
+        missing.append(
+            f"{_FORKLIFT_PRIM} (authored by forklift_overlay.py from the fleet "
+            f"file's spawn: block, not by the scene USD)"
+        )
 
     if missing:
         raise RuntimeError(
@@ -132,7 +135,7 @@ def _resolve_targets(stage, char_groups: list[str]) -> tuple[list[tuple[str, str
             + "\n  - ".join(missing)
             + "\nbuild_srr_gt_graph() must run AFTER setup_simulation() + "
             "apply_halos_runtime_patches(). Check IRA spawned the character "
-            "groups and the scene contains the forklift."
+            "groups and the fleet file spawned the forklift."
         )
     return char_targets, _FORKLIFT_PRIM
 
@@ -336,7 +339,8 @@ def build_srr_gt_graph(
             ("Context.outputs:context", f"{node}.inputs:context"),
         ])
 
-    # Forklift: scene prim -> Fabric read works, keep the transform-tree node.
+    # Forklift: on the root layer at load -> Fabric read works, keep the
+    # transform-tree node.
     create_nodes.append(("PubForklift", "isaacsim.ros2.bridge.ROS2PublishTransformTree"))
     set_values.extend([
         ("PubForklift.inputs:nodeNamespace", _FORKLIFT_NAMESPACE),
