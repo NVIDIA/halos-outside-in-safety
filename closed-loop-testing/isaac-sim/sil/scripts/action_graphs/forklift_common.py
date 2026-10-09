@@ -535,6 +535,29 @@ def robots_needing_mute_mirror(robots: list[dict]) -> list[str]:
             and resolve_muted_topic(r) != global_topic]
 
 
+# PSF ATL zones. Under the atl-dual override safety-core runs one SDM per
+# trailer bay, and each sends its MUTE / UNMUTE to its own comm-layer port.
+SAFETY_ZONES = (1, 2)
+
+
+def resolve_safety_zone(robot: dict) -> int:
+    """Which ATL zone's mute this robot's mirror carries (`safety_indicator.zone`)."""
+    cfg = robot.get("safety_indicator", {}) or {}
+    zone = cfg.get("zone", 1)
+    if isinstance(zone, bool) or zone not in SAFETY_ZONES:
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.zone must be "
+            f"one of {', '.join(map(str, SAFETY_ZONES))}, got {zone!r}"
+        )
+    return zone
+
+
+def mute_mirror_zones(robots: list[dict]) -> dict[str, int]:
+    """The robots comm-layer mirrors is_muted for, each with the zone it follows."""
+    mirrored = set(robots_needing_mute_mirror(robots))
+    return {r["name"]: resolve_safety_zone(r) for r in robots if r["name"] in mirrored}
+
+
 def _resolve_namespaced_topic(robot: dict, section: str, key: str, suffix: str) -> str:
     """A per-robot topic name, defaulting to `<name>/<suffix>`.
 

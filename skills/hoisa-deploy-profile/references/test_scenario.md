@@ -18,9 +18,8 @@ docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
 
 Two-forklift variant: set `SCENARIO=warehouse_40x20` in the profile env and add
 `multi-robot` to `COMPOSE_PROFILES` — the profile decides whether the second
-controller container exists, the scenario decides what it drives. That scene has
-no published calibration (see below), so it is for watching trucks drive, not
-for scoring.
+controller container exists, the scenario decides what it drives. Its VSS dataset
+is built locally (see below); run it on the 2D app.
 
 Individual flags (`-c`, `--robots-config`, `--cameras-config`) still win over the
 scenario, for a one-off run against a config the table below does not list.
@@ -39,16 +38,38 @@ human-readable form plus the VSS dataset, which the scenario does not name.
 | `SCENARIO` | Scene | IRA config | robots | cameras | waypoints | VSS `SAMPLE_VIDEO_DATASET` |
 |---|---|---|---|---|---|---|
 | `warehouse_20x20_1fl` | `indicator_warehouse_20x20_layout_overflow_test.usd` | `default_config_ros.yaml` | `robots.yaml` (1 FL) | `cameras.yaml` | `warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
-| `warehouse_40x20` | `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `warehouse_40x20` | **none published — see below** |
+| `warehouse_40x20` | `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `warehouse_40x20` | `warehouse-40x20-two-docks-3cams-synthetic` — **built locally, see below** |
 
-**The 40x20 row has no calibration and is EXPERIMENTAL / internal-only.** The
-dataset above is 20x20 geometry: its ROIs and tripwires sit at
-`scaleFactor` 49.50985 and translation x 19.291915, while the 40x20 world is
-26.829178663553755 and 35.669746. Pointing VSS at it while Isaac loads the 40x20
-scene yields SRR numbers that do not mean anything, and nothing logs a warning.
-Cheap check before trusting any result: `scaleFactor` and
-`translationToGlobalCoordinates.x` in the `calibration.json` VSS actually loaded
-must match `tools/waypoint-generator/public/maps/<map id>/config.json`.
+**The 40x20 row is EXPERIMENTAL / internal-only, and its VSS dataset is not
+published: build it.** `closed-loop-testing/isaac-sim/sil/calibration/build_vss_calibration.py`
+writes it from `cameras-40x20.yaml` (exact pinhole poses, nothing estimated), the
+two loading zones in `calibration/warehouse_40x20/zones.yaml` (`roi-id-1` /
+`tripwire-id-1` = `forklift_b`'s bay, `roi-id-2` / `tripwire-id-2` = `forklift_b2`'s)
+and the waypoint map, whose `map.png` becomes `Top.png`:
+
+```bash
+cd closed-loop-testing/isaac-sim/sil/calibration
+DS=warehouse-40x20-two-docks-3cams-synthetic
+PYTHONPATH=<vss>/libs/analytics/spatialai-data-utils python3 build_vss_calibration.py \
+  --cameras ../configs/cameras-40x20.yaml --zones warehouse_40x20/zones.yaml \
+  --map ../../../../tools/waypoint-generator/public/maps/warehouse_40x20/config.json \
+  --out-dir <wh_ops>/warehouse-2d-app/calibration/sample-data/$DS
+# the configurator also needs bootstrap videos under the dataset name
+cp -a $VSS_DATA_DIR/videos/warehouse-loading-dock-3cams-synthetic $VSS_DATA_DIR/videos/$DS
+```
+
+Then set `MODE=2d` and `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/.env`. Use the
+2D app: on this scene the 3D (Sparse4D) app stops detecting within seconds to
+minutes (`troubleshooting.md` → "Sparse4D Stops Detecting on the 40x20 Scene").
+`spatialai-data-utils` only fills `fieldOfViewPolygon`; without it the field is left out.
+
+The 20x20 dataset is 20x20 geometry: its ROIs and tripwires sit at `scaleFactor`
+49.50985 and translation x 19.291915, while the 40x20 world is 26.829178663553755
+and 35.669746. Pointing VSS at it while Isaac loads the 40x20 scene yields
+verdicts about the wrong building, and nothing logs a warning. Cheap check before
+trusting any result: `scaleFactor` and `translationToGlobalCoordinates.x` in the
+`calibration.json` VSS actually loaded must match
+`tools/waypoint-generator/public/maps/<map id>/config.json`.
 
 Two of these pairings are now checked automatically rather than by reading this
 table: `camera_loader.assert_scene_matches()` refuses a cameras config whose
@@ -291,9 +312,9 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 
 ### Proximity (`PSF_APP=pxc` / `both`)
 
-PSF events — `EVENT_8` no violation, `EVENT_9` REDUCE tier, `EVENT_10` STOP tier:
+PSF events — `EVENT_12` no violation, `EVENT_13` REDUCE tier, `EVENT_14` STOP tier:
 ```bash
-grep -a "Safety event reported: EVENT_\(8\|9\|10\) " "$MDX_DATA_DIR/psf-log/pss.log" | tail -5
+grep -a "Safety event reported: EVENT_\(12\|13\|14\) " "$MDX_DATA_DIR/psf-log/pss.log" | tail -5
 grep -a "Sending decision command" "$MDX_DATA_DIR/psf-log/pxc_sdm.log" | tail -3   # NORMAL 0x07 / REDUCE 0x05 / STOP 0x02
 ```
 comm-layer decodes each `0xA5` packet with the pair and its separation:
@@ -360,7 +381,7 @@ The system is working when:
 3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
 4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
 5. The VST UI shows the camera streams with bounding boxes
-6. (`pxc` / `both`) `pss.log` carries `EVENT_8` / `EVENT_9` / `EVENT_10`, the comm-layer
+6. (`pxc` / `both`) `pss.log` carries `EVENT_12` / `EVENT_13` / `EVENT_14`, the comm-layer
    `Proximity:` lines show STOP only at `sep ≤ 2 m` and REDUCE at `2–3.5 m`, and the
    controller logs `PXC [...] -> reduce_speed` / `-> stop` and back. The three workers on the
    20x20 scene cross the forklift's lane often: one 16-minute run had 42 REDUCE and 17 STOP

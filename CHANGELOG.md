@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Breaking — PSF image with configured SDMs
+
+The `sil` and `base` configs target the PSF 1.4 image, whose launcher no longer starts an SDM without its event binding. Until 1.4 is published on NGC, `PSF_IMAGE` stays on 1.3 (`nv-psf-halos-1.3-6932895`), which does not run these configs.
+
+- `safety-core.yml` passes `--sdm-config configs/<PSF_APP>_sdm.conf` (`atl_sdm.conf`, `pxc_sdm.conf`) and mounts `sensor_pipelines_config.conf`, the identities events arrive under. The 3D feed sets `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf`: PSF runs `deploymentMode = 3D` with fusion off, and the BEV sensor `bev-sensor-1` is group 4 of cameras 1-3 (`configs/sensor_group_config.conf`). `sensor_config_bev.conf` is gone, and the 2D `nvpss.conf` no longer bypasses `EVENT_12/13/14`.
+- `nvpss.conf` states the now-mandatory `deploymentMode = 2D` and `enableFusion = true`, adds the PSS-to-PSD delivery and queue keys, and drops `PSSDToPSDComBackend`.
+- Proximity events move from `EVENT_8/9/10` to `EVENT_12/13/14`: `EVENT_0..11` are reserved for ATL.
+- `pxc_sdm.log` is written to `/var/log/psf/pxc_sdm.log` in the container; the host file is unchanged.
+- `PSF_APP=both` is not ported: its launcher starts the SDMs without `--config`, which this image refuses.
+- The Thor profiles stay on 1.3 until an aarch64 host package of the same build is published.
+
+### ATL per trailer bay (two zones)
+
+- `atl-dual-override.yaml` runs safety-core as `--app atl_dual`: one ATL SDM per bay, zone 2 on `EVENT_6..11` (`configs/atl_sdm_zone2.conf`) and its own port, `COMM_UDP_PORT_ZONE2`.
+- comm-layer listens on that port too and keeps zone 2 in its own OPC UA nodes (`Zone2IsMuted`, `Zone2StateJson`). `/<robot>/safety/is_muted` now carries the zone set by the robot's `safety_indicator.zone` (default 1); `/safety/is_muted` stays zone 1.
+- `robots-40x20.yaml` puts `forklift_b2` on zone 2. Without `COMM_UDP_PORT_ZONE2` it keeps mirroring zone 1, as before, with a WARNING.
+- `nvpss.conf` lets `EVENT_6..11` bypass fusion like zone 1's, so zone 2 no longer reacts about 6 s late.
+- `closed-loop-testing/isaac-sim/sil/calibration/build_vss_calibration.py` builds the VSS 2D dataset of a SIL scene from its cameras config, loading zones and waypoint map; `warehouse_40x20/zones.yaml` gives the two bays (`roi-id-1` / `tripwire-id-1`, `roi-id-2` / `tripwire-id-2`). Run `warehouse_40x20` on the 2D app: there the 3D (Sparse4D) app stops detecting after seconds to minutes.
+
 ### Breaking — ROS surface is namespaced per robot
 
 Multi-forklift support renamed the topics, TF frames and node name of the **default single-forklift run**. A deployment that does nothing still works; anything that subscribes by name does not.

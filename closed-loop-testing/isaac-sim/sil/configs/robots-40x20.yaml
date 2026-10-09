@@ -187,6 +187,9 @@ robots:
       enabled: true
       # topic defaults to /forklift_b2/safety/is_muted, disc to
       # /World/forklift_b2/body/body/safety_indicator — see forklift_b above
+      # The second bay's ATL zone under atl-dual-override.yaml. Without
+      # COMM_UDP_PORT_ZONE2, comm-layer mirrors zone 1 here, as before.
+      zone: 2
       color_muted: [0.0, 1.0, 0.0]
       color_alarm: [1.0, 0.3, 0.0]
 

@@ -1,0 +1,25 @@
+# Opt-in: two ATL zones, one SDM per trailer bay (`--app atl_dual`). Keep PSF_APP=atl:
+# Isaac and the controllers see plain ATL, one zone per robot.
+#
+#   docker compose -f compose.yaml \
+#     -f ../closed-loop-testing/safety-core/atl-dual-override.yaml \
+#     --env-file profiles/sil.env up -d safety-core
+#
+# Zone 1 (tripwire-id-1 / roi-id-1, EVENT_0..5) sends to COMM_UDP_PORT, zone 2
+# (tripwire-id-2 / roi-id-2, EVENT_6..11) to COMM_UDP_PORT_ZONE2, which comm-layer must
+# also listen on. A robot follows zone 2 with `safety_indicator.zone: 2` in its fleet
+# file. The calibration needs both bays' ROI and tripwire, or zone 2 never sees an event.
+#
+# A -f file resolves relative paths against the project directory, not its own,
+# so the mount is spelled from MDX_SAMPLE_APPS_DIR.
+services:
+  safety-core:
+    volumes:
+      - ${MDX_SAMPLE_APPS_DIR:?set MDX_SAMPLE_APPS_DIR to the repo checkout}/closed-loop-testing/safety-core/configs/atl_sdm_zone2.conf:/opt/nvidia/psf/bin/atl_sdm_zone2.conf:ro
+    command: >
+      --app atl_dual
+      --saim-mode ${PSF_LAUNCH_MODE:-skip}
+      --cmd_rx_ip ${PSF_CMD_RX_IP}
+      --cmd_rx_port ${COMM_UDP_PORT},${COMM_UDP_PORT_ZONE2:?set COMM_UDP_PORT_ZONE2 for the second zone}
+      --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+      --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf,/opt/nvidia/psf/bin/atl_sdm_zone2.conf

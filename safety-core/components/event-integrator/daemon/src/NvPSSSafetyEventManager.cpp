@@ -439,6 +439,119 @@ bool SafetyEventManager::enqueueStatusNoopEvent(uint64_t timestampNs)
     return true;
 }
 
+namespace {
+
+/* ---- PSD queue-full accounting ------------------------------------------
+ * enqueuePsdFusedEvent() below discards a fused safety event once the priority
+ * queue already holds MAX_EVENTS_PER_QUE entries, and no caller acts on the
+ * `false` return. That discard is recorded in every build, not just debug:
+ * enqueueStatusNoopEvent() above already warns unconditionally on exactly this
+ * condition, and leaving this path silent is what previously made the loss
+ * invisible. The drop rate is a property of the deployed queue depth versus the
+ * real event rate, so it has to be observable in the field.
+ *
+ * Rate limited to one line per second: a saturated queue discards at the event
+ * rate, which would otherwise flood the log and perturb the timing being
+ * observed.
+ */
+std::atomic<uint64_t> g_psdCriticalDropped{0};
+std::atomic<uint64_t> g_psdOperationalDropped{0};
+std::atomic<uint64_t> g_psdDropWarnLastNs{0};
+
+constexpr uint64_t PSD_DROP_WARN_MIN_GAP_NS = 1000000000ULL;   /* 1 s */
+
+#ifdef NVPSF_DBG
+/* ---- PSD queue admission profiling (debug builds only) ------------------
+ * The accept-side counters and the periodic summary below exist to size
+ * MAX_EVENTS_PER_QUE against a real workload. That is a development activity:
+ * it needs the admitted count as a denominator and reports every few seconds
+ * whether or not anything is wrong, which a shipped system has no use for.
+ * The release build therefore counts discards only, on the discard path.
+ *
+ * Note that this cannot be measured by comparing Kafka-side event counts
+ * against what the SDMs receive: the fusion stage legitimately collapses
+ * several observations of one pair into a single fused event, so that
+ * comparison cannot separate a discard from ordinary coalescing.
+ */
+std::atomic<uint64_t> g_psdCriticalAccepted{0};
+std::atomic<uint64_t> g_psdOperationalAccepted{0};
+std::atomic<uint64_t> g_psdAdmissionWindowStartNs{0};
+
+constexpr uint64_t PSD_ADMISSION_REPORT_PERIOD_NS = 5000000000ULL;   /* 5 s */
+
+/* "12.3"-style percentage without pulling in floating-point formatting. */
+std::string PsdAdmissionPercent(uint64_t part, uint64_t total)
+{
+    if (total == 0U)
+        return "0.0";
+    const uint64_t tenths = (part * 1000U + total / 2U) / total;
+    return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
+}
+
+void RecordPsdAdmission(NvPSSPsdSendPriority priority, bool queued)
+{
+    if (queued)
+    {
+        std::atomic<uint64_t>& accepted =
+            (priority == NvPSSPsdSendPriority::CRITICAL) ? g_psdCriticalAccepted
+                                                         : g_psdOperationalAccepted;
+        accepted.fetch_add(1U, std::memory_order_relaxed);
+    }
+
+    const uint64_t nowNs = monotonicNowNs();
+    uint64_t windowStart = g_psdAdmissionWindowStartNs.load(std::memory_order_relaxed);
+    if (windowStart == 0U)
+    {
+        /* First call only arms the window; there is nothing to report yet. */
+        g_psdAdmissionWindowStartNs.compare_exchange_strong(windowStart, nowNs);
+        return;
+    }
+    if (nowNs - windowStart < PSD_ADMISSION_REPORT_PERIOD_NS)
+        return;
+    if (!g_psdAdmissionWindowStartNs.compare_exchange_strong(windowStart, nowNs))
+        return;   /* another thread closed this window and will report it */
+
+    /* Only the thread that won the exchange runs the rest, so the previous
+     * snapshot below needs no synchronisation. */
+    static uint64_t prevCritAcc = 0U, prevCritDrop = 0U;
+    static uint64_t prevOperAcc = 0U, prevOperDrop = 0U;
+
+    const uint64_t critAcc  = g_psdCriticalAccepted.load(std::memory_order_relaxed);
+    const uint64_t critDrop = g_psdCriticalDropped.load(std::memory_order_relaxed);
+    const uint64_t operAcc  = g_psdOperationalAccepted.load(std::memory_order_relaxed);
+    const uint64_t operDrop = g_psdOperationalDropped.load(std::memory_order_relaxed);
+
+    const uint64_t dCritAcc  = critAcc  - prevCritAcc;
+    const uint64_t dCritDrop = critDrop - prevCritDrop;
+    const uint64_t dOperAcc  = operAcc  - prevOperAcc;
+    const uint64_t dOperDrop = operDrop - prevOperDrop;
+    prevCritAcc = critAcc;  prevCritDrop = critDrop;
+    prevOperAcc = operAcc;  prevOperDrop = operDrop;
+
+    const uint64_t dOffered   = dCritAcc + dCritDrop + dOperAcc + dOperDrop;
+    const uint64_t dDropped   = dCritDrop + dOperDrop;
+    const uint64_t totOffered = critAcc + critDrop + operAcc + operDrop;
+    const uint64_t totDropped = critDrop + operDrop;
+    const uint64_t windowMs   = (nowNs - windowStart) / 1000000ULL;
+
+    NvPSBWriteData(NVPSB_LOG_INFO,
+        "[PSD-QUEUE-PROFILE] queue_depth=" + std::to_string(MAX_EVENTS_PER_QUE) +
+        " window_ms=" + std::to_string(windowMs) +
+        " | window offered=" + std::to_string(dOffered) +
+        " dropped=" + std::to_string(dDropped) +
+        " (" + PsdAdmissionPercent(dDropped, dOffered) + "%)" +
+        " | critical acc=" + std::to_string(dCritAcc) +
+        " drop=" + std::to_string(dCritDrop) +
+        " | operational acc=" + std::to_string(dOperAcc) +
+        " drop=" + std::to_string(dOperDrop) +
+        " | cumulative offered=" + std::to_string(totOffered) +
+        " dropped=" + std::to_string(totDropped) +
+        " (" + PsdAdmissionPercent(totDropped, totOffered) + "%)", "");
+}
+#endif  /* NVPSF_DBG */
+
+}  // namespace
+
 bool SafetyEventManager::enqueuePsdFusedEvent(NvPSSPsdSendPriority priority,
                                               int clientId,
                                               const FusedSafetyEvent& event)
@@ -461,8 +574,10 @@ bool SafetyEventManager::enqueuePsdFusedEvent(NvPSSPsdSendPriority priority,
     }
 
     bool queued = false;
+    size_t depthAtOffer = 0U;
     {
         std::lock_guard<std::mutex> lock(*queueMutex);
+        depthAtOffer = queue->size();
         if (queue->size() < MAX_EVENTS_PER_QUE)
         {
             queue->push_back(std::make_pair(clientId, event));
@@ -471,7 +586,37 @@ bool SafetyEventManager::enqueuePsdFusedEvent(NvPSSPsdSendPriority priority,
     }
 
     if (queued)
+    {
         notifyPsdSenderForQueuedEvent();
+    }
+    else
+    {
+        std::atomic<uint64_t>& droppedOnQueue =
+            (priority == NvPSSPsdSendPriority::CRITICAL) ? g_psdCriticalDropped
+                                                         : g_psdOperationalDropped;
+        const uint64_t dropped =
+            droppedOnQueue.fetch_add(1U, std::memory_order_relaxed) + 1U;
+
+        const uint64_t nowNs = monotonicNowNs();
+        uint64_t lastWarn = g_psdDropWarnLastNs.load(std::memory_order_relaxed);
+        if ((nowNs - lastWarn) >= PSD_DROP_WARN_MIN_GAP_NS &&
+            g_psdDropWarnLastNs.compare_exchange_strong(lastWarn, nowNs))
+        {
+            NvPSBWriteData(NVPSB_LOG_WARNING,
+                "[PSD-QUEUE-DROP] fused event discarded: priority queue full",
+                std::string("priority=") + NvPSSPsdSendPriorityName(priority) +
+                ", depth=" + std::to_string(depthAtOffer) +
+                "/" + std::to_string(MAX_EVENTS_PER_QUE) +
+                ", eventType=" + std::to_string(static_cast<unsigned>(event.type)) +
+                ", severity=" + std::to_string(static_cast<unsigned>(event.severity)) +
+                ", clientID=" + std::to_string(clientId) +
+                ", dropped_on_this_queue=" + std::to_string(dropped));
+        }
+    }
+
+#ifdef NVPSF_DBG
+    RecordPsdAdmission(priority, queued);
+#endif
 
     return queued;
 }

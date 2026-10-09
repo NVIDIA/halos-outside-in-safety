@@ -518,6 +518,46 @@ using the same domain ID.
 
 ---
 
+## ATL Zone Latched in FAULT Right After Startup
+
+**Symptom**: one ATL SDM logs tripwire events (`Forklift entered trailer (TW OUT)`) but
+never another `Sending decision command`; its robot's disc never changes. Earlier in that
+SDM's log (`/var/log/psf/atl_sdm_zone<N>.log` in `safety-core`):
+
+```
+ATL: Person exited trailer but personsInTrailerCount already 0; entering fault-safe lockout
+Sending decision command: FAULT SAFE STATE / ALARM (0x03)
+```
+
+**Cause**: until Isaac's cameras replace them, VSS runs on the dataset's bootstrap videos,
+and behavior analytics projects them with the scene's calibration. A person in those videos
+can cross a tripwire "out" of a trailer nobody entered; the SDM treats the impossible count
+as a fault and holds FAULT SAFE STATE. Seen on `warehouse_40x20`'s second bay, whose
+dataset reuses the 20x20 bootstrap videos.
+
+**Fix**: once `Registered 3/3 camera(s) with VST` is in the Isaac log and DeepStream runs
+Isaac's streams, `docker restart safety-core`. Both SDMs start clean and only see Isaac events.
+
+---
+
+## Sparse4D Stops Detecting on the 40x20 Scene
+
+**Symptom**: on `warehouse_40x20` with the 3D app, detections and ATL events arrive for a few
+seconds to a few minutes after perception starts, then `mdx-bev` carries only empty frames
+for good — 3/3 sources live, calibration and FPS fine, nothing in the logs.
+
+**Cause**: the Sparse4D temporal instance bank (`feedback: True` in the 3D `config.yaml`)
+turns to NaN between two frames and feeds that NaN back into every following frame. Seen with
+`display_tensor_info: True`: `input_cached_anchor` / `input_cached_feature` print `nan`
+from then on, while the camera matrices match the calibration exactly. Full 3-camera batches
+(`partial_batch: False`) do not prevent it; `feedback: False` does, but the per-frame tracks
+are too unstable for tripwires. The same model and app ran the 20x20 scene for hours without it.
+
+**Fix**: run ATL on 40x20 with the 2D app (`test_scenario.md`). A `docker restart vss-rtvi-cv`
+plus one sensor re-registration clears the NaN, until it comes back.
+
+---
+
 ## Quick Reference
 
 | Error | Fix |
@@ -536,5 +576,7 @@ using the same domain ID.
 | CUDA errors on restart | Full container recreate, not restart |
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
 | No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
-| `PSF_APP=pxc`: no `EVENT_8/9/10` at all | Mapping pairs a class the scene lacks (the image's own maps only `Agility_Digit_Humanoid`), a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), or a 3D feed without `PSF_SENSOR_CONFIG_SRC=./configs/sensor_config_bev.conf` — `halos_deploy.md` → "Safety app" |
+| `PSF_APP=pxc`: no `EVENT_12/13/14` at all | Mapping pairs a class the scene lacks, a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), codes that differ from `configs/pxc_sdm.conf`, or a 3D feed without `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` — `halos_deploy.md` → "Safety app" |
+| ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
+| 3D on `warehouse_40x20`: detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene |
 | `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |

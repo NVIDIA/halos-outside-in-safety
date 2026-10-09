@@ -1,0 +1,17 @@
+# Loading zones of sil/scenes/warehouse_40x20_two_loading_dock.usd, one ATL zone each.
+# Bounds are the world-space bounding boxes of the zone floor meshes, in metres.
+# trailer_side names the edge facing the trailer door; the tripwire lies on it.
+# id N becomes roi-id-N / tripwire-id-N, which atl_dual maps to its zone N SDM.
+zones:
+  - id: 1                    # /World/Loading_Zone (forklift_b)
+    x_min: 5.307
+    x_max: 10.004
+    y_min: -19.261
+    y_max: -10.761
+    trailer_side: x_max
+  - id: 2                    # /World/Loading_Zone_01 (forklift_b2)
+    x_min: 5.307
+    x_max: 10.004
+    y_min: -27.883
+    y_max: -19.383
+    trailer_side: x_max

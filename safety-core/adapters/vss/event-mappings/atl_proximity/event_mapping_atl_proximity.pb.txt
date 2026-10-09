@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Combined ATL + proximity event mapping, for the ATL dataset.
+#
+# Section 1 (EVENT_0..EVENT_5) is inherited verbatim from
+# atl/event_mapping_atl.pb.txt and drives the unmodified ATL SDM (atl_sdm).
+# Do not renumber these: atl/sdm/ccplex/ATLControl.cpp switches on these exact
+# output_event values, and docs/ATL_Safe_State_Spec.md describes their meaning.
+#
+# Section 2 (EVENT_8..EVENT_10) is new. It adds forklift-to-person proximity,
+# modelled on proximity/proximity_event_mapping.pb.txt but re-scoped from the
+# humanoid/person pair to the forklift/person pair, and drives this app's own
+# SDM (atl_proximity_sdm, see sdm/ccplex/AtlProximityControl.cpp). EVENT_6 and
+# EVENT_7 are intentionally unused so the proximity tiers keep the same
+# numbering as the standalone proximity app, which keeps the two deployments
+# comparable when reading pss.log side by side.
+#
+# PAIR SCOPING IS ENFORCED HERE.
+# The SDM cross-checks that each proximity event has exactly one person
+# endpoint, and warns when it does not, but that check cannot be tightened to
+# "the peer is a forklift". mdx-client maps the object type string to the PSS
+# ObjectType enum via stringToObjectType(), which has no FORKLIFT enumerator,
+# so a forklift arrives at the SDM as the generic OBJECT value and is
+# indistinguishable from any other non-person object. Pair matching is
+# unordered and driven entirely by object_type_primary / object_type_secondary
+# in this file.
+#
+# Therefore: the only pair rules in this file must be forklift/person. Adding a
+# second pair type here would feed that pair into the same forklift PLC command
+# stream with no way for the SDM to tell them apart. Add a separate app and
+# event mapping instead.
+#
+# Thresholds mirror the standalone proximity app so operator-facing behavior is
+# unchanged across the two deployments:
+#   EVENT_8  no violation (safe distance, > 2 m, or SD flag false) -> NORMAL
+#   EVENT_9  2 m >= distance > 1 m                                 -> REDUCE
+#   EVENT_10 distance <= 1 m                                       -> STOP
+# The SDM emits the worst tier across all live forklift/person pairs, so a
+# second pair reporting safe cannot mask a pair that is still critical.
+
+# ---------------------------------------------------------------------------
+# Section 1: ATL (inherited from atl/event_mapping_atl.pb.txt)
+# ---------------------------------------------------------------------------
+rules {
+  name: "Forklift tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_0"
+}
+rules {
+  name: "Forklift tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_1"
+}
+rules {
+  name: "Person tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_2"
+}
+rules {
+  name: "Person tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_3"
+}
+rules {
+  name: "Person restricted area ROI violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "true"
+  output_event: "EVENT_4"
+}
+rules {
+  name: "Person restricted area ROI violation cleared"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "false"
+  output_event: "EVENT_5"
+}
+
+# ---------------------------------------------------------------------------
+# Section 2: forklift-to-person proximity (new)
+#
+# proximity_violation must be present on every pair rule. The false rule must
+# omit distance_threshold_meters; each true rule must carry a finite positive
+# threshold. rule_id must be unique across pair rules and must fit the PSS
+# ruleIdentifier field. See util/protobuf/proto/event_mapping.proto.
+# ---------------------------------------------------------------------------
+rules {
+  name: "Forklift-person proximity no violation (safe distance, >2m or SD false)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_no_violation"
+  object_type_primary: "forklift"
+  object_type_secondary: "person"
+  proximity_violation: false
+  output_event: "EVENT_8"
+}
+rules {
+  name: "Forklift-person proximity 2m > distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_lt_2m"
+  object_type_primary: "forklift"
+  object_type_secondary: "person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_9"
+}
+rules {
+  name: "Forklift-person proximity distance < 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_lt_1m"
+  object_type_primary: "forklift"
+  object_type_secondary: "person"
+  proximity_violation: true
+  distance_threshold_meters: 1.0
+  output_event: "EVENT_10"
+}
