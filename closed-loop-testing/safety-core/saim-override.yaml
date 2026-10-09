@@ -1,0 +1,22 @@
+# SAIM (the PSF AI monitor) on SIL: PSF_LAUNCH_MODE=learn records per-sensor baselines,
+# PSF_LAUNCH_MODE=active checks the streams against them. Add after the base compose file:
+#   COMPOSE_FILE=compose.yaml:../closed-loop-testing/safety-core/saim-override.yaml
+# (append it to atl-dual-override.yaml the same way). PSF_LAUNCH_MODE=skip needs none of this.
+services:
+  safety-core:
+    environment:
+      # SAIM decodes the RTSP streams on NVDEC; without "video" libnvcuvid is not mounted.
+      NVIDIA_DRIVER_CAPABILITIES: video,compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${PSF_SAIM_GPU_DEVICE:-0}"]
+              capabilities: [gpu, video]
+    volumes:
+      # learn writes <sensor>_baseline.cfg here and active reads it back, so the baselines
+      # survive the container being recreated between the two. Mounting the directory hides
+      # the image's *_baseline.cfg.default templates: run learn before active. The container
+      # runs as uid 1001, which must be able to write it.
+      - ${PSF_SAIM_BASELINE_DIR:?set PSF_SAIM_BASELINE_DIR to a host directory for the SAIM baselines}:/opt/nvidia/psf/bin/saim_baseline
