@@ -6,7 +6,7 @@
 
 `sil` and `base` move to the PSF 1.4 image, whose launcher no longer starts an SDM without its event binding. `PSF_IMAGE` is a placeholder until that image is published on NGC.
 
-- `safety-core.yml` passes `--sdm-config configs/<PSF_APP>_sdm.conf` (`atl_sdm.conf`, `pxc_sdm.conf`) and mounts `sensor_pipelines_config.conf`, the identities events arrive under. The 3D feed sets `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` next to `PSF_SENSOR_CONFIG_SRC`.
+- `safety-core.yml` passes `--sdm-config configs/<PSF_APP>_sdm.conf` (`atl_sdm.conf`, `pxc_sdm.conf`) and mounts `sensor_pipelines_config.conf`, the identities events arrive under. The 3D feed sets `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf`: PSF runs `deploymentMode = 3D` with fusion off, and the BEV sensor `bev-sensor-1` is group 4 of cameras 1-3 (`configs/sensor_group_config.conf`). `sensor_config_bev.conf` is gone, and the 2D `nvpss.conf` no longer bypasses `EVENT_12/13/14`.
 - `nvpss.conf` states the now-mandatory `deploymentMode = 2D` and `enableFusion = true`, adds the PSS-to-PSD delivery and queue keys, and drops `PSSDToPSDComBackend`.
 - Proximity events move from `EVENT_8/9/10` to `EVENT_12/13/14`: `EVENT_0..11` are reserved for ATL.
 - `pxc_sdm.log` is written to `/var/log/psf/pxc_sdm.log` in the container; the host file is unchanged.
