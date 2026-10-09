@@ -24,7 +24,10 @@
 #include "NvPSD.h"
 #include "NvPSSDToPSD.hpp"
 
-#define MAX_EVENTS_PER_QUE 8
+/* Must track MAX_SENSORS_DATA_SUMMARY_SIZE: the drain takes at most
+ * min(queue depth, wire slots) per DecisionRequest, so whichever is smaller
+ * caps the batch. Events offered while the queue is full are dropped. */
+#define MAX_EVENTS_PER_QUE 32
 #define SEC_TO_NANO_SEC 1000000000L
 
 typedef enum NvPSDChannelBackend_t

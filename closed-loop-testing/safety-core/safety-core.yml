@@ -7,16 +7,30 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PSF_LOG_DIR}/pss.log:/var/log/pss.log
-      - ./configs/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro
-      - ./configs/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro
+      - ${PSF_LOG_DIR}/pxc_sdm.log:/var/log/psf/pxc_sdm.log
+      # The 3D (BEV) feed swaps two files: nvpss_bev.conf (deploymentMode = 3D) and
+      # sensor_pipelines_config_bev.conf (the group, bev-sensor-1). Relative to this
+      # file's directory.
+      - ${PSF_NVPSS_CONFIG_SRC:-./configs/nvpss.conf}:/opt/nvidia/psf/bin/nvpss.conf:ro
+      # The cameras, in both modes: 2D events and SAIM come from them, and in 3D they
+      # are the members of the group in sensor_group_config.conf.
+      - ${PSF_SENSOR_CONFIG_SRC:-./configs/sensor_config.conf}:/opt/nvidia/psf/bin/sensor_config.conf:ro
+      # The identities the SDMs decide on: the cameras in 2D, the group in 3D.
+      - ${PSF_SENSOR_PIPELINES_CONFIG_SRC:-./configs/sensor_pipelines_config.conf}:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro
+      # Read only when nvpss sets deploymentMode = 3D.
+      - ./configs/sensor_group_config.conf:/opt/nvidia/psf/bin/sensor_group_config.conf:ro
+      - ./configs/proximity_event_mapping.pb.txt:/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt:ro
+      # Event bindings of the decision-maker, one file per PSF_APP.
+      - ./configs/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro
+      - ./configs/pxc_sdm.conf:/opt/nvidia/psf/bin/pxc_sdm.conf:ro
     group_add:
       - ${DOCKER_GID}
     command: >
-      --app atl
+      --app ${PSF_APP:-atl}
       --saim-mode ${PSF_LAUNCH_MODE:-skip}
       --cmd_rx_ip ${PSF_CMD_RX_IP}
       --cmd_rx_port ${COMM_UDP_PORT}
       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+      --sdm-config /opt/nvidia/psf/bin/${PSF_APP:-atl}_sdm.conf
     restart: unless-stopped
     # Note: Connects to Kafka from warehouse deployment (localhost:9092)
-

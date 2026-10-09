@@ -109,6 +109,13 @@ GPU crash dump is successfully written
 
 ## RTSP Streams "no caps / could not create SDP" (Cold-Start Race)
 
+> **Isaac Sim 6.1 ships the upstream fix for the concurrent-DESCRIBE trigger below**
+> (`omni.kit.livestream.rtsp`, NVBug 6478845). Measured on 6.1.0-rc.26: a boot with the
+> previous run's VST sensors still registered — the churn condition this section describes —
+> logged **0** `could not create SDP` and **0** `no media`, against hundreds and 64-150 per
+> boot on 6.0. The warm-up gate and `restart_isaac.sh` stay in place: they cost about a second
+> and two minutes, and the section remains the recovery path if the symptom comes back.
+
 **Symptom**: after a **cold** Isaac restart on a heavy scene, the perception client
 can't pull Isaac Sim's self-hosted RTSP streams; DeepStream stays at `Active sources : 0`:
 
@@ -120,7 +127,7 @@ could not create SDP
 The encoder looks idle even though the RTSP server is accepting connections.
 Warmer / lighter scenes that pre-roll quickly don't hit this.
 
-**Cause** (not a network problem): Isaac Sim 6.0 self-hosts RTSP **in-process**, one
+**Cause** (not a network problem): Isaac Sim 6.1 self-hosts RTSP **in-process**, one
 server per camera. Two things provoke "no caps":
 
 1. **Cold pre-roll** — on a cold run the RTX render + encoder pre-roll is slow; the RTSP
@@ -257,8 +264,8 @@ curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: applic
 ```
 
 > ℹ️ **Separate issue** — the Isaac **cold**-DESCRIBE wedge (`Active sources : 0`, "no caps") is
-> the section above; its upstream fix is an Isaac RFE: gate the RTSP server's DESCRIBE response on
-> the **first encoded frame** so caps are cached before VST's concurrent DESCRIBEs arrive.
+> the section above; its concurrent-DESCRIBE trigger is fixed upstream in Isaac Sim 6.1
+> (NVBug 6478845). This zombie-bin gap is on the VSS side and is unaffected by that fix.
 
 ---
 
@@ -511,6 +518,46 @@ using the same domain ID.
 
 ---
 
+## ATL Zone Latched in FAULT Right After Startup
+
+**Symptom**: one ATL SDM logs tripwire events (`Forklift entered trailer (TW OUT)`) but
+never another `Sending decision command`; its robot's disc never changes. Earlier in that
+SDM's log (`/var/log/psf/atl_sdm_zone<N>.log` in `safety-core`):
+
+```
+ATL: Person exited trailer but personsInTrailerCount already 0; entering fault-safe lockout
+Sending decision command: FAULT SAFE STATE / ALARM (0x03)
+```
+
+**Cause**: until Isaac's cameras replace them, VSS runs on the dataset's bootstrap videos,
+and behavior analytics projects them with the scene's calibration. A person in those videos
+can cross a tripwire "out" of a trailer nobody entered; the SDM treats the impossible count
+as a fault and holds FAULT SAFE STATE. Seen on `warehouse_40x20`'s second bay, whose
+dataset reuses the 20x20 bootstrap videos.
+
+**Fix**: once `Registered 3/3 camera(s) with VST` is in the Isaac log and DeepStream runs
+Isaac's streams, `docker restart safety-core`. Both SDMs start clean and only see Isaac events.
+
+---
+
+## Sparse4D Stops Detecting on the 40x20 Scene
+
+**Symptom**: on `warehouse_40x20` with the 3D app, detections and ATL events arrive for a few
+seconds to a few minutes after perception starts, then `mdx-bev` carries only empty frames
+for good — 3/3 sources live, calibration and FPS fine, nothing in the logs.
+
+**Cause**: the Sparse4D temporal instance bank (`feedback: True` in the 3D `config.yaml`)
+turns to NaN between two frames and feeds that NaN back into every following frame. Seen with
+`display_tensor_info: True`: `input_cached_anchor` / `input_cached_feature` print `nan`
+from then on, while the camera matrices match the calibration exactly. Full 3-camera batches
+(`partial_batch: False`) do not prevent it; `feedback: False` does, but the per-frame tracks
+are too unstable for tripwires. The same model and app ran the 20x20 scene for hours without it.
+
+**Fix**: run ATL on 40x20 with the 2D app (`test_scenario.md`). A `docker restart vss-rtvi-cv`
+plus one sensor re-registration clears the NaN, until it comes back.
+
+---
+
 ## Quick Reference
 
 | Error | Fix |
@@ -520,7 +567,7 @@ using the same domain ID.
 | Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
-| RTSP "no caps / could not create SDP" | Cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
+| RTSP "no caps / could not create SDP" | Fixed upstream in Isaac Sim 6.1 (NVBug 6478845). On 6.0: cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
 | DeepStream stuck ≤2/3 active (zombie bins) | Stale-identity: purge the 0-fps zombie (`value.change`, **exact old proxy url**) then add the live uuid via `:9000` |
 | No cameras in VST | Use `--enable-vst` flag |
 | NGC 403 | Re-authenticate NGC + docker login |
@@ -529,3 +576,7 @@ using the same domain ID.
 | CUDA errors on restart | Full container recreate, not restart |
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
 | No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
+| `PSF_APP=pxc`: no `EVENT_12/13/14` at all | Mapping pairs a class the scene lacks, a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), codes that differ from `configs/pxc_sdm.conf`, or a 3D feed without `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` — `halos_deploy.md` → "Safety app" |
+| ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
+| 3D on `warehouse_40x20`: detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene |
+| `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |

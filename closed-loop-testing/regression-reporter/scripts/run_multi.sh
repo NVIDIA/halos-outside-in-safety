@@ -19,7 +19,7 @@
 #
 # Default duration if not specified: 300 seconds (5 minutes).
 #
-# Each scenario name maps to 3 behavior trees (IRA 1.6, one per pedestrian):
+# Each scenario name maps to 3 behavior trees (IRA 1.7, one per pedestrian):
 #   - srr_<name>_char{0,1,2}.bt.json  in $SIL_DIR/configs/
 #     (GitHub layout: <halos-repo>/closed-loop-testing/isaac-sim/sil/configs/)
 #   authored in scenarios/behavior-trees/ (regenerate with
@@ -177,7 +177,7 @@ phase_compose_restart() {
 phase_set_behavior_tree() {
   # $1 = scenario name (e.g. "in-roi"); $2 = recording seconds.
   #
-  # IRA 1.6 (Isaac Sim 6.0) removed character command files — each SRR pedestrian
+  # IRA 1.7 (Isaac Sim 6.1) removed character command files — each SRR pedestrian
   # is a behavior tree. default_config_ros.yaml references FIXED tree names
   # (srr_char{0,1,2}.bt.json); we select a scenario by copying that scenario's 3
   # trees (srr_<name>_char{0,1,2}.bt.json) onto the fixed names, then set

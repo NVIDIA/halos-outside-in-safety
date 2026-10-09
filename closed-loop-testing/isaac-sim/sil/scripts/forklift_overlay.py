@@ -11,7 +11,7 @@ fleet is described in `robots.yaml` and the scene describes only the warehouse.
       - name: forklift_b2
         articulation_prim: /World/forklift_b2
         spawn:
-          asset_path: https://.../Isaac/6.0/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+          asset_path: https://.../Isaac/6.1/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
           position: [2.0, -21.63, 0.0]   # metres, world space
           yaw_deg: 180.0                 # optional, default 0 — rotation about Z
           scale: 1.0                     # optional, default 1 — scalar or [x, y, z]

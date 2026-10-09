@@ -15,19 +15,19 @@ What it does:
        gather_workers_0  -> (0.29, -18.00, 0.00)
        pickup_workers_0  -> (-2.86, -15.28, 0.00)
      This is a USD-transform-only move (frame-0 placement). It is NOT the
-     cause of the recurring `MoveTo failed: status=2` seen on 6.0 -- the
+     cause of the recurring `MoveTo failed: status=2` seen on 6.1 -- the
      suspected cause is the behavior.core auto-avoidance layer
-     (enableAutoAvoidance, default-on in 6.0) treating the moving forklift_b as
+     (enableAutoAvoidance, default-on in 6.1) treating the moving forklift_b as
      a dynamic threat (see run_actor_sdg.py enableAutoAvoidance note for the
      trackThreat log evidence). Offline navmesh queries confirmed every waypoint
      is on-navmesh and every A<->B segment has a valid path, so navmesh geometry
      is healthy.
   2. Re-balances the forklift articulation's PhysX TGS solver iterations to
      match the 5.1 baseline (see the comment on
-     `_HALOS_FORKLIFT_ARTICULATIONS` for why 6.0 needs this).
+     `_HALOS_FORKLIFT_ARTICULATIONS` for why 6.1 needs this).
 
 Why step 1 exists (not just a YAML config):
-  IRA 6.0 has no deterministic-spawn config path today. `spawn_areas` is
+  IRA 6.1 has no deterministic-spawn config path today. `spawn_areas` is
   NavMesh-area-name only, and the Character prim's xformOp:translate is
   unconditionally overwritten by `character_loader.py:set_prim_pos` at
   setup time. The only way to pin spawn to (2.26, -10.30, 0) etc. is to
@@ -60,11 +60,11 @@ _HALOS_CHAR_SPAWN_TARGETS = [
 # `omni:sensor:tickRate` on the camera in cameras.yaml / camera_loader.
 
 # Articulation roots whose PhysX TGS solver iterations must be re-balanced for
-# Isaac Sim 6.0 (PhysX SDK 5.3). The ForkliftB payload authors 16 velocity
+# Isaac Sim 6.1 (PhysX SDK 5.3 or newer). The ForkliftB payload authors 16 velocity
 # iterations, written for the PhysX 5.2 TGS solver, which SILENTLY converted any
 # velocity iterations in excess of 4 into position iterations. PhysX 5.3 no
 # longer does this (CHANGELOG: TGS now honors the requested velocity-iteration
-# count like PGS), so the same asset solves differently in 6.0 and logs:
+# count like PGS), so the same asset solves differently in 6.1 and logs:
 #   [omni.physx.plugin] Detected an articulation at /World/forklift_b with more
 #   than 4 velocity iterations being added to a TGS scene...
 # To keep the forklift dynamics matching the 5.1 baseline, apply NVIDIA's

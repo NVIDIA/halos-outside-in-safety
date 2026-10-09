@@ -61,6 +61,26 @@ KNOWN_DRIVE_KEYS = (
     "end_tolerance", "end_pose_count", "spiral_timeout",
 )
 
+# How a truck answers a PSF proximity decision (PSF_APP=pxc or both). Read by
+# the forklift-controller, apart from the topics, which the indicator also
+# follows; named here for the same reason as the drive keys.
+# fleet_config.PROXIMITY_DEFAULTS gives the knobs their values, the resolvers
+# below the topics.
+PROXIMITY_TOPIC_KEYS = ("pair_topic", "state_topic")
+KNOWN_PROXIMITY_KEYS = ("enabled", "reduce_speed", "stop_hold_s", "reduce_hold_s",
+                        "stale_s") + PROXIMITY_TOPIC_KEYS
+
+# The top-level `proximity_line:` block: the pair PSF scored, drawn on the
+# floor by proximity_line.py. Read here so a misspelt key fails like any other.
+KNOWN_PROXIMITY_LINE_KEYS = ("enabled", "topic", "show_distance", "label_camera",
+                             "color_normal", "color_reduce", "color_stop")
+
+# What safety-core runs. Every reader goes through resolve_psf_app(), so a typo
+# fails in one place instead of quietly selecting the ATL defaults everywhere.
+PSF_APPS = ("atl", "pxc", "both")
+# SDM heartbeat period: a stale_s at or under it would trip between heartbeats.
+PSF_HEARTBEAT_S = 5.0
+
 # Model keys that describe how the truck drives, and therefore land in the
 # robot's `control` block. Everything here follows from the asset: two trucks
 # built from one ForkliftB payload cannot disagree about their wheelbase.
@@ -177,6 +197,12 @@ def _apply_model(robot: dict, model: dict, yaml_path: str) -> None:
     if drive:
         _merge_under(robot, "drive", drive)
 
+    # How a truck of this model answers PSF, e.g. how slow it can safely crawl.
+    proximity = model.get("proximity") or {}
+    _validate_proximity("model", proximity, yaml_path)
+    if proximity:
+        _merge_under(robot, "proximity", proximity)
+
 
 def _validate_drive(where: str, drive, yaml_path: str) -> None:
     """Refuse a `drive:` block that names something no one reads.
@@ -195,6 +221,39 @@ def _validate_drive(where: str, drive, yaml_path: str) -> None:
             f"{', '.join(KNOWN_DRIVE_KEYS)} — check the indentation if one of "
             f"these belongs to the block above."
         )
+
+
+def _validate_proximity(name: str, proximity, yaml_path: str) -> None:
+    """Refuse a `proximity:` block naming a knob the controller does not read."""
+    if not isinstance(proximity, dict):
+        raise ValueError(
+            f"{yaml_path}: '{name}'.proximity must be a mapping, got {proximity!r}")
+    unknown = set(proximity) - set(KNOWN_PROXIMITY_KEYS)
+    if unknown:
+        raise ValueError(
+            f"{yaml_path}: '{name}'.proximity has unknown keys: "
+            f"{', '.join(sorted(unknown))}. Known keys are "
+            f"{', '.join(KNOWN_PROXIMITY_KEYS)}."
+        )
+    if "enabled" in proximity and not isinstance(proximity["enabled"], bool):
+        raise ValueError(
+            f"{yaml_path}: '{name}'.proximity.enabled must be true or false, "
+            f"got {proximity['enabled']!r}"
+        )
+    for key in ("reduce_speed", "stop_hold_s", "reduce_hold_s", "stale_s"):
+        if key in proximity and not (is_number(proximity[key]) and proximity[key] > 0):
+            raise ValueError(
+                f"{yaml_path}: '{name}'.proximity.{key} must be a number > 0, "
+                f"got {proximity[key]!r}"
+            )
+    if "stale_s" in proximity and proximity["stale_s"] <= PSF_HEARTBEAT_S:
+        raise ValueError(
+            f"{yaml_path}: '{name}'.proximity.stale_s must exceed the "
+            f"{PSF_HEARTBEAT_S:g} s PSF heartbeat, got {proximity['stale_s']!r}"
+        )
+    for key in PROXIMITY_TOPIC_KEYS:
+        if key in proximity:
+            _check_absolute_topic(name, f"proximity.{key}", proximity[key])
 
 
 def _validate_models(cfg: dict, yaml_path: str) -> dict:
@@ -303,6 +362,7 @@ def load_and_validate_robots_yaml(yaml_path: str) -> tuple[list[dict], dict]:
 
         resolve_drive_type(r)
         _validate_drive(f"'{name}'", r.get("drive") or {}, yaml_path)
+        _validate_proximity(name, r.get("proximity") or {}, yaml_path)
 
     clock_cfg = cfg.get("clock", {}) or {}
     return robots, clock_cfg
@@ -338,6 +398,29 @@ def is_section_enabled(robot: dict, section: str) -> bool:
 # reason.
 DEFAULT_COLOR_MUTED = (0.0, 1.0, 0.0)
 DEFAULT_COLOR_ALARM = (1.0, 0.3, 0.0)
+
+# Proximity palette (PSF_APP=pxc): one colour per motion level the truck is in.
+# displayColor is linear and the scene's exposure lifts it hard: G=0.3 renders
+# as (244, 241, 16), the same yellow as G=0.85, so orange needs G near 0.1. The
+# ATL alarm above is that G=0.3, and so already reads yellow on screen.
+DEFAULT_COLOR_NORMAL = (0.0, 1.0, 0.0)
+DEFAULT_COLOR_REDUCE = (1.0, 0.1, 0.0)
+DEFAULT_COLOR_STOP = (1.0, 0.0, 0.0)
+# The controller is not applying proximity: PSF has not spoken yet, or the
+# robot's proximity block is disabled.
+DEFAULT_COLOR_INACTIVE = (0.35, 0.35, 0.35)
+
+# ATL's alarm colour when the same disk also shows proximity (PSF_APP=both):
+# yellow by name, so it stays clear of REDUCE even where color_alarm is retuned.
+DEFAULT_COLOR_ALARM_WITH_PROXIMITY = (1.0, 0.85, 0.0)
+
+# What a disk can show. `mute` is the ATL decision on a Bool topic; `proximity`
+# is the motion level the forklift-controller is applying, on a String topic;
+# `both` shows STOP / REDUCE when proximity asks for one and the mute otherwise.
+INDICATOR_SOURCES = ("mute", "proximity", "both")
+# The levels the controller publishes, plus the two meaning it applies none.
+PROXIMITY_MODES = ("normal", "reduce_speed", "stop")
+PROXIMITY_INACTIVE_STATES = ("inactive", "disabled")
 
 
 def resolve_indicator_prim(robot: dict) -> str:
@@ -378,6 +461,68 @@ def resolve_muted_topic(robot: dict) -> str:
     return topic
 
 
+# Published by comm-layer's ROS bridge, one per PSF proximity decision: JSON with
+# the mode, the separation and whether the opcode is a fault. One topic for the
+# whole site: comm-layer has one OPC endpoint and PSF names no robot.
+PROXIMITY_PAIR_TOPIC = f"{DEFAULT_SAFETY_TOPIC_PREFIX}/proximity/pair"
+
+
+def _check_absolute_topic(name: str, key: str, topic) -> str:
+    if not isinstance(topic, str) or not topic.startswith("/"):
+        raise ValueError(
+            f"robots.yaml: '{name}'.{key} must be an absolute topic name "
+            f"starting with '/', got {topic!r}"
+        )
+    return topic
+
+
+def resolve_psf_app() -> str:
+    """PSF_APP, the app safety-core runs: `atl` (default), `pxc` or `both`."""
+    app = os.environ.get("PSF_APP") or "atl"
+    if app not in PSF_APPS:
+        raise ValueError(f"PSF_APP must be one of {', '.join(PSF_APPS)}, got {app!r}")
+    return app
+
+
+def resolve_proximity_pair_topic(robot: dict) -> str:
+    """Which PSF decision stream this robot's controller obeys."""
+    cfg = robot.get("proximity", {}) or {}
+    return _check_absolute_topic(robot.get("name", "?"), "proximity.pair_topic",
+                                 cfg.get("pair_topic", PROXIMITY_PAIR_TOPIC))
+
+
+def resolve_proximity_state_topic(robot: dict) -> str:
+    """Where the forklift-controller publishes the motion level it is applying.
+
+    The disk follows this rather than PSF's own decision topic: the controller
+    holds a STOP past the last packet that asked for one, and a disk reading the
+    raw decision would turn green while the truck is still standing.
+    """
+    cfg = robot.get("proximity", {}) or {}
+    return _check_absolute_topic(robot.get("name", "?"), "proximity.state_topic",
+                                 cfg.get("state_topic", f"/{robot['name']}/proximity/state"))
+
+
+def resolve_indicator_source(robot: dict) -> str:
+    """Which decision this robot's disk shows: `mute` (ATL), `proximity`, or `both`.
+
+    An explicit `safety_indicator.source` wins. Otherwise it follows PSF_APP, the
+    variable that picks the app safety-core runs: an atl run publishes no
+    proximity level and a pxc run no mute, so a disk wired to the other one sits
+    on its authored colour for the whole run.
+    """
+    cfg = robot.get("safety_indicator", {}) or {}
+    source = cfg.get("source")
+    if source is None:
+        source = {"pxc": "proximity", "both": "both"}.get(resolve_psf_app(), "mute")
+    if source not in INDICATOR_SOURCES:
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.source must be "
+            f"one of {', '.join(INDICATOR_SOURCES)}, got {source!r}"
+        )
+    return source
+
+
 def robots_needing_mute_mirror(robots: list[dict]) -> list[str]:
     """Robots whose indicator listens on its own mirror, not the global topic.
 
@@ -388,6 +533,29 @@ def robots_needing_mute_mirror(robots: list[dict]) -> list[str]:
     return [r["name"] for r in robots
             if is_section_enabled(r, "safety_indicator")
             and resolve_muted_topic(r) != global_topic]
+
+
+# PSF ATL zones. Under the atl-dual override safety-core runs one SDM per
+# trailer bay, and each sends its MUTE / UNMUTE to its own comm-layer port.
+SAFETY_ZONES = (1, 2)
+
+
+def resolve_safety_zone(robot: dict) -> int:
+    """Which ATL zone's mute this robot's mirror carries (`safety_indicator.zone`)."""
+    cfg = robot.get("safety_indicator", {}) or {}
+    zone = cfg.get("zone", 1)
+    if isinstance(zone, bool) or zone not in SAFETY_ZONES:
+        raise ValueError(
+            f"robots.yaml: '{robot.get('name', '?')}'.safety_indicator.zone must be "
+            f"one of {', '.join(map(str, SAFETY_ZONES))}, got {zone!r}"
+        )
+    return zone
+
+
+def mute_mirror_zones(robots: list[dict]) -> dict[str, int]:
+    """The robots comm-layer mirrors is_muted for, each with the zone it follows."""
+    mirrored = set(robots_needing_mute_mirror(robots))
+    return {r["name"]: resolve_safety_zone(r) for r in robots if r["name"] in mirrored}
 
 
 def _resolve_namespaced_topic(robot: dict, section: str, key: str, suffix: str) -> str:
@@ -471,34 +639,109 @@ def resolve_indicator_colors(robot: dict) -> tuple[tuple[float, float, float],
     recolours the disk on every state change, so the palette has to stay
     configurable for a disk this stack did not author the geometry of.
     """
+    return (_resolve_indicator_color(robot, "color_muted", DEFAULT_COLOR_MUTED),
+            _resolve_indicator_color(robot, "color_alarm", DEFAULT_COLOR_ALARM))
+
+
+def resolve_proximity_colors(robot: dict) -> tuple[tuple[float, float, float], ...]:
+    """(normal, reduce, stop, inactive) RGB for a disk showing the proximity level."""
+    return (_resolve_indicator_color(robot, "color_normal", DEFAULT_COLOR_NORMAL),
+            _resolve_indicator_color(robot, "color_reduce", DEFAULT_COLOR_REDUCE),
+            _resolve_indicator_color(robot, "color_stop", DEFAULT_COLOR_STOP),
+            _resolve_indicator_color(robot, "color_inactive", DEFAULT_COLOR_INACTIVE))
+
+
+def resolve_combined_colors(robot: dict) -> tuple[tuple[float, float, float], ...]:
+    """(muted, alarm, reduce, stop) RGB for a disk showing both decisions."""
+    _, reduce, stop, _ = resolve_proximity_colors(robot)
+    return (_resolve_indicator_color(robot, "color_muted", DEFAULT_COLOR_MUTED),
+            _resolve_indicator_color(robot, "color_alarm", DEFAULT_COLOR_ALARM_WITH_PROXIMITY),
+            reduce, stop)
+
+
+def _resolve_indicator_color(robot: dict, key: str,
+                             default: tuple[float, float, float]) -> tuple[float, float, float]:
     cfg = robot.get("safety_indicator", {}) or {}
-    name = robot.get("name", "?")
-    out = []
-    for key, default in (("color_muted", DEFAULT_COLOR_MUTED),
-                         ("color_alarm", DEFAULT_COLOR_ALARM)):
-        value = cfg.get(key)
-        if value is None:
-            out.append(default)
-            continue
-        if not isinstance(value, (list, tuple)) or len(value) != 3:
+    value = cfg.get(key)
+    if value is None:
+        return default
+    return _parse_rgb(f"'{robot.get('name', '?')}'.safety_indicator.{key}", value)
+
+
+def _parse_rgb(where: str, value) -> tuple[float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError(f"robots.yaml: {where} must be [r, g, b], got {value!r}")
+    for component in value:
+        # bool is an int subclass; `true` in YAML must not read as 1.0.
+        if isinstance(component, bool) or not isinstance(component, (int, float)):
             raise ValueError(
-                f"robots.yaml: '{name}'.safety_indicator.{key} must be [r, g, b], "
-                f"got {value!r}"
-            )
-        for component in value:
-            # bool is an int subclass; `true` in YAML must not read as 1.0.
-            if isinstance(component, bool) or not isinstance(component, (int, float)):
-                raise ValueError(
-                    f"robots.yaml: '{name}'.safety_indicator.{key} components must be "
-                    f"numbers, got {value!r}"
-                )
-            if not 0.0 <= float(component) <= 1.0:
-                raise ValueError(
-                    f"robots.yaml: '{name}'.safety_indicator.{key} components are "
-                    f"0..1, not 0..255, got {value!r}"
-                )
-        out.append(tuple(float(c) for c in value))
-    return out[0], out[1]
+                f"robots.yaml: {where} components must be numbers, got {value!r}")
+        if not 0.0 <= float(component) <= 1.0:
+            raise ValueError(
+                f"robots.yaml: {where} components are 0..1, not 0..255, got {value!r}")
+    return tuple(float(c) for c in value)
+
+
+# Linear RGB of the line, as emitted: sRGB (28, 160, 72) green, (222, 150, 20)
+# amber, (214, 38, 38) red. Emission is not lifted by the scene's exposure the
+# way the disk's displayColor is, so these are not the disk's values.
+DEFAULT_LINE_COLORS = {
+    "normal": (0.012, 0.352, 0.065),
+    "reduce_speed": (0.730, 0.305, 0.007),
+    "stop": (0.672, 0.019, 0.019),
+}
+
+
+def load_proximity_line_cfg(yaml_path: str) -> dict:
+    """The top-level `proximity_line:` block, validated, defaults applied.
+
+    Returns enabled, topic, show_distance, label_camera (None: the first
+    camera in cameras.yaml), and colors keyed by mode. Absent means off: the
+    line is geometry, so the cameras and perception see it.
+    """
+    try:
+        import yaml
+    except ImportError as e:
+        raise RuntimeError(
+            "pyyaml not available; ensure the Isaac Sim python env has it") from e
+    if not os.path.isfile(yaml_path):
+        raise FileNotFoundError(f"robots yaml not found: {yaml_path}")
+    with open(yaml_path) as f:
+        cfg = (yaml.safe_load(f) or {}).get("proximity_line") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError(f"{yaml_path}: proximity_line must be a mapping, got {cfg!r}")
+    unknown = set(cfg) - set(KNOWN_PROXIMITY_LINE_KEYS)
+    if unknown:
+        raise ValueError(
+            f"{yaml_path}: proximity_line has unknown keys: {', '.join(sorted(unknown))}. "
+            f"Known keys are {', '.join(KNOWN_PROXIMITY_LINE_KEYS)}.")
+    for key in ("enabled", "show_distance"):
+        if key in cfg and not isinstance(cfg[key], bool):
+            raise ValueError(
+                f"{yaml_path}: proximity_line.{key} must be true or false, got {cfg[key]!r}")
+    label_camera = cfg.get("label_camera")
+    if label_camera is not None and not (
+            isinstance(label_camera, str) and label_camera.startswith("/")):
+        raise ValueError(
+            f"{yaml_path}: proximity_line.label_camera must be an absolute prim path, "
+            f"got {label_camera!r}")
+    colors = {
+        mode: (_parse_rgb(f"proximity_line.color_{name}", cfg[f"color_{name}"])
+               if f"color_{name}" in cfg else default)
+        for mode, name, default in (
+            ("normal", "normal", DEFAULT_LINE_COLORS["normal"]),
+            ("reduce_speed", "reduce", DEFAULT_LINE_COLORS["reduce_speed"]),
+            ("stop", "stop", DEFAULT_LINE_COLORS["stop"]),
+        )
+    }
+    return {
+        "enabled": cfg.get("enabled", False),
+        "topic": _check_absolute_topic("proximity_line", "topic",
+                                       cfg.get("topic", PROXIMITY_PAIR_TOPIC)),
+        "show_distance": cfg.get("show_distance", True),
+        "label_camera": label_camera,
+        "colors": colors,
+    }
 
 
 def ensure_extensions_enabled() -> None:

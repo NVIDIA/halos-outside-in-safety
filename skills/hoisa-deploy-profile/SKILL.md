@@ -63,6 +63,11 @@ Safety Core (PSF)
 Communication Layer → ROS2 /safety/is_muted → Isaac Sim Action Graph (forklift safety disc)
 ```
 
+`PSF_APP` picks the decision-maker: `atl` (above, default), `pxc` (proximity: NORMAL /
+REDUCE / STOP for a forklift next to a person, on `/safety/proximity/*`; the
+forklift-controller slows and stops the truck) or `both` (side by side in one container).
+Settings and the extra override file are in `references/halos_deploy.md` → "Safety app".
+
 **Two separate stacks**:
 - **Stack 1**: VSS Warehouse 3.2.1 (perception) — deploy via the `vss-deploy-profile` skill (or the public VSS Warehouse docs: https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html); must be up + healthy first.
 - **Stack 2**: Halos (`base`/`sil`/`hil`) — this skill.
@@ -106,8 +111,9 @@ Each phase ends when its ready signal becomes true. Poll, don't wait by time.
 | PSF wired | `<sil-data>/comm-layer/opc_server.log` exists and is non-empty |
 | **ROS isolation** | `docker exec comm-layer bash -c "source /opt/ros/jazzy/setup.bash && ros2 topic info /safety/is_muted -v"` shows **`Publisher count: 1`** (if 2+, multi-machine `ROS_DOMAIN_ID` collision — see `troubleshooting.md`) |
 | Isaac Sim streaming | Isaac's 3 self-hosted RTSP streams live **and** DeepStream ingested them (the Isaac→VSS handoff). Gate on the handoff, **not** a shader-log string; a bare "3 active streams" can false-positive on VSS bootstrap — bootstrap-immune poll commands in `test_scenario.md`. |
-| Isaac Sim wired | `ros2 topic info /safety/is_muted -v` shows **`Subscription count:`** = the number of robots with `safety_indicator.enabled` in the robots config — **1** with the default `robots.yaml`. `0` = Isaac not wired yet. **`robots-40x20.yaml` is the exception**: its indicators subscribe to per-robot `/<name>/safety/is_muted` topics, so the global topic correctly shows `0` there — check `ros2 topic info /forklift_b/safety/is_muted` instead (one publisher, one subscriber each) |
-| Sim-driven safety | forklift/trailer transitions in `<sil-data>/psf-log/pss.log` **after** Isaac streams came up (not sample-video bootstrap traffic) |
+| Isaac Sim wired | `ros2 topic info /safety/is_muted -v` shows **`Subscription count:`** = the number of robots with `safety_indicator.enabled` in the robots config — **1** with the default `robots.yaml`. `0` = Isaac not wired yet. **`robots-40x20.yaml` is the exception**: its indicators subscribe to per-robot `/<name>/safety/is_muted` topics, so the global topic correctly shows `0` there — check `ros2 topic info /forklift_b/safety/is_muted` instead (one publisher, one subscriber each). **Under `PSF_APP=pxc`** the disks subscribe to `/<robot>/proximity/state` instead, so `/safety/is_muted` correctly shows `0`: check `ros2 topic info /forklift_b/proximity/state -v` — 1 publisher (the controller), 1 subscriber (Isaac). `both` subscribes to both |
+| Sim-driven safety | forklift/trailer transitions in `<sil-data>/psf-log/pss.log` **after** Isaac streams came up (not sample-video bootstrap traffic). Isaac has replaced the bootstrap sensors once its kit log says `Registered 3/3 camera(s) with VST` |
+| Proximity (`pxc` / `both`) | `EVENT_12/13/14` in `pss.log`, `Proximity:` lines in `opc_server.log`, and `PXC [...]` level changes in `docker logs forklift-controller` — `test_scenario.md` → "Proximity" |
 
 The exact poll command for each signal is in the corresponding reference doc.
 
@@ -166,7 +172,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | `VSS_DEPLOY_PROFILE` | Deploy VSS Warehouse 3.2.1 with the `vss-deploy-profile` skill; apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
 | `VSS_BEFORE_HALOS` | **`base`/`sil` only:** VSS Warehouse must be running and healthy before deploying Halos. `hil` inverts this — bring Isaac up and confirm the streams deliver frames first, then deploy VSS on the Thor, or the Thor registers sensors against a cold Isaac and hits the "no caps" race | `vss_2d_overrides.md`, `halos_hil.md` §3 |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
-| `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.0 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
+| `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.1 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
 | `SIL_3D_MODEL` | **3D profile:** the R101 Sparse4D model needs the **deployable ONNX + the trainable-package kmeans anchor at the same version** — mixing versions/sources gives silently wrong detections | `model_r101.md` |
 | `BP_PROFILE_KAFKA` | VSS must use `BP_PROFILE=bp_wh_kafka` (not `bp_wh`) for Halos integration | `vss_2d_overrides.md` |
 | `LLM_VLM_NONE` | Set `LLM_MODE=none` and `VLM_MODE=none` — not needed for safety SIL | `vss_2d_overrides.md` |

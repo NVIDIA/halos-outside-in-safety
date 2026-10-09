@@ -126,7 +126,7 @@ Report [ok] if all present, or [missing: <list>] otherwise.
 ${SRR_PIPELINE_DIR}/halos-integration/sync_to_halos.sh ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil
 ```
 
-This copies the canonical IRA 1.6 behavior trees plus navmesh /
+This copies the canonical IRA 1.7 behavior trees plus navmesh /
 isaac-scripts into the correct SIL subdirs. Idempotent — safe to re-run. See
 `halos-integration/README.md` for the Pattern A (sync) vs Pattern B
 (planned bind-mount) discussion.
@@ -303,9 +303,9 @@ Log:
 
 ---
 
-## Step 3c — Select the scenario's behavior trees (IRA 1.6)
+## Step 3c — Select the scenario's behavior trees (IRA 1.7)
 
-Isaac Sim 6.0 / IRA 1.6 removed character command files — each pedestrian is a
+Isaac Sim 6.1 / IRA 1.7 removed character command files — each pedestrian is a
 behavior tree. `default_config_ros.yaml` references three FIXED tree names
 (`srr_char{0,1,2}.bt.json`, one per `character.groups` entry). To select a
 scenario we copy that scenario's three trees onto the fixed names (no YAML edit
@@ -338,7 +338,7 @@ If a scenario tree is missing, re-run
 
 ## Step 3c.1 — Set simulation_duration to cover the scenario
 
-IRA 1.6 uses `simulation_duration` (seconds), replacing the old
+IRA 1.7 uses `simulation_duration` (seconds), replacing the old
 `simulation_length` (frames). Upstream ships a short value that silently kills
 Isaac mid-scenario — symptom: scene exits early, `isaac=3` drops to 0 partway
 through the recording window, parquet ends short.
@@ -380,7 +380,7 @@ flag on `run_actor_sdg.py` (default OFF, so normal runs are unaffected). When se
 in its post-setup block — AFTER IRA has spawned the SRR char groups — which builds
 `/World/SRRGraph` (the `/gt/character_{0,1,2}/tf` + `/gt/forklift/tf` publishers) by
 discovering each char's animated `ManRoot` and pumping their live Fabric transforms
-each frame. There is **no** "paste + Save the graph into the scene" step — IRA 6.0
+each frame. There is **no** "paste + Save the graph into the scene" step — IRA 6.1
 spawns chars at runtime so the targets only exist live. Expect these lines in the
 scenario log:
 ```
@@ -404,7 +404,7 @@ Log:
 ```
 Tail /tmp/isaac-scenario-<TIMESTAMP>-<LABEL>.log inside the host
 (it's a docker exec stdout redirect — should appear on host).
-Confirm the current Isaac-6.0 scene-ready markers in the log:
+Confirm the current Isaac-6.1 scene-ready markers in the log:
   [rtsp-cameras] Loaded 3 cameras from ...
   [rtsp-cameras] Action Graph built at /World/RTSPMultiGraph
   3x "  - <name>: rtsp://<host>:<port><mount>"   (one per camera; ports 8554/8555/8556)
@@ -423,7 +423,7 @@ A count below 3 means the empty-pipeline provisioning race: restart vss-rtvi-cv,
 re-register the sensors (vst_sensor_manager.py --delete-all then
 --add-from-config), and re-check before recording.
 
-Do NOT rely on RTSPWriter_World_Cameras_*_rgb — Isaac 6.0 never emits those.
+Do NOT rely on RTSPWriter_World_Cameras_*_rgb — Isaac 6.1 never emits those.
 
 If first run on this scene: shaders compile takes ~5-7 min — that's normal.
 If subsequent run: streams should appear within ~90 s.
@@ -559,7 +559,7 @@ with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
 
 **On fail**: do NOT call `/srr/record true`. Apply the staged recovery below — escalate only if the cheap step doesn't fix it. This pattern is common: a scenario hits FPS=0 right after a compose restart, and a single `docker restart "$PERCEPTION"` + re-poll recovers without user intervention.
 
-> **`SENSOR_INFO_SOURCE=file` RTSP race (Isaac 6.0 + VSS 3.2.1).** When VSS reads
+> **`SENSOR_INFO_SOURCE=file` RTSP race (Isaac 6.1 + VSS 3.2.1).** When VSS reads
 > sensor info from the static file that points at Isaac's live RTSP endpoints,
 > VST spams reconnect attempts at those endpoints *while Isaac's stream still
 > "has no caps"* — Isaac then fails to create the SDP (`could not create SDP`),

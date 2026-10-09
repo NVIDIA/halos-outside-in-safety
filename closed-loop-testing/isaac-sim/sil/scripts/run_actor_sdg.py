@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Isaac Sim 6.0 driver for Halos SIL (run_actor_sdg.py).
+# Isaac Sim 6.1 driver for Halos SIL (run_actor_sdg.py).
 # -----------------------------------------------------------------------
 # Source baseline: Isaac Sim 5.1.
-# Target:          Isaac Sim 6.0.
+# Target:          Isaac Sim 6.1.
 #
 # Summary of changes vs 5.1 driver:
 #   1. SimulationManager() → SimulationManager.get_instance() (singleton)
@@ -15,8 +15,8 @@
 #        → typed access via config = sim_mgr.get_config_file()
 #   5. _do_camera_placement / _read_camera_json / _place_cameras / _place_one_camera DELETED
 #        Camera placement is declarative via sensor.groups.<g>.aim_at_targets in YAML.
-#        --sensor_placement_file CLI arg is INFORMATIONAL ONLY in 6.0 (kept for back-compat).
-#   6. 9 carb settings DROPPED (silently ignored in 6.0):
+#        --sensor_placement_file CLI arg is INFORMATIONAL ONLY in 6.1 (kept for back-compat).
+#   6. 9 carb settings DROPPED (silently ignored in 6.1):
 #        aim_cameras_at_characters, min/max_camera_{distance,height,look_down_angle},
 #        character_focus_height, frame_write_interval.
 #        Values now live in YAML aim_at_targets.* (see default_config_ros.yaml).
@@ -73,8 +73,8 @@ class ActorSDGRunner:
         self.config_file_path = config_file_path
         self.auto_start = auto_start
         self.setup_only = setup_only
-        # NOTE(IRA 6.0): camera_file_path retained for CLI back-compat but is INFORMATIONAL
-        # ONLY in 6.0. Camera placement is declarative via YAML sensor.groups.<g>.aim_at_targets.
+        # NOTE(IRA 6.1): camera_file_path retained for CLI back-compat but is INFORMATIONAL
+        # ONLY in 6.1. Camera placement is declarative via YAML sensor.groups.<g>.aim_at_targets.
         # Logged at setup time if non-None; otherwise unused.
         self.camera_file_path = camera_file_path
         self.crash_report_path = crash_report_path
@@ -142,7 +142,7 @@ class ActorSDGRunner:
         self._postprocessing = None
 
         self.output_path = None
-        # NOTE(IRA 6.0): camera_placements_json, _setup_sim_sub, _setup_sim_succeed removed —
+        # NOTE(IRA 6.1): camera_placements_json, _setup_sim_sub, _setup_sim_succeed removed —
         # all part of the 5.1 callback + manual camera placement paths.
         self._sim_manager = None
         self._settings = None
@@ -157,7 +157,7 @@ class ActorSDGRunner:
         await self._sim_app.app.next_update_async()
 
 
-        # Init SimulationManager (singleton in 6.0).
+        # Init SimulationManager (singleton in 6.1).
         from isaacsim.replicator.agent.core.simulation import SimulationManager
 
         self._sim_manager = SimulationManager.get_instance()
@@ -168,9 +168,9 @@ class ActorSDGRunner:
                 print(f"ERROR: Failed to load config file: {self.config_file_path}", file=sys.stderr)
                 return False
 
-            # Typed config access (6.0). The 5.1 property-bag API
+            # Typed config access (6.1). The 5.1 property-bag API
             # (get_config_file_property_group("replicator", "writer_selection")) is GONE.
-            # `output_dir` is optional in 6.0 — when streaming RTSP only (no offline writer),
+            # `output_dir` is optional in 6.1 — when streaming RTSP only (no offline writer),
             # the IRABasicWriter entry may omit `output_dir`, in which case it will be None.
             config = self._sim_manager.get_config_file()
             self.output_path = self._extract_output_path(config)
@@ -179,11 +179,11 @@ class ActorSDGRunner:
             print(f"Output path: {self.output_path}")
 
             if self.camera_file_path:
-                # 5.1 used this JSON to drive _place_one_camera. In 6.0 it has no functional
+                # 5.1 used this JSON to drive _place_one_camera. In 6.1 it has no functional
                 # effect — placement is declarative via YAML. Log so users notice the change.
                 print(
                     f"NOTE: --sensor_placement_file ({self.camera_file_path}) is informational "
-                    f"only in IRA 6.0. Camera placement is now driven by "
+                    f"only in IRA 6.1. Camera placement is now driven by "
                     f"sensor.groups.<g>.aim_at_targets in the YAML config."
                 )
 
@@ -209,8 +209,8 @@ class ActorSDGRunner:
                 if overlay:
                     config.environment.base_stage_asset_path = overlay
 
-            # Set up simulation (async; no callback registration needed in 6.0).
-            # IRA 6.0 fires IRAEvents.SET_UP_SIMULATION_DONE_EVENT itself; this coroutine
+            # Set up simulation (async; no callback registration needed in 6.1).
+            # IRA 6.1 fires IRAEvents.SET_UP_SIMULATION_DONE_EVENT itself; this coroutine
             # returns after setup completes.
             print("Setting up simulation...")
             await self._sim_manager.setup_simulation()
@@ -261,6 +261,16 @@ class ActorSDGRunner:
             if self.enable_clock and self.robots_config_path:
                 from action_graphs import build_clock_graph
                 build_clock_graph(self.robots_config_path)
+            #   4b. action_graphs.build_proximity_line draws the pair PSF
+            #      proximity scored (robots.yaml `proximity_line:`, default
+            #      off). A debug aid: a failure here is a warning.
+            if self.robots_config_path:
+                try:
+                    from action_graphs import build_proximity_line
+                    build_proximity_line(self.robots_config_path,
+                                         self.cameras_config_path)
+                except Exception as e:
+                    print(f"WARNING: proximity line not drawn ({e})")
             #   5. action_graphs.build_srr_gt_graph publishes /gt/*/tf for the
             #      SRR regression harness (opt-in via --srr-gt, default OFF).
             #      Runs LAST — after IRA spawned the chars + runtime_patches
@@ -388,7 +398,7 @@ class ActorSDGRunner:
     def _extract_output_path(self, config):
         """Extract IRABasicWriter output_dir from typed RootConfig, tolerant of missing keys.
 
-        In 6.0, replicator.writers is a Map[str, WriterEntry] keyed by names matching
+        In 6.1, replicator.writers is a Map[str, WriterEntry] keyed by names matching
         ^(IRABasicWriter|CustomWriter|CosmosIRAWriter|SceneGraphWriter)(_\\d+)?$. Halos SIL
         configs may omit any offline writer entirely (RTSP-only via isaacsim.streaming.rtsp).
         Return None when no offline output is configured.
@@ -402,7 +412,7 @@ class ActorSDGRunner:
             if "IRABasicWriter" in writers:
                 writer_cfg = writers["IRABasicWriter"]
             else:
-                # TODO(verify-6.0): Decide whether to honor non-IRABasicWriter writers
+                # TODO(verify-6.1): Decide whether to honor non-IRABasicWriter writers
                 # (CustomWriter, CosmosIRAWriter, SceneGraphWriter) for output_path
                 # derivation in --save_usd flow.
                 writer_cfg = next(iter(writers.values()), None)
@@ -417,7 +427,7 @@ class ActorSDGRunner:
     def _vst_register_cameras(self):
         """Register RTSP cameras with VST after simulation setup.
 
-        NOTE(IRA 6.0): cameras.yaml schema has changed (per-camera `port` + `mount_path`;
+        NOTE(IRA 6.1): cameras.yaml schema has changed (per-camera `port` + `mount_path`;
         RTSP is now served by the isaacsim.streaming.rtsp extension, not RTSPWriter).
         The VSTSensorManager.add_sensors_from_config() implementation handles the new
         schema. This driver passes the path through unchanged.
@@ -541,7 +551,7 @@ class ActorSDGRunner:
 
         ext_manager = omni.kit.app.get_app().get_extension_manager()
 
-        # Required extensions for Actor SDG on Isaac Sim 6.0.
+        # Required extensions for Actor SDG on Isaac Sim 6.1.
         # Diff vs 5.1:
         #   REMOVE: omni.anim.people (replaced by Open Behavior Tree pipeline)
         #   ADD:    omni.anim.behavior.tree, omni.anim.behavior.core (BT runtime)
@@ -558,7 +568,7 @@ class ActorSDGRunner:
             # Behavior Tree replacements for omni.anim.people:
             "omni.anim.behavior.core",
             "omni.anim.behavior.tree",
-            # IRA core + UI (still required in 6.0).
+            # IRA core + UI (still required in 6.1).
             "isaacsim.replicator.agent.core",
             "isaacsim.replicator.agent.ui",
             "omni.kit.mesh.raycast",
@@ -590,7 +600,7 @@ class ActorSDGRunner:
         self._settings = carb.settings.get_settings()
         self._settings.set("/app/scripting/ignoreWarningDialog", True)
         self._settings.set("/persistent/exts/omni.anim.navigation.core/navMesh/viewNavMesh", False)
-        # NOTE(IRA 6.0): /exts/omni.anim.people/navigation_settings/navmesh_enabled REMOVED —
+        # NOTE(IRA 6.1): /exts/omni.anim.people/navigation_settings/navmesh_enabled REMOVED —
         # omni.anim.people extension is no longer enabled; setting would be ignored anyway.
 
         # NavMesh bake config (dev3 MoveTo-failed regression).
@@ -615,13 +625,13 @@ class ActorSDGRunner:
             self._settings.set(f"{_NAV_CFG}/{_key}", _cm)
             self._settings.set(f"/persistent{_NAV_CFG}/{_key}", _cm)
 
-        # Behavior-core auto-avoidance (recurring `MoveTo failed status=2` on 6.0).
+        # Behavior-core auto-avoidance (recurring `MoveTo failed status=2` on 6.1).
         # omni.anim.behavior.core exposes an "auto avoidance" feature
         # (enableAutoAvoidance): any dynamic object whose mass exceeds
         # defaultAutoAvoidanceMass is auto-registered as a crowd-sim "threat" the
         # character must steer around. Per the behavior.core CHANGELOG this feature
         # was introduced in the 109.x line and refined in 110.0.12 (predictive
-        # time-to-collision); it is default-ON in the Isaac Sim 6.0 behavior.core.
+        # time-to-collision); it is default-ON in the Isaac Sim 6.1 behavior.core.
         # The Isaac Sim 5.1 baseline (behavior.core 107.3.x) had no such setting, so
         # the worker loops were authored for un-obstructed navigation.
         # In the Halos scene the moving forklift_b is registered as a tracked threat
@@ -636,8 +646,8 @@ class ActorSDGRunner:
         self._settings.set("/exts/omni.anim.behavior.core/enableAutoAvoidance", False)
         self._settings.set("/persistent/exts/omni.anim.behavior.core/enableAutoAvoidance", False)
 
-        # NOTE(IRA 6.0): All 9 of the following carb settings are SILENTLY IGNORED in 6.0
-        # (not present in the Isaac Sim 6.0 source). Their values must now live
+        # NOTE(IRA 6.1): All 9 of the following carb settings are SILENTLY IGNORED in 6.1
+        # (not present in the Isaac Sim 6.1 source). Their values must now live
         # in the YAML config under sensor.groups.<g>.aim_at_targets.* — now in
         # default_config_ros.yaml. Removed:
         #   /persistent/exts/isaacsim.replicator.agent/aim_cameras_at_characters
@@ -662,7 +672,7 @@ class ActorSDGRunner:
         self._settings.set("/log/channels/omni.kit.menu.*", "error")
         self._settings.set("/log/channels/omni.kit.property.*", "error")
         self._settings.set("/log/channels/omni.anim.graph.*", "error")
-        # TODO(verify-6.0): Add /log/channels/omni.anim.behavior.* once behavior tree
+        # TODO(verify-6.1): Add /log/channels/omni.anim.behavior.* once behavior tree
         # runtime is loaded; current 5.1 omni.anim.graph filter does NOT cover the new
         # BT extensions and may produce verbose output.
         self._settings.set("/exts/isaacsim.replicator.agent/debug_print", self.debug_print)
@@ -672,7 +682,7 @@ class ActorSDGRunner:
         if self.crash_report_path:
             self._settings.set("/crashreporter/dumpDir", self.crash_report_path)
 
-    # NOTE(IRA 6.0): _setup_sim, _do_camera_placement, _read_camera_json, _place_cameras,
+    # NOTE(IRA 6.1): _setup_sim, _do_camera_placement, _read_camera_json, _place_cameras,
     # _place_one_camera all DELETED:
     #   - _setup_sim: callback-based setup pattern (register_set_up_simulation_done_callback)
     #     replaced by `await SimulationManager.get_instance().setup_simulation()` (inlined
@@ -727,10 +737,10 @@ Examples:
     parser.add_argument("--start", action="store_true", help="Automatically start data generation")
     parser.add_argument("--setup-only", action="store_true", help="Only setup simulation, don't wait for data generation")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode (no GUI window)")
-    # NOTE(IRA 6.0): --sensor_placement_file is INFORMATIONAL ONLY. Camera placement is
+    # NOTE(IRA 6.1): --sensor_placement_file is INFORMATIONAL ONLY. Camera placement is
     # declarative via sensor.groups.<g>.aim_at_targets in the YAML config. Argument kept
     # for CLI back-compat.
-    parser.add_argument("--sensor_placement_file", help="(IRA 6.0: informational only) Path to camera placement JSON file")
+    parser.add_argument("--sensor_placement_file", help="(IRA 6.1: informational only) Path to camera placement JSON file")
     parser.add_argument("--crash_report_path", help="Path to store crash reports")
     parser.add_argument("--debug_print", action="store_true", help="Enable debug output")
     parser.add_argument("--save_usd", action="store_true", help="Save USD scene after generation")
@@ -896,7 +906,7 @@ def main():
         print(f"ERROR: Config file not found: {config_file_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Validate sensor placement file if provided. In IRA 6.0 this is informational only —
+    # Validate sensor placement file if provided. In IRA 6.1 this is informational only —
     # we still surface a clear error if the user passes a path that doesn't exist.
     if args.sensor_placement_file and not os.path.isfile(args.sensor_placement_file):
         print(f"ERROR: Sensor placement file not found: {args.sensor_placement_file}", file=sys.stderr)
@@ -943,7 +953,7 @@ def main():
             cameras_config_path = candidate
 
     print("=" * 60)
-    print("Actor SDG Runner (IRA 6.0)")
+    print("Actor SDG Runner (IRA 6.1)")
     print("=" * 60)
     print(f"Config file: {config_file_path}")
     print(f"Headless: {args.headless}")
@@ -980,7 +990,7 @@ def main():
     # last value).
     isaac_asset_root = os.environ.get(
         "ISAAC_ASSET_ROOT",
-        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0",
+        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.1",
     )
     sys.argv.append(f"--/persistent/isaac/asset_root/default={isaac_asset_root}")
 
@@ -998,7 +1008,7 @@ def main():
     # NOTE: 30 Hz tick gate is implemented as Option B in
     # action_graphs/rtsp_cameras.py via `IsaacSimulationGate(step=2)`.
     # The carb-side `/app/runLoops/main/rateLimitFrequency=30` override is
-    # NOT effective on Isaac Sim 6.0 — leaving it out.
+    # NOT effective on Isaac Sim 6.1 — leaving it out.
 
     # Start SimulationApp
     print("Starting Isaac Sim...")
@@ -1085,7 +1095,7 @@ def main():
         elif args.save_usd and not sdg.output_path:
             print(
                 "WARNING: --save_usd requested but no output_dir resolved from config "
-                "(IRA 6.0 replicator.writers may be empty or omit output_dir). Skipping.",
+                "(IRA 6.1 replicator.writers may be empty or omit output_dir). Skipping.",
                 file=sys.stderr,
             )
 

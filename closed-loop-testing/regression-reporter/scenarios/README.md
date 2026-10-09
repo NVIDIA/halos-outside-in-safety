@@ -2,7 +2,7 @@
 
 Test inputs for the SRR rig, grouped by role:
 
-- **Data** that Isaac Sim consumes at run time: `behavior-trees/` (IRA 1.6 character behavior trees) + `scenes/` (exported NavMesh — `navmesh.json`).
+- **Data** that Isaac Sim consumes at run time: `behavior-trees/` (IRA 1.7 character behavior trees) + `scenes/` (exported NavMesh — `navmesh.json`).
 - **Tools** that produce or check that data: `tools/` (behavior-tree generator + validator).
 - **Runtime utilities** that prep scenes or probe live state: `isaac-scripts/` (Script Editor) + `host-scripts/` (host shell).
 
@@ -11,7 +11,7 @@ how `behavior-trees/` and `navmesh.json` plug into the SIL compose stack at run
 time (in short: copied/synced into the Isaac SIL dir `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil` —
 GitHub layout `closed-loop-testing/isaac-sim/sil/` — before Isaac Sim launches).
 
-> **IRA 1.6 note:** Isaac Sim 6.0 dropped the legacy `omni.anim.people` text
+> **IRA 1.7 note:** Isaac Sim 6.1 dropped the legacy `omni.anim.people` text
 > command files. Each pedestrian is now a behavior tree
 > (`srr_<name>_char{0,1,2}.bt.json`); the old `commands/default_command.*.txt`
 > layer and its `command_to_bt.py` converter have been removed.
@@ -22,7 +22,7 @@ GitHub layout `closed-loop-testing/isaac-sim/sil/` — before Isaac Sim launches
 ```
 scenarios/
 ├── README.md                     # you are here
-├── behavior-trees/               # IRA 1.6 *.bt.json — the data Isaac 6.0 consumes
+├── behavior-trees/               # IRA 1.7 *.bt.json — the data Isaac 6.1 consumes
 │   └── srr_<name>_char{0,1,2}.bt.json  # 5 sweep: in-roi, psf-edge, psf-clear, balanced, fast · +fixed (opt-in)
 ├── scenes/                       # exported NavMesh (data)
 │   ├── README.md
@@ -48,7 +48,7 @@ scenarios/
 | To regenerate a scenario's `srr_<name>_char{0,1,2}.bt.json` | [`tools/randomize_paths.py`](tools/randomize_paths.py) |
 | To sanity-check a hand-edited `.bt.json` | [`tools/validate_waypoints.py`](tools/validate_waypoints.py) |
 | To re-bake / export the NavMesh | [`isaac-scripts/`](isaac-scripts/) — paste into Isaac Script Editor |
-| To publish `/gt/*` topics (IRA 6.0 runtime) | auto via `run_multi.sh` `--srr-gt` (builds `action_graphs/srr_ground_truth.py`); `isaac-scripts/srr_pubs/check_srr_prereqs.py` = live diagnostic |
+| To publish `/gt/*` topics (IRA 6.1 runtime) | auto via `run_multi.sh` `--srr-gt` (builds `action_graphs/srr_ground_truth.py`); `isaac-scripts/srr_pubs/check_srr_prereqs.py` = live diagnostic |
 | To verify `/gt/*` ROS topics are alive on the host | [`host-scripts/verify_gt_topics.sh`](host-scripts/verify_gt_topics.sh) |
 | To monitor character motion for 5 min from host | [`host-scripts/monitor_gt_5min.py`](host-scripts/monitor_gt_5min.py) |
 

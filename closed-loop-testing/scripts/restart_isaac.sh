@@ -4,7 +4,7 @@
 #
 # Restart the Isaac Sim scenario on a LIVE SIL stack without wedging its RTSP mounts.
 #
-# Why this exists: Isaac Sim 6.0's in-process RTSP media fails SDP creation when
+# Why this exists: Isaac Sim 6.1's in-process RTSP media fails SDP creation when
 # >=2 clients DESCRIBE a stream during its cold bind window (right after Play,
 # before the first frame). A live VST holds two such clients per mount (the
 # proxy ingest client + the liveness prober) and reconnects within milliseconds

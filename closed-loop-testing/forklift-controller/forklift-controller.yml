@@ -7,6 +7,7 @@ x-forklift-env: &forklift-env
   SCENARIO: ${SCENARIO:-}            # Isaac reads the same one, so the two halves cannot disagree
   WAYPOINTS_MAP: ${WAYPOINTS_MAP:-}   # overrides the scenario's waypoint set for one run
   FORKLIFT_WAYPOINTS_DIR: ${FORKLIFT_WAYPOINTS_DIR:-}   # passed only so entrypoint.sh can refuse it
+  PSF_APP: ${PSF_APP:-atl}            # pxc | both turn the proximity gate on unless robots.yaml says otherwise
 
 x-forklift-volumes: &forklift-volumes
   # The robots config and the loader that reads it. Shared rather than copied:

@@ -62,6 +62,7 @@ mkdir -p \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/lib" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/mdx-client" \
     "$RUNTIME_ROOT/etc/ld.so.conf.d" \
     "$RUNTIME_ROOT/etc/rsyslog.d" \
@@ -104,6 +105,8 @@ copy_required "$BUILD_DIR/decision-makers/atl/atl_sdm" "$RUNTIME_ROOT${INSTALL_P
 copy_required "$BUILD_DIR/decision-makers/atl/atl_sdm_cmd_receiver" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl/"
 copy_required "$BUILD_DIR/decision-makers/proximity/proximity_sdm" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity/"
 copy_required "$BUILD_DIR/decision-makers/proximity/proximity_sdm_cmd_receiver" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity/"
+copy_required "$BUILD_DIR/decision-makers/atl_proximity/atl_proximity_sdm" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity/"
+copy_required "$BUILD_DIR/decision-makers/atl_proximity/atl_proximity_sdm_cmd_receiver" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity/"
 copy_required "$BUILD_DIR/adapters/vss/mdx-client/mdx_client" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/mdx-client/"
 
 copy_required "$SOURCE_DIR/components/event-integrator/daemon/nvpss.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
@@ -124,6 +127,8 @@ copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl/event_mapping_atl.pb.
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl/"
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/proximity/proximity_event_mapping.pb.txt" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity/"
+copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl_proximity/event_mapping_atl_proximity.pb.txt" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity/"
 
 copy_required "$PKG_DEB_DIR/systemd/99-safety-core-logs.conf" "$RUNTIME_ROOT/etc/rsyslog.d/"
 
@@ -188,6 +193,8 @@ mkdir -p \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/sdm/ccplex" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/udp_cmd_receiver" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/include" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/sdm/ccplex" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/include" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/samples"
 
 for dir in \
@@ -226,6 +233,19 @@ cp -a "$SOURCE_DIR/decision-makers/proximity/include"/. \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/include/"
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/proximity/proximity_event_mapping.pb.txt" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/"
+
+# atl_proximity ships no udp_cmd_receiver source of its own: its receiver is
+# built from the proximity one, staged above.
+cp -a "$SOURCE_DIR/decision-makers/atl_proximity/sdm/ccplex"/. \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/sdm/ccplex/"
+cp -a "$SOURCE_DIR/components/safecomm/validation/src/pss_message_validate.c" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/sdm/ccplex/"
+cp -a "$SOURCE_DIR/decision-makers/atl_proximity/include"/. \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/include/"
+copy_optional "$SOURCE_DIR/decision-makers/atl_proximity/README.md" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/"
+copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl_proximity/event_mapping_atl_proximity.pb.txt" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/"
 
 mkdir -p "$DEV_ROOT/DEBIAN"
 cat > "$DEV_ROOT/DEBIAN/control" <<EOF

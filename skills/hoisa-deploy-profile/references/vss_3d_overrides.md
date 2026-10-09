@@ -27,12 +27,12 @@ model. Pair this file with `model_r101.md` (the R101 Sparse4D model recipe) and
 
 ---
 
-## Why SEI-off + system timestamps (Isaac Sim 6.0)
+## Why SEI-off + system timestamps (Isaac Sim 6.1)
 
 These overrides **disable SEI extraction** and use **system (wall-clock) timestamps**
 (`attach-sys-ts-as-ntp=1`) — the **same** timing strategy as the 2D profile.
 
-**Mechanism**: Isaac Sim 6.0 RTSP *does* embed SEI (which carries a **sim-time** value),
+**Mechanism**: Isaac Sim 6.1 RTSP *does* embed SEI (which carries a **sim-time** value),
 but **PSF currently doesn't support sim time**. Feeding Isaac's SEI sim-time as the frame
 timestamp makes PSF drop events as **STALE**, so we disable SEI extraction and tag each
 frame with the DeepStream host's **system (wall-clock) arrival time**
@@ -40,7 +40,7 @@ frame with the DeepStream host's **system (wall-clock) arrival time**
 survives an Isaac relaunch — exactly the same reason as the 2D profile.
 
 > **Note:** older guidance that prescribes SEI-**on** for 3D was validated on Isaac Sim
-> **5.1**; on Isaac Sim 6.0 keep SEI-**off** — PSF still doesn't consume the SEI sim-time,
+> **5.1**; on Isaac Sim 6.1 keep SEI-**off** — PSF still doesn't consume the SEI sim-time,
 > so system timestamps remain the right choice.
 
 ---
