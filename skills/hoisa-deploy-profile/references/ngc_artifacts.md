@@ -9,7 +9,7 @@ there is no Halos compose package to download. From NGC you pull only:
 | PSF image | pinned as `PSF_IMAGE` in `deployments/profiles/<profile>.env` | `base`, `sil` | the Proactive Safety Framework container |
 | Isaac Sim base | pinned as `ISAAC_SIM_IMAGE` in `sil.env` / `hil.env` (public) | `sil`, `hil` | base image the `isaac-sim` service builds from |
 
-VSS Warehouse images are pulled when you deploy VSS, not here — for VSS 3.3 by its compose with the image tag pinned in `vss_33.md` §1 (its app data is also downloaded there); for 3.2.1 via the `vss-deploy-profile` skill, or per the public VSS Warehouse docs (github.com/NVIDIA-AI-Blueprints/video-search-and-summarization).
+VSS Warehouse images are pulled when you deploy VSS, not here: the `vss-build-vision-ai` skill pulls them with the container tag and downloads the VSS app data (`vss_2d_overrides.md` → "Env Overrides").
 
 > **Access**: the Halos packages are in the `nvidia/halos-outside-in` NGC team. If
 > `ngc registry resource info` or `docker pull` returns `402` / `403`, your NGC key is not

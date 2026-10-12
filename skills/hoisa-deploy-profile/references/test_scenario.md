@@ -58,14 +58,11 @@ PYTHONPATH=<vss>/libs/analytics/spatialai-data-utils python3 build_vss_calibrati
 cp -a $VSS_DATA_DIR/videos/warehouse-loading-dock-3cams-synthetic $VSS_DATA_DIR/videos/$DS
 ```
 
-Then set `MODE=2d` and `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/overrides.env` (VSS 3.3;
-`<wh_ops>/.env` on 3.2.1). The same steps and paths work on both versions. On VSS
-3.2.1 use the 2D app: there the 3D (Sparse4D R101) app stops detecting on this scene
-within seconds to minutes (`troubleshooting.md` → "Sparse4D Stops Detecting on the 40x20
-Scene"). On 3.3 the 3D app ran it for 10 min with both bays deciding; for it, also put a
-3D calibration with the BEV group and the top-level `roi-id-1/2` / `tripwire-id-1/2`
-under `<wh_ops>/warehouse-3d-app/calibration/sample-data/$DS` (`calibration_3d.md`), and
-set the two PSF 3D lines in the profile.
+Then set `SAMPLE_VIDEO_DATASET="$DS"` in the VSS build's `override.env`. Both apps run this scene:
+the 3D app ran it for 10 min with both bays deciding. For 3D, also put a calibration with
+the BEV group and the top-level `roi-id-1/2` / `tripwire-id-1/2` under
+`<wh_ops>/warehouse-3d-app/calibration/sample-data/$DS` (`calibration_3d.md`), and set the
+two PSF 3D lines in the profile.
 `spatialai-data-utils` only fills `fieldOfViewPolygon`; without it the field is left out.
 
 The 20x20 dataset is 20x20 geometry: its ROIs and tripwires sit at `scaleFactor`
@@ -235,11 +232,11 @@ or a 0-FPS camera) — each routes to the zombie-bin recovery in `troubleshootin
 
 The Isaac→VSS handoff logs matching events on **add** (scene start / streaming) and
 **remove** (scene stop / teardown). Use them to confirm the scene is running and to
-detect when it finishes. All signals below were verified on a live VSS 3.2.1 + Halos SIL run.
+detect when it finishes. All signals below were verified on a live VSS 3.3 + Halos SIL run.
 
 | Component | Container | ADD — scene streaming | REMOVE — scene done / teardown |
 |-----------|-----------|-----------------------|--------------------------------|
-| DeepStream (perception) | `vss-rtvi-cv` | `new stream added [<idx>:<uuid>:<Camera>]` ×3 | `new stream removed [<idx>:...]` + `gstnvtracker: Successfully removed stream <idx>` |
+| DeepStream (perception) | `vss-rtvi-cv` | `new stream added [<idx>:<uuid>:<Camera>]` ×3 | `new stream removed [<idx>:<uuid>]` |
 | Isaac RTSP self-hosted (6.1) | `isaac-sim` (kit log) | `[isaacsim.streaming.rtsp.impl.rtsp_writer] RTSP stream started on rtsp://localhost:{8554/camera, 8555/camera_01, 8556/camera_02} (…, encoding=h264)` ×3 (each preceded by `[omni.kit.livestream.rtsp.plugin] Started RTSP server at …`) | no dedicated teardown line (RTSP clients just log `Client disconnected`) — use DeepStream `new stream removed` (row 1) as the authoritative teardown |
 | VST sensor mgr | `vss-vios-sensor` | `"change" : "camera_add"` · `addSensor completed: <Camera>` | `"change" : "camera_remove"` · `delete sensor: <uuid>` |
 

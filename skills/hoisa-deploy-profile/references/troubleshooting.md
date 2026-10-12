@@ -321,20 +321,11 @@ replaying the **Kafka sensor history**. On a previously-used deploy the topics h
 add/remove history — including stale stream URLs from earlier runs — and every perception
 restart replays it, pushing the stale URLs back in over the live ones.
 
-**Fix** — fresh state before redeploy: tear the VSS stack down and clear the Kafka state.
-
-```bash
-# From the VSS deploy dir: down WITHOUT -v (keeps the TensorRT engine cache + sensor DB)
-docker compose --env-file industry-profiles/warehouse-operations/.env down --remove-orphans
-
-# Remove ONLY the kafka volumes — targeted, NOT `docker volume prune`: with the stack down,
-# prune also deletes the dangling perception engine cache (a 15-20 min rebuild) and the
-# sensor database.
-docker volume ls | grep -i kafka
-docker volume rm <the kafka volumes>
-
-# then bring VSS back up
-```
+**Fix** — fresh state before redeploy: tear VSS down with the `vss-build-vision-ai` skill's
+default teardown, then run its bind-mounted data cleanup (`references/teardown.md` in that
+skill), and redeploy. The Kafka topics live in `<vss_data>/data_log/kafka`, bind-mounted and
+owned by the Kafka container's user: neither `down -v` nor a host `rm` clears them, the
+cleanup's `sudo` does.
 
 Related state rules:
 
@@ -426,7 +417,7 @@ AMC-generated calibration** (VSS side, not shipped in this repo), most commonly 
 with no `restrictedObjectTypes` and prints the ids to cross-check against the event map. Add
 the missing field per the ROI schema in `calibration_3d.md`. The AMC / Calibration Toolkit
 does not expose restricted / confined object types as a dedicated field, so set them via its
-**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/3.2.1/autocalib-workflow-steps.html#export-calibration-data)
+**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/latest/autocalib-workflow-steps.html#export-calibration-data)
 (advanced) or by editing the exported `calibration.json` directly. Then regenerate / re-mount
 the calibration and **recreate** (not restart) the VSS perception + safety-core containers so
 the new `calibration.json` and event mapping are picked up.
@@ -483,7 +474,7 @@ downstream (PSF fusion config, ATL logic, hysteresis) — continue from there.
 ```bash
 # vss-rtvi-cv is a VSS Warehouse container — recreate it from the VSS deploy:
 docker rm -f vss-rtvi-cv
-docker compose up -d vss-rtvi-cv   # from the VSS deploy dir, with the same env files as the deploy (3.3: vss_33.md §4)
+docker compose -p vss -f <vss_repo>/_builds/<name>/resolved.yml up -d perception-2d   # perception-3d on the 3D app
 ```
 
 ---
@@ -543,44 +534,24 @@ dataset reuses the 20x20 bootstrap videos.
 **Fix**: once `Registered 3/3 camera(s) with VST` is in the Isaac log and DeepStream runs
 Isaac's streams, `docker restart safety-core`. Both SDMs start clean and only see Isaac events.
 
-The same lockout was also seen once on VSS 3.3 about 2 min **after** such a restart, with
+The same lockout was also seen once about 2 min **after** such a restart, with
 Isaac live: an SDM starts counting people in its trailer at 0, so a person already inside
 when it started produces the same impossible exit. Another `docker restart safety-core`
 cleared it.
 
 ---
 
-## Kafka Exits With `cluster_id: Permission denied` (VSS 3.3)
+## Kafka Exits With `cluster_id: Permission denied`
 
-**Symptom**: the first VSS 3.3 `up` stops at `dependency failed to start: container kafka
+**Symptom**: the first VSS `up` stops at `dependency failed to start: container kafka
 exited (1)`; `docker logs kafka` ends with
 `/usr/local/bin/kafka-entrypoint.sh: line 36: /tmp/kafka-data/cluster_id: Permission denied`.
 
-**Cause**: the 3.3 app-data archive extracts with mode `750`, and Kafka runs as a non-root
+**Cause**: the app-data archive extracts with mode `750`, and Kafka runs as a non-root
 user in its container, so it cannot write `<vss_data>/data_log/kafka`.
 
-**Fix**: `chmod -R a+rwX <vss_data>`, then `up` again (`vss_33.md` §1).
-
----
-
-## Sparse4D Stops Detecting on the 40x20 Scene
-
-**Symptom**: on `warehouse_40x20` with the 3D app, detections and ATL events arrive for a few
-seconds to a few minutes after perception starts, then `mdx-bev` carries only empty frames
-for good — 3/3 sources live, calibration and FPS fine, nothing in the logs.
-
-**Cause**: the Sparse4D temporal instance bank (`feedback: True` in the 3D `config.yaml`)
-turns to NaN between two frames and feeds that NaN back into every following frame. Seen with
-`display_tensor_info: True`: `input_cached_anchor` / `input_cached_feature` print `nan`
-from then on, while the camera matrices match the calibration exactly. Full 3-camera batches
-(`partial_batch: False`) do not prevent it; `feedback: False` does, but the per-frame tracks
-are too unstable for tripwires. The same model and app ran the 20x20 scene for hours without it.
-
-**Fix**: run ATL on 40x20 with the 2D app (`test_scenario.md`). A `docker restart vss-rtvi-cv`
-plus one sensor re-registration clears the NaN, until it comes back.
-
-Seen on VSS 3.2.1 with the R101 model. On VSS 3.3 (RN50 v2.3, `DATASET_TYPE=synthetic`) the 3D
-app ran `warehouse_40x20` for 10 min with detections throughout and both bays deciding.
+**Fix**: run the `vss-build-vision-ai` skill's data-directory gate (`references/data-directory.md`),
+which opens `data_log`, `models` and `videos` to every user, then `up` again.
 
 ---
 
@@ -606,6 +577,5 @@ app ran `warehouse_40x20` for 10 min with detections throughout and both bays de
 | ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
 | Any `PSF_APP` on a 3D feed: no decisions, `pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` | PSF still on the 2D `nvpss.conf` — set `PSF_NVPSS_CONFIG_SRC` and `PSF_SENSOR_PIPELINES_CONFIG_SRC` (`halos_deploy.md` → "Safety app") |
 | `PSF_APP=pxc` on stock VSS: no Forklift × Person proximity | Behavior analytics ships `proximityDetectionThreshold` `2` without `Forklift` as a center class — `vss_3d_overrides.md` → "Behavior analytics (3D)" |
-| VSS 3.3 `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | `chmod -R a+rwX` the app-data dir — `vss_33.md` §1 |
-| 3D on `warehouse_40x20` (VSS 3.2.1): detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene, or VSS 3.3, where it did not occur |
+| VSS `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | Run the `vss-build-vision-ai` data-directory gate before `up` |
 | `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |

@@ -1,7 +1,7 @@
 # Halos Deployment by Profile (Stack 2)
 
-Deploy the Halos stack **after** VSS Warehouse is up + healthy (Stack 1: 3.3 per
-`vss_33.md`, or 3.2.1).
+Deploy the Halos stack **after** VSS Warehouse 3.3 is up + healthy (Stack 1:
+`vss_2d_overrides.md` / `vss_3d_overrides.md`).
 Services and config differ per profile:
 
 | Profile | Services | Notes |
@@ -22,7 +22,7 @@ it too — so with the **default sample scene there is nothing to change** here.
 
 > This requirement is stated in the [Deployment Guide — Safety Core Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html#safety-core-prerequisites)
 > (the calibration *"includes `restrictedObjectTypes:["Person"]` for the ROIs, where relevant"*); the
-> field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/3.2.1/calibration-schema.html).
+> field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/latest/calibration-schema.html).
 
 This check matters only when you bring your **own calibration** (a custom scene / your own
 AMC-generated `calibration.json`, e.g. a partner site). That calibration lives on the VSS side,
@@ -223,7 +223,7 @@ What to clear vs. what to keep:
 |---|---|---|
 | VST postgres volume | sensor registry (uuids, tombstones, ghosts) | **remove** |
 | Redis state | sensor lifecycle event backlog + SDR workload cache | **clear** (`FLUSHALL`, step 3) |
-| TensorRT engine / model store | built perception engine | **KEEP** (rebuild costs 10-20 min) |
+| TensorRT engine / model store | built perception engine | **KEEP** (a rebuild costs minutes) |
 | `isaac-cache/` host dirs | compiled RT shaders | **KEEP** (recompile costs ~10 min) |
 | Images, `sil-data/` | pulled images, scene assets | KEEP (unaffected) |
 
@@ -236,12 +236,9 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down
 bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
 
 # 2. Tear down VSS *with* its state volumes — but selectively.
-#    VSS 3.3: `down -v` per vss_33.md §4 — the models and TensorRT engine live
-#    under VSS_DATA_DIR/models/, not in a volume.
-#    VSS 3.2.1: follow the vss-deploy-profile skill's teardown reference for the
-#    compose project specifics; the state volume to remove is the VST postgres
-#    data volume (docker volume ls | grep -iE 'pg|postgres').
-#    Do NOT blanket `down -v` on 3.2.1: that also removes the TensorRT engine volume.
+#    `down -v` (the vss-build-vision-ai skill's teardown) drops the sensor database
+#    volume vss_vios_pg_data; the models and TensorRT engine live under
+#    VSS_DATA_DIR/models/, not in a volume, and are kept.
 
 # 3. Redeploy in the standard order: VSS Warehouse first (engine and caches are
 #    reused, so this pass is fast), then clear redis (below), then the Halos

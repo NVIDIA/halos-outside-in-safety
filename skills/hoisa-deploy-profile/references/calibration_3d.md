@@ -1,30 +1,30 @@
-# 3D Calibration Dataset (3-camera BEV)
+# 3D Calibration Dataset (3-camera BEV) — a scene of your own
 
-> **VSS 3.3 ships this dataset.** `warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic`
-> already carries the BEV group `bev-sensor-1` and the top-level `roi-id-1` / `tripwire-id-1`
-> with the same values this page produces, under the plain dataset name. On 3.3 follow this
-> page only for a scene of your own; the steps below are written against 3.2.1.
+> **The loading-dock scene needs nothing here.** VSS 3.3 ships
+> `warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic` with the
+> BEV group `bev-sensor-1` and the top-level `roi-id-1` / `tripwire-id-1`; use it as the
+> reference for the format. Follow this page for another scene, e.g. `warehouse_40x20`
+> (dataset `warehouse-40x20-two-docks-3cams-synthetic`, `test_scenario.md`).
 
 The 3D (Sparse4D / BEV) profile needs a calibration dataset with **BEV sensor grouping** and
-**world-coordinate ROI / tripwire** definitions. The 3-camera loading-dock scene already has a
-2D calibration (the same physical space, same camera matrices) — building the 3D calibration
-is a **structural** conversion (adding fields), not a re-computation. Do this **before** the
-VSS deploy so the 3D behavior-analytics service loads the ROIs / tripwires on startup.
+**world-coordinate ROI / tripwire** definitions. A scene that already has a 2D calibration (the
+same physical space, same camera matrices) converts **structurally** (adding fields), not by
+re-computation. Do this **before** the VSS deploy so the 3D behavior-analytics service loads
+the ROIs / tripwires on startup.
 
-> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory (see `vss_3d_overrides.md`). The
-> calibration datasets live under `<wh_ops>/warehouse-2d-app/calibration/sample-data/` (2D
-> source) and `<wh_ops>/warehouse-3d-app/calibration/sample-data/` (3D destination).
+> `<wh_ops>` = `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/` (see
+> `vss_3d_overrides.md`). The calibration datasets live under
+> `<wh_ops>/warehouse-2d-app/calibration/sample-data/` (2D source) and
+> `<wh_ops>/warehouse-3d-app/calibration/sample-data/` (3D destination). `<name>` is the
+> dataset name, the same for both apps.
 
 ---
 
 ## Source and destination
 
 ```
-Source: <wh_ops>/warehouse-2d-app/calibration/sample-data/
-        warehouse-loading-dock-3cams-synthetic/calibration.json
-
-Dest:   <wh_ops>/warehouse-3d-app/calibration/sample-data/
-        warehouse-loading-dock-3cams-synthetic-3d/calibration.json
+Source: <wh_ops>/warehouse-2d-app/calibration/sample-data/<name>/calibration.json
+Dest:   <wh_ops>/warehouse-3d-app/calibration/sample-data/<name>/calibration.json
 ```
 
 ---
@@ -109,7 +109,7 @@ Keep the id matching `nvpss.conf` (`tripwire-id-1`). The `wire` is the trailer-e
 ```
 
 > The `roiCoordinates`, `wire`, and `direction` numeric values come straight from the 2D
-> calibration of the **same** loading-dock scene — copy them over unchanged. The ids
+> calibration of the **same** scene — copy them over unchanged. The ids
 > (`roi-id-1`, `tripwire-id-1`) must match the `rule_id`s referenced in `nvpss.conf`, or the
 > Safety Core will not map the events (`EVENT_0`…`EVENT_5`).
 
@@ -121,8 +121,8 @@ The 3D VST BEV visualization needs a top-down floorplan image; copy it from the 
 dataset (same scene):
 
 ```bash
-SRC=<wh_ops>/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic
-DST=<wh_ops>/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic-3d
+SRC=<wh_ops>/warehouse-2d-app/calibration/sample-data/<name>
+DST=<wh_ops>/warehouse-3d-app/calibration/sample-data/<name>
 
 mkdir -p "$DST/images"
 cp "$SRC/images/Top.png"              "$DST/images/"
@@ -135,20 +135,18 @@ cp "$SRC/images/imageMetadata.json"  "$DST/images/"
 
 ---
 
-## Step 3 — Register the 3D dataset with the configurator
+## Step 3 — Select the dataset
 
-The 3D dataset name (`warehouse-loading-dock-3cams-synthetic-3d`, set as
-`SAMPLE_VIDEO_DATASET` in `vss_3d_overrides.md`) must be known to the VSS configurator so it
-is selected + validated at deploy. How datasets are registered / validated is a VSS-side
-setting (the configurator's blueprint config) and is VSS-version-specific — see the
-`vss-deploy-profile` skill / public VSS Warehouse docs.
+Set `SAMPLE_VIDEO_DATASET="<name>"` in the VSS build's `override.env` and put the scene's videos under
+`<vss_data>/videos/<name>/`. The calibration file must exist before `up`: for a missing
+`calibration.json` Docker creates a directory in its place and perception emits nothing.
 
 ---
 
 ## Verification
 
 ```bash
-DST=<wh_ops>/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic-3d
+DST=<wh_ops>/warehouse-3d-app/calibration/sample-data/<name>
 
 # JSON is valid
 python3 -c "import json; json.load(open('$DST/calibration.json')); print('valid JSON')"

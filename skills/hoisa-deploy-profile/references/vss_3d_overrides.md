@@ -1,31 +1,24 @@
-# VSS Warehouse — 3D (Sparse4D) Profile Overrides (VSS 3.3 and 3.2.1)
+# VSS Warehouse 3.3 — 3D (Sparse4D) Profile Overrides
 
 When running the `sil` profile against the **3D (Sparse4D) perception backend**
-(multi-view detection + BEV tracking) instead of 2D, apply these overrides **before**
-running VSS's `docker compose up`. This file specifies only what must be **different** for
-a 3D SIL run. The deploy flow itself is `vss_33.md` for VSS 3.3, and the
-`vss-deploy-profile` skill of the VSS repository for 3.2.1. The DeepStream, VST and
-behavior-analytics keys below are the same in both versions.
+(multi-view detection + BEV tracking) instead of 2D, deploy VSS the same way as for 2D — the
+`vss-build-vision-ai` skill, warehouse profile, at `dev-26.10.2` (`vss_2d_overrides.md`) — and
+apply these overrides **before** its `docker compose up`. This file specifies only what must
+be **different** for a 3D SIL run.
 
 The Halos stack itself (safety-core, comm-layer, isaac-sim, forklift-controller) is
-**identical** to 2D — 3D changes only the VSS perception side, the calibration, and the
-model — except that PSF runs `deploymentMode = 3D` for **every** `PSF_APP` on this feed
-(`halos_deploy.md` → "Safety app"). On 3.3 the model and the loading-dock calibration ship
-with VSS; on 3.2.1 pair this file with `model_r101.md` (the R101 Sparse4D model recipe)
-and `calibration_3d.md` (the 3-camera BEV calibration). The Isaac Sim launch is the
-**same** as 2D (`--enable-vst`) — see `test_scenario.md`.
+**identical** to 2D — 3D changes only the VSS perception side — except that PSF runs
+`deploymentMode = 3D` for **every** `PSF_APP` on this feed (`halos_deploy.md` → "Safety
+app"). The Sparse4D model and the loading-dock BEV calibration ship with VSS. The Isaac
+Sim launch is the **same** as 2D (`--enable-vst`) — see `test_scenario.md`.
 
-> `<wh_ops>` = the VSS warehouse-operations directory
-> `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. The 3D app files
-> below live under `<wh_ops>/warehouse-3d-app/` (the 2D equivalents are under
+> `<wh_ops>` = `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. The 3D app
+> files below live under `<wh_ops>/warehouse-3d-app/` (the 2D equivalents are under
 > `warehouse-2d-app/`).
 >
 > **Do NOT run `docker compose` from `<wh_ops>/`.** Its `compose.yml` is only an app
 > fragment (it `include:`s the 2D / 3D / MV3DT apps but **no infra** — Kafka, Redis,
-> `sdr-controller`). The deploy runs from the top-level `<vss_repo>/deploy/docker/`
-> (`compose.yml`): on 3.3 with the three env files of `vss_33.md` §4 and `MODE=3d`, on
-> 3.2.1 with `--env-file industry-profiles/warehouse-operations/.env`. Edit the override
-> files below in place, then bring VSS up.
+> `sdr-controller`). Deploy the build's `resolved.yml`, as the skill does.
 
 ---
 
@@ -47,39 +40,38 @@ survives an Isaac relaunch — exactly the same reason as the 2D profile.
 
 ---
 
-## .env Overrides
+## Env Overrides
 
-**VSS 3.3:** these keys live in `<wh_ops>/overrides.env`, with `MODE=3d`,
-`DATASET_TYPE=synthetic`, `HARDWARE_PROFILE`, `COMPOSE_PROFILES` and the paths — the full
-list is `vss_33.md` §2. The dataset is `"warehouse-loading-dock-3cams-synthetic"`: 3.3 has no
-`-3d` dataset.
-
-**VSS 3.2.1:** set in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the
-rest ship differently and must be changed:
+The 2D answers of `vss_2d_overrides.md` → "Env Overrides", with mode `3d`:
 
 ```bash
-BP_PROFILE=bp_wh_kafka                                             # default: bp_wh — MUST include Kafka for PSF
-LLM_MODE=none                                                      # default: local — not needed for SIL
-VLM_MODE=none                                                      # already the default
-NUM_STREAMS=3                                                      # default: 4 — matches 3 Isaac Sim cameras
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic-3d"   # default: nv-warehouse-4cams — 3D calibration dataset
+MODE=3d                                                         # default: 2d — warehouse-3d-app (Sparse4D + 3D behavior analytics)
+FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL         # the skill expands it into COMPOSE_PROFILES
 ```
 
-**Why**:
-- `bp_wh_kafka` (not `bp_wh`): PSF consumes events from Kafka — without Kafka, no safety decisions.
-- `LLM_MODE=none` / `VLM_MODE=none`: SIL only needs perception, saves GPU memory.
-- `NUM_STREAMS=3`: Isaac Sim provides exactly 3 camera streams.
+`DATASET_TYPE=synthetic` already ships, and the skill derives it from the dataset.
+`SAMPLE_VIDEO_DATASET` stays `"warehouse-loading-dock-3cams-synthetic"`: the 3D app ships its
+BEV calibration under the same dataset name as the 2D one.
 
-> Selecting the 3D perception app (vs 2D) is done on the VSS deploy side (the 3D app pins
-> the Sparse4D perception + 3D behavior-analytics images). The exact selector is
-> VSS-version-specific — see the `vss-deploy-profile` skill.
+The skill's `validate_warehouse_env.py` warns `MODE=3d on a _MINIMAL list deploys no
+Elasticsearch, so the mdx-bev index is never persisted`. Expected for SIL: PSF and SRR read
+`mdx-bev` from Kafka.
+
+**Model.** There is no model step: perception downloads Sparse4D into
+`<vss_data>/models/sparse4d/` before building the engine. `DATASET_TYPE=synthetic` gives RN50
+v2.3 (`nvidia/tao/sparse4d_rn50:deployable_v2.3`), `real` RN50 v3.0. The engine build took
+about 5 min on an L40S.
+
+**Calibration.** `<wh_ops>/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic`
+already carries the BEV group `bev-sensor-1` and the top-level `roi-id-1` / `tripwire-id-1`.
+`calibration_3d.md` is only needed for a scene of your own (e.g. `warehouse_40x20`).
 
 ---
 
 ## DeepStream Config Changes
 
 **Apply BEFORE `docker compose up`.** If deployed first, the 3D perception service builds
-its TensorRT engine with the wrong config — a restart costs another ~10-15 min.
+its TensorRT engine with the wrong config — a restart costs another engine build.
 
 File:
 ```
@@ -143,12 +135,8 @@ gpu_postprocess: False   # run Sparse4D post-processing on CPU
 - `gpu_postprocess: False`: keep post-processing on CPU so it does not contend with the
   detector for GPU memory / SMs (important when perception and Isaac share a GPU).
 
-On **3.3** the configurator sets `num_sensors` from `NUM_STREAMS`, the other two keys ship
-with these values, and the model is downloaded by perception itself (`vss_33.md` §3) —
-nothing to edit here.
-
-On **3.2.1** the model files this config points at come from `model_r101.md` — the **R101
-Sparse4D** model (deployable ONNX + trainable kmeans anchor, version-matched).
+The configurator sets `num_sensors` from `NUM_STREAMS` and the other two keys ship with
+these values — nothing to edit here.
 
 ---
 
@@ -159,10 +147,9 @@ Sparse4D** model (deployable ONNX + trainable kmeans anchor, version-matched).
 perception output and emits the ROI / tripwire events (`mdx-events`) and per-frame ROI
 analysis (`mdx-frames`) the Safety Core reads — the **same event seam** the 2D profile
 uses, so no safety-core change is needed for 3D. The ROI / tripwire ids it emits come from
-the 3D `calibration.json` (`calibration_3d.md` on 3.2.1; shipped with the dataset on 3.3)
-and must match the `rule_id`s in `nvpss.conf`.
+the 3D `calibration.json` of the dataset and must match the `rule_id`s in `nvpss.conf`.
 
-**Proximity (`PSF_APP=pxc` / `both`)** needs one change, in both versions. The shipped 3D
+**Proximity (`PSF_APP=pxc` / `both`)** needs one change. The shipped 3D
 config pairs only the humanoid robots with `Person`, within 2 m, so a forklift never
 produces a proximity event and the HOISA tiers (REDUCE up to 3.5 m) would be cut off.
 
@@ -203,7 +190,7 @@ File: `<wh_ops>/warehouse-3d-app/vst/configs/vst_config.json`
 
 ### Ready signal 1: 3D perception producing FPS on all 3 cameras
 
-The Sparse4D TensorRT engine builds on first deploy (~10-15 min). Poll the perception
+The Sparse4D TensorRT engine builds on first deploy (about 5 min on an L40S). Poll the perception
 container until all 3 sources report FPS:
 
 ```bash
@@ -252,8 +239,9 @@ echo "mdx-events READY"
 |---------|----|----|
 | App dir | `warehouse-2d-app/` | `warehouse-3d-app/` |
 | Perception | RT-DETR detect + NvDCF track | **Sparse4D** multi-view + BEV track |
-| Model | shipped | 3.3: shipped (RN50 v2.3 with `DATASET_TYPE=synthetic`); 3.2.1: **R101** (`model_r101.md`) |
-| Calibration | use as-is | **3D dataset** with `group` / `rois` / `tripwires` — shipped on 3.3; 3.2.1: `calibration_3d.md` |
+| Env | mode `2d`, `…_KAFKA_2D_MINIMAL` | mode `3d`, `…_KAFKA_3D_MINIMAL` |
+| Model | shipped | Sparse4D RN50 v2.3, downloaded by perception at start |
+| Calibration | use as-is | BEV group `bev-sensor-1` + top-level ROI / tripwire — shipped; `calibration_3d.md` for another scene |
 | Behavior analytics | as shipped | `proximityDetectionThreshold` `4`, `Forklift` in `proximityDetectionCenterClasses` (`pxc` / `both`) |
 | PSF (Halos profile) | 2D `nvpss.conf` | `PSF_NVPSS_CONFIG_SRC` + `PSF_SENSOR_PIPELINES_CONFIG_SRC` set, for every `PSF_APP` |
 | SEI extraction | off | off (same — PSF doesn't support sim time) |
@@ -262,5 +250,5 @@ echo "mdx-events READY"
 | `batched-push-timeout` | (default) | **`75000`** |
 | `low-latency-mode` | (default `1`) | **`0`** |
 | `config.yaml` | n/a | `num_sensors=3`, `num_torch_threads=8`, `gpu_postprocess: False` |
-| VST | `bbox_tolerance_ms=100`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false`, recording off | **same** |
+| VST | `bbox_tolerance_ms=100`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false` | **same** |
 | Isaac launch | `--enable-vst` | **same** — `--enable-vst` (`test_scenario.md`) |
