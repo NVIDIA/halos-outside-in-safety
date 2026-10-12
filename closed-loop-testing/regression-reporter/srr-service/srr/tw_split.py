@@ -35,6 +35,7 @@ from typing import Optional
 
 import pandas as pd
 
+from srr.calib import first_entry
 from srr.tripwire import Tripwire
 
 
@@ -61,7 +62,7 @@ def load_tripwire(calib_path: Optional[Path]) -> Tripwire:
     if calib_path and calib_path.exists():
         try:
             d = json.loads(calib_path.read_text())
-            return Tripwire.from_calib_dict(d["sensors"][0]["tripwires"][0])
+            return Tripwire.from_calib_dict(first_entry(d, "tripwires"))
         except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
             print(f"[tw_split] WARN: --calib failed to parse ({e}); using default TW_X={DEFAULT_TW_X}")
     return Tripwire.legacy(DEFAULT_TW_X, 0.0, 1.0)

@@ -30,10 +30,14 @@ COPY srr-service/pyproject.toml ./
 # Noble (Jazzy base) marks the system Python as externally-managed (PEP 668);
 # this is a dedicated container, so install straight into it.
 # numpy intentionally NOT pip-installed — the base image already provides it
-# (python3-numpy); keep this pin set in sync with srr-service/pyproject.toml.
+# (python3-numpy), which ROS is built against. It is pinned to that installed
+# version below because pip's resolver otherwise picks a newer one while
+# backtracking and then fails to uninstall the Debian package ("RECORD file not
+# found"). Keep this pin set in sync with srr-service/pyproject.toml.
 RUN pip install --no-cache-dir --break-system-packages \
         kafka-python==3.0.8 pyarrow==25.0.0 pandas==3.0.3 pydantic==2.13.4 \
-        shapely==2.1.2 matplotlib==3.11.0 protobuf==7.35.1
+        shapely==2.1.2 matplotlib==3.11.0 protobuf==7.35.1 \
+        "numpy==$(python3 -c 'import numpy; print(numpy.__version__)')"
 
 COPY srr-service/srr /app/srr
 # Heatmap / density renderers (render_perception_heatmap.py, …). matplotlib above

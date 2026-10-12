@@ -22,6 +22,7 @@ from typing import Optional
 import pandas as pd
 from shapely.geometry import MultiPoint, Point, Polygon
 
+from srr.calib import first_entry
 from srr.tripwire import Tripwire
 
 
@@ -47,9 +48,8 @@ def load_roi(calib_path: Optional[Path]) -> tuple[Polygon, Tripwire]:
     if calib_path and calib_path.exists():
         d = json.loads(calib_path.read_text())
         # all sensors share the same ROI/TW in this scene; take first
-        s0 = d["sensors"][0]
-        coords = [(c["x"], c["y"]) for c in s0["rois"][0]["roiCoordinates"]]
-        return (Polygon(coords), Tripwire.from_calib_dict(s0["tripwires"][0]))
+        coords = [(c["x"], c["y"]) for c in first_entry(d, "rois")["roiCoordinates"]]
+        return (Polygon(coords), Tripwire.from_calib_dict(first_entry(d, "tripwires")))
     return (
         Polygon(DEFAULT_ROI_VERTICES),
         Tripwire.legacy(DEFAULT_TW_X, DEFAULT_TW_Y_MIN, DEFAULT_TW_Y_MAX),
