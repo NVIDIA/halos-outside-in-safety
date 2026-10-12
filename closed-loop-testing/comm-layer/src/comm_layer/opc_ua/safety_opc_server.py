@@ -570,6 +570,9 @@ def main():
     parser.add_argument('-p', '--port', type=int, default=12345, help='UDP port')
     parser.add_argument('--zone2-port', type=int, default=0,
                         help='UDP port of the second ATL zone SDM (atl_dual); 0 = one zone')
+    parser.add_argument('--pxc-port', type=int, default=0,
+                        help='UDP port of the proximity SDM when it runs beside ATL '
+                             '(PSF_APP=both); 0 = proximity arrives on --port')
     args = parser.parse_args()
     
     print("""
@@ -604,10 +607,11 @@ def main():
             except Exception:
                 logger.warning("Proximity queue full, dropped Seq#%s", packet.seq)
 
+    startup_safe_release = os.environ.get("COMM_PXC_STARTUP_RELEASE", "0") == "1"
     print(f"\nStarting UDP Receiver on port {args.port}...")
     receiver = SafetyReceiver(
         port=args.port, proximity_callback=on_proximity,
-        startup_safe_release=os.environ.get("COMM_PXC_STARTUP_RELEASE", "0") == "1")
+        startup_safe_release=startup_safe_release)
     receiver.start()
     print(f"UDP Receiver listening on port {args.port}")
 
@@ -616,13 +620,24 @@ def main():
         zone2_receiver = SafetyReceiver(port=args.zone2_port)
         zone2_receiver.start()
         print(f"UDP Receiver (ATL zone 2) listening on port {args.zone2_port}")
+
+    # PSF 1.4 gives each SDM of a pair its own command port. A safe release
+    # goes back to the proximity SDM, so it is sent from the socket that SDM
+    # talks to, the only one that knows its address.
+    pxc_receiver = None
+    if args.pxc_port:
+        pxc_receiver = SafetyReceiver(
+            port=args.pxc_port, proximity_callback=on_proximity,
+            startup_safe_release=startup_safe_release)
+        pxc_receiver.start()
+        print(f"UDP Receiver (proximity) listening on port {args.pxc_port}")
     
     # Start OPC UA server
     server = SafetyOpcUaServer(
         input_queue=receiver._queue,
         endpoint=args.endpoint,
         proximity_queue=proximity_queue,
-        safe_release_handler=receiver.request_safe_release,
+        safe_release_handler=(pxc_receiver or receiver).request_safe_release,
         zone2_queue=zone2_receiver._queue if zone2_receiver else None
     )
     
@@ -634,6 +649,8 @@ def main():
         receiver.stop()
         if zone2_receiver:
             zone2_receiver.stop()
+        if pxc_receiver:
+            pxc_receiver.stop()
 
 
 if __name__ == '__main__':

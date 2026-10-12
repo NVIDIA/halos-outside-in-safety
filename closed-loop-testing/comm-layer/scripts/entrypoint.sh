@@ -42,10 +42,16 @@ if [ -n "${UDP_PORT_ZONE2:-}" ]; then
     echo "  UDP Port zone 2: $UDP_PORT_ZONE2"
     ZONE2_ARGS=(--zone2-port "$UDP_PORT_ZONE2")
 fi
+PXC_ARGS=()
+if [ -n "${UDP_PORT_PXC:-}" ]; then
+    echo "  UDP Port proximity: $UDP_PORT_PXC"
+    PXC_ARGS=(--pxc-port "$UDP_PORT_PXC")
+fi
 python3 scripts/run_opc_server.py \
     -p $UDP_PORT \
     -e $OPCUA_ENDPOINT \
     "${ZONE2_ARGS[@]}" \
+    "${PXC_ARGS[@]}" \
     2>&1 | tee /app/logs/opc_server.log &
 
 OPC_PID=$!

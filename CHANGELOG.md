@@ -10,7 +10,7 @@ The `sil` and `base` configs target the PSF 1.4 image, whose launcher no longer 
 - `nvpss.conf` states the now-mandatory `deploymentMode = 2D` and `enableFusion = true`, adds the PSS-to-PSD delivery and queue keys, and drops `PSSDToPSDComBackend`.
 - Proximity events move from `EVENT_8/9/10` to `EVENT_12/13/14`: `EVENT_0..11` are reserved for ATL.
 - `pxc_sdm.log` is written to `/var/log/psf/pxc_sdm.log` in the container; the host file is unchanged.
-- `PSF_APP=both` is not ported: its launcher starts the SDMs without `--config`, which this image refuses.
+- `PSF_APP=both` runs the image's `--app atl,pxc` (`atl-pxc-override.yaml`) instead of HOISA's 1.3 launcher, which was removed: each SDM gets its own `--sdm-config`, and proximity sends to its own port, `COMM_UDP_PORT_PXC`, which comm-layer also listens on. mdx_client's mapping is the image's ATL rules followed by the proximity rules of `configs/proximity_event_mapping.pb.txt`.
 - The Thor profiles stay on 1.3 until an aarch64 host package of the same build is published.
 
 ### ATL per trailer bay (two zones)
