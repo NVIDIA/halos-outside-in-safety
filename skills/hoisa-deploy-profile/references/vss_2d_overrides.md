@@ -1,20 +1,19 @@
-# VSS Warehouse — 2D Profile Overrides (VSS 3.3 and 3.2.1)
+# VSS Warehouse 3.3 — 2D Profile Overrides
 
-When deploying VSS Warehouse for Halos SIL, apply these overrides **before** running its
-`docker compose up`. This file specifies only what must be **different** for SIL. The
-deploy flow itself is `vss_33.md` for VSS 3.3, and the `vss-deploy-profile` skill of the
-VSS repository for 3.2.1. The DeepStream and VST keys below are the same in both versions.
+Deploy VSS Warehouse 3.3 with the VSS repository's `vss-build-vision-ai` skill, warehouse
+profile (`skills/vss-build-vision-ai/references/profiles/warehouse.md` in the VSS repo), from
+the 3.3.0 code-freeze drop: tag `dev-26.10.2`, images `nightly-20261010`. That skill owns the
+deploy flow (env layers, `COMPOSE_PROFILES`, data directory, teardown). This file lists only
+what Halos SIL needs on top, applied **before** its `docker compose up`.
 
-> `<wh_ops>` = the VSS warehouse-operations directory
-> `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/` — this is where the
-> override files below live (`.env` / `overrides.env`, the DeepStream config, the VST config).
+> `<vss_repo>` = the VSS checkout at `dev-26.10.2`; `<vss_data>` = the extracted
+> `vss-warehouse-app-data`; `<wh_ops>` = `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`,
+> where the files below live (`overrides.env`, the DeepStream config, the VST config).
 >
 > **Do NOT run `docker compose` from `<wh_ops>/`.** Its `compose.yml` is only an app
 > fragment (it `include:`s the 2D/3D/MV3DT apps but **no infra** — Kafka, Redis,
 > `sdr-controller`). The deploy runs from the top-level `<vss_repo>/deploy/docker/`
-> (`compose.yml`): on 3.3 with the three env files of `vss_33.md` §4, on 3.2.1 with
-> `--env-file industry-profiles/warehouse-operations/.env`. Edit the override files below
-> in place, then bring VSS up.
+> (`compose.yml`) with `containers.env`, `.env` and `overrides.env`, in that order.
 
 Isaac 6.1 RTSP *does* embed SEI, but **PSF currently doesn't support sim time** — so these
 overrides **disable SEI extraction** and use **system (wall-clock) timestamps**. Feeding
@@ -23,33 +22,71 @@ keeps decisions flowing.
 
 ---
 
-## .env Overrides
-
-**VSS 3.3:** these keys live in `<wh_ops>/overrides.env`, together with `MODE=2d`,
-`HARDWARE_PROFILE`, `COMPOSE_PROFILES` and the paths — the full list is `vss_33.md` §2.
-
-**VSS 3.2.1:** set in `<wh_ops>/.env`. Verified against the v3.2.1 tag: only `VLM_MODE`
-already carries the value below — the rest ship differently and must be changed:
+## Before the deploy
 
 ```bash
-BP_PROFILE=bp_wh_kafka                                          # default: bp_wh — MUST include Kafka for PSF
-LLM_MODE=none                                                   # default: local — not needed for SIL
-VLM_MODE=none                                                   # already the default
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: nv-warehouse-4cams — SIL synthetic dataset (3 cams)
-NUM_STREAMS=3                                                   # default: 4 — matches 3 Isaac Sim cameras
+git -C <vss_repo> checkout dev-26.10.2
+export VSS_CONTAINER_TAG=nightly-20261010     # the drop's images; the default develop-latest follows VSS develop
+export NGC_CLI_API_KEY=...                     # perception downloads its models with it at start; never write it to a file
+
+ngc registry resource download-version \
+  "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026" \
+  --org nvstaging --team vss-warehouse
+tar -xzf vss-warehouse-app-data_vv3.3.0-09152026/vss-warehouse-app-data.tar.gz -C <parent dir>
+mkdir -p <vss_data>/models
+chmod -R a+rwX <vss_data>
+```
+
+- Without `--org`, the CLI stops at `Missing org - If Authenticated, org is also required.`
+- The archive extracts with mode `750`, and Kafka, which runs as a non-root user, then exits
+  with `cluster_id: Permission denied`, taking every service that waits for it down too.
+  `chmod -R a+rwX` before the first `up`.
+- `VSS_CONTAINER_TAG` must be exported in the shell that runs compose: `containers.env`
+  expands it before any env file is read.
+
+---
+
+## overrides.env
+
+Set in `<wh_ops>/overrides.env`, which compose reads last:
+
+```bash
+MODE=2d
+BP_PROFILE=bp_wh_kafka                                          # MUST include Kafka for PSF
+STREAM_TYPE=kafka
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # SIL synthetic dataset (3 cams)
+NUM_STREAMS=3                                                   # matches 3 Isaac Sim cameras
+HARDWARE_PROFILE=L40S                                           # the host's GPU; ships H100
+LLM_MODE=none                                                   # ships local — not needed for SIL
+VLM_MODE=none
+LLM_NAME_SLUG=none
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}         # ships the full 2D agent profile
+VSS_APPS_DIR="<vss_repo>/deploy/docker"
+VSS_DATA_DIR="<vss_data>"
+HOST_IP='<host IP>'                                             # also HOST_IP in the Halos profile
 ```
 
 **Why**:
 - `bp_wh_kafka` (not `bp_wh`): PSF consumes events from Kafka — without Kafka, no safety decisions
 - `LLM_MODE=none` / `VLM_MODE=none`: SIL only needs perception, saves GPU memory
-- `NUM_STREAMS=3`: Isaac Sim provides exactly 3 camera streams
+- `NUM_STREAMS=3`: Isaac Sim provides exactly 3 camera streams; the configurator derives the
+  DeepStream batch sizes from it
+- `COMPOSE_PROFILES` does not follow `MODE`. The `_MINIMAL` list keeps perception, behavior
+  analytics, VST, Kafka and Redis, without Elasticsearch, the agent or monitoring
+- The perception GPU is `RT_CV_DEVICE_ID` in `.env` (default `0`); keep Isaac Sim on another
+  GPU (`ISAAC_GPU_DEVICE`)
+
+**A dataset of your own** (e.g. `warehouse-40x20-two-docks-3cams-synthetic`, built per
+`test_scenario.md`): put its calibration directory under
+`<wh_ops>/warehouse-2d-app/calibration/sample-data/<name>/` and its videos under
+`<vss_data>/videos/<name>/`, then set `SAMPLE_VIDEO_DATASET` to `<name>`.
 
 ---
 
 ## DeepStream Config Changes
 
 **Apply BEFORE `docker compose up`.** If deployed first, `vss-rtvi-cv` builds its
-TensorRT engine with the wrong config — a restart costs another 15-20 min.
+TensorRT engine with the wrong config — a restart costs another engine build.
 
 File:
 ```
@@ -109,7 +146,7 @@ File: `<wh_ops>/warehouse-2d-app/vst/configs/vst_config.json` (several copies of
 
 ### Ready signal 1: vss-rtvi-cv producing FPS on all 3 cameras
 
-The TensorRT engine builds on first deploy (~10-15 min). Poll until ready:
+The TensorRT engine builds on first deploy. Poll until ready:
 
 ```bash
 # Ready = 3 cameras each reporting a current FPS > 0. Read each camera's latest PERF value;
@@ -157,3 +194,11 @@ You should see JSON event data with detected objects (Person, Forklift).
   ships as `-1` (disabled); the **`base` profile** must set it to `12345` (match
   `COMM_UDP_PORT` in `base.env`) to render the safety overlay — see `halos_deploy.md`.
   Leave it `-1` for `sil` (sil renders via comm-layer / ROS, not the overlay).
+- VSS runs on a compose bridge network with published ports. What Halos talks to: VST on
+  `30888` (`/vst/api/v1/sensor/*`), DeepStream REST on `9000`, Kafka on `9092` (advertised as
+  `HOST_IP:9092`), and the containers `vss-rtvi-cv`, `vss-behavior-analytics`,
+  `vss-vios-streamprocessing`, `vss-vios-sensor`, `sdr-controller`, `kafka`, `redis`, which
+  `restart_isaac.sh` and the ready-signal polls use by name.
+- **Clean redeploy** (a change of `MODE` or dataset, or a polluted provisioning chain): stop
+  Halos, `down -v`, empty `<vss_data>/data_log/redis/data`, edit `overrides.env`, `up`. The
+  models and the TensorRT engine stay under `<vss_data>/models/`.

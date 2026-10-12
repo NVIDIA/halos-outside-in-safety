@@ -63,7 +63,7 @@ Verify the SRR multi-test environment is ready:
 2. SRR compose dir exists at ${SRR_SERVICE_DIR}/
    and `docker compose ps` shows srr service.
 2b. The SRR `.env` sets `VSS_ROOT_PATH` (so `ENV_VSS_PATH` resolves): the scene-ready
-   gate reads the VSS deploy MODE from it to pick its topic (2d → mdx-raw, 3d/mv3dt →
+   gate reads the VSS deploy MODE from the `overrides.env` in that directory to pick its topic (2d → mdx-raw, 3d/mv3dt →
    mdx-bev). On a 2D host WITHOUT `VSS_ROOT_PATH` the gate falls back to mdx-bev — which
    carries no data on 2D — and burns the full scene-ready timeout on every scenario.
 3. The selected scenarios' behavior trees exist:

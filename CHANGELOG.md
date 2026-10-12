@@ -4,10 +4,12 @@
 
 ### VSS Warehouse 3.3
 
-- `hoisa-deploy-profile` targets VSS 3.3 (code-freeze drop `dev-26.10.2`) and keeps 3.2.1. VSS 3.3 ships no `vss-deploy-profile` skill, so `references/vss_33.md` covers its deploy: images pinned to the drop (`VSS_CONTAINER_TAG=nightly-20261010`), the `v3.3.0-09152026` app data and its permissions, `overrides.env`, the `_MINIMAL` compose profiles, the three env files, and what moved since 3.2.1 (shipped Sparse4D model and loading-dock BEV calibration, no `-3d` dataset).
+- `hoisa-deploy-profile` targets VSS 3.3 (code-freeze drop `dev-26.10.2`), deployed with the VSS repo's `vss-build-vision-ai` skill (warehouse profile). `vss_2d_overrides.md` and `vss_3d_overrides.md` add what SIL needs on top: images pinned to the drop (`VSS_CONTAINER_TAG=nightly-20261010`), the `v3.3.0-09152026` app data and its permissions, the `overrides.env` values with the `_MINIMAL` compose profiles, and a dataset of your own.
+- VSS 3.3 ships the Sparse4D model and the loading-dock BEV calibration: `model_r101.md` and the R101 profile variables are removed, and `calibration_3d.md` covers only a scene of your own.
 - The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
 - `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
-- `model_r101.md` and the R101 profile variables are 3.2.1-only. The Thor profiles and the Brev notebook have been run on 3.2.1 only.
+- `troubleshooting.md`: the Kafka-state wipe empties `<vss_data>/data_log/kafka`, which the `kafka-data` volume binds; `docker volume rm` left the topics on disk.
+- The Thor profiles (`halos_thor.md`, `halos_hil.md`) and the Brev notebook still deploy VSS 3.2.1: they have not been run on 3.3.
 - SRR runs on VSS 3.3 and Isaac Sim 6.1:
   - `default_config_ros.yaml.template` declares IRA config 1.7.0. Isaac Sim 6.1 refuses 1.6.0, so the SRR scene shut down at startup.
   - The scene-ready gate reads `MODE` from `overrides.env`, where VSS 3.3 keeps it; on 3.3 a 2D run polled `mdx-bev` and timed out.

@@ -322,21 +322,17 @@ SCENE_READY_MISS_DECAY="${SCENE_READY_MISS_DECAY:-3}"
 # Which Kafka topic carries the perception signal depends on the deploy MODE.
 # Resolve it once, in priority order:
 #   1. explicit SCENE_READY_TOPIC override (set in .env to force a topic)
-#   2. auto-derive from the VSS warehouse env's MODE (ENV_VSS_PATH): the same
-#      nv.Frame protobuf flows on mdx-raw for 2d (DeepStream) and mdx-bev for
-#      3d/mv3dt (Sparse4D/BEV), so one decoder covers both — only the topic
-#      differs by mode. Reading MODE from the VSS deployment's own env keeps a
+#   2. auto-derive from MODE in the overrides.env in ENV_VSS_PATH's directory:
+#      the same nv.Frame protobuf flows on mdx-raw for 2d (DeepStream) and
+#      mdx-bev for 3d/mv3dt (Sparse4D/BEV), so one decoder covers both — only
+#      the topic differs by mode. Reading MODE from the VSS deployment's own env keeps a
 #      single source of truth (no 2D/3D flag duplicated on the SRR side).
 #   3. fall back to mdx-bev (prior default) when neither is available.
 resolve_scene_ready_topic() {
   if [ -n "${SCENE_READY_TOPIC:-}" ]; then printf '%s' "$SCENE_READY_TOPIC"; return; fi
   local mode="" f
-  # VSS 3.3 keeps MODE in overrides.env next to .env (read last by its compose,
-  # so it wins); VSS 3.2.1 has it in .env.
-  for f in "$(dirname "${ENV_VSS_PATH:-.}")/overrides.env" "${ENV_VSS_PATH:-}"; do
-    [ -n "$mode" ] && break
-    [ -f "$f" ] && mode=$(grep -sE '^MODE=' "$f" | head -1 | cut -d= -f2 | tr -d ' "'"'"'' || true)
-  done
+  f="$(dirname "${ENV_VSS_PATH:-.}")/overrides.env"
+  [ -f "$f" ] && mode=$(grep -sE '^MODE=' "$f" | head -1 | cut -d= -f2 | tr -d ' "'"'"'' || true)
   case "$mode" in
     2d)        printf 'mdx-raw' ;;
     3d|mv3dt)  printf 'mdx-bev' ;;

@@ -77,7 +77,7 @@ Full hardware, software, NGC-access, and calibration requirements for every prof
 
 Requirements depend on the profile:
 
-- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html).
+- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/latest/warehouse-docs/Prerequisites.html).
 - **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html#closed-loop-host).
 
 ## Quickstart Guide
@@ -100,7 +100,7 @@ The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/
 
 **Ideal for:** deploying by hand on your own host or bare-metal instance.
 
-1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) perception backend first: 3.3 (code-freeze drop `dev-26.10.2`, see [`vss_33.md`](skills/hoisa-deploy-profile/references/vss_33.md)) or [3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1). It publishes the detection events the Safety Core consumes.
+1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) 3.3 perception backend first (code-freeze drop `dev-26.10.2`, with its [`vss-build-vision-ai`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/dev-26.10.2/skills/vss-build-vision-ai) skill and the Halos settings in [`vss_2d_overrides.md`](skills/hoisa-deploy-profile/references/vss_2d_overrides.md)). It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
 For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).

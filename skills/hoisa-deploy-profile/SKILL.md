@@ -2,7 +2,7 @@
 name: hoisa-deploy-profile
 description: >-
   Deploy Halos Outside-In Safety (HOISA) closed-loop testing by PROFILE
-  (base / sil / hil) on top of the VSS Warehouse 3.3 (or 3.2.1) perception backend.
+  (base / sil / hil) on top of the VSS Warehouse 3.3 perception backend.
   Clone the OSS repo, pick a profile, deploy. Covers prerequisites, NGC
   artifacts (sil-data + PSF + VSS images), VSS SIL overrides, the Halos
   stack (PSF, comm-layer, Isaac Sim, forklift-controller), test scenario, and
@@ -13,16 +13,17 @@ metadata:
   version: 1.3.0
 ---
 
-# Halos Outside-In Safety — Deploy by Profile (VSS 3.3 / 3.2.1)
+# Halos Outside-In Safety — Deploy by Profile (VSS 3.3)
 
 This skill deploys **from the HOISA OSS repository you cloned** — the compose
 files, profiles, configs, and this skill all live in the repo. When active,
 **ALWAYS read the relevant reference document before running commands.**
 Deployment has two stacks that must come up in order — do NOT skip or reorder.
 
-> Targets **VSS Warehouse 3.3** (code-freeze drop `dev-26.10.2`, deployed per `references/vss_33.md`); 3.2.1
-> still works, deployed with its `vss-deploy-profile` skill. `base` and `sil` have run on
-> both; the Thor profiles (`hil`, `base` on Thor) on 3.2.1 only.
+> Targets **VSS Warehouse 3.3** (code-freeze drop `dev-26.10.2`), deployed with the VSS repo's
+> `vss-build-vision-ai` skill (warehouse profile) plus the SIL overrides of
+> `references/vss_2d_overrides.md` / `references/vss_3d_overrides.md`. The Thor profiles
+> (`hil`, `base` on Thor) have not been run on 3.3 yet (`references/halos_thor.md`).
 
 ---
 
@@ -39,12 +40,11 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 > **The `sil` profile runs against either a 2D or a 3D perception backend.** 2D
 > (RT-DETR detect + track) is the default — `references/vss_2d_overrides.md`. For **3D
 > (Sparse4D multi-view + BEV tracking)** — better small / occluded object detection —
-> apply the 3D references instead: `references/vss_3d_overrides.md`, plus on VSS 3.2.1
-> `references/model_r101.md` and `references/calibration_3d.md` (3.3 ships the model and the
-> loading-dock BEV calibration).
+> apply `references/vss_3d_overrides.md` instead (VSS ships the Sparse4D model and the
+> loading-dock BEV calibration; `references/calibration_3d.md` is for a scene of your own).
 > The Halos stack (safety-core, comm-layer, isaac-sim, forklift-controller, forklift-controller-b2) is **identical**
 > for 2D and 3D — including the Isaac Sim launch (`--enable-vst`, see `references/test_scenario.md`);
-> only the VSS perception side, the model, and the calibration change, plus the two PSF 3D
+> only the VSS perception side changes, plus the two PSF 3D
 > lines in the profile, which every `PSF_APP` needs on a 3D feed (`references/halos_deploy.md`).
 
 > **`base` on IGX Thor (aarch64)** — the skill detects the platform; on Thor the SDM runs on the **CCPLEX** application cores and the stack is launched by `launch_thor_safety.sh` instead of `docker compose` (covered in `references/halos_thor.md`).
@@ -56,7 +56,7 @@ Pick one profile (set `COMPOSE_PROFILES` in the profile run-env). Services start
 ```
 Isaac Sim (forklift + digital humans, segments-driven)
      ↓ RTSP (3 cameras, H264, self-hosted per-camera 8554/8555/8556)
-VSS Warehouse 3.3 / 3.2.1 (AI Perception)
+VSS Warehouse 3.3 (AI Perception)
      ├─ vss-rtvi-cv: detection + tracking
      └─ vss-behavior-analytics: ROI / tripwire (forklift-in-trailer)
      ↓ Kafka events (mdx-events topic)
@@ -73,7 +73,7 @@ forklift-controller slows and stops the truck) or `both` (side by side in one co
 Settings and the extra override file are in `references/halos_deploy.md` → "Safety app".
 
 **Two separate stacks**:
-- **Stack 1**: VSS Warehouse (perception) — 3.3 per `references/vss_33.md` (VSS 3.3 has no `vss-deploy-profile` skill); 3.2.1 via its `vss-deploy-profile` skill (or the public VSS Warehouse docs: https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html); must be up + healthy first.
+- **Stack 1**: VSS Warehouse 3.3 (perception) — the VSS repo's `vss-build-vision-ai` skill, warehouse profile, with the SIL overrides of `references/vss_2d_overrides.md` (3D: `references/vss_3d_overrides.md`); must be up + healthy first.
 - **Stack 2**: Halos (`base`/`sil`/`hil`) — this skill.
 
 ---
@@ -131,9 +131,8 @@ Deploy in strict order. **Stack 1 (VSS) must be running before Stack 2 (Halos).*
 - [ ] 1. Clone the HOISA OSS repo (this skill lives in skills/)
 - [ ] 2. Check prerequisites (host setup overlaps VSS — run VSS prereq first) → references/prerequisites.md
 - [ ] 3. Pull NGC artifacts (sil-data + PSF image + VSS images)  → references/ngc_artifacts.md
-- [ ] 4. Deploy VSS Warehouse (3.3: references/vss_33.md;
-        3.2.1: `vss-deploy-profile`), apply SIL overrides
-        BEFORE its compose up                                    → references/vss_2d_overrides.md
+- [ ] 4. Deploy VSS Warehouse 3.3 (`vss-build-vision-ai`, warehouse),
+        apply SIL overrides BEFORE its compose up                → references/vss_2d_overrides.md
                                                                    (3D: vss_3d_overrides.md)
 - [ ] 5. Poll VSS perception + Kafka ready signals
 - [ ] 6. Configure deployments/profiles/<profile>.env, then
@@ -158,11 +157,9 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 |----------|----------|
 | [references/prerequisites.md](references/prerequisites.md) | Hardware/software requirements, Docker, NGC CLI, driver, GPU selection |
 | [references/ngc_artifacts.md](references/ngc_artifacts.md) | Pulling sil-data + PSF image + VSS images from NGC; **Thor Safety Core `.deb` (`psf-tegra`)** |
-| [references/vss_33.md](references/vss_33.md) | **VSS 3.3** — repo tag, pinned images, app data, `overrides.env`, compose up/down, what changed from 3.2.1 |
-| [references/vss_2d_overrides.md](references/vss_2d_overrides.md) | VSS Warehouse 2D env, DeepStream config, and VST config for Isaac Sim |
-| [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | **3D (Sparse4D) profile** — VSS env, DeepStream + `config.yaml`, behavior-analytics proximity, VST overrides |
-| [references/model_r101.md](references/model_r101.md) | **3D, VSS 3.2.1 only** — the R101 Sparse4D model recipe (deployable ONNX + trainable kmeans anchor, version-matched) |
-| [references/calibration_3d.md](references/calibration_3d.md) | **3D** — the 3-camera BEV calibration (`group` / `rois` / `tripwires`); shipped with VSS 3.3 for the loading dock |
+| [references/vss_2d_overrides.md](references/vss_2d_overrides.md) | VSS 3.3 for SIL — tag, pinned images, app data, `overrides.env`, DeepStream and VST config for Isaac Sim, clean redeploy |
+| [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | **3D (Sparse4D) profile** — `overrides.env`, DeepStream + `config.yaml`, behavior-analytics proximity, VST overrides |
+| [references/calibration_3d.md](references/calibration_3d.md) | **3D, a scene of your own** — the 3-camera BEV calibration (`group` / `rois` / `tripwires`); the loading dock ships with VSS |
 | [references/halos_deploy.md](references/halos_deploy.md) | Configuring and deploying the Halos stack by profile |
 | [references/halos_thor.md](references/halos_thor.md) | Deploying `base` on IGX Thor (aarch64) — the hybrid container + host-binary Safety Core |
 | [references/vss_hil_overrides.md](references/vss_hil_overrides.md) | **HIL** — VSS deltas for a remote Isaac source: stream URLs, sensor-registration ownership, fresh state |
@@ -176,16 +173,15 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 
 | Tag | Rule | Details in |
 |-----|------|-----------|
-| `VSS_DEPLOY` | Deploy VSS Warehouse 3.3 per `vss_33.md` (3.2.1: its `vss-deploy-profile` skill); apply SIL overrides before its `docker compose up` | `vss_33.md`, `vss_2d_overrides.md` |
-| `VSS33_IMAGE_TAG` | **VSS 3.3:** export `VSS_CONTAINER_TAG=nightly-20261010` (the images of `dev-26.10.2`) before every compose command; the default `develop-latest` follows VSS `develop`, not the tag | `vss_33.md` |
-| `VSS33_ENV_FILES` | **VSS 3.3:** settings go in `overrides.env`, and compose takes `containers.env`, `.env`, `overrides.env` in that order; set `COMPOSE_PROFILES` to the `_MINIMAL` list of the mode | `vss_33.md` |
-| `VSS33_DATA_PERMS` | **VSS 3.3:** `chmod -R a+rwX` the extracted app data before the first `up`, or Kafka exits on `Permission denied` | `vss_33.md`, `troubleshooting.md` |
+| `VSS_DEPLOY` | Deploy VSS Warehouse 3.3 with the VSS repo's `vss-build-vision-ai` skill (warehouse profile); apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
+| `VSS_IMAGE_TAG` | Export `VSS_CONTAINER_TAG=nightly-20261010` (the images of `dev-26.10.2`) before every compose command; the default `develop-latest` follows VSS `develop`, not the tag | `vss_2d_overrides.md` |
+| `VSS_OVERRIDES_ENV` | Settings go in `overrides.env`, which compose reads last; set `COMPOSE_PROFILES` to the `_MINIMAL` list of the mode | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
+| `VSS_DATA_PERMS` | `chmod -R a+rwX` the extracted app data before the first `up`, or Kafka exits on `Permission denied` | `vss_2d_overrides.md`, `troubleshooting.md` |
 | `PSF_3D_FEED` | On a 3D feed set `PSF_NVPSS_CONFIG_SRC` + `PSF_SENSOR_PIPELINES_CONFIG_SRC` for **every** `PSF_APP`, `atl` included — the 2D config drops every event | `halos_deploy.md` |
 | `BA_PROXIMITY` | **`pxc` / `both`:** set behavior analytics `proximityDetectionThreshold` to `4` and add `Forklift` to `proximityDetectionCenterClasses` — shipped values give no forklift proximity | `vss_3d_overrides.md` |
 | `VSS_BEFORE_HALOS` | **`base`/`sil` only:** VSS Warehouse must be running and healthy before deploying Halos. `hil` inverts this — bring Isaac up and confirm the streams deliver frames first, then deploy VSS on the Thor, or the Thor registers sensors against a cold Isaac and hits the "no caps" race | `vss_2d_overrides.md`, `halos_hil.md` §3 |
 | `KAFKA_BEFORE_PSF` | Kafka must be up before PSF starts — PSF connects to Kafka on startup | `troubleshooting.md` |
 | `DEEPSTREAM_SEI` | **Disable** SEI extraction + use system timestamps (`attach-sys-ts-as-ntp=1`) in DeepStream. Isaac 6.1 embeds SEI, but **PSF doesn't support sim time** — using it drops events as STALE, so key off system (wall-clock) time | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
-| `SIL_3D_MODEL` | **3D profile:** on VSS 3.3 perception downloads Sparse4D itself (`DATASET_TYPE=synthetic` → RN50 v2.3). On 3.2.1 the R101 Sparse4D model needs the **deployable ONNX + the trainable-package kmeans anchor at the same version** — mixing versions/sources gives silently wrong detections | `vss_33.md`, `model_r101.md` |
 | `BP_PROFILE_KAFKA` | VSS must use `BP_PROFILE=bp_wh_kafka` (not `bp_wh`) for Halos integration | `vss_2d_overrides.md` |
 | `LLM_VLM_NONE` | Set `LLM_MODE=none` and `VLM_MODE=none` — not needed for safety SIL | `vss_2d_overrides.md` |
 | `HALO_SAFETY_BASE` | **`base` profile**: to render the safety overlay, set `halo_safety_udp_port` in the VSS 2D `vst_config.json` from `-1` → `12345` (must equal `COMM_UDP_PORT`), then restart VST | `halos_deploy.md`, `vss_2d_overrides.md` |
@@ -195,7 +191,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | `ROS_DOMAIN_UNIQUE` | Assign a unique `ROS_DOMAIN_ID` (0-232) per machine; verify `Publisher count: 1` on `/safety/is_muted` | `halos_deploy.md`, `troubleshooting.md` |
 | `GPU_NOT_PERCEPTION` | Run Isaac Sim on a GPU (RT cores, >20 GB) that is **not** running VSS perception | `prerequisites.md`, `halos_deploy.md` |
 | `SETUP_BEFORE_UP` | Run `setup.sh <profile>` and `cleanup_all_datalog.sh <profile>` **before** `docker compose up` (both read `profiles/<profile>.env`) | `halos_deploy.md` |
-| `POLL_NEVER_WAIT` | First VSS startup takes 10-15 min (TensorRT build); Isaac shaders ~5-10 min — **poll** the ready signal, never `docker logs -f` or a fixed timer | (this file) |
+| `POLL_NEVER_WAIT` | First VSS startup builds the TensorRT engine (several minutes); Isaac shaders ~5-10 min — **poll** the ready signal, never `docker logs -f` or a fixed timer | (this file) |
 | `COMPLETE_MEANS_SIM_TRAFFIC` | Do not declare "complete" until **sim-driven** transitions appear in the OPC log — VSS sample-video bootstrap traffic doesn't count | `test_scenario.md` |
 | `NEVER_SHOW_KEYS` | **NEVER** echo, print, or hardcode NGC API keys or secrets. Read silently from `~/.bashrc` or `~/.ngc/config` | `prerequisites.md` |
 
@@ -205,7 +201,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 
 | Stack | Services | Source |
 |-------|----------|--------|
-| VSS Warehouse 3.3 / 3.2.1 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | VSS repo: 3.3 per `references/vss_33.md`, 3.2.1 via its `vss-deploy-profile` skill |
+| VSS Warehouse 3.3 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | VSS repo at `dev-26.10.2`, `vss-build-vision-ai` skill (warehouse profile) |
 | Halos (profile) | safety-core, comm-layer, isaac-sim, forklift-controller | this OSS repo (`deployments/compose.yaml`) + `PSF_IMAGE` from NGC |
 
 ---
@@ -218,10 +214,8 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | Grafana (monitoring) | `http://<HOST_IP>:35000` — extended profile only |
 | Kibana (analytics) | `http://<HOST_IP>:5601` — extended profile only |
 
-> **Grafana/Kibana only exist in the extended profile.** On VSS 3.3 the `_MINIMAL`
-> `COMPOSE_PROFILES` lists of `vss_33.md` exclude them; VSS 3.2.1 ships
-> `MINIMAL_PROFILE="true"` (minimal) by default, which excludes all monitoring — so on a
-> default deploy neither URL is reachable. Only VST UI is always up.
+> **Grafana/Kibana only exist in the extended profile.** The `_MINIMAL` `COMPOSE_PROFILES`
+> lists used for SIL exclude them, so neither URL is reachable. Only VST UI is always up.
 
 ---
 
@@ -233,11 +227,10 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down
 bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
 docker volume prune -f
 
-# Stop VSS Warehouse — 3.3: references/vss_33.md §4; 3.2.1: the vss-deploy-profile skill
+# Stop VSS Warehouse — the vss-build-vision-ai skill's teardown (references/teardown.md)
 ```
 
 > ⚠️ `docker volume prune -f` deletes **every** dangling volume on the host. Safe while VSS
 > is still running (its volumes are in-use), but if the VSS stack is already down it also
-> deletes the perception TensorRT engine cache (a 15-20 min rebuild on the next deploy) and
-> the sensor database. **Ask the user before running it**; to clear only Halos state, skip
+> deletes the VSS sensor database (`vss_vios_pg_data`). **Ask the user before running it**; to clear only Halos state, skip
 > the prune — the `down` + datalog cleanup above already remove the per-run state.

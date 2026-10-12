@@ -7,8 +7,7 @@ drive the safety core.
 
 ## Reference backend: VSS Blueprint
 - Repo: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-- VSS 3.3 (code-freeze drop `dev-26.10.2`): deployed per [`vss_33.md`](../skills/hoisa-deploy-profile/references/vss_33.md), the warehouse profile with the Halos settings.
-- VSS [3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1): deployed via the `vss-deploy-profile` skill of that tag (see [`skills/`](../skills/)) or the public [VSS Warehouse Blueprint 3.2.1 quickstart](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html).
+- VSS 3.3 (code-freeze drop `dev-26.10.2`): deployed with the VSS repo's [`vss-build-vision-ai`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/dev-26.10.2/skills/vss-build-vision-ai) skill, warehouse profile, plus the Halos settings in [`vss_2d_overrides.md`](../skills/hoisa-deploy-profile/references/vss_2d_overrides.md) / [`vss_3d_overrides.md`](../skills/hoisa-deploy-profile/references/vss_3d_overrides.md).
 
 ## Integration contract (the seam)
 The Safety Core depends only on the **event stream**, not on perception internals:
