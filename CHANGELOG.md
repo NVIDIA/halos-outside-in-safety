@@ -4,15 +4,16 @@
 
 ### VSS Warehouse 3.3
 
-- `hoisa-deploy-profile` targets VSS 3.3 (code-freeze drop `dev-26.10.2`), deployed with the VSS repo's `vss-build-vision-ai` skill (warehouse profile). `vss_2d_overrides.md` and `vss_3d_overrides.md` add what SIL needs on top: images pinned to the drop (`VSS_CONTAINER_TAG=nightly-20261010`), the `v3.3.0-09152026` app data and its permissions, the `overrides.env` values with the `_MINIMAL` compose profiles, and a dataset of your own.
+- `hoisa-deploy-profile` targets VSS 3.3 (code-freeze drop `dev-26.10.2`), deployed with the VSS repo's `vss-build-vision-ai` skill (warehouse profile). `vss_2d_overrides.md` and `vss_3d_overrides.md` give its answers and what SIL needs on top: the images of the drop (`nightly-20261010`), the Minimal `bp_wh_kafka` variant with the 3-camera dataset in the build's `override.env`, the `--org` the app-data download needs, and a dataset of your own. The skill's resolve and validators accept these values, and its `resolved.yml` matches the stack the tests ran on.
 - VSS 3.3 ships the Sparse4D model and the loading-dock BEV calibration: `model_r101.md` and the R101 profile variables are removed, and `calibration_3d.md` covers only a scene of your own.
 - The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
 - `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
-- `troubleshooting.md`: the Kafka-state wipe empties `<vss_data>/data_log/kafka`, which the `kafka-data` volume binds; `docker volume rm` left the topics on disk.
+- `troubleshooting.md`: the stale-history fix and the clean redeploy use the VSS skill's teardown and its bind-mounted data cleanup. Kafka and Redis data under `<vss_data>/data_log` are bind-mounted and owned by the containers' users, so `docker volume rm` or a host `rm` left them. The perception recreate names the compose service (`perception-2d` / `perception-3d`), not the container.
+- `vss_3d_overrides.md` no longer claims VST recording is off: the shipped `always_recording: true` was never changed.
 - The Thor profiles (`halos_thor.md`, `halos_hil.md`) and the Brev notebook still deploy VSS 3.2.1: they have not been run on 3.3.
 - SRR runs on VSS 3.3 and Isaac Sim 6.1:
   - `default_config_ros.yaml.template` declares IRA config 1.7.0. Isaac Sim 6.1 refuses 1.6.0, so the SRR scene shut down at startup.
-  - The scene-ready gate reads `MODE` from `overrides.env`, where VSS 3.3 keeps it; on 3.3 a 2D run polled `mdx-bev` and timed out.
+  - The scene-ready gate reads `MODE` from the VSS build's `override.env` (`ENV_VSS_PATH`), falling back to the `overrides.env` next to it; on 3.3 a 2D run polled `mdx-bev` and timed out.
   - The aggregator and `tw_split` read the ROI and tripwire from the top level of a BEV calibration too. VSS 3.3's 3D datasets keep none per sensor: the aggregator raised `IndexError`, and `tw_split` fell back to the legacy tripwire.
   - The VST workaround registers the cameras again after restarting VST, which could land on Isaac's own registration and leave VST with no sensors.
   - Perception re-provisioning is the full round (`FLUSHALL`, `sdr-controller`, DeepStream, one registration), as in `restart_isaac.sh`.

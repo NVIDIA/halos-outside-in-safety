@@ -137,7 +137,7 @@ cp "$SRC/images/imageMetadata.json"  "$DST/images/"
 
 ## Step 3 — Select the dataset
 
-Set `SAMPLE_VIDEO_DATASET="<name>"` in `overrides.env` and put the scene's videos under
+Set `SAMPLE_VIDEO_DATASET="<name>"` in the VSS build's `override.env` and put the scene's videos under
 `<vss_data>/videos/<name>/`. The calibration file must exist before `up`: for a missing
 `calibration.json` Docker creates a directory in its place and perception emits nothing.
 

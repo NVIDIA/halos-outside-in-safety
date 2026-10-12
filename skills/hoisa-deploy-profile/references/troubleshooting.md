@@ -321,20 +321,11 @@ replaying the **Kafka sensor history**. On a previously-used deploy the topics h
 add/remove history — including stale stream URLs from earlier runs — and every perception
 restart replays it, pushing the stale URLs back in over the live ones.
 
-**Fix** — fresh state before redeploy: tear the VSS stack down and clear the Kafka state.
-
-```bash
-# From the VSS deploy dir, with the deploy's env files: down WITHOUT -v (keeps the sensor DB)
-docker compose -f compose.yml --env-file containers.env \
-  --env-file industry-profiles/warehouse-operations/.env \
-  --env-file industry-profiles/warehouse-operations/overrides.env down --remove-orphans
-
-# Empty ONLY the Kafka data: the kafka-data volume is a bind mount of
-# <vss_data>/data_log/kafka, so `docker volume rm` would leave the topics on disk.
-find <vss_data>/data_log/kafka -mindepth 1 -delete
-
-# then bring VSS back up
-```
+**Fix** — fresh state before redeploy: tear VSS down with the `vss-build-vision-ai` skill's
+default teardown, then run its bind-mounted data cleanup (`references/teardown.md` in that
+skill), and redeploy. The Kafka topics live in `<vss_data>/data_log/kafka`, bind-mounted and
+owned by the Kafka container's user: neither `down -v` nor a host `rm` clears them, the
+cleanup's `sudo` does.
 
 Related state rules:
 
@@ -483,7 +474,7 @@ downstream (PSF fusion config, ATL logic, hysteresis) — continue from there.
 ```bash
 # vss-rtvi-cv is a VSS Warehouse container — recreate it from the VSS deploy:
 docker rm -f vss-rtvi-cv
-docker compose up -d vss-rtvi-cv   # from the VSS deploy dir, with the same env files as the deploy
+docker compose -p vss -f <vss_repo>/_builds/<name>/resolved.yml up -d perception-2d   # perception-3d on the 3D app
 ```
 
 ---
@@ -559,7 +550,8 @@ exited (1)`; `docker logs kafka` ends with
 **Cause**: the app-data archive extracts with mode `750`, and Kafka runs as a non-root
 user in its container, so it cannot write `<vss_data>/data_log/kafka`.
 
-**Fix**: `chmod -R a+rwX <vss_data>`, then `up` again (`vss_2d_overrides.md` → "Before the deploy").
+**Fix**: run the `vss-build-vision-ai` skill's data-directory gate (`references/data-directory.md`),
+which opens `data_log`, `models` and `videos` to every user, then `up` again.
 
 ---
 
@@ -585,5 +577,5 @@ user in its container, so it cannot write `<vss_data>/data_log/kafka`.
 | ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
 | Any `PSF_APP` on a 3D feed: no decisions, `pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` | PSF still on the 2D `nvpss.conf` — set `PSF_NVPSS_CONFIG_SRC` and `PSF_SENSOR_PIPELINES_CONFIG_SRC` (`halos_deploy.md` → "Safety app") |
 | `PSF_APP=pxc` on stock VSS: no Forklift × Person proximity | Behavior analytics ships `proximityDetectionThreshold` `2` without `Forklift` as a center class — `vss_3d_overrides.md` → "Behavior analytics (3D)" |
-| VSS `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | `chmod -R a+rwX` the app-data dir — `vss_2d_overrides.md` → "Before the deploy" |
+| VSS `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | Run the `vss-build-vision-ai` data-directory gate before `up` |
 | `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |

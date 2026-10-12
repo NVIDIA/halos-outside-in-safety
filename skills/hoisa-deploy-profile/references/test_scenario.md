@@ -58,7 +58,7 @@ PYTHONPATH=<vss>/libs/analytics/spatialai-data-utils python3 build_vss_calibrati
 cp -a $VSS_DATA_DIR/videos/warehouse-loading-dock-3cams-synthetic $VSS_DATA_DIR/videos/$DS
 ```
 
-Then set `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/overrides.env`. Both apps run this scene:
+Then set `SAMPLE_VIDEO_DATASET="$DS"` in the VSS build's `override.env`. Both apps run this scene:
 the 3D app ran it for 10 min with both bays deciding. For 3D, also put a calibration with
 the BEV group and the top-level `roi-id-1/2` / `tripwire-id-1/2` under
 `<wh_ops>/warehouse-3d-app/calibration/sample-data/$DS` (`calibration_3d.md`), and set the

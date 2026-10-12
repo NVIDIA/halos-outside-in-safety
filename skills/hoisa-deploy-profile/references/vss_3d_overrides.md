@@ -2,9 +2,9 @@
 
 When running the `sil` profile against the **3D (Sparse4D) perception backend**
 (multi-view detection + BEV tracking) instead of 2D, deploy VSS the same way as for 2D — the
-`vss-build-vision-ai` skill, warehouse profile, at `dev-26.10.2` with the steps of
-`vss_2d_overrides.md` → "Before the deploy" — and apply these overrides **before** its
-`docker compose up`. This file specifies only what must be **different** for a 3D SIL run.
+`vss-build-vision-ai` skill, warehouse profile, at `dev-26.10.2` (`vss_2d_overrides.md`) — and
+apply these overrides **before** its `docker compose up`. This file specifies only what must
+be **different** for a 3D SIL run.
 
 The Halos stack itself (safety-core, comm-layer, isaac-sim, forklift-controller) is
 **identical** to 2D — 3D changes only the VSS perception side — except that PSF runs
@@ -18,7 +18,7 @@ Sim launch is the **same** as 2D (`--enable-vst`) — see `test_scenario.md`.
 >
 > **Do NOT run `docker compose` from `<wh_ops>/`.** Its `compose.yml` is only an app
 > fragment (it `include:`s the 2D / 3D / MV3DT apps but **no infra** — Kafka, Redis,
-> `sdr-controller`). The deploy runs from the top-level `<vss_repo>/deploy/docker/`.
+> `sdr-controller`). Deploy the build's `resolved.yml`, as the skill does.
 
 ---
 
@@ -40,18 +40,22 @@ survives an Isaac relaunch — exactly the same reason as the 2D profile.
 
 ---
 
-## overrides.env
+## Env Overrides
 
-The 2D values of `vss_2d_overrides.md` → "overrides.env", with these three changed:
+The 2D answers of `vss_2d_overrides.md` → "Env Overrides", with mode `3d`:
 
 ```bash
-MODE=3d                                                           # selects warehouse-3d-app (Sparse4D + 3D behavior analytics)
-DATASET_TYPE=synthetic                                            # 3d only: the Sparse4D bundle for synthetic scenes
-COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL}
+MODE=3d                                                         # default: 2d — warehouse-3d-app (Sparse4D + 3D behavior analytics)
+FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL         # the skill expands it into COMPOSE_PROFILES
 ```
 
+`DATASET_TYPE=synthetic` already ships, and the skill derives it from the dataset.
 `SAMPLE_VIDEO_DATASET` stays `"warehouse-loading-dock-3cams-synthetic"`: the 3D app ships its
 BEV calibration under the same dataset name as the 2D one.
+
+The skill's `validate_warehouse_env.py` warns `MODE=3d on a _MINIMAL list deploys no
+Elasticsearch, so the mdx-bev index is never persisted`. Expected for SIL: PSF and SRR read
+`mdx-bev` from Kafka.
 
 **Model.** There is no model step: perception downloads Sparse4D into
 `<vss_data>/models/sparse4d/` before building the engine. `DATASET_TYPE=synthetic` gives RN50
@@ -235,7 +239,7 @@ echo "mdx-events READY"
 |---------|----|----|
 | App dir | `warehouse-2d-app/` | `warehouse-3d-app/` |
 | Perception | RT-DETR detect + NvDCF track | **Sparse4D** multi-view + BEV track |
-| `overrides.env` | `MODE=2d`, `…_KAFKA_2D_MINIMAL` | `MODE=3d`, `DATASET_TYPE=synthetic`, `…_KAFKA_3D_MINIMAL` |
+| Env | mode `2d`, `…_KAFKA_2D_MINIMAL` | mode `3d`, `…_KAFKA_3D_MINIMAL` |
 | Model | shipped | Sparse4D RN50 v2.3, downloaded by perception at start |
 | Calibration | use as-is | BEV group `bev-sensor-1` + top-level ROI / tripwire — shipped; `calibration_3d.md` for another scene |
 | Behavior analytics | as shipped | `proximityDetectionThreshold` `4`, `Forklift` in `proximityDetectionCenterClasses` (`pxc` / `both`) |
@@ -246,5 +250,5 @@ echo "mdx-events READY"
 | `batched-push-timeout` | (default) | **`75000`** |
 | `low-latency-mode` | (default `1`) | **`0`** |
 | `config.yaml` | n/a | `num_sensors=3`, `num_torch_threads=8`, `gpu_postprocess: False` |
-| VST | `bbox_tolerance_ms=100`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false`, recording off | **same** |
+| VST | `bbox_tolerance_ms=100`, `rtsp_streaming_over_tcp`, `use_sensor_ntp_time=false` | **same** |
 | Isaac launch | `--enable-vst` | **same** — `--enable-vst` (`test_scenario.md`) |

@@ -20,10 +20,7 @@ files, profiles, configs, and this skill all live in the repo. When active,
 **ALWAYS read the relevant reference document before running commands.**
 Deployment has two stacks that must come up in order — do NOT skip or reorder.
 
-> Targets **VSS Warehouse 3.3** (code-freeze drop `dev-26.10.2`), deployed with the VSS repo's
-> `vss-build-vision-ai` skill (warehouse profile) plus the SIL overrides of
-> `references/vss_2d_overrides.md` / `references/vss_3d_overrides.md`. The Thor profiles
-> (`hil`, `base` on Thor) have not been run on 3.3 yet (`references/halos_thor.md`).
+> Targets **VSS Warehouse 3.3** (code-freeze drop `dev-26.10.2`). The Thor profiles still run 3.2.1 (`references/halos_thor.md`).
 
 ---
 
@@ -157,8 +154,8 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 |----------|----------|
 | [references/prerequisites.md](references/prerequisites.md) | Hardware/software requirements, Docker, NGC CLI, driver, GPU selection |
 | [references/ngc_artifacts.md](references/ngc_artifacts.md) | Pulling sil-data + PSF image + VSS images from NGC; **Thor Safety Core `.deb` (`psf-tegra`)** |
-| [references/vss_2d_overrides.md](references/vss_2d_overrides.md) | VSS 3.3 for SIL — tag, pinned images, app data, `overrides.env`, DeepStream and VST config for Isaac Sim, clean redeploy |
-| [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | **3D (Sparse4D) profile** — `overrides.env`, DeepStream + `config.yaml`, behavior-analytics proximity, VST overrides |
+| [references/vss_2d_overrides.md](references/vss_2d_overrides.md) | VSS Warehouse 2D env (the `vss-build-vision-ai` answers), DeepStream config, and VST config for Isaac Sim |
+| [references/vss_3d_overrides.md](references/vss_3d_overrides.md) | **3D (Sparse4D) profile** — VSS env, DeepStream + `config.yaml`, behavior-analytics proximity, VST overrides |
 | [references/calibration_3d.md](references/calibration_3d.md) | **3D, a scene of your own** — the 3-camera BEV calibration (`group` / `rois` / `tripwires`); the loading dock ships with VSS |
 | [references/halos_deploy.md](references/halos_deploy.md) | Configuring and deploying the Halos stack by profile |
 | [references/halos_thor.md](references/halos_thor.md) | Deploying `base` on IGX Thor (aarch64) — the hybrid container + host-binary Safety Core |
@@ -174,9 +171,8 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | Tag | Rule | Details in |
 |-----|------|-----------|
 | `VSS_DEPLOY` | Deploy VSS Warehouse 3.3 with the VSS repo's `vss-build-vision-ai` skill (warehouse profile); apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
-| `VSS_IMAGE_TAG` | Export `VSS_CONTAINER_TAG=nightly-20261010` (the images of `dev-26.10.2`) before every compose command; the default `develop-latest` follows VSS `develop`, not the tag | `vss_2d_overrides.md` |
-| `VSS_OVERRIDES_ENV` | Settings go in `overrides.env`, which compose reads last; set `COMPOSE_PROFILES` to the `_MINIMAL` list of the mode | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
-| `VSS_DATA_PERMS` | `chmod -R a+rwX` the extracted app data before the first `up`, or Kafka exits on `Permission denied` | `vss_2d_overrides.md`, `troubleshooting.md` |
+| `VSS_IMAGE_TAG` | Pick the container tag `nightly-20261010` (the images of `dev-26.10.2`) and export `VSS_CONTAINER_TAG` before the skill's `config` step; the default `develop-latest` follows VSS `develop`, not the tag | `vss_2d_overrides.md` |
+| `VSS_SIL_ENV` | The SIL answers go in the build's `_builds/<name>/override.env`: `bp_wh_kafka`, size Minimal, the 3-camera loading-dock dataset with `NUM_STREAMS=3` | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
 | `PSF_3D_FEED` | On a 3D feed set `PSF_NVPSS_CONFIG_SRC` + `PSF_SENSOR_PIPELINES_CONFIG_SRC` for **every** `PSF_APP`, `atl` included — the 2D config drops every event | `halos_deploy.md` |
 | `BA_PROXIMITY` | **`pxc` / `both`:** set behavior analytics `proximityDetectionThreshold` to `4` and add `Forklift` to `proximityDetectionCenterClasses` — shipped values give no forklift proximity | `vss_3d_overrides.md` |
 | `VSS_BEFORE_HALOS` | **`base`/`sil` only:** VSS Warehouse must be running and healthy before deploying Halos. `hil` inverts this — bring Isaac up and confirm the streams deliver frames first, then deploy VSS on the Thor, or the Thor registers sensors against a cold Isaac and hits the "no caps" race | `vss_2d_overrides.md`, `halos_hil.md` §3 |
@@ -232,5 +228,6 @@ docker volume prune -f
 
 > ⚠️ `docker volume prune -f` deletes **every** dangling volume on the host. Safe while VSS
 > is still running (its volumes are in-use), but if the VSS stack is already down it also
-> deletes the VSS sensor database (`vss_vios_pg_data`). **Ask the user before running it**; to clear only Halos state, skip
-> the prune — the `down` + datalog cleanup above already remove the per-run state.
+> deletes the VSS sensor database (`vss_vios_pg_data`). **Ask the user before running it**;
+> to clear only Halos state, skip the prune — the `down` + datalog cleanup above already
+> remove the per-run state.
