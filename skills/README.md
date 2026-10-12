@@ -23,7 +23,7 @@ Open this repository in your coding agent (Claude Code, Codex, Cursor, or any ot
 > - Codex: `~/.codex/skills/<name>/`
 > - agentskills.io hosts: `~/.agents/skills/<name>/`
 >
-> Symlink each folder rather than copying it so a `git pull` here keeps installs current. The perception backend is deployed first: also install the `vss-build-vision-ai` skill from the VSS Blueprint repository at `dev-26.10.2` (`skills/vss-build-vision-ai`). When done, list the skills you registered and the directory you used.
+> Symlink each folder rather than copying it so a `git pull` here keeps installs current. The perception backend is deployed first: also install the `vss-build-vision-ai` skill from the VSS Blueprint repository at `v3.3.0rc0` (`skills/vss-build-vision-ai`). When done, list the skills you registered and the directory you used.
 
 Verify with `/skills` in your agent: `hoisa-deploy-profile`, `hoisa-generate-regression-report` and `vss-build-vision-ai` should be listed.
 
