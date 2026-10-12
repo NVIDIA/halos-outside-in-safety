@@ -579,6 +579,9 @@ are too unstable for tripwires. The same model and app ran the 20x20 scene for h
 **Fix**: run ATL on 40x20 with the 2D app (`test_scenario.md`). A `docker restart vss-rtvi-cv`
 plus one sensor re-registration clears the NaN, until it comes back.
 
+Seen on VSS 3.2.1 with the R101 model. On VSS 3.3 (RN50 v2.3, `DATASET_TYPE=synthetic`) the 3D
+app ran `warehouse_40x20` for 10 min with detections throughout and both bays deciding.
+
 ---
 
 ## Quick Reference
@@ -604,5 +607,5 @@ plus one sensor re-registration clears the NaN, until it comes back.
 | Any `PSF_APP` on a 3D feed: no decisions, `pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` | PSF still on the 2D `nvpss.conf` — set `PSF_NVPSS_CONFIG_SRC` and `PSF_SENSOR_PIPELINES_CONFIG_SRC` (`halos_deploy.md` → "Safety app") |
 | `PSF_APP=pxc` on stock VSS: no Forklift × Person proximity | Behavior analytics ships `proximityDetectionThreshold` `2` without `Forklift` as a center class — `vss_3d_overrides.md` → "Behavior analytics (3D)" |
 | VSS 3.3 `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | `chmod -R a+rwX` the app-data dir — `vss_33.md` §1 |
-| 3D on `warehouse_40x20`: detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene |
+| 3D on `warehouse_40x20` (VSS 3.2.1): detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene, or VSS 3.3, where it did not occur |
 | `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |
