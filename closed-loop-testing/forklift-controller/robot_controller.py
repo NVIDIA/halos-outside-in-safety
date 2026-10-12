@@ -39,6 +39,11 @@ from datetime import datetime
 from state_machine import StateMachine, RobotState
 from proximity_gate import (ProximityGate, NORMAL as PXC_NORMAL, STOP as PXC_STOP,
                             INACTIVE as PXC_INACTIVE, DISABLED as PXC_DISABLED)
+from path_resume import nearest_pose
+
+# A truck farther than this from pose 0 when the controller starts is out on its
+# path, and resumes there instead of returning to the start.
+RESUME_FROM_START_M = 1.0
 
 
 class RobotController(Node):
@@ -380,25 +385,15 @@ class RobotController(Node):
         self._sim_running = True
     
     def _reset_path(self):
-        """Reset path following - find nearest heading-compatible pose"""
+        """Reset path following - drive on from the nearest heading-compatible pose"""
         best_idx = 0
 
         if self.odom_received and self.poses:
-            best_score = float('inf')
-            for i, p in enumerate(self.poses):
-                dx = float(p['x']) - self.robot_x
-                dy = float(p['y']) - self.robot_y
-                dist = math.sqrt(dx * dx + dy * dy)
-                heading_diff = abs(self._normalize_angle(float(p['theta']) - self.robot_theta))
-                # Weight: distance + heavy heading penalty (1 radian ~ 3 meters)
-                score = dist + heading_diff * 3.0
-                if score < best_score:
-                    best_score = score
-                    best_idx = i
-
+            nearest, score = nearest_pose(self.poses, self.robot_x, self.robot_y, self.robot_theta)
+            best_idx = nearest + 1
             self.get_logger().info(
-                f'🔁 Path reset: nearest heading-compatible pose = {best_idx} '
-                f'(score={best_score:.2f}, robot=({self.robot_x:.1f},{self.robot_y:.1f},{math.degrees(self.robot_theta):.0f}°))')
+                f'🔁 Path reset: nearest heading-compatible pose = {nearest}, next = {best_idx} '
+                f'(score={score:.2f}, robot=({self.robot_x:.1f},{self.robot_y:.1f},{math.degrees(self.robot_theta):.0f}°))')
         else:
             self.get_logger().info('🔁 Path reset to beginning (no odom)')
 
@@ -453,6 +448,25 @@ class RobotController(Node):
             self.get_logger().info(
                 f'Odom received: ({self.robot_x:.2f}, {self.robot_y:.2f}, '
                 f'{math.degrees(self.robot_theta):.1f}°)')
+            self._resume_on_path()
+
+    def _resume_on_path(self):
+        """A controller started with the truck already out on its path picks it up there.
+
+        Starting at pose 0 instead sends the truck back to the path start, and the
+        skip-ahead below only looks within the first segment, ignoring heading.
+        """
+        if not self.poses or self.current_pose_idx != 0:
+            return
+        start = self.poses[0]
+        from_start = math.hypot(float(start['x']) - self.robot_x, float(start['y']) - self.robot_y)
+        if from_start <= RESUME_FROM_START_M:
+            return
+        nearest, score = nearest_pose(self.poses, self.robot_x, self.robot_y, self.robot_theta)
+        self.current_pose_idx = nearest + 1
+        self.get_logger().warn(
+            f'↪️ Truck is {from_start:.1f} m from the path start: resuming at pose '
+            f'{self.current_pose_idx} (nearest heading-compatible pose {nearest}, score={score:.2f})')
     
     def _on_state_change(self, old_state: RobotState, new_state: RobotState):
         """Callback when state changes"""
