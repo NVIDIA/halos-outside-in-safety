@@ -1,13 +1,13 @@
 # VSS Warehouse 3.3 — 2D Profile Overrides
 
 Deploy VSS Warehouse 3.3 with the VSS repository's `vss-build-vision-ai` skill, warehouse
-profile (`skills/vss-build-vision-ai/references/profiles/warehouse.md`), from the 3.3.0
-code-freeze drop: tag `dev-26.10.2`. That skill owns the deploy flow — its `_builds/<name>/`
+profile (`skills/vss-build-vision-ai/references/profiles/warehouse.md`), from the GitHub
+release `v3.3.0rc0`. That skill owns the deploy flow — its `_builds/<name>/`
 build, the env layers, the data-directory gate, readiness and teardown. This file specifies
 only what must be **different** for SIL: the answers to give it, and the config files to edit
 **before** its `docker compose up`.
 
-> `<vss_repo>` = the VSS checkout at `dev-26.10.2`; `<vss_data>` = the extracted
+> `<vss_repo>` = the VSS checkout at `v3.3.0rc0`; `<vss_data>` = the extracted
 > `vss-warehouse-app-data`; `<wh_ops>` = `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`,
 > where the config files below live (the DeepStream config, the VST config).
 >
@@ -26,19 +26,19 @@ keeps decisions flowing.
 
 Answer the skill's warehouse questions with mode `2d`, variant `bp_wh_kafka`, size **Minimal**
 and dataset `warehouse-loading-dock-3cams-synthetic`, and pick the container image tag
-`nightly-20261010`. The skill writes them into `_builds/<name>/override.env`, the last env
+`develop-4c432f24cf39`, the ghcr build of the `v3.3.0rc0` commit. The skill writes them into `_builds/<name>/override.env`, the last env
 layer. Against the shipped `overrides.env` that changes:
 
 ```bash
-VSS_CONTAINER_TAG=nightly-20261010                              # default: develop-latest — the images of dev-26.10.2
-FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL         # default: …_WH_KAFKA_2D — the skill expands it into COMPOSE_PROFILES
+VSS_CONTAINER_TAG=develop-4c432f24cf39                          # default: develop-latest — the build of the v3.3.0rc0 commit
+FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL         # default: …_WH_2D (with the agent) — the skill expands it into COMPOSE_PROFILES
 SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: warehouse-4cams-20mx20m-synthetic — SIL synthetic dataset (3 cams)
 NUM_STREAMS=3                                                   # default: 4 — matches 3 Isaac Sim cameras
 HARDWARE_PROFILE=L40S                                           # default: H100 — the host's GPU
+LLM_MODE=none                                                   # default: local — not needed for SIL
 ```
 
-`MODE=2d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka`, `LLM_MODE=none` and `VLM_MODE=none`
-already ship.
+`MODE=2d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka` and `VLM_MODE=none` already ship.
 
 **Why**:
 - `bp_wh_kafka` (not `bp_wh`): PSF consumes events from Kafka — without Kafka, no safety decisions

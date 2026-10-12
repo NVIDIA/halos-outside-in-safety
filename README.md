@@ -100,7 +100,7 @@ The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/
 
 **Ideal for:** deploying by hand on your own host or bare-metal instance.
 
-1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) 3.3 perception backend first (code-freeze drop `dev-26.10.2`, with its [`vss-build-vision-ai`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/dev-26.10.2/skills/vss-build-vision-ai) skill and the Halos settings in [`vss_2d_overrides.md`](skills/hoisa-deploy-profile/references/vss_2d_overrides.md)). It publishes the detection events the Safety Core consumes.
+1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) 3.3 perception backend first (GitHub release `v3.3.0rc0`, with its [`vss-build-vision-ai`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0rc0/skills/vss-build-vision-ai) skill and the Halos settings in [`vss_2d_overrides.md`](skills/hoisa-deploy-profile/references/vss_2d_overrides.md)). It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
 For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).

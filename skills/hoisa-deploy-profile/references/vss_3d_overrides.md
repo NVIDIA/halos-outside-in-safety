@@ -2,7 +2,7 @@
 
 When running the `sil` profile against the **3D (Sparse4D) perception backend**
 (multi-view detection + BEV tracking) instead of 2D, deploy VSS the same way as for 2D — the
-`vss-build-vision-ai` skill, warehouse profile, at `dev-26.10.2` (`vss_2d_overrides.md`) — and
+`vss-build-vision-ai` skill, warehouse profile, at `v3.3.0rc0` (`vss_2d_overrides.md`) — and
 apply these overrides **before** its `docker compose up`. This file specifies only what must
 be **different** for a 3D SIL run.
 
@@ -59,7 +59,8 @@ Elasticsearch, so the mdx-bev index is never persisted`. Expected for SIL: PSF a
 
 **Model.** There is no model step: perception downloads Sparse4D into
 `<vss_data>/models/sparse4d/` before building the engine. `DATASET_TYPE=synthetic` gives RN50
-v2.3 (`nvidia/tao/sparse4d_rn50:deployable_v2.3`), `real` RN50 v3.0. The engine build took
+v2.3 (`nvstaging/tao/sparse4d_rn50:deployable_v2.3`, so the NGC key needs `nvstaging` access),
+`real` RN50 v3.0. The engine build took
 about 5 min on an L40S.
 
 **Calibration.** `<wh_ops>/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic`
