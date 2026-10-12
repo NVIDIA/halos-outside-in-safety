@@ -58,7 +58,8 @@ PYTHONPATH=<vss>/libs/analytics/spatialai-data-utils python3 build_vss_calibrati
 cp -a $VSS_DATA_DIR/videos/warehouse-loading-dock-3cams-synthetic $VSS_DATA_DIR/videos/$DS
 ```
 
-Then set `MODE=2d` and `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/.env`. Use the
+Then set `MODE=2d` and `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/overrides.env` (VSS 3.3;
+`<wh_ops>/.env` on 3.2.1). The same steps and paths work on both versions. Use the
 2D app: on this scene the 3D (Sparse4D) app stops detecting within seconds to
 minutes (`troubleshooting.md` → "Sparse4D Stops Detecting on the 40x20 Scene").
 `spatialai-data-utils` only fills `fieldOfViewPolygon`; without it the field is left out.

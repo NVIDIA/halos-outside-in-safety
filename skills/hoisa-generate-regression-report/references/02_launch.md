@@ -13,7 +13,9 @@ Run for EACH scenario in the plan. **Restart both Halos and SRR compose between 
 > case "$PERCEPTION" in vss-rtvi-cv|*-3d) FPS_MIN=5;; *) FPS_MIN=25;; esac
 > ```
 > (See SKILL.md § "Agent autonomy rules" for the same note.) Phase 2 metrics require
-> `mdx-bev` + `mdx-behavior` to be flowing (Sparse4D warehouse) — present on VSS 3.2.1.
+> `mdx-bev` + `mdx-behavior` to be flowing (Sparse4D warehouse) — present on VSS 3.2.1, and
+> on 3.3 under the same container and topic names. On 3.3, read "`vss-deploy-profile`
+> teardown/redeploy" below as `hoisa-deploy-profile` → `references/vss_33.md` §4.
 
 ---
 

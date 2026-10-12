@@ -1,29 +1,31 @@
-# VSS Warehouse — 3D (Sparse4D) Profile Overrides (VSS 3.2.1)
+# VSS Warehouse — 3D (Sparse4D) Profile Overrides (VSS 3.3 and 3.2.1)
 
 When running the `sil` profile against the **3D (Sparse4D) perception backend**
 (multi-view detection + BEV tracking) instead of 2D, apply these overrides **before**
-running VSS's `docker compose up`. The `vss-deploy-profile` skill handles the standard
-deploy flow — this file specifies only what must be **different** for a 3D SIL run.
+running VSS's `docker compose up`. This file specifies only what must be **different** for
+a 3D SIL run. The deploy flow itself is `vss_33.md` for VSS 3.3, and the
+`vss-deploy-profile` skill of the VSS repository for 3.2.1. The DeepStream, VST and
+behavior-analytics keys below are the same in both versions.
 
 The Halos stack itself (safety-core, comm-layer, isaac-sim, forklift-controller) is
 **identical** to 2D — 3D changes only the VSS perception side, the calibration, and the
-model. Pair this file with `model_r101.md` (the R101 Sparse4D model recipe) and
-`calibration_3d.md` (the 3-camera BEV calibration). The Isaac Sim launch is the
+model — except that PSF runs `deploymentMode = 3D` for **every** `PSF_APP` on this feed
+(`halos_deploy.md` → "Safety app"). On 3.3 the model and the loading-dock calibration ship
+with VSS; on 3.2.1 pair this file with `model_r101.md` (the R101 Sparse4D model recipe)
+and `calibration_3d.md` (the 3-camera BEV calibration). The Isaac Sim launch is the
 **same** as 2D (`--enable-vst`) — see `test_scenario.md`.
 
-> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory
+> `<wh_ops>` = the VSS warehouse-operations directory
 > `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. The 3D app files
 > below live under `<wh_ops>/warehouse-3d-app/` (the 2D equivalents are under
 > `warehouse-2d-app/`).
 >
 > **Do NOT run `docker compose` from `<wh_ops>/`.** Its `compose.yml` is only an app
 > fragment (it `include:`s the 2D / 3D / MV3DT apps but **no infra** — Kafka, Redis,
-> `sdr-controller`). The `vss-deploy-profile` skill runs the deploy from the top-level
-> `<vss_repo>/deploy/docker/` (`compose.yml`) with
-> `--env-file industry-profiles/warehouse-operations/.env`. Selecting the **3D** app
-> (`warehouse-3d-app`, which pins the 3D perception + 3D behavior-analytics images) is a
-> VSS-side setting — see the `vss-deploy-profile` skill / public VSS Warehouse docs. Edit
-> the override files below in place, then let `vss-deploy-profile` bring VSS up.
+> `sdr-controller`). The deploy runs from the top-level `<vss_repo>/deploy/docker/`
+> (`compose.yml`): on 3.3 with the three env files of `vss_33.md` §4 and `MODE=3d`, on
+> 3.2.1 with `--env-file industry-profiles/warehouse-operations/.env`. Edit the override
+> files below in place, then bring VSS up.
 
 ---
 
@@ -47,8 +49,13 @@ survives an Isaac relaunch — exactly the same reason as the 2D profile.
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the rest ship
-differently and must be changed:
+**VSS 3.3:** these keys live in `<wh_ops>/overrides.env`, with `MODE=3d`,
+`DATASET_TYPE=synthetic`, `HARDWARE_PROFILE`, `COMPOSE_PROFILES` and the paths — the full
+list is `vss_33.md` §2. The dataset is `"warehouse-loading-dock-3cams-synthetic"`: 3.3 has no
+`-3d` dataset.
+
+**VSS 3.2.1:** set in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the
+rest ship differently and must be changed:
 
 ```bash
 BP_PROFILE=bp_wh_kafka                                             # default: bp_wh — MUST include Kafka for PSF
@@ -136,8 +143,12 @@ gpu_postprocess: False   # run Sparse4D post-processing on CPU
 - `gpu_postprocess: False`: keep post-processing on CPU so it does not contend with the
   detector for GPU memory / SMs (important when perception and Isaac share a GPU).
 
-The model files this config points at come from `model_r101.md` — the **R101 Sparse4D**
-model (deployable ONNX + trainable kmeans anchor, version-matched).
+On **3.3** the configurator sets `num_sensors` from `NUM_STREAMS`, the other two keys ship
+with these values, and the model is downloaded by perception itself (`vss_33.md` §3) —
+nothing to edit here.
+
+On **3.2.1** the model files this config points at come from `model_r101.md` — the **R101
+Sparse4D** model (deployable ONNX + trainable kmeans anchor, version-matched).
 
 ---
 
@@ -148,8 +159,22 @@ model (deployable ONNX + trainable kmeans anchor, version-matched).
 perception output and emits the ROI / tripwire events (`mdx-events`) and per-frame ROI
 analysis (`mdx-frames`) the Safety Core reads — the **same event seam** the 2D profile
 uses, so no safety-core change is needed for 3D. The ROI / tripwire ids it emits come from
-the 3D `calibration.json` (`calibration_3d.md`) and must match the `rule_id`s in
-`nvpss.conf`.
+the 3D `calibration.json` (`calibration_3d.md` on 3.2.1; shipped with the dataset on 3.3)
+and must match the `rule_id`s in `nvpss.conf`.
+
+**Proximity (`PSF_APP=pxc` / `both`)** needs one change, in both versions. The shipped 3D
+config pairs only the humanoid robots with `Person`, within 2 m, so a forklift never
+produces a proximity event and the HOISA tiers (REDUCE up to 3.5 m) would be cut off.
+
+File: `<wh_ops>/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json`
+
+```jsonc
+"name": "proximityDetectionThreshold",     "value": "4"    // shipped "2"; must be >= every
+                                                           // distance_threshold_meters in the
+                                                           // proximity mapping (3.5 m)
+"name": "proximityDetectionCenterClasses", "value": "[\"Forklift\",\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\"]"
+                                                           // shipped without "Forklift"
+```
 
 ---
 
@@ -227,8 +252,10 @@ echo "mdx-events READY"
 |---------|----|----|
 | App dir | `warehouse-2d-app/` | `warehouse-3d-app/` |
 | Perception | RT-DETR detect + NvDCF track | **Sparse4D** multi-view + BEV track |
-| Model | R50 default | **R101** (`model_r101.md`) |
-| Calibration | use as-is | **3D dataset** with `group` / `rois` / `tripwires` (`calibration_3d.md`) |
+| Model | shipped | 3.3: shipped (RN50 v2.3 with `DATASET_TYPE=synthetic`); 3.2.1: **R101** (`model_r101.md`) |
+| Calibration | use as-is | **3D dataset** with `group` / `rois` / `tripwires` — shipped on 3.3; 3.2.1: `calibration_3d.md` |
+| Behavior analytics | as shipped | `proximityDetectionThreshold` `4`, `Forklift` in `proximityDetectionCenterClasses` (`pxc` / `both`) |
+| PSF (Halos profile) | 2D `nvpss.conf` | `PSF_NVPSS_CONFIG_SRC` + `PSF_SENSOR_PIPELINES_CONFIG_SRC` set, for every `PSF_APP` |
 | SEI extraction | off | off (same — PSF doesn't support sim time) |
 | `attach-sys-ts-as-ntp` | `1` | `1` |
 | `sync-inputs-ntp` | (default) | **`0`** |

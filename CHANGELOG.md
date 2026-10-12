@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### VSS Warehouse 3.3
+
+- `hoisa-deploy-profile` targets VSS 3.3 (`v3.3.0rc0`) and keeps 3.2.1. VSS 3.3 ships no `vss-deploy-profile` skill, so `references/vss_33.md` covers its deploy: images pinned to the tag's build (`VSS_CONTAINER_TAG=develop-4c432f24cf39`), the `v3.3.0-09152026` app data and its permissions, `overrides.env`, the `_MINIMAL` compose profiles, the three env files, and what moved since 3.2.1 (shipped Sparse4D model and loading-dock BEV calibration, no `-3d` dataset).
+- The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
+- `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
+- `model_r101.md` and the R101 profile variables are 3.2.1-only. The Thor profiles, SRR and the Brev notebook have been run on 3.2.1 only.
+- Run on 3.3 with `sil`: ATL, `pxc`, `both` (3D app) and `atl-dual` on `warehouse_40x20` (2D app).
+
 ### Breaking — PSF image with configured SDMs
 
 The `sil` and `base` configs target the PSF 1.4 image, whose launcher no longer starts an SDM without its event binding. Until 1.4 is published on NGC, `PSF_IMAGE` stays on 1.3 (`nv-psf-halos-1.3-6932895`), which does not run these configs.

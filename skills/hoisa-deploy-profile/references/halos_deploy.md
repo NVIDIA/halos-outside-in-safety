@@ -1,6 +1,7 @@
 # Halos Deployment by Profile (Stack 2)
 
-Deploy the Halos stack **after** VSS Warehouse 3.2.1 is up + healthy (Stack 1).
+Deploy the Halos stack **after** VSS Warehouse is up + healthy (Stack 1: 3.3 per
+`vss_33.md`, or 3.2.1).
 Services and config differ per profile:
 
 | Profile | Services | Notes |
@@ -84,8 +85,8 @@ fill the `# change me` placeholders (keep your filled copy local — don't commi
 
 What else each needs:
 
-- **`pxc` / `both`** — the proximity mapping is `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt`, mounted over the image's (whose `Forklift` × `Person` tiers stop at 2 / 1 m). It scores `Forklift` × `Person`: STOP ≤ 2 m, REDUCE ≤ 3.5 m, centre to centre, as `EVENT_12/13/14`, which `configs/pxc_sdm.conf` binds to the SDM (`EVENT_0..11` are ATL's). Every threshold must stay ≤ the VSS behavior-analytics `proximityDetectionThreshold` (4 m in the 3D app config) — above it mdx-client drops the whole rule group, STOP included, without a log line.
-- **3D (Sparse4D) feed only** — `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf`. PSF then runs `deploymentMode = 3D` with fusion off: the BEV app reports every camera as one sensor, `bev-sensor-1`, which `configs/sensor_group_config.conf` declares as group 4 of the three cameras in `sensor_config.conf`. The SDM decides on the group; SAIM, when on, watches each camera. On a 2D feed each camera's EVENT_12/13/14 would reach the SDM's last-writer-wins batch separately, so one camera's NORMAL could override another's STOP.
+- **`pxc` / `both`** — the proximity mapping is `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt`, mounted over the image's (whose `Forklift` × `Person` tiers stop at 2 / 1 m). It scores `Forklift` × `Person`: STOP ≤ 2 m, REDUCE ≤ 3.5 m, centre to centre, as `EVENT_12/13/14`, which `configs/pxc_sdm.conf` binds to the SDM (`EVENT_0..11` are ATL's). Every threshold must stay ≤ the VSS behavior-analytics `proximityDetectionThreshold`, which the SIL sets to 4 m together with `Forklift` as a center class (VSS ships 2 m and no `Forklift`, `vss_3d_overrides.md` → "Behavior analytics (3D)") — above it mdx-client drops the whole rule group, STOP included, without a log line.
+- **3D (Sparse4D) feed only** — `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf`, for **every** `PSF_APP`, `atl` included: with the 2D `nvpss.conf` on a 3D feed, mdx-client drops every event (`Dropping event: sensor not in sensor_config, so it has no pipelineID: bev-sensor-1`) and no decision is made. PSF then runs `deploymentMode = 3D` with fusion off: the BEV app reports every camera as one sensor, `bev-sensor-1`, which `configs/sensor_group_config.conf` declares as group 4 of the three cameras in `sensor_config.conf`. The SDM decides on the group; SAIM, when on, watches each camera. On a 2D feed each camera's EVENT_12/13/14 would reach the SDM's last-writer-wins batch separately, so one camera's NORMAL could override another's STOP.
 - **SIL only** — `hil` launches PSF through `launch_thor_safety.sh`, which runs `--app atl`; and under `base` the command target is the VST overlay, which expects ATL packets.
 - **`both`** — add the override file to every compose command, or set `COMPOSE_FILE` next to `PSF_APP=both` in the profile, and set `COMM_UDP_PORT_PXC` (see `sil.env`):
   ```bash
@@ -235,10 +236,12 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down
 bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
 
 # 2. Tear down VSS *with* its state volumes — but selectively.
-#    Follow the vss-deploy-profile skill's teardown reference for the compose
-#    project specifics; the state volume to remove is the VST postgres data
-#    volume (docker volume ls | grep -iE 'pg|postgres').
-#    Do NOT blanket `down -v`: that also removes the TensorRT engine volume.
+#    VSS 3.3: `down -v` per vss_33.md §4 — the models and TensorRT engine live
+#    under VSS_DATA_DIR/models/, not in a volume.
+#    VSS 3.2.1: follow the vss-deploy-profile skill's teardown reference for the
+#    compose project specifics; the state volume to remove is the VST postgres
+#    data volume (docker volume ls | grep -iE 'pg|postgres').
+#    Do NOT blanket `down -v` on 3.2.1: that also removes the TensorRT engine volume.
 
 # 3. Redeploy in the standard order: VSS Warehouse first (engine and caches are
 #    reused, so this pass is fast), then clear redis (below), then the Halos

@@ -18,7 +18,7 @@ Run the deployment (and this skill) from the **x86 host**; ssh access to the Tho
 ## 0. Prerequisites
 
 - x86 host: per `prerequisites.md` (GPU for Isaac Sim), plus the NGC artifacts from `ngc_artifacts.md` §1 (sil-data).
-- Thor host: IGX Thor on a current GA release with VSS Warehouse 3.2.1 deployable, plus the Safety Core package from `ngc_artifacts.md` §4 (`psf-tegra`).
+- Thor host: IGX Thor on a current GA release with VSS Warehouse 3.2.1 deployable, plus the Safety Core package from `ngc_artifacts.md` §4 (`psf-tegra`). `hil` has been run with VSS 3.2.1 only, not yet with 3.3.
 - Network: the two hosts must reach each other (Isaac RTSP ports 8554-8556 toward the x86; UDP `COMM_UDP_PORT` toward the x86; VST :30888 and perception :9000 toward the Thor for orchestration).
 
 ## 1. x86: configure and start the stimulus stack

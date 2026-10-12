@@ -5,7 +5,8 @@ Run each check in order. Report pass/fail. Fix before moving to next.
 > **Host setup overlaps VSS Warehouse** (deployed first as the perception backend).
 > The authoritative, detailed host install — pinned Docker, per-platform GPU driver
 > versions, the NVIDIA Container Toolkit, and kernel/sysctl tuning — lives in the VSS
-> prerequisites (the `vss-deploy-profile` skill); run those first. The checks below are
+> prerequisites (VSS 3.3: the "Requirements" of the VSS repo's `deploy/docker/README.md`;
+> 3.2.1: the `vss-deploy-profile` skill); run those first. The checks below are
 > HOISA's own lightweight gates plus the HOISA-specific additions.
 
 ---

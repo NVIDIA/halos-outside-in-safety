@@ -478,7 +478,7 @@ downstream (PSF fusion config, ATL logic, hysteresis) — continue from there.
 ```bash
 # vss-rtvi-cv is a VSS Warehouse container — recreate it from the VSS deploy:
 docker rm -f vss-rtvi-cv
-docker compose up -d vss-rtvi-cv   # run from the VSS Warehouse deploy dir (see vss-deploy-profile)
+docker compose up -d vss-rtvi-cv   # from the VSS deploy dir, with the same env files as the deploy (3.3: vss_33.md §4)
 ```
 
 ---
@@ -538,6 +538,24 @@ dataset reuses the 20x20 bootstrap videos.
 **Fix**: once `Registered 3/3 camera(s) with VST` is in the Isaac log and DeepStream runs
 Isaac's streams, `docker restart safety-core`. Both SDMs start clean and only see Isaac events.
 
+The same lockout was also seen once on VSS 3.3 about 2 min **after** such a restart, with
+Isaac live: an SDM starts counting people in its trailer at 0, so a person already inside
+when it started produces the same impossible exit. Another `docker restart safety-core`
+cleared it.
+
+---
+
+## Kafka Exits With `cluster_id: Permission denied` (VSS 3.3)
+
+**Symptom**: the first VSS 3.3 `up` stops at `dependency failed to start: container kafka
+exited (1)`; `docker logs kafka` ends with
+`/usr/local/bin/kafka-entrypoint.sh: line 36: /tmp/kafka-data/cluster_id: Permission denied`.
+
+**Cause**: the 3.3 app-data archive extracts with mode `750`, and Kafka runs as a non-root
+user in its container, so it cannot write `<vss_data>/data_log/kafka`.
+
+**Fix**: `chmod -R a+rwX <vss_data>`, then `up` again (`vss_33.md` §1).
+
 ---
 
 ## Sparse4D Stops Detecting on the 40x20 Scene
@@ -578,5 +596,8 @@ plus one sensor re-registration clears the NaN, until it comes back.
 | No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
 | `PSF_APP=pxc`: no `EVENT_12/13/14` at all | Mapping pairs a class the scene lacks, a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), codes that differ from `configs/pxc_sdm.conf`, or a 3D feed without `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` — `halos_deploy.md` → "Safety app" |
 | ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
+| Any `PSF_APP` on a 3D feed: no decisions, `pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` | PSF still on the 2D `nvpss.conf` — set `PSF_NVPSS_CONFIG_SRC` and `PSF_SENSOR_PIPELINES_CONFIG_SRC` (`halos_deploy.md` → "Safety app") |
+| `PSF_APP=pxc` on stock VSS: no Forklift × Person proximity | Behavior analytics ships `proximityDetectionThreshold` `2` without `Forklift` as a center class — `vss_3d_overrides.md` → "Behavior analytics (3D)" |
+| VSS 3.3 `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | `chmod -R a+rwX` the app-data dir — `vss_33.md` §1 |
 | 3D on `warehouse_40x20`: detections stop after seconds to minutes | Sparse4D instance bank goes NaN — use the 2D app for that scene |
 | `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |

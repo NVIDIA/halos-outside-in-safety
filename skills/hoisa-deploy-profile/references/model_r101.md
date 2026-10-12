@@ -1,4 +1,8 @@
-# R101 Sparse4D Model (3D profile)
+# R101 Sparse4D Model (3D profile, VSS 3.2.1)
+
+> **VSS 3.2.1 only.** VSS 3.3 downloads its Sparse4D model itself when perception starts
+> (RN50 v2.3 with `DATASET_TYPE=synthetic`, see `vss_33.md` §3), under different file names
+> and paths, so this recipe does not carry over: on 3.3 skip it.
 
 The 3D profile runs **Sparse4D** multi-view 3D detection + tracking. The default backbone
 is **ResNet-50 (R50)**; the 3D SIL profile uses the **ResNet-101 (R101)** backbone instead,

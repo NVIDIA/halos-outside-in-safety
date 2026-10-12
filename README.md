@@ -100,7 +100,7 @@ The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/
 
 **Ideal for:** deploying by hand on your own host or bare-metal instance.
 
-1. Deploy the [NVIDIA VSS Warehouse Blueprint 3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) perception backend first. It publishes the detection events the Safety Core consumes.
+1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) perception backend first: 3.3 (`v3.3.0rc0`, see [`vss_33.md`](skills/hoisa-deploy-profile/references/vss_33.md)) or [3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1). It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
 For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).
