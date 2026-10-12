@@ -58,9 +58,14 @@ PYTHONPATH=<vss>/libs/analytics/spatialai-data-utils python3 build_vss_calibrati
 cp -a $VSS_DATA_DIR/videos/warehouse-loading-dock-3cams-synthetic $VSS_DATA_DIR/videos/$DS
 ```
 
-Then set `MODE=2d` and `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/.env`. Use the
-2D app: on this scene the 3D (Sparse4D) app stops detecting within seconds to
-minutes (`troubleshooting.md` → "Sparse4D Stops Detecting on the 40x20 Scene").
+Then set `MODE=2d` and `SAMPLE_VIDEO_DATASET="$DS"` in `<wh_ops>/overrides.env` (VSS 3.3;
+`<wh_ops>/.env` on 3.2.1). The same steps and paths work on both versions. On VSS
+3.2.1 use the 2D app: there the 3D (Sparse4D R101) app stops detecting on this scene
+within seconds to minutes (`troubleshooting.md` → "Sparse4D Stops Detecting on the 40x20
+Scene"). On 3.3 the 3D app ran it for 10 min with both bays deciding; for it, also put a
+3D calibration with the BEV group and the top-level `roi-id-1/2` / `tripwire-id-1/2`
+under `<wh_ops>/warehouse-3d-app/calibration/sample-data/$DS` (`calibration_3d.md`), and
+set the two PSF 3D lines in the profile.
 `spatialai-data-utils` only fills `fieldOfViewPolygon`; without it the field is left out.
 
 The 20x20 dataset is 20x20 geometry: its ROIs and tripwires sit at `scaleFactor`

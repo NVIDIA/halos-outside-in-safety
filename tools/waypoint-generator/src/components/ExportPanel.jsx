@@ -124,7 +124,7 @@ export default function ExportPanel({ mapConfig, waypoints, origin, onImport }) 
         }
         
         if (data.waypoints && Array.isArray(data.waypoints)) {
-          onImport?.(data);
+          if (onImport?.(data) === false) return;
           setShowImport(false);
           alert(`Imported ${data.waypoints.length} waypoints`);
         } else {

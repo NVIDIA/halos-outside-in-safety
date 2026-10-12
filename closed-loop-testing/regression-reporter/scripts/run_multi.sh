@@ -283,9 +283,12 @@ phase_vst_workaround() {
   else
     log "  WARN no vss-vios-* containers found; skipping vios restart."
   fi
+  # Isaac registers its cameras with VST once its render is warm, which is about
+  # when its RTSP ports open, so the restart above can land in the middle of that
+  # registration and leave VST with no sensors at all. Register again now that
+  # VST is back; the re-provisioning round also restarts perception.
   if [ -n "$rtvi" ]; then
-    log "  restarting perception: $rtvi"
-    docker restart $rtvi >/dev/null 2>&1 || docker start $rtvi >/dev/null 2>&1 || true
+    phase_reprovision_perception || log "  WARN re-provisioning after the VST restart failed"
   else
     log "  WARN vss-rtvi-cv not found; skipping perception restart."
   fi
@@ -327,9 +330,13 @@ SCENE_READY_MISS_DECAY="${SCENE_READY_MISS_DECAY:-3}"
 #   3. fall back to mdx-bev (prior default) when neither is available.
 resolve_scene_ready_topic() {
   if [ -n "${SCENE_READY_TOPIC:-}" ]; then printf '%s' "$SCENE_READY_TOPIC"; return; fi
-  local mode=""
-  [ -n "${ENV_VSS_PATH:-}" ] && [ -f "$ENV_VSS_PATH" ] && \
-    mode=$(grep -sE '^MODE=' "$ENV_VSS_PATH" | head -1 | cut -d= -f2 | tr -d ' "'"'"'' || true)
+  local mode="" f
+  # VSS 3.3 keeps MODE in overrides.env next to .env (read last by its compose,
+  # so it wins); VSS 3.2.1 has it in .env.
+  for f in "$(dirname "${ENV_VSS_PATH:-.}")/overrides.env" "${ENV_VSS_PATH:-}"; do
+    [ -n "$mode" ] && break
+    [ -f "$f" ] && mode=$(grep -sE '^MODE=' "$f" | head -1 | cut -d= -f2 | tr -d ' "'"'"'' || true)
+  done
   case "$mode" in
     2d)        printf 'mdx-raw' ;;
     3d|mv3dt)  printf 'mdx-bev' ;;
@@ -403,21 +410,24 @@ _scene_ready_wait_once() {
 phase_reprovision_perception() {
   # Deterministic recovery for the empty-DeepStream-pipeline race (see the
   # first-pass timeout comment in phase_wait_scene_ready). Same recipe as
-  # restart_isaac.sh reprovision_sensors(): restart DeepStream first — a
-  # (re)started vss-rtvi-cv always comes back as an EMPTY REST pipeline; never
-  # re-register into a possibly polluted one — then ONE clean VST registration
-  # round inside the isaac-sim container so VST emits fresh camera_add events
-  # for the SDR to push. The Isaac driver and its RTSP streams are untouched
-  # (encoders stay warm, so no cold-window race), and this runs strictly
-  # BEFORE recording starts.
+  # restart_isaac.sh reprovision_sensors(): clear Redis and restart the SDR and
+  # DeepStream — a restarted vss-rtvi-cv comes back as an EMPTY REST pipeline,
+  # but the SDR replays what Redis still holds of earlier sensors, which can
+  # come back as a zombie source holding a batch slot — then ONE clean VST
+  # registration round inside the isaac-sim container so VST emits fresh
+  # camera_add events for the SDR to push. The Isaac driver and its RTSP streams
+  # are untouched (encoders stay warm, so no cold-window race), and this runs
+  # strictly BEFORE recording starts.
   local rtvi
   rtvi=$(docker ps -a --format '{{.Names}}' | grep -xE 'vss-rtvi-cv' || true)
   if [ -z "$rtvi" ]; then
     log "  reprovision skipped (vss-rtvi-cv not found)"; return 1
   fi
-  log "  reprovision: restarting ${rtvi} (guarantees an empty pipeline)..."
+  log "  reprovision: FLUSHALL redis, restart sdr-controller and ${rtvi}..."
+  docker exec redis redis-cli FLUSHALL >/dev/null 2>&1 || log "  reprovision WARN: redis FLUSHALL failed"
+  docker restart sdr-controller >/dev/null 2>&1 || log "  reprovision WARN: sdr-controller restart failed"
   docker restart "$rtvi" >/dev/null 2>&1 || docker start "$rtvi" >/dev/null 2>&1 || true
-  sleep 15
+  sleep 20
   log "  reprovision: one clean VST sensor registration round..."
   docker exec isaac-sim bash -lc \
     "cd /isaac-sim && ./python.sh /isaac-sim/sil/scripts/vst_sensor_manager.py --delete-all && sleep 3 && \

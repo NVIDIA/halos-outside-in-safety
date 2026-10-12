@@ -241,7 +241,8 @@ function App() {
     setSelectedIndex(toIndex);
   }, []);
 
-  // Import waypoints
+  // Import waypoints. Returns false when the user declines, so the caller does
+  // not report an import that did not happen.
   const handleImport = useCallback((data) => {
     // A file drawn on another warehouse has coordinates that mean something else
     // here, so say so before loading it rather than after the forklift moves.
@@ -250,14 +251,14 @@ function App() {
       const known = registry.find(map => map.id === fileMapId);
       if (known) {
         if (!confirm(`This path was drawn on "${known.name}". Switch to that map?`)) {
-          return;
+          return false;
         }
         applyMap(fileMapId);
       } else if (!confirm(
         `This path was drawn on map "${fileMapId}", which is not installed. ` +
         `Its coordinates may not match the open map. Import anyway?`
       )) {
-        return;
+        return false;
       }
     }
 
@@ -280,6 +281,7 @@ function App() {
       })));
     }
     setMode('waypoint');
+    return true;
   }, [activeMapId, applyMap, registry]);
 
   // Clear all

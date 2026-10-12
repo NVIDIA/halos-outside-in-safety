@@ -1,4 +1,5 @@
-# SRR-shape default_config_ros.yaml template — IRA v1.6.0 (Isaac Sim 6.0).
+# SRR-shape default_config_ros.yaml template — IRA config 1.7.0 (Isaac Sim 6.1, which
+# refuses an older config version).
 #
 # Isaac Sim 6.0 replaced IRA 0.x with 1.x: external character command files are
 # GONE ("No more command files" — IRA migration guide). Character behaviour is
@@ -45,7 +46,7 @@
 #      perception (run_multi's scene-ready gate waits on the perception signal —
 #      mdx-bev detections for 3D, mdx-events for 2D/Phase-1).
 isaacsim.replicator.agent:
-  version: 1.6.0
+  version: 1.7.0
   seed: 42
   # run_multi.sh overrides this per scenario (seconds). Default covers a 5-min run.
   simulation_duration: 300.0

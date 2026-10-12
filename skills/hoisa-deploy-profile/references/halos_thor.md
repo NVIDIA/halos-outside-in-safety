@@ -45,6 +45,9 @@ env file, **not** by `docker compose`.
 
 ## 2. Deploy VSS Warehouse 3.2.1 on Thor (perception)
 
+> The Thor profiles have been run with VSS 3.2.1 only; VSS 3.3 (`vss_33.md`) has not been
+> run on a Thor yet.
+
 Deploy VSS Warehouse 3.2.1 (2D) on the Thor via the `vss-deploy-profile` skill (set
 `HARDWARE_PROFILE=IGX-THOR`; the profile applies the Thor DeepStream tuning for you — §1). Wait
 until perception serves all cameras (`Active sources : 3`) and the `mdx-events` Kafka topic has

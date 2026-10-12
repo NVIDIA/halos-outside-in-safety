@@ -1,5 +1,10 @@
 # 3D Calibration Dataset (3-camera BEV)
 
+> **VSS 3.3 ships this dataset.** `warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic`
+> already carries the BEV group `bev-sensor-1` and the top-level `roi-id-1` / `tripwire-id-1`
+> with the same values this page produces, under the plain dataset name. On 3.3 follow this
+> page only for a scene of your own; the steps below are written against 3.2.1.
+
 The 3D (Sparse4D / BEV) profile needs a calibration dataset with **BEV sensor grouping** and
 **world-coordinate ROI / tripwire** definitions. The 3-camera loading-dock scene already has a
 2D calibration (the same physical space, same camera matrices) — building the 3D calibration

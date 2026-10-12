@@ -23,9 +23,9 @@ Open this repository in your coding agent (Claude Code, Codex, Cursor, or any ot
 > - Codex: `~/.codex/skills/<name>/`
 > - agentskills.io hosts: `~/.agents/skills/<name>/`
 >
-> Symlink each folder rather than copying it so a `git pull` here keeps installs current. Also install the `vss-deploy-profile` skill from the VSS Blueprint repository; the perception backend is deployed first. When done, list the skills you registered and the directory you used.
+> Symlink each folder rather than copying it so a `git pull` here keeps installs current. The perception backend is deployed first. For VSS 3.3 nothing else is needed: VSS 3.3 ships no `vss-deploy-profile` skill, and `hoisa-deploy-profile` covers its deploy (`references/vss_33.md`). For VSS 3.2.1, also install the `vss-deploy-profile` skill from the VSS Blueprint repository at `v3.2.1`. When done, list the skills you registered and the directory you used.
 
-Verify with `/skills` in your agent: `hoisa-deploy-profile` and `hoisa-generate-regression-report` (and `vss-deploy-profile`) should be listed.
+Verify with `/skills` in your agent: `hoisa-deploy-profile` and `hoisa-generate-regression-report` should be listed (and `vss-deploy-profile` when running VSS 3.2.1).
 
 ## Usage
 

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### VSS Warehouse 3.3
+
+- `hoisa-deploy-profile` targets VSS 3.3 (code-freeze drop `dev-26.10.2`) and keeps 3.2.1. VSS 3.3 ships no `vss-deploy-profile` skill, so `references/vss_33.md` covers its deploy: images pinned to the drop (`VSS_CONTAINER_TAG=nightly-20261010`), the `v3.3.0-09152026` app data and its permissions, `overrides.env`, the `_MINIMAL` compose profiles, the three env files, and what moved since 3.2.1 (shipped Sparse4D model and loading-dock BEV calibration, no `-3d` dataset).
+- The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
+- `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
+- `model_r101.md` and the R101 profile variables are 3.2.1-only. The Thor profiles and the Brev notebook have been run on 3.2.1 only.
+- SRR runs on VSS 3.3 and Isaac Sim 6.1:
+  - `default_config_ros.yaml.template` declares IRA config 1.7.0. Isaac Sim 6.1 refuses 1.6.0, so the SRR scene shut down at startup.
+  - The scene-ready gate reads `MODE` from `overrides.env`, where VSS 3.3 keeps it; on 3.3 a 2D run polled `mdx-bev` and timed out.
+  - The aggregator and `tw_split` read the ROI and tripwire from the top level of a BEV calibration too. VSS 3.3's 3D datasets keep none per sensor: the aggregator raised `IndexError`, and `tw_split` fell back to the legacy tripwire.
+  - The VST workaround registers the cameras again after restarting VST, which could land on Isaac's own registration and leave VST with no sensors.
+  - Perception re-provisioning is the full round (`FLUSHALL`, `sdr-controller`, DeepStream, one registration), as in `restart_isaac.sh`.
+  - The image pins numpy to the base image's own version; pip otherwise tried to replace the Debian numpy and the build failed.
+- Run on 3.3 with `sil`: ATL, `pxc`, `both` (3D app) and `atl-dual` on `warehouse_40x20` (2D app).
+
 ### Breaking — PSF image with configured SDMs
 
 The `sil` and `base` configs target the PSF 1.4 image, whose launcher no longer starts an SDM without its event binding. Until 1.4 is published on NGC, `PSF_IMAGE` stays on 1.3 (`nv-psf-halos-1.3-6932895`), which does not run these configs.
@@ -10,7 +25,7 @@ The `sil` and `base` configs target the PSF 1.4 image, whose launcher no longer 
 - `nvpss.conf` states the now-mandatory `deploymentMode = 2D` and `enableFusion = true`, adds the PSS-to-PSD delivery and queue keys, and drops `PSSDToPSDComBackend`.
 - Proximity events move from `EVENT_8/9/10` to `EVENT_12/13/14`: `EVENT_0..11` are reserved for ATL.
 - `pxc_sdm.log` is written to `/var/log/psf/pxc_sdm.log` in the container; the host file is unchanged.
-- `PSF_APP=both` is not ported: its launcher starts the SDMs without `--config`, which this image refuses.
+- `PSF_APP=both` runs the image's `--app atl,pxc` (`atl-pxc-override.yaml`) instead of HOISA's 1.3 launcher, which was removed: each SDM gets its own `--sdm-config`, and proximity sends to its own port, `COMM_UDP_PORT_PXC`, which comm-layer also listens on. mdx_client's mapping is the image's ATL rules followed by the proximity rules of `configs/proximity_event_mapping.pb.txt`.
 - The Thor profiles stay on 1.3 until an aarch64 host package of the same build is published.
 
 ### ATL per trailer bay (two zones)

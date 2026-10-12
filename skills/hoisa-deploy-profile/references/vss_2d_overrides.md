@@ -1,19 +1,20 @@
-# VSS Warehouse — 2D Profile Overrides (VSS 3.2.1)
+# VSS Warehouse — 2D Profile Overrides (VSS 3.3 and 3.2.1)
 
-When deploying VSS Warehouse 3.2.1 for Halos SIL, apply these overrides **before**
-running its `docker compose up`. The `vss-deploy-profile` skill handles the
-standard deploy flow — this file specifies only what must be **different** for SIL.
+When deploying VSS Warehouse for Halos SIL, apply these overrides **before** running its
+`docker compose up`. This file specifies only what must be **different** for SIL. The
+deploy flow itself is `vss_33.md` for VSS 3.3, and the `vss-deploy-profile` skill of the
+VSS repository for 3.2.1. The DeepStream and VST keys below are the same in both versions.
 
-> `<wh_ops>` = the VSS 3.2.1 warehouse-operations directory
+> `<wh_ops>` = the VSS warehouse-operations directory
 > `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/` — this is where the
-> override files below live (`.env`, the DeepStream config, the VST config).
+> override files below live (`.env` / `overrides.env`, the DeepStream config, the VST config).
 >
 > **Do NOT run `docker compose` from `<wh_ops>/`.** Its `compose.yml` is only an app
 > fragment (it `include:`s the 2D/3D/MV3DT apps but **no infra** — Kafka, Redis,
-> `sdr-controller`). The `vss-deploy-profile` skill runs the deploy from the top-level
-> `<vss_repo>/deploy/docker/` (`compose.yml`) with
-> `--env-file industry-profiles/warehouse-operations/.env`. Edit the override files
-> below in place, then let `vss-deploy-profile` bring VSS up.
+> `sdr-controller`). The deploy runs from the top-level `<vss_repo>/deploy/docker/`
+> (`compose.yml`): on 3.3 with the three env files of `vss_33.md` §4, on 3.2.1 with
+> `--env-file industry-profiles/warehouse-operations/.env`. Edit the override files below
+> in place, then bring VSS up.
 
 Isaac 6.1 RTSP *does* embed SEI, but **PSF currently doesn't support sim time** — so these
 overrides **disable SEI extraction** and use **system (wall-clock) timestamps**. Feeding
@@ -24,8 +25,11 @@ keeps decisions flowing.
 
 ## .env Overrides
 
-Set in `<wh_ops>/.env`. Verified against the v3.2.1 tag: only `VLM_MODE` already carries
-the value below — the rest ship differently and must be changed:
+**VSS 3.3:** these keys live in `<wh_ops>/overrides.env`, together with `MODE=2d`,
+`HARDWARE_PROFILE`, `COMPOSE_PROFILES` and the paths — the full list is `vss_33.md` §2.
+
+**VSS 3.2.1:** set in `<wh_ops>/.env`. Verified against the v3.2.1 tag: only `VLM_MODE`
+already carries the value below — the rest ship differently and must be changed:
 
 ```bash
 BP_PROFILE=bp_wh_kafka                                          # default: bp_wh — MUST include Kafka for PSF

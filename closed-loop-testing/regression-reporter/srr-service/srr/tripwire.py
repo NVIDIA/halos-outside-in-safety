@@ -38,7 +38,8 @@ class Tripwire:
 
     @classmethod
     def from_calib_dict(cls, tw: dict) -> "Tripwire":
-        """Build from one entry of calibration.json ``sensors[i].tripwires``."""
+        """Build from one calibration.json tripwire entry (``sensors[i].tripwires`` or,
+        in a BEV calibration, the top-level ``tripwires``)."""
         w = tw["wire"]
         x1, y1 = float(w["p1"]["x"]), float(w["p1"]["y"])
         x2, y2 = float(w["p2"]["x"]), float(w["p2"]["y"])

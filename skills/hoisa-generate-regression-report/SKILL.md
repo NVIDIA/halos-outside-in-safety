@@ -30,7 +30,15 @@ This skill assumes the SIL + SRR stacks are already deployed and healthy on the 
 
 ## Phase 0 — Required reading (ONE-TIME, before any compose work)
 
-SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** and **`vss-deploy-profile`** skills — NOT this skill. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
+SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** and **`vss-deploy-profile`** skills — NOT this skill.
+
+> **VSS 3.3:** there is no `vss-deploy-profile` skill; the VSS lifecycle is
+> `hoisa-deploy-profile` → `references/vss_33.md`. Wherever this skill points at
+> `vss-deploy-profile` (teardown, redeploy), use that page instead. Container names and
+> topics are the same as on 3.2.1 (`vss-rtvi-cv`, `vss-behavior-analytics`; `mdx-bev`,
+> `mdx-behavior`, `mdx-events`). On 3.3 point `CALIBRATION_JSON` at the 3D dataset without
+> the `-3d` suffix (`warehouse-3d-app/.../warehouse-loading-dock-3cams-synthetic/`). SRR
+> has been run on 3.3 (code-freeze drop `dev-26.10.2`, 3D app) with one `in-roi` scenario. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
 
 **Read these BEFORE running any compose command:**
 

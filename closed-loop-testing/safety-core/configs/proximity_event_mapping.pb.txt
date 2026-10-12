@@ -21,7 +21,8 @@
 #   d > 3.5 m         NORMAL
 #
 # Every distance_threshold_meters must stay <= the behavior-analytics
-# proximityDetectionThreshold (4 m in the 3D app config). Above it,
+# proximityDetectionThreshold, which the SIL sets to 4 m (VSS ships 2 m, see
+# vss_3d_overrides.md). Above it,
 # mdx-client drops the WHOLE rule group, STOP included, and logs nothing.
 #
 # File order does not matter: for each pair the rule with the smallest
