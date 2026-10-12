@@ -294,6 +294,11 @@ docker exec isaac-sim bash -lc 'cd /isaac-sim && \
 # DeepStream reaches N/N in ~30-60 s
 ```
 
+Register the scenario's cameras config (`cameras-40x20.yaml` for `warehouse_40x20`, per
+`configs/scenarios.yaml`). `restart_isaac.sh` runs this round itself when, 2 min after
+Isaac's restart, DeepStream does not hold exactly the sensors VST lists online — a zombie
+source counts as active, so it compares camera ids, not the `Active sources` count.
+
 If a camera STILL never comes up after this, check its Isaac mount directly
 (`ffprobe -rtsp_transport tcp rtsp://localhost:<port>/<mount>` from inside `isaac-sim`) —
 a dead mount is the upstream "no caps" wedge (section above); restart the scenario with
