@@ -7,7 +7,7 @@ drive the safety core.
 
 ## Reference backend: VSS Blueprint
 - Repo: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-- VSS 3.3 (`v3.3.0rc0`): deployed per [`vss_33.md`](../skills/hoisa-deploy-profile/references/vss_33.md), the warehouse profile with the Halos settings.
+- VSS 3.3 (code-freeze drop `dev-26.10.2`): deployed per [`vss_33.md`](../skills/hoisa-deploy-profile/references/vss_33.md), the warehouse profile with the Halos settings.
 - VSS [3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1): deployed via the `vss-deploy-profile` skill of that tag (see [`skills/`](../skills/)) or the public [VSS Warehouse Blueprint 3.2.1 quickstart](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html).
 
 ## Integration contract (the seam)

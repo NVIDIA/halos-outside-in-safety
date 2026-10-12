@@ -1,12 +1,15 @@
-# VSS Warehouse 3.3 for Halos (v3.3.0rc0)
+# VSS Warehouse 3.3 for Halos (code-freeze drop `dev-26.10.2`)
 
 VSS 3.3 ships no `vss-deploy-profile` skill. Its warehouse profile is deployed from the VSS
 repository's `deploy/docker/` with Docker Compose, as in that repo's
 `deploy/docker/README.md` → "Warehouse industry profile". This page is that flow with the
-Halos settings. The `sil` profile was run on it with the 2D and the 3D app (8× L40S): ATL,
-`pxc`, `both`, and the two-bay `atl-dual` run on `warehouse_40x20`.
+Halos settings, for the VSS 3.3.0 code-freeze drop: tag `dev-26.10.2`, images
+`nightly-20261010`. The `sil` profile was run with the 2D and the 3D app (8× L40S) on the
+earlier `v3.3.0rc0` (ATL, `pxc`, `both`, and the two-bay `atl-dual` run on
+`warehouse_40x20`) and on `dev-26.10.2` (ATL with an SRR scenario, 3D app). Between the two
+the warehouse configs Halos uses did not change.
 
-> `<vss_repo>` = a checkout of the VSS repository at `v3.3.0rc0`;
+> `<vss_repo>` = a checkout of the VSS repository at `dev-26.10.2`;
 > `<wh_ops>` = `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`;
 > `<vss_data>` = the extracted `vss-warehouse-app-data` directory.
 
@@ -16,15 +19,17 @@ Halos settings. The `sil` profile was run on it with the 2D and the 3D app (8× 
 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git <vss_repo>
-git -C <vss_repo> checkout v3.3.0rc0
+git -C <vss_repo> checkout dev-26.10.2
 ```
 
 `containers.env` defaults every VSS image to `ghcr.io/nvidia-ai-blueprints/vss/*:develop-latest`,
-which follows the VSS `develop` branch, not the tag. Pin the images built from the tag's
-commit, in the shell that runs `docker compose`:
+which follows the VSS `develop` branch, not the tag. Pin the images of the drop, in the
+shell that runs `docker compose`:
 
 ```bash
-export VSS_CONTAINER_TAG=develop-4c432f24cf39   # v3.3.0rc0 is commit 4c432f24cf39
+export VSS_CONTAINER_TAG=nightly-20261010       # the images of dev-26.10.2
+# optional, the same images from NGC instead of ghcr.io:
+# export VSS_CONTAINER_REGISTRY=nvcr.io/nvstaging/vss-core
 ```
 
 App data (videos and playback; the calibrations live in the repo):
@@ -89,7 +94,8 @@ before the first `up`. What changed:
 - **Sparse4D model (3D).** No model step: perception downloads it into
   `<vss_data>/models/sparse4d/` before building the engine (`warehouse-3d-app/models-download.json`,
   rewritten by the configurator from `DATASET_TYPE`). `synthetic` gives RN50 v2.3
-  (`nvstaging/tao/sparse4d_rn50:deployable_v2.3`); `real` gives RN50 v3.0. The engine build
+  (`nvidia/tao/sparse4d_rn50:deployable_v2.3`; `v3.3.0rc0` pulled it from `nvstaging`);
+  `real` gives RN50 v3.0. The engine build
   took about 5 min on an L40S. `model_r101.md` applies to 3.2.1 only.
 - **3D calibration.** `warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic`
   already carries the BEV group `bev-sensor-1` and the top-level `roi-id-1` / `tripwire-id-1`,

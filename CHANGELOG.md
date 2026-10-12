@@ -4,7 +4,7 @@
 
 ### VSS Warehouse 3.3
 
-- `hoisa-deploy-profile` targets VSS 3.3 (`v3.3.0rc0`) and keeps 3.2.1. VSS 3.3 ships no `vss-deploy-profile` skill, so `references/vss_33.md` covers its deploy: images pinned to the tag's build (`VSS_CONTAINER_TAG=develop-4c432f24cf39`), the `v3.3.0-09152026` app data and its permissions, `overrides.env`, the `_MINIMAL` compose profiles, the three env files, and what moved since 3.2.1 (shipped Sparse4D model and loading-dock BEV calibration, no `-3d` dataset).
+- `hoisa-deploy-profile` targets VSS 3.3 (code-freeze drop `dev-26.10.2`) and keeps 3.2.1. VSS 3.3 ships no `vss-deploy-profile` skill, so `references/vss_33.md` covers its deploy: images pinned to the drop (`VSS_CONTAINER_TAG=nightly-20261010`), the `v3.3.0-09152026` app data and its permissions, `overrides.env`, the `_MINIMAL` compose profiles, the three env files, and what moved since 3.2.1 (shipped Sparse4D model and loading-dock BEV calibration, no `-3d` dataset).
 - The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
 - `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
 - `model_r101.md` and the R101 profile variables are 3.2.1-only. The Thor profiles and the Brev notebook have been run on 3.2.1 only.

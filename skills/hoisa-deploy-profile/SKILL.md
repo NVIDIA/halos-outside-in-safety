@@ -20,7 +20,7 @@ files, profiles, configs, and this skill all live in the repo. When active,
 **ALWAYS read the relevant reference document before running commands.**
 Deployment has two stacks that must come up in order — do NOT skip or reorder.
 
-> Targets **VSS Warehouse 3.3** (`v3.3.0rc0`, deployed per `references/vss_33.md`); 3.2.1
+> Targets **VSS Warehouse 3.3** (code-freeze drop `dev-26.10.2`, deployed per `references/vss_33.md`); 3.2.1
 > still works, deployed with its `vss-deploy-profile` skill. `base` and `sil` have run on
 > both; the Thor profiles (`hil`, `base` on Thor) on 3.2.1 only.
 
@@ -177,7 +177,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | Tag | Rule | Details in |
 |-----|------|-----------|
 | `VSS_DEPLOY` | Deploy VSS Warehouse 3.3 per `vss_33.md` (3.2.1: its `vss-deploy-profile` skill); apply SIL overrides before its `docker compose up` | `vss_33.md`, `vss_2d_overrides.md` |
-| `VSS33_IMAGE_TAG` | **VSS 3.3:** export `VSS_CONTAINER_TAG=develop-4c432f24cf39` (the build of `v3.3.0rc0`) before every compose command; the default `develop-latest` follows VSS `develop`, not the tag | `vss_33.md` |
+| `VSS33_IMAGE_TAG` | **VSS 3.3:** export `VSS_CONTAINER_TAG=nightly-20261010` (the images of `dev-26.10.2`) before every compose command; the default `develop-latest` follows VSS `develop`, not the tag | `vss_33.md` |
 | `VSS33_ENV_FILES` | **VSS 3.3:** settings go in `overrides.env`, and compose takes `containers.env`, `.env`, `overrides.env` in that order; set `COMPOSE_PROFILES` to the `_MINIMAL` list of the mode | `vss_33.md` |
 | `VSS33_DATA_PERMS` | **VSS 3.3:** `chmod -R a+rwX` the extracted app data before the first `up`, or Kafka exits on `Permission denied` | `vss_33.md`, `troubleshooting.md` |
 | `PSF_3D_FEED` | On a 3D feed set `PSF_NVPSS_CONFIG_SRC` + `PSF_SENSOR_PIPELINES_CONFIG_SRC` for **every** `PSF_APP`, `atl` included — the 2D config drops every event | `halos_deploy.md` |
