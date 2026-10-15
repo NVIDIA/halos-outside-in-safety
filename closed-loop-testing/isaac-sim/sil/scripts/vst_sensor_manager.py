@@ -455,8 +455,14 @@ class VSTSensorManager:
         Returns:
             Migration hint string if legacy schema detected, None otherwise.
         """
+        # A wrongly typed section is left to add_sensors_from_config's own
+        # validation, which reports it; detection must not raise on it.
         rtsp_cfg = config.get("rtsp", {}) or {}
         cameras = config.get("cameras", []) or []
+        if not isinstance(rtsp_cfg, dict):
+            rtsp_cfg = {}
+        if not isinstance(cameras, list):
+            cameras = []
 
         legacy_signals: List[str] = []
 
