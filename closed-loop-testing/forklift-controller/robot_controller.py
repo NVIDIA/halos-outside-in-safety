@@ -133,6 +133,8 @@ class RobotController(Node):
         topics = topics or {}
         cmd_vel_topic = topics.get('cmd_vel') or f'/{robot_id}/cmd_vel'
         odom_topic = topics.get('odom') or f'/{robot_id}/odom'
+        proximity_pair_topic = topics.get('proximity_pair') or '/safety/proximity/pair'
+        proximity_state_topic = topics.get('proximity_state') or f'/{robot_id}/proximity/state'
         state_topic = f'/{robot_id}/state'
         path_topic = f'/{robot_id}/planned_path'
         marker_topic = f'/{robot_id}/markers'
@@ -169,12 +171,12 @@ class RobotController(Node):
                 reduce_hold_s=proximity['reduce_hold_s'],
                 stale_s=proximity['stale_s'])
             self.proximity_sub = self.create_subscription(
-                String, topics['proximity_pair'], self._proximity_callback, qos)
+                String, proximity_pair_topic, self._proximity_callback, qos)
         # What is applied, for Isaac's indicator disk: a level, or inactive until
         # PSF first speaks, or disabled when the gate is off.
         self._proximity_level_seen = PXC_DISABLED if self._proximity is None else PXC_INACTIVE
         self.proximity_state_pub = self.create_publisher(
-            String, topics['proximity_state'], qos)
+            String, proximity_state_topic, qos)
         
         # ===== Timers =====
         # Control loop (20Hz)
