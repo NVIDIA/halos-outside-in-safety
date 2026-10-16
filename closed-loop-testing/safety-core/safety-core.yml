@@ -28,6 +28,7 @@ services:
     command: >
       --app ${PSF_APP:-atl}
       --saim-mode ${PSF_LAUNCH_MODE:-skip}
+      --pcm-mode ${PSF_PCM_MODE:-skip}
       --cmd_rx_ip ${PSF_CMD_RX_IP}
       --cmd_rx_port ${COMM_UDP_PORT}
       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf

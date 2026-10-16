@@ -75,6 +75,12 @@ fill the `# change me` placeholders (keep your filled copy local — don't commi
 
 `PSF_IMAGE` and `ISAAC_SIM_IMAGE` are pre-set in the template.
 
+`PSF_LAUNCH_MODE` (SAIM) and `PSF_PCM_MODE` (Perception Monitor) ship `skip`. The mounted
+`nvpss.conf` / `nvpss_bev.conf` must agree: `required_safety_monitor` and
+`required_perception_monitor` are `1` for a monitor in `active`, `0` for `learn` or `skip`.
+Otherwise safety-core exits at start with
+`Error: --saim-mode active conflicts with required_safety_monitor = 0 in /opt/nvidia/psf/bin/nvpss.conf.`
+
 ### Safety app — `PSF_APP` (`sil`)
 
 | `PSF_APP` | PSF runs | Forklift | Indicator disc |

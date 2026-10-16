@@ -560,6 +560,7 @@ which opens `data_log`, `models` and `videos` to every user, then `up` again.
 | Error | Fix |
 |-------|-----|
 | PSF Kafka connection | Deploy VSS Warehouse first |
+| safety-core exits at start: `--pcm-mode is required`, `required_safety_monitor is missing`, or `--<x>-mode ... conflicts with required_...` | The PSF 1.4 launcher needs both monitor modes and the `required_*` keys. Use the shipped `safety-core.yml` and `configs/nvpss*.conf`, and keep the keys matching `PSF_LAUNCH_MODE` / `PSF_PCM_MODE` — `halos_deploy.md` §1 |
 | STALE events | Increase `timeWindowSize` in nvpss.conf |
 | Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
