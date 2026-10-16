@@ -3,6 +3,8 @@
 
 import { createSlice } from '@reduxjs/toolkit';
 
+export const PATHS_STORAGE_KEY = 'waypoint-paths';
+
 const initialState = {
   // List of all saved paths
   paths: [],
@@ -144,19 +146,10 @@ export const pathsSlice = createSlice({
       });
     },
 
-    // Save to localStorage
-    persistPaths: (state) => {
-      try {
-        localStorage.setItem('waypoint-paths', JSON.stringify(state.paths));
-      } catch (error) {
-        console.error('Failed to persist paths:', error);
-      }
-    },
-
-    // Load from localStorage
+    // Load from localStorage. Writing back is the store's job (store.js).
     loadPaths: (state) => {
       try {
-        const savedPaths = localStorage.getItem('waypoint-paths');
+        const savedPaths = localStorage.getItem(PATHS_STORAGE_KEY);
         if (savedPaths) {
           // Paths saved before maps were tracked get mapId null rather than a
           // guess. The tool was retargeted from the 20x20 scene to the 40x20 one
@@ -185,7 +178,6 @@ export const {
   newPath,
   closePath,
   importPaths,
-  persistPaths,
   loadPaths,
 } = pathsSlice.actions;
 

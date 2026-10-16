@@ -4,11 +4,11 @@
 import { useState, useEffect } from 'react';
 import { useAppDispatch } from '../redux/hooks';
 import { useCurrentPath, useCurrentPathId } from '../redux/hooks';
-import { createPath, savePath, persistPaths } from '../redux/pathsSlice';
+import { createPath, savePath } from '../redux/pathsSlice';
 import { AiOutlineClose } from 'react-icons/ai';
 import './SavePathModal.css';
 
-function SavePathModal({ mapConfig, origin, waypoints, onClose, onSaved }) {
+function SavePathModal({ mapConfig, origin, waypoints, onClose }) {
   const dispatch = useAppDispatch();
   const currentPath = useCurrentPath();
   const currentPathId = useCurrentPathId();
@@ -50,12 +50,6 @@ function SavePathModal({ mapConfig, origin, waypoints, onClose, onSaved }) {
       }));
     }
 
-    // Persist to localStorage
-    setTimeout(() => {
-      dispatch(persistPaths());
-    }, 100);
-
-    onSaved?.();
     onClose();
   };
 
