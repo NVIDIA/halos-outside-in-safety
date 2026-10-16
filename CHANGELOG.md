@@ -269,6 +269,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.1 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
+- A rename or delete in the waypoint generator's Path Manager lasted only until the page reloaded: only Save wrote the saved paths to localStorage, so the old name came back and a deleted path reappeared. The store now writes the list whenever it changes, whichever action changed it. `npm test` covers save, re-save, rename and delete across a reload.
 - The generated forklift overlay copied the 20x20 scene's
   `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
   scene's directory, landing in a file one level below it in

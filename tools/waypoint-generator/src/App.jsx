@@ -11,7 +11,6 @@ import {
 import { 
   updateCurrentPath, 
   loadPaths, 
-  persistPaths,
   openPath,
   closePath
 } from './redux/pathsSlice';
@@ -317,12 +316,6 @@ function App() {
     setShowSaveModal(true);
   }, [origin]);
 
-  // Handle save completed
-  const handleSaveCompleted = useCallback(() => {
-    // Persist to localStorage
-    dispatch(persistPaths());
-  }, [dispatch]);
-
   if (mapError) {
     return (
       <div className="app app-map-error">
@@ -516,7 +509,6 @@ function App() {
           origin={origin}
           waypoints={waypoints}
           onClose={() => setShowSaveModal(false)}
-          onSaved={handleSaveCompleted}
         />
       )}
     </div>
