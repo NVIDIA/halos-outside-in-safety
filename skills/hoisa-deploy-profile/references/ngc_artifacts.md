@@ -93,7 +93,8 @@ set -a; source deployments/profiles/base-thor.env; set +a
 ```bash
 ngc registry resource download-version "$PSF_TEGRA_RESOURCE"
 sudo dpkg -i */psf-tegra.deb
-ls /opt/nvidia/psf/bin/        # → atl_sdm, launch_hoisa.sh, safety_monitor, …
+ls /opt/nvidia/psf/bin/        # → launch_hoisa.sh, nvpsd_gateway, safety_monitor, …
+ls /opt/nvidia/psf/apps/atl/   # → atl_sdm, atl_sdm_cmd_receiver, event_mapping_atl.pb.txt
 ```
 
 ---

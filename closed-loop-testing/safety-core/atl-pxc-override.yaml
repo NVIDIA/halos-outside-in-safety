@@ -26,6 +26,7 @@ services:
     command: >
       --app atl,pxc
       --saim-mode ${PSF_LAUNCH_MODE:-skip}
+      --pcm-mode ${PSF_PCM_MODE:-skip}
       --cmd_rx_ip ${PSF_CMD_RX_IP}
       --cmd_rx_port ${COMM_UDP_PORT},${COMM_UDP_PORT_PXC:?set COMM_UDP_PORT_PXC for the proximity SDM}
       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf

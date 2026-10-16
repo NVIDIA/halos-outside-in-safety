@@ -19,6 +19,7 @@ services:
     command: >
       --app atl_dual
       --saim-mode ${PSF_LAUNCH_MODE:-skip}
+      --pcm-mode ${PSF_PCM_MODE:-skip}
       --cmd_rx_ip ${PSF_CMD_RX_IP}
       --cmd_rx_port ${COMM_UDP_PORT},${COMM_UDP_PORT_ZONE2:?set COMM_UDP_PORT_ZONE2 for the second zone}
       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
