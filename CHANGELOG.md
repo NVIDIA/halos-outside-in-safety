@@ -276,6 +276,15 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   about 6% faster than its `cmd_vel`. Both fleet files and the
   `forklift_control.py` default now say 0.16. Timing recorded before this is not
   comparable with timing recorded after (GH-71).
+- comm-layer kept `/safety/is_muted` True through the SDM's safe hold. The hold
+  is UNMUTE then SW_ERROR about 22 µs apart, and the bridge reads only the latest
+  `StateJson` at 10 Hz, so it saw the SW_ERROR alone and kept the MUTE before it;
+  a heartbeat right after an UNMUTE hid it the same way. The OPC server now tracks
+  each zone's state over every packet and writes it to `IsMuted`, `IsAlarm` and
+  `StateJson` (`is_muted`, `is_alarm`): MUTE mutes; UNMUTE, HW_ERROR and SW_ERROR
+  unmute and raise the alarm; a heartbeat keeps the last decision. The bridge
+  publishes that state, and counts an error as UNMUTE when a snapshot lacks it.
+  `IsMuted` no longer drops to False on a heartbeat (NVBug 6966743).
 - The generated forklift overlay copied the 20x20 scene's
   `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
   scene's directory, landing in a file one level below it in

@@ -74,7 +74,9 @@ class SafetyOpcUaServer:
     - Safety.Status: Safety status (int)
     - Safety.StatusName: Status description (string)
     - Safety.Timestamp: Last update timestamp (string)
-    - Safety.IsAlarm: Whether alarm is active (bool)
+    - Safety.IsMuted / Safety.IsAlarm: the safety state the packets so far put the
+      zone in. A heartbeat keeps it; HW_ERROR and SW_ERROR unmute and raise the alarm
+    - Safety.StateJson: atomic snapshot of the last packet, carrying that state
 
     Proximity (0xA5) lives on its own nodes and shares none of the above:
     - Safety.ProximityCommand / ProximityCommandName: opcode + description
@@ -157,6 +159,10 @@ class SafetyOpcUaServer:
         self._pxc_hold = ProximityHold()
         self._pxc_heard: tuple = (None, None)
         self._pxc_seen = False
+        # (is_muted, is_alarm) per ATL zone, kept here because this side sees
+        # every packet while the bridge reads only the latest snapshot: an UNMUTE
+        # that a SW_ERROR follows within one poll never reaches it otherwise.
+        self._atl_state = {1: (False, False), 2: (False, False)}
     
     def start(self, blocking: bool = False):
         """Start the OPC UA server"""
@@ -191,7 +197,20 @@ class SafetyOpcUaServer:
         logger.info("OPC UA server stopped")
     
     @staticmethod
-    def _state_json(command: SafetyCommand) -> str:
+    def _atl_state_after(command: CommandCode, prev: tuple) -> tuple:
+        """(is_muted, is_alarm) after one ATL packet.
+
+        HW_ERROR and SW_ERROR are the fault safe state, which prevents operation
+        as UNMUTE does. A heartbeat carries no decision and keeps the last one.
+        """
+        if command == CommandCode.MUTE:
+            return (True, False)
+        if command in (CommandCode.UNMUTE, CommandCode.HW_ERROR, CommandCode.SW_ERROR):
+            return (False, True)
+        return prev
+
+    @staticmethod
+    def _state_json(command: SafetyCommand, state: tuple) -> str:
         return json.dumps({
             'sequence': int(command.sequence_number),
             'command': int(command.command.value),
@@ -199,6 +218,8 @@ class SafetyOpcUaServer:
             'status': int(command.status.value),
             'status_name': str(command.status.description),
             'timestamp': f"{command.timestamp}.{command.microseconds}",
+            'is_muted': state[0],
+            'is_alarm': state[1],
             'last_update': datetime.now().isoformat(),
         })
 
@@ -211,6 +232,8 @@ class SafetyOpcUaServer:
             return
         
         try:
+            state = self._atl_state_after(command.command, self._atl_state[1])
+            self._atl_state[1] = state
             # asyncua uses write_value() with ua.Variant for strict type checking
             self._nodes['command'].write_value(
                 ua.Variant(int(command.command.value), ua.VariantType.Int32)
@@ -231,10 +254,10 @@ class SafetyOpcUaServer:
                 ua.Variant(f"{command.timestamp}.{command.microseconds}", ua.VariantType.String)
             )
             self._nodes['is_alarm'].write_value(
-                ua.Variant(command.command == CommandCode.UNMUTE, ua.VariantType.Boolean)
+                ua.Variant(state[1], ua.VariantType.Boolean)
             )
             self._nodes['is_muted'].write_value(
-                ua.Variant(command.command == CommandCode.MUTE, ua.VariantType.Boolean)
+                ua.Variant(state[0], ua.VariantType.Boolean)
             )
             self._nodes['last_update'].write_value(
                 ua.Variant(datetime.now().isoformat(), ua.VariantType.String)
@@ -242,7 +265,7 @@ class SafetyOpcUaServer:
             # Atomic commit point: one coherent snapshot the bridge reads as a unit.
             # Written AFTER the per-field nodes so its content is always consistent.
             self._nodes['state_json'].write_value(
-                ua.Variant(self._state_json(command), ua.VariantType.String)
+                ua.Variant(self._state_json(command, state), ua.VariantType.String)
             )
 
             self._last_command = command
@@ -254,11 +277,13 @@ class SafetyOpcUaServer:
     def _update_zone2(self, command: SafetyCommand):
         """Second ATL zone: its own IsMuted and atomic snapshot, nothing shared with zone 1."""
         try:
+            state = self._atl_state_after(command.command, self._atl_state[2])
+            self._atl_state[2] = state
             self._nodes['zone2_is_muted'].write_value(
-                ua.Variant(command.command == CommandCode.MUTE, ua.VariantType.Boolean)
+                ua.Variant(state[0], ua.VariantType.Boolean)
             )
             self._nodes['zone2_state_json'].write_value(
-                ua.Variant(self._state_json(command), ua.VariantType.String)
+                ua.Variant(self._state_json(command, state), ua.VariantType.String)
             )
             logger.debug(f"Updated zone 2 OPC UA nodes: {command}")
         except Exception as e:

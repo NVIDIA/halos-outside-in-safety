@@ -69,6 +69,10 @@ class SafetyCommand:
     status_name: str
     timestamp: str = ""
     source: str = "unknown"
+    # The zone's state as the OPC server tracked it over every packet; None when
+    # the snapshot predates that field or the command did not come through OPC.
+    tracked_is_muted: Optional[bool] = None
+    tracked_is_alarm: Optional[bool] = None
     
     @property
     def is_muted(self) -> bool:
@@ -355,12 +359,27 @@ class SafetyRosBridge:
             "(COMM_UDP_PORT_ZONE2 unset); mirroring zone 1 for them instead",
             ", ".join(moved))
 
+    @staticmethod
+    def _atl_state_after(command: SafetyCommand, prev: tuple) -> tuple:
+        """(is_muted, is_alarm) after one ATL command.
+
+        The OPC server's tracked state wins: it saw every packet, while a poll
+        sees only the latest, so an UNMUTE followed at once by SW_ERROR reaches
+        here as the SW_ERROR alone. Without it, HW_ERROR and SW_ERROR count as
+        the fault safe state, which prevents operation as UNMUTE does, and a
+        heartbeat keeps the last decision.
+        """
+        if command.tracked_is_muted is not None:
+            return (command.tracked_is_muted, bool(command.tracked_is_alarm))
+        if command.command_code == 2:
+            return (True, False)
+        if command.command_code in (1, 3, 7):
+            return (False, True)
+        return prev
+
     def _publish_zone2(self, command: SafetyCommand):
         """Second ATL zone: only the mirrors of the robots that follow it."""
-        if command.command_code == 2:
-            self._zone2_is_muted = True
-        elif command.command_code == 7:
-            self._zone2_is_muted = False
+        self._zone2_is_muted, _ = self._atl_state_after(command, (self._zone2_is_muted, False))
         logger.info("[zone 2] Seq#%s %s | is_muted=%s -> %s", command.sequence_number,
                     command.command_name, self._zone2_is_muted,
                     ", ".join(self._robots_in_zone(2)) or "<no robot>")
@@ -381,15 +400,8 @@ class SafetyRosBridge:
             return
         self._last_command = command
         
-        # Update tracked state only for actual MUTE/UNMUTE commands (not "No Operation")
-        # Command codes: 2 = MUTE, 7 = UNMUTE + ALARM, 0 = No Operation
-        if command.command_code == 2:  # MUTE
-            self._current_is_muted = True
-            self._current_is_alarm = False
-        elif command.command_code == 7:  # UNMUTE + ALARM
-            self._current_is_muted = False
-            self._current_is_alarm = True
-        # For "No Operation" (code 0), keep previous state
+        self._current_is_muted, self._current_is_alarm = self._atl_state_after(
+            command, (self._current_is_muted, self._current_is_alarm))
         
         # Call callbacks with current tracked state
         for callback in self._command_callbacks:
@@ -667,6 +679,8 @@ class SafetyRosBridge:
         # Only publish if there's new data
         if key == last_seen[zone]:
             return
+        tracked_muted, tracked_alarm = st.get('is_muted'), st.get('is_alarm')
+        has_tracked = isinstance(tracked_muted, bool) and isinstance(tracked_alarm, bool)
         command = SafetyCommand(
             sequence_number=seq,
             command_code=st.get('command'),
@@ -674,7 +688,9 @@ class SafetyRosBridge:
             status_code=st.get('status'),
             status_name=st.get('status_name', "Unknown"),
             timestamp=st.get('timestamp', ""),
-            source="opcua"
+            source="opcua",
+            tracked_is_muted=tracked_muted if has_tracked else None,
+            tracked_is_alarm=tracked_alarm if has_tracked else None,
         )
         self.publish_command(command, zone=zone)
         last_seen[zone] = key
