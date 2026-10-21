@@ -285,6 +285,13 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   unmute and raise the alarm; a heartbeat keeps the last decision. The bridge
   publishes that state, and counts an error as UNMUTE when a snapshot lacks it.
   `IsMuted` no longer drops to False on a heartbeat (NVBug 6966743).
+- `isaac-sim` reported unhealthy on a fresh host while the scene ran. The check it
+  inherits from the Isaac Sim image reads `/isaac-sim/.nvidia-omniverse/logs/Kit`,
+  which Isaac Sim 6.1 no longer writes; where the mounted cache still held an
+  older run's log it passed on that log instead. `isaac-sim.yml` now checks the
+  newest log under `/isaac-sim/kit/logs/Kit`, which is not mounted, for
+  `AppReady`. The Brev notebook's log commands read the same directory
+  (NVBug 6965958).
 - The generated forklift overlay copied the 20x20 scene's
   `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
   scene's directory, landing in a file one level below it in
