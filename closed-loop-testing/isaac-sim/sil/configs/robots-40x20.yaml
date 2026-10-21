@@ -78,7 +78,7 @@ models:
     drive_joint: back_wheel_drive     # velocity-controlled wheel joint
     swivel_joint: back_wheel_swivel   # position-controlled steer joint
     wheelbase: 1.49                   # constant_double_wheelbase
-    wheel_radius: 0.15                # constant_double_WheelRadius
+    wheel_radius: 0.16                # /SMV_Forklift_B01_01/back_wheel/Sphere collider radius
     max_steer_deg: 45.0               # SwivelIK MAX_STEER = radians(45)
     # Frame-convention sign flips (vehicle frame vs ROS frame). The original
     # baked SwivelIK negated both inputs, so both are true here. Set false

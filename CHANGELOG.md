@@ -270,6 +270,28 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
 - A rename or delete in the waypoint generator's Path Manager lasted only until the page reloaded: only Save wrote the saved paths to localStorage, so the old name came back and a deleted path reappeared. The store now writes the list whenever it changes, whichever action changed it. `npm test` covers save, re-save, rename and delete across a reload.
+- `robots*.yaml` declared `wheel_radius: 0.15`, which matches no dimension of the
+  ForkliftB asset: PhysX rolls the drive wheel on a 0.16 m collider. The control
+  graph commands `cmd_vel / wheel_radius` to the wheel joint, so the truck drove
+  about 6% faster than its `cmd_vel`. Both fleet files and the
+  `forklift_control.py` default now say 0.16. Timing recorded before this is not
+  comparable with timing recorded after (GH-71).
+- comm-layer kept `/safety/is_muted` True through the SDM's safe hold. The hold
+  is UNMUTE then SW_ERROR about 22 µs apart, and the bridge reads only the latest
+  `StateJson` at 10 Hz, so it saw the SW_ERROR alone and kept the MUTE before it;
+  a heartbeat right after an UNMUTE hid it the same way. The OPC server now tracks
+  each zone's state over every packet and writes it to `IsMuted`, `IsAlarm` and
+  `StateJson` (`is_muted`, `is_alarm`): MUTE mutes; UNMUTE, HW_ERROR and SW_ERROR
+  unmute and raise the alarm; a heartbeat keeps the last decision. The bridge
+  publishes that state, and counts an error as UNMUTE when a snapshot lacks it.
+  `IsMuted` no longer drops to False on a heartbeat (NVBug 6966743).
+- `isaac-sim` reported unhealthy on a fresh host while the scene ran. The check it
+  inherits from the Isaac Sim image reads `/isaac-sim/.nvidia-omniverse/logs/Kit`,
+  which Isaac Sim 6.1 no longer writes; where the mounted cache still held an
+  older run's log it passed on that log instead. `isaac-sim.yml` now checks the
+  newest log under `/isaac-sim/kit/logs/Kit`, which is not mounted, for
+  `AppReady`. The Brev notebook's log commands read the same directory
+  (NVBug 6965958).
 - The generated forklift overlay copied the 20x20 scene's
   `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
   scene's directory, landing in a file one level below it in

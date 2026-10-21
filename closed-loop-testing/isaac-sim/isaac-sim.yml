@@ -46,6 +46,16 @@ services:
           devices:
           - device_ids: ["${ISAAC_GPU_DEVICE:-1}"]
             capabilities: [gpu]
+    # The base image's check reads .nvidia-omniverse/logs, which Isaac Sim 6.1 no
+    # longer writes and which is the mounted cache here, so it fails on a fresh
+    # host and passes on an old run's log elsewhere. kit/logs is not mounted, so
+    # its newest log is this container's.
+    healthcheck:
+      test: ["CMD-SHELL", "latest=$$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log 2>/dev/null | head -1) && [ -n \"$$latest\" ] && grep -q AppReady \"$$latest\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 3
     depends_on:
       comm-layer:
         condition: service_healthy

@@ -102,7 +102,7 @@ def _build_one_swivel_control_graph(robot: dict) -> None:
     drive_joint = cfg.get("drive_joint", "back_wheel_drive")
     swivel_joint = cfg.get("swivel_joint", "back_wheel_swivel")
     wheelbase = float(cfg.get("wheelbase", 1.49))
-    wheel_radius = float(cfg.get("wheel_radius", 0.15))
+    wheel_radius = float(cfg.get("wheel_radius", 0.16))
     max_steer = math.radians(float(cfg.get("max_steer_deg", 45.0)))
     cmd_vel_topic = resolve_cmd_vel_topic(robot)
 
