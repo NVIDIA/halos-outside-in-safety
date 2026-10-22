@@ -292,6 +292,20 @@ waypoint set for an existing scene is genuinely the same run driven differently.
   newest log under `/isaac-sim/kit/logs/Kit`, which is not mounted, for
   `AppReady`. The Brev notebook's log commands read the same directory
   (NVBug 6965958).
+- SRR's Phase 1 ground truth did not follow the ATL rule it scores. It expected
+  MUTE with a person inside the trailer, which the trailer side of the tripwire
+  places outside the ROI, while the SDM unmutes for that person; it scored a
+  person on the ROI edge by the GT point, where perception's detection can fall on
+  the other side; and it counted every frame of lag after a transition. Expected
+  MUTE now also requires nobody in the trailer. A frame whose expected state rests
+  only on a person within `--roi-edge-band-m` (0.5 m) of the ROI edge, and a frame
+  within `--settle-allowance-s` (1.0 s) after an expected-state change, is not
+  scored; longer lags still count. A reaction lag is measured within its own
+  expected-state interval, so a later transition no longer answers an earlier,
+  missed one, and missed intervals are listed. Reports keep the raw per-frame match
+  next to the scored one. The two 15 Oct `psf-edge` runs rescore from 4 + 3 PASS to
+  9 + 8 PASS of 13 + 13 clips, with the raw match unchanged; the NEAR clips left are
+  MUTE lags of 1.5–1.9 s.
 - The generated forklift overlay copied the 20x20 scene's
   `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
   scene's directory, landing in a file one level below it in

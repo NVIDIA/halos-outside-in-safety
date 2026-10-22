@@ -59,7 +59,9 @@ BA perception — per-event match (window ≤ 3 s):
 | Metric | What it measures | Healthy range |
 |---|---|---|
 | **PASS / NEAR / FAIL** | Per-clip verdict bucket — PASS ≥ 95 % match, NEAR 80–95 %, FAIL < 80 % | ≥ 70 % PASS for a healthy run |
-| **match%** | Frame-by-frame agreement (expected_mute == actual_mute) at 30 Hz | mean ≥ 90 %, median ≥ 95 % |
+| **match%** | Frame-by-frame agreement (expected_mute == actual_mute) at 30 Hz over the **scored** frames. expected_mute follows the ATL rule: forklift in the trailer, no person in the trailer, no person in the ROI. Not scored: frames whose expected state rests only on a person within `--roi-edge-band-m` (0.5 m) of the ROI edge, where the GT point and perception's detection can disagree, and frames within `--settle-allowance-s` (1.0 s) after each expected-state change. A lag beyond the allowance still counts | mean ≥ 90 %, median ≥ 95 % |
+| **raw match%** | The same agreement over every frame, with no frame left out | reported next to match% |
+| **missed expected-state intervals** | Expected-state intervals the system never reached before the next change. A lag is measured only within its own interval, so a later transition does not answer an earlier, missed one | 0; one shorter than the settling allowance is unreachable for any pipeline |
 | **Mute correct%** | Of frames GT says SHOULD mute, fraction system actually muted (= 1 − under-mute / expected_mute) | ≥ 90 % |
 | **Unmute correct%** | Of frames GT says should NOT mute, fraction system actually unmuted (= 1 − over-mute / expected_unmute) | ≥ 95 % (this is the **safety-critical direction** — under-mute = alarm suppressed when person is present) |
 | **`(n=X)`** | Frame count for the metric — small N (< 500) means the run barely tested that direction; treat the % with caution |
@@ -233,11 +235,12 @@ Each per-clip MD has:
 |---|---|
 | **Verdict + Window** | Quick gist: PASS/FAIL, ISO times for cross-referencing |
 | **Video link** | Open the MP4 directly to see what reality looked like |
-| **Ground truth** | %char_in_roi, %forklift_in_trailer, %expected_mute — what the test expected |
+| **Ground truth** | %char_in_roi, %char_in_trailer, %forklift_in_trailer, %expected_mute — what the test expected |
 | **Observed Safety Core state** | %actual_mute + command breakdown — what Safety Core did. May also carry a `⚠ PSF feed coverage: <pct>%` line (frames with no real `/safety/is_muted` message; the rest were scored as unmuted) and a `🚫 GT_FROZEN` line (forklift GT froze → this clip's expected_mute + verdict are untrustworthy) |
 | **Match — over-mute / under-mute** | Direction of the mismatch. Under-mute = safety-critical |
 | **Mismatch windows** | **Most useful section.** Lists every contiguous (≥ 0.5 s) window with `start/end/duration/direction`. Reviewer can `ffmpeg -ss <start>` directly to inspect that exact moment in the MP4 |
-| **Reaction lag** | UNMUTE/MUTE: median + p95 + max + transition count |
+| **Match — scored / raw** | match% over the scored frames, raw match% over every frame, and how many frames were left out for a person at the ROI edge or for settling |
+| **Reaction lag** | UNMUTE/MUTE: median + p95 + max + transition count, each within its own expected-state interval, plus the missed intervals |
 | **BA detection per GT event** | The actual `GT entry → BA detected` table with delay per event. If BA missed something here, tracker might have lost the object |
 
 ### Drill-down workflow (for a FAIL clip)
