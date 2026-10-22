@@ -1,0 +1,37 @@
+---
+title: "Safety Black Box (SBB)"
+description: ""
+---
+Safety Black Box provides centralized logging and audit trail capabilities
+for HOISA.
+
+All HOISA components write runtime details to SBB — including **errors**,
+**exceptions**, and **safety event traces**. SBB supports compliance auditing
+and post-incident analysis.
+
+**Backend**: Linux syslog, with an rsyslog drop-in
+(`/etc/rsyslog.d/99-pss-logs.conf`) that routes every HOISA program to
+`/var/log/psf/pss.log` and stops further processing. Read the logs there in
+real time; they are deliberately not written to `/var/log/syslog`.
+Snapshots of that file enable offline analysis of deployment behavior and
+system health.
+
+## Component roles that write to SBB
+
+| Endpoint type | Role |
+| --- | --- |
+| `NVPSB_PSS_SOURCE` | SIPP source endpoint |
+| `NVPSB_PSS_SINK` | SIPP sink endpoint |
+| `NVPSB_PSS_DAEMON` | SEI daemon |
+| `NVPSB_PSD_CLIENT` | NvPSD gateway client |
+| `NVPSB_SDM_CLIENT` | Safety Decision Maker |
+
+<Info>
+The SBB API (`NvPSBInitialize`, `NvPSBWriteData`, `NvPSBExit`) provides
+interfaces for initializing the safety black box, writing data records, and
+gracefully terminating the logging session. Each call returns an
+`NvPSBErr` value: `NVPSB_SUCCESS`, `NVPSB_FAIL`, `NVPSB_NO_RSP`, or
+`NVPSB_UNINITIALIZED`. Records are written at one of the
+`NvPSBLogLevel_t` levels, which follow the syslog severities from
+`NVPSB_LOG_EMERG` through `NVPSB_LOG_DEBUG`.
+</Info>

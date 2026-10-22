@@ -16,3 +16,6 @@ data_log/
 
 # Jupyter
 **/.ipynb_checkpoints/
+
+# Fern
+fern/.fern/
