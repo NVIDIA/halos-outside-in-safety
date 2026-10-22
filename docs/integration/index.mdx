@@ -422,7 +422,7 @@ answer on the same socket:
 
 Requests arriving when no latch is held are answered with
 `CMD_SAFE_RELEASE_ACK` and rate-limited to one response per second. For the
-operator-facing side of this handshake, see **safe-release**.
+operator-facing side of this handshake, refer to [Clearing a Latched Safe State](/deployment#safe-release).
 
 **3.4 Gateway Heartbeat Protocol**
 
@@ -564,7 +564,7 @@ can `echo release` into the process's stdin or FIFO.
 
 The receiver also issues that request on its own, once, after it first hears from
 its peer, which clears a latch left over from a previous run. See
-**safe-release** for the full handshake, including when the SDM denies the
+[Clearing a Latched Safe State](/deployment#safe-release) for the full handshake, including when the SDM denies the
 request.
 
 ### 4.2 Proximity Monitoring Use-Case
@@ -926,7 +926,7 @@ if (n == NVPSD_GATEWAY_HB_MSG_SIZE &&
 }
 ```
 
-It is recommended that a **heartbeat watchdog** be implemented to detect gateway communication failures. The watchdog tracks the elapsed time since the last received heartbeat and derives a miss count. If heartbeats are not received within the configured threshold (`max_hb_failures`, default: 10), the SDM should transition to a fail-safe state. As in the ATL reference application, the Proximity SDM latches that safe state and keeps re-asserting the fail-safe commands rather than exiting; it returns to normal operation only through the safe-release handshake (**safe-release**).
+It is recommended that a **heartbeat watchdog** be implemented to detect gateway communication failures. The watchdog tracks the elapsed time since the last received heartbeat and derives a miss count. If heartbeats are not received within the configured threshold (`max_hb_failures`, default: 10), the SDM should transition to a fail-safe state. As in the ATL reference application, the Proximity SDM latches that safe state and keeps re-asserting the fail-safe commands rather than exiting; it returns to normal operation only through the safe-release handshake ([Clearing a Latched Safe State](/deployment#safe-release)).
 
 **4. Building the Proximity SDM Reference**
 
@@ -1040,5 +1040,5 @@ can `echo release` into the process's stdin or FIFO.
 
 The receiver also issues that request on its own, once, after it first hears from
 its peer, which clears a latch left over from a previous run. See
-**safe-release** for the full handshake, including when the SDM denies the
+[Clearing a Latched Safe State](/deployment#safe-release) for the full handshake, including when the SDM denies the
 request.

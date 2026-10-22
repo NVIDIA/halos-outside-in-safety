@@ -71,8 +71,6 @@ The rest of this guide runs from the Regression Testing Reporter directory:
 cd closed-loop-testing/regression-reporter
 ```
 
-Step 3: Configure the Regression Testing Reporter `.env`
-
 ## Step 3: Configure the Regression Testing Reporter `.env`
 
 Regression Testing Reporter inherits shared values (`HOST_IP`, `ROS_DOMAIN_ID`, `VST_BASE_URL`, `MDX_DATA_DIR`, ...) from the Halos profile env, so its own `.env` only needs a few paths. Copy the example and fill it in:
@@ -341,13 +339,9 @@ docker restart vss-rtvi-cv
 docker logs --tail 200 vss-rtvi-cv 2>&1 | grep PERF -A1 | tail -5   # all 3 FPS ≥ 5
 ```
 
-`tw_split` reports 0 clips
-
 ### `tw_split` reports 0 clips
 
 Either the recording is too short to contain a forklift trailer crossing (use ≥ 3 minutes), or the parquet footer wasn't flushed yet — wait a few seconds and re-run the split.
-
-VST record API returns 503, or `sensor/add` gets 400
 
 ### VST record API returns 503, or `sensor/add` gets 400
 
@@ -361,8 +355,6 @@ If `clip_logs` is missing, videos land in the wrong folder, or there is no Phase
 cd srr-service && docker compose --env-file ../.env build srr && \
   docker compose --env-file ../.env up -d srr
 ```
-
-Low `Mute correct%` on a long run, or alternating PASS/FAIL
 
 ### Low `Mute correct%` on a long run, or alternating PASS/FAIL
 

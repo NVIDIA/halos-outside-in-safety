@@ -197,8 +197,6 @@ Expected output:
 
 **Workarounds**: name `robot_id` in every command message, or run one controller per ROS domain. The shipped deployment runs one.
 
-`Up` is not proof of motion
-
 ### `Up` is not proof of motion
 
 **Cause**: the service has no healthcheck and no `depends_on`, and the node starts, subscribes, and waits regardless of whether odometry ever arrives. A count of running containers is therefore not a check that the loop is closed.

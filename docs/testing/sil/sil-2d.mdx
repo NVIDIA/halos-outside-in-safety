@@ -48,8 +48,6 @@ Deploy VSS Warehouse 3.2.1 following the official [VSS Warehouse Blueprint - 2D 
 `<wh_ops>` below is the VSS warehouse-operations directory, `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. Edit the override files there in place, but **do not run** `docker compose` **from** `<wh_ops>/` — its `compose.yml` is only an app fragment and pulls in no infrastructure (Kafka, Redis, `sdr-controller`). Deploy from `<vss_repo>/deploy/docker/` with `--env-file industry-profiles/warehouse-operations/.env`.
 </Note>
 
-2.1 `.env` Overrides
-
 ### 2.1 `.env` Overrides
 
 Set these in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the

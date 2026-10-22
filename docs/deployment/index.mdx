@@ -580,8 +580,8 @@ Writing `release` to the receiver's standard input is how a latched safe
 state is released. This is always enabled, so a background or
 service-managed receiver can be driven with `echo release` into its stdin
 or FIFO. The receiver also sends the request by itself once it first hears
-from the SDM, which clears a latch left over from a previous run. See
-**safe-release**.
+from the SDM, which clears a latch left over from a previous run. Refer to
+[Clearing a Latched Safe State](#safe-release).
 </Note>
 
 The Safety Core Docker container pulled in [1.2 Docker Installation](#12-docker-installation) can now be launched. All Spatial AI 2D Docker containers must be up and running before proceeding.
@@ -983,8 +983,8 @@ Writing `release` to the receiver's standard input is how a latched safe
 state is released. This is always enabled, so a background or
 service-managed receiver can be driven with `echo release` into its stdin
 or FIFO. The receiver also sends the request by itself once it first hears
-from the SDM, which clears a latch left over from a previous run. See
-**safe-release**.
+from the SDM, which clears a latch left over from a previous run. Refer to
+[Clearing a Latched Safe State](#safe-release).
 </Note>
 
 The Safety Core Docker container pulled in [1.2 Docker Installation](#12-docker-installation) can now be
@@ -1533,7 +1533,7 @@ resolution steps.
 
 Because both the runtime-receive and parsing paths are silent, a broker or
 schema problem surfaces as an absence of events rather than an error. For
-the procedure that isolates that case, see **no-ba-events**.
+the procedure that isolates that case, refer to [6.6 No Behavior Analytics (BA) events on mdx-events](#no-ba-events).
 
 ### 5.3 VSS Service Monitoring Errors
 <a id="vss-service-monitoring-errors" />
@@ -1542,7 +1542,7 @@ A background thread verifies required Docker services (`mdx-deepstream`, `mdx-ui
 
 - Command execution failure or missing services trigger a `SW_FAIL` event (severity `HIGH`).
 - Operator should check Docker status and restart missing containers. See
-  **no-ba-events** for the container and topic checks.
+  [6.6 No Behavior Analytics (BA) events on mdx-events](#no-ba-events) for the container and topic checks.
 
 ### 5.4 SEI Client and Heartbeat Errors
 <a id="sei-client-and-heartbeat-errors" />
@@ -1590,8 +1590,8 @@ A background thread verifies required Docker services (`mdx-deepstream`, `mdx-ui
   - When SEI daemon signals error, SDM sends SOFTWARE ERROR commands to external system.
   - Ensures safe fail-to-alarm behavior.
   - The SDM latches this state and keeps re-asserting the commands. Clearing
-    the underlying fault is not enough to resume normal operation; see
-    **safe-release**.
+    the underlying fault is not enough to resume normal operation; refer to
+    [Clearing a Latched Safe State](#safe-release).
 
 ### 5.6 Software Failure Events (SW_FAIL)
 <a id="software-failure-events-sw-fail" />
@@ -1772,8 +1772,6 @@ Solutions:
      `sensor_config.conf` so its `sensorName` and `rtspUrl` values
      match the refreshed VST configuration.
 
-6.6 No Behavior Analytics (BA) events on `mdx-events`
-
 ### 6.6 No Behavior Analytics (BA) events on `mdx-events`
 <a id="no-behavior-analytics-ba-events-on-mdx-events" />
 <a id="no-ba-events" />
@@ -1858,8 +1856,6 @@ Solutions:
    - Validate the RTSP stream is continuous during `learn` (see
      Section 6.4).
 
-6.9 A single camera stays `SENSOR_INVALID` and does not recover
-
 ### 6.9 A single camera stays `SENSOR_INVALID` and does not recover
 <a id="a-single-camera-stays-sensor-invalid-and-does-not-recover" />
 
@@ -1923,8 +1919,6 @@ decision. The FSI decision path leaves the packet timestamp field at zero,
 unlike the CCPLEX SDM which fills it in. This is expected and does not
 affect the decision, its sequence number, or its acknowledgement.
 </Note>
-
-6.11 Events dropped with `Failed to process reported SafetyEvent`
 
 ### 6.11 Events dropped with `Failed to process reported SafetyEvent`
 <a id="events-dropped-with-failed-to-process-reported-safetyevent" />

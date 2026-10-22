@@ -214,7 +214,7 @@ Wait for a `SEGMENT TRANSITION` line reading `FORWARD→REVERSE`, which is the f
 <Info>
 Starting the Safety Core mid-scenario, with the forklift already in the trailer, leaves the ATL scenario state stuck: commands keep flowing but `MUTE` never fires again. Stop it and start it again on a clear scene.
 
-This is not the fail-safe latch. The Safety Decision Maker latches a *safe state* when it detects a fault, re-asserts the fail-safe command, and clears only through the `release` handshake described in **safe-release**. The condition here needs no handshake — the scenario simply started from a state ATL cannot resolve, and a relaunch on a clear scene is the whole fix.
+This is not the fail-safe latch. The Safety Decision Maker latches a *safe state* when it detects a fault, re-asserts the fail-safe command, and clears only through the `release` handshake described in [Clearing a Latched Safe State](/deployment#safe-release). The condition here needs no handshake — the scenario simply started from a state ATL cannot resolve, and a relaunch on a clear scene is the whole fix.
 </Info>
 
 ```bash
@@ -368,7 +368,7 @@ A `State: IDLE → MOVING` line is not evidence: the controller prints it uncond
 
 ### Decisions Flow but MUTE Never Fires
 
-Either the forklift is not crossing the trailer tripwire, or the ATL scenario state is stuck from a mid-scenario start. Neither is the fail-safe latch of **safe-release**, which announces itself in the command receiver console and does not clear on a restart.
+Either the forklift is not crossing the trailer tripwire, or the ATL scenario state is stuck from a mid-scenario start. Neither is the fail-safe latch of [Clearing a Latched Safe State](/deployment#safe-release), which announces itself in the command receiver console and does not clear on a restart.
 
 Confirm the forklift is moving on the VST streams first. If it is, and events keep flowing while only `MUTE` has stopped, stop the Safety Core and relaunch it at a [clear-scene moment](/testing/hil/quickstart#step-9-start-the-safety-core-on-a-clear-scene).
 

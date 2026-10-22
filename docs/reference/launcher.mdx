@@ -91,8 +91,6 @@ The launcher has three mutually exclusive modes selected via
 | `--mode <learn\|active\|skip>` | Operating mode (see Section 2). |
 | `--sensor-config <file>` | Sensor configuration file in CSV form (`pipelineId, sensorName, rtspUrl` — one sensor per line). Consumed by `safety_monitor` and, in `active` / `skip` modes, bind-mounted into the Safety Core container. Each `rtspUrl` must be directly playable by `ffprobe` or `gst-launch-1.0`; VST registration or online status alone does not prove the stream is usable by HOISA. |
 
-3.2 Arguments Required in `active` / `skip` Modes
-
 ### 3.2 Arguments Required in `active` / `skip` Modes
 
 | Argument | Description |
@@ -226,8 +224,6 @@ binary. The launcher warns if a non-default value is combined with
 `--sdm-target fsi`.
 </Note>
 
-6. SEI Daemon Configuration (`nvpss.conf`)
-
 ## 6. SEI Daemon Configuration (`nvpss.conf`)
 
 The SEI daemon reads its configuration from `nvpss.conf`. The launcher
@@ -263,8 +259,6 @@ Exit codes:
 
 ## 8. Troubleshooting
 
-8.1 Permission error preparing `/var/log/psf`
-
 ### 8.1 Permission error preparing `/var/log/psf`
 
 The invoking user does not have the privileges required to create the
@@ -287,23 +281,19 @@ second of starting, the launcher aborts with
 `Error: failed to start <label>`. Inspect the corresponding log in
 `/var/log/psf/` for the root cause.
 
-8.4 `safety_monitor` exits with baseline file not found
-
 ### 8.4 `safety_monitor` exits with baseline file not found
 
 `active` mode reads SAIM's per-sensor baseline files from the baseline
 directory (`--baseline-dir`, default `/opt/nvidia/psf/bin/saim_baseline`),
 so pass the same `--baseline-dir` to `learn` and `active`. For the full
 diagnosis and the `learn` command that regenerates site-specific baselines,
-see **saim-baseline-missing**.
-
-8.5 VST RTSP URL returns `DESCRIBE` or `PLAY` 404
+refer to [6.3 Safety AI Monitor exits with baseline file not found](/deployment#saim-baseline-missing).
 
 ### 8.5 VST RTSP URL returns `DESCRIBE` or `PLAY` 404
 
 Every `rtspUrl` in `sensor_config.conf` must be validated before the
 launcher is started in `learn` or `active` mode. For the validation
-commands and the VST-side fix, see **vst-rtsp-playback**.
+commands and the VST-side fix, refer to [6.4 VST sensor is online but RTSP playback fails](/deployment#vst-rtsp-playback).
 
 ## 9. Reference
 

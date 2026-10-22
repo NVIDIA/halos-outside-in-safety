@@ -87,8 +87,6 @@ Dest:   <wh_ops>/warehouse-3d-app/calibration/sample-data/
 
 Start from the 2D `calibration.json` and add the following.
 
-2.1 Per Sensor — a BEV `group`
-
 ### 2.1 Per Sensor — a BEV `group`
 
 ```text
@@ -103,15 +101,11 @@ Start from the 2D `calibration.json` and add the following.
 
 `group.name` (`bev-sensor-1`) binds the three cameras into one BEV fusion group — every sensor in the group shares it.
 
-2.2 Per Sensor — a `region` entry in `place`
-
 ### 2.2 Per Sensor — a `region` entry in `place`
 
 ```json
 {"name": "region", "value": "Region-1"}
 ```
-
-2.3 Top-level `rois` and `tripwires`
 
 ### 2.3 Top-level `rois` and `tripwires`
 
@@ -187,8 +181,6 @@ print(f'OK: {len(d[\"sensors\"])} sensors, {len(d[\"rois\"])} ROIs, {len(d[\"tri
 ## Step 3: Deploy VSS Warehouse (3D Profile)
 
 Deploy VSS Warehouse 3.2.1 following the official [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html) documentation. Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, a rebuild costs another ~10-15 min.
-
-3.1 `.env` Overrides
 
 ### 3.1 `.env` Overrides
 
@@ -456,8 +448,6 @@ Switching between 2D and 3D requires a **full teardown** of both stacks. Do not 
 </Info>
 
 ## Troubleshooting
-
-Kafka `mdx-events` Topic Empty
 
 ### Kafka `mdx-events` Topic Empty
 

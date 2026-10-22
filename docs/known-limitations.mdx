@@ -54,7 +54,7 @@ Four open issues affect the Isaac Sim → VST stream path on Isaac Sim 6.0. They
 - Once the Safety Decision Maker latches a safe state, clearing the
   originating fault does not by itself resume normal operation. The latch is
   released only by a safe-release request from the command receiver endpoint.
-  See **safe-release**.
+  Refer to [Clearing a Latched Safe State](/deployment#safe-release).
 - A restarted command receiver issues that request automatically on first
   contact with its peer, so a latch whose fault has already cleared is released
   without operator action. This is not a way out of a live fault: while any
