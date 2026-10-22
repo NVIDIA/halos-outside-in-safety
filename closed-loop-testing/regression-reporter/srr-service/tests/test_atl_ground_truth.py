@@ -5,8 +5,8 @@
 MUTE iff the forklift is in the trailer, no person is in the trailer and no
 person is in the ROI. Frames that rest on a person at the ROI edge, and frames
 within the settling allowance of an expected-state change, are not scored; a
-lag is measured only within its own expected-state interval. Run in the srr
-image:
+lag is measured only within its own expected-state interval, and not for an
+interval begun by a person crossing the ROI edge. Run in the srr image:
 
     docker run --rm -v $PWD:/svc -w /svc --entrypoint python3 srr-service:phase1 \
       -m pytest -q -p no:cacheprovider tests
@@ -28,6 +28,7 @@ TRAILER = (11.0, -15.0)     # past the tripwire at x = 9.574
 OUTSIDE_TRAILER = (8.0, -15.0)
 ROI_CENTRE = (7.2, -15.1)   # >2 m from every ROI edge
 ROI_EDGE = (5.0, -15.1)     # 0.12 m inside the x = 4.877 edge
+ROI_EDGE_OUT = (4.8, -15.1)  # 0.08 m outside the same edge
 
 
 def write_clip(tmp_path, n, forklift, chars, muted):
@@ -113,3 +114,23 @@ def test_a_missed_interval_is_not_answered_by_a_later_one(tmp_path):
     v, _ = score(path)
     assert v.missed_intervals == [("MUTE", 2.0, 0.1)]
     assert v.max_reaction_mute_ms == 300.0
+
+
+def test_a_person_stepping_across_the_roi_edge_is_not_timed(tmp_path):
+    # The person on the edge steps just outside for 0.1 s at 2.0 s; the system stays unmuted.
+    path = write_clip(tmp_path, 300, lambda i: TRAILER,
+                      lambda i: [ROI_EDGE_OUT if 60 <= i < 63 else ROI_EDGE, FAR, FAR],
+                      lambda i: False)
+    v, _ = score(path)
+    assert v.missed_intervals == []
+    assert v.n_untimed_edge_intervals == 3
+    assert v.n_unmute_transitions == 0
+
+
+def test_the_forklift_entering_with_a_person_at_the_roi_edge_is_timed(tmp_path):
+    enter, lag = 60, 48  # 1.6 s
+    path = write_clip(tmp_path, 300, lambda i: TRAILER if i >= enter else OUTSIDE_TRAILER,
+                      lambda i: [ROI_EDGE_OUT, FAR, FAR], lambda i: i >= enter + lag)
+    v, _ = score(path)
+    assert v.n_untimed_edge_intervals == 0
+    assert v.max_reaction_mute_ms == 1600.0

@@ -233,6 +233,8 @@ class ClipVerdict:
     settle_s: float = SETTLE_ALLOWANCE_S
     # Expected-state intervals the system never reached: (state, start_s, duration_s).
     missed_intervals: list[tuple[str, float, float]] = field(default_factory=list)
+    # Intervals begun by a person crossing the ROI edge; no lag, never missed.
+    n_untimed_edge_intervals: int = 0
 
 
 def in_roi(roi: Polygon, x: Optional[float], y: Optional[float]) -> bool:
@@ -1074,12 +1076,23 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
 
     # --- reaction lag: when expected_mute toggles, when does actual follow? ---
     # Searched only within that expected-state interval: a later interval's
-    # transition does not answer an earlier one, which is then missed.
+    # transition does not answer an earlier one, which is then missed. An
+    # interval begun by a person crossing the ROI edge has no reliable start to
+    # time from; one begun by the forklift or a person at the trailer is timed.
+    def begun_at_roi_edge(i: int) -> bool:
+        return bool(edge_only[i]) and (
+            i == 0 or (fk_in_trailer[i] == fk_in_trailer[i - 1]
+                       and any_char_in_trailer[i] == any_char_in_trailer[i - 1]))
+
     bounds = [0] + changes + [len(em_arr)]
     unmute_lags: list[float] = []
     mute_lags: list[float] = []
     missed_intervals: list[tuple[str, float, float]] = []
+    n_untimed_edge_intervals = 0
     for start, end in zip(bounds[:-1], bounds[1:]):
+        if begun_at_roi_edge(start):
+            n_untimed_edge_intervals += 1
+            continue
         want = bool(em_arr[start])
         hit = next((i for i in range(start, end) if am_arr[i] == want), None)
         if hit is not None:
@@ -1248,6 +1261,7 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
         roi_edge_band_m=roi_edge_band_m,
         settle_s=settle_s,
         missed_intervals=missed_intervals,
+        n_untimed_edge_intervals=n_untimed_edge_intervals,
     )
     notes = []
     if n_dropped > 0:
@@ -1355,6 +1369,8 @@ def render_clip_report(v: ClipVerdict) -> str:
         "- missed expected-state intervals (never reached before the next change): "
         + (", ".join(f"{s} at {t:.2f}s for {d:.2f}s" for s, t, d in v.missed_intervals)
            if v.missed_intervals else "none"),
+        f"- not timed: {v.n_untimed_edge_intervals} expected-state intervals begun by a person "
+        f"crossing within {v.roi_edge_band_m:g} m of the ROI edge",
         "",
         "## BA events (mdx-events Kafka)",
         "",
