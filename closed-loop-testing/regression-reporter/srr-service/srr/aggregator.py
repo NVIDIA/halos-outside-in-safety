@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional
@@ -66,6 +67,13 @@ MAX_MATCH_DELAY_S = 3.0  # BA event must lie within ±this window of GT (BA may 
 MAX_TRAILING_S = 5.0     # for ROI exit, look for trailing BA events up to this far after GT exit
 BA_POOL_PAD_S = 5.0      # when pooling BA events from run-level parquet, pad scene boundary by this
 GHOST_RESULT_BA_THRESHOLD = 0.50  # min fraction of GT events BA must match; below = perception likely dead
+# A person this close to the ROI edge can be inside by GT and outside by
+# perception's detection point, or the reverse; a frame whose expected state
+# rests on such a person is not scored.
+ROI_EDGE_BAND_M = 0.5
+# Frames this long after each expected-state change are not scored: the
+# settling budget the mute decision is held to. Longer lags still count.
+SETTLE_ALLOWANCE_S = 1.0
 # Coverage hull below this area (m²) is treated as degenerate: detections
 # collapsed onto ~1 line/point (typically only one actor ever visible because
 # the others stayed static/out-of-FOV), so no GT frame can be "in coverage" and
@@ -215,11 +223,31 @@ class ClipVerdict:
     # expected_mute is untrustworthy for such clips.
     gt_frozen_actors: list[str] = field(default_factory=list)
 
+    # --- ATL-rule scoring. match_rate and the over/under counts cover the
+    # scored frames; raw_match_rate covers every frame. ---
+    raw_match_rate: Optional[float] = None
+    pct_char_in_trailer: float = 0.0
+    n_unscored_edge_frames: int = 0     # expected state rests on a person at the ROI edge
+    n_unscored_settle_frames: int = 0   # within settle_s of an expected-state change
+    roi_edge_band_m: float = ROI_EDGE_BAND_M
+    settle_s: float = SETTLE_ALLOWANCE_S
+    # Expected-state intervals the system never reached: (state, start_s, duration_s).
+    missed_intervals: list[tuple[str, float, float]] = field(default_factory=list)
+    # Intervals begun by a person crossing the ROI edge; no lag, never missed.
+    n_untimed_edge_intervals: int = 0
+
 
 def in_roi(roi: Polygon, x: Optional[float], y: Optional[float]) -> bool:
     if x is None or y is None or pd.isna(x) or pd.isna(y):
         return False
     return roi.covers(Point(float(x), float(y)))
+
+
+def roi_edge_distance(roi: Polygon, x: Optional[float], y: Optional[float]) -> float:
+    """Distance to the ROI boundary, inside or out; inf without a position."""
+    if x is None or y is None or pd.isna(x) or pd.isna(y):
+        return math.inf
+    return roi.exterior.distance(Point(float(x), float(y)))
 
 
 def find_mismatch_windows(over: list[bool], under: list[bool],
@@ -935,7 +963,9 @@ def compute_phase2_metrics(df: pd.DataFrame, gate_m: float = 1.5,
 
 
 def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
-                 ba_events_override: Optional[list[dict]] = None) -> tuple[ClipVerdict, pd.DataFrame]:
+                 ba_events_override: Optional[list[dict]] = None,
+                 roi_edge_band_m: float = ROI_EDGE_BAND_M,
+                 settle_s: float = SETTLE_ALLOWANCE_S) -> tuple[ClipVerdict, pd.DataFrame]:
     df = pd.read_parquet(parquet_path)
     # Phase 2 metrics computed on the full df (before the cold-start GT drop).
     phase2 = compute_phase2_metrics(df, tw=tw)
@@ -967,16 +997,33 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
         c: [in_roi(roi, x, y) for x, y in zip(df[f"{c}_x"], df[f"{c}_y"])]
         for c in CHAR_COLS
     })
+    char_in_trailer = pd.DataFrame({
+        c: [bool(pd.notna(x) and pd.notna(y) and tw.is_inside(x, y))
+            for x, y in zip(df[f"{c}_x"], df[f"{c}_y"])]
+        for c in CHAR_COLS
+    })
+    char_near_edge = pd.DataFrame({
+        c: [roi_edge_distance(roi, x, y) <= roi_edge_band_m
+            for x, y in zip(df[f"{c}_x"], df[f"{c}_y"])]
+        for c in CHAR_COLS
+    })
     import numpy as _np
     any_char = _np.array(char_in_roi.any(axis=1).fillna(False).tolist(), dtype=bool)
+    any_char_in_trailer = char_in_trailer.any(axis=1).to_numpy(dtype=bool)
+    any_char_clearly_in = (char_in_roi & ~char_near_edge).any(axis=1).to_numpy(dtype=bool)
+    any_char_near_edge = char_near_edge.any(axis=1).to_numpy(dtype=bool)
     fk_in_trailer = _np.array([
         bool(pd.notna(fx) and pd.notna(fy) and tw.is_inside(fx, fy))
         for fx, fy in zip(df["forklift_x"], df["forklift_y"])
     ], dtype=bool)
     df["any_char_in_roi"] = any_char
+    df["any_char_in_trailer"] = any_char_in_trailer
     df["forklift_in_trailer"] = fk_in_trailer
-    # Expected MUTE iff forklift in trailer AND no person in ROI.
-    df["expected_mute"] = fk_in_trailer & ~any_char
+    # The ATL rule: MUTE iff the forklift is in the trailer, no person is in the
+    # trailer and no person is in the ROI.
+    df["expected_mute"] = fk_in_trailer & ~any_char_in_trailer & ~any_char
+    # Frames whose expected state rests only on a person at the ROI edge.
+    edge_only = fk_in_trailer & ~any_char_in_trailer & ~any_char_clearly_in & any_char_near_edge
 
     # --- observed PSF state (NaN-safe bool) ---
     # Validity first: frames recorded before ANY /safety/is_muted message hold
@@ -998,44 +1045,63 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
     sample_hz = len(df) / duration_s if duration_s > 0 else 0.0
     t0 = times[0] if times else 0.0
 
-    # match (NaN-safe)
-    matched = (df["expected_mute"] == df["actual_mute"]).fillna(False)
-    n_mismatch = int((~matched).sum())
+    em_arr = df["expected_mute"].to_numpy(dtype=bool)
+    am_arr = df["actual_mute"].to_numpy(dtype=bool)
+    wt_arr = _np.asarray(times, dtype=float)
+    changes = [i for i in range(1, len(em_arr)) if em_arr[i] != em_arr[i - 1]]
+    settling = _np.zeros(len(em_arr), dtype=bool)
+    for i in changes:
+        settling |= (wt_arr >= wt_arr[i]) & (wt_arr < wt_arr[i] + settle_s)
+    scored = ~edge_only & ~settling
+    n_unscored_edge = int(edge_only.sum())
+    n_unscored_settle = int((settling & ~edge_only).sum())
+
+    # match over the scored frames (NaN-safe); the raw rate keeps every frame
+    matched_all = em_arr == am_arr
+    raw_match_rate = round(100 * matched_all.mean(), 2) if len(df) else 0.0
+    n_scored = int(scored.sum())
+    n_mismatch = int((~matched_all & scored).sum())
 
     # mismatch direction
-    over_mute_mask = (df["actual_mute"] & ~df["expected_mute"]).tolist()
-    under_mute_mask = (df["expected_mute"] & ~df["actual_mute"]).tolist()
+    over_mute_mask = (am_arr & ~em_arr & scored).tolist()
+    under_mute_mask = (em_arr & ~am_arr & scored).tolist()
     n_over = int(sum(over_mute_mask))
     n_under = int(sum(under_mute_mask))
-    pct_over = round(100 * n_over / len(df), 2) if len(df) else 0.0
-    pct_under = round(100 * n_under / len(df), 2) if len(df) else 0.0
-    n_expected_mute = int(df["expected_mute"].sum())
-    n_expected_unmute = int((~df["expected_mute"]).sum())
+    pct_over = round(100 * n_over / n_scored, 2) if n_scored else 0.0
+    pct_under = round(100 * n_under / n_scored, 2) if n_scored else 0.0
+    n_expected_mute = int((em_arr & scored).sum())
+    n_expected_unmute = int((~em_arr & scored).sum())
 
     mismatch_windows = find_mismatch_windows(over_mute_mask, under_mute_mask, times, t0)
 
-    # --- reaction lag: when expected_mute toggles, when does actual toggle to match? ---
-    def reaction_lags(expected_value: bool) -> list[float]:
-        lags = []
-        em = df["expected_mute"].astype(bool)
-        prev = em.shift(1).fillna(not expected_value).astype(bool)
-        edges = (em == expected_value) & (prev != expected_value)
-        edge_positions = [i for i, v in enumerate(edges.tolist()) if v]
-        am = df["actual_mute"].astype(bool).tolist()
-        wt = df["arrival_wall_time"].tolist()
-        for pos in edge_positions:
-            t_edge = wt[pos]
-            try:
-                next_match = next(i for i in range(pos, len(am)) if am[i] == expected_value)
-            except StopIteration:
-                continue
-            t1 = wt[next_match]
-            if t1 >= t_edge:
-                lags.append((t1 - t_edge) * 1000.0)
-        return lags
+    # --- reaction lag: when expected_mute toggles, when does actual follow? ---
+    # Searched only within that expected-state interval: a later interval's
+    # transition does not answer an earlier one, which is then missed. An
+    # interval begun by a person crossing the ROI edge has no reliable start to
+    # time from; one begun by the forklift or a person at the trailer is timed.
+    def begun_at_roi_edge(i: int) -> bool:
+        return bool(edge_only[i]) and (
+            i == 0 or (fk_in_trailer[i] == fk_in_trailer[i - 1]
+                       and any_char_in_trailer[i] == any_char_in_trailer[i - 1]))
 
-    unmute_lags = reaction_lags(False)
-    mute_lags = reaction_lags(True)
+    bounds = [0] + changes + [len(em_arr)]
+    unmute_lags: list[float] = []
+    mute_lags: list[float] = []
+    missed_intervals: list[tuple[str, float, float]] = []
+    n_untimed_edge_intervals = 0
+    for start, end in zip(bounds[:-1], bounds[1:]):
+        if begun_at_roi_edge(start):
+            n_untimed_edge_intervals += 1
+            continue
+        want = bool(em_arr[start])
+        hit = next((i for i in range(start, end) if am_arr[i] == want), None)
+        if hit is not None:
+            (mute_lags if want else unmute_lags).append((wt_arr[hit] - wt_arr[start]) * 1000.0)
+        else:
+            stop = wt_arr[end] if end < len(wt_arr) else wt_arr[-1]
+            missed_intervals.append(("MUTE" if want else "UNMUTE",
+                                     round(float(wt_arr[start] - t0), 2),
+                                     round(float(stop - wt_arr[start]), 2)))
 
     # --- GT-derived event TIMES (clip-relative, for BA matching) ---
     # NOTE: skip transitions at frame 0 — `shift(1, fill_value=False)` creates a spurious
@@ -1130,7 +1196,8 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
     run_label = parquet_path.parent.parent.name  # <run>/scenes/scn_xxxx.parquet → <run>
     scn_id = parquet_path.stem
     video_path = find_video_path(parquet_path)
-    match_rate = round(100 * matched.mean(), 2)
+    match_rate = (round(100 * matched_all[scored].mean(), 2) if n_scored
+                  else raw_match_rate)
 
     verdict = ClipVerdict(
         file=parquet_path.name,
@@ -1187,10 +1254,22 @@ def analyze_clip(parquet_path: Path, roi: Polygon, tw: Tripwire,
         median_roi_trailing_ms=percentile(roi_trailing_ms, 50),
         max_roi_trailing_ms=round(max(roi_trailing_ms), 1) if roi_trailing_ms else None,
         video_path=video_path,
+        raw_match_rate=raw_match_rate,
+        pct_char_in_trailer=round(100 * any_char_in_trailer.mean(), 2) if len(df) else 0.0,
+        n_unscored_edge_frames=n_unscored_edge,
+        n_unscored_settle_frames=n_unscored_settle,
+        roi_edge_band_m=roi_edge_band_m,
+        settle_s=settle_s,
+        missed_intervals=missed_intervals,
+        n_untimed_edge_intervals=n_untimed_edge_intervals,
     )
+    notes = []
     if n_dropped > 0:
         # Annotate so reviewer sees the clip was trimmed.
-        verdict.note = f"trimmed {n_dropped} leading frames (cold-start: GT TF not yet valid)"
+        notes.append(f"trimmed {n_dropped} leading frames (cold-start: GT TF not yet valid)")
+    if not n_scored:
+        notes.append("no frame was scorable; verdict from the raw match")
+    verdict.note = "; ".join(notes)
     verdict.phase2 = phase2
     return verdict, df
 
@@ -1235,8 +1314,9 @@ def render_clip_report(v: ClipVerdict) -> str:
         "## Ground truth (from /gt/*/tf)",
         "",
         f"- any character in ROI: **{v.pct_any_char_in_roi}%** of frames",
+        f"- any character in trailer (inside-side of the trailer tripwire): **{v.pct_char_in_trailer}%**",
         f"- forklift in trailer (inside-side of the trailer tripwire): **{v.pct_forklift_in_trailer}%**",
-        f"- expected MUTE: **{v.pct_expected_mute}%**",
+        f"- expected MUTE (forklift in trailer, nobody in trailer or ROI): **{v.pct_expected_mute}%**",
         "",
         "## Observed PSF state (from /safety/is_muted + /safety/command)",
         "",
@@ -1247,8 +1327,12 @@ def render_clip_report(v: ClipVerdict) -> str:
         "",
         "## Match",
         "",
-        f"- per-frame match rate: **{v.match_rate}%** ({v.verdict})",
-        f"- mismatched frames: {v.n_mismatch_frames}",
+        f"- per-frame match rate, scored frames: **{v.match_rate}%** ({v.verdict})",
+        f"- raw match rate, every frame: {v.raw_match_rate}%",
+        f"- not scored: {v.n_unscored_edge_frames} frames resting on a person within "
+        f"{v.roi_edge_band_m} m of the ROI edge, {v.n_unscored_settle_frames} frames within "
+        f"{v.settle_s} s of an expected-state change",
+        f"- mismatched scored frames: {v.n_mismatch_frames}",
         f"- **over-mute** (actual=mute, expected=unmute): {v.n_over_mute_frames} frames ({v.pct_over_mute}%)",
         f"- **under-mute** (actual=unmute, expected=mute): {v.n_under_mute_frames} frames ({v.pct_under_mute}%)",
     ]
@@ -1282,6 +1366,11 @@ def render_clip_report(v: ClipVerdict) -> str:
         + ("**∞ — system NEVER muted while it should** (indicator never went green)"
            if v.mute_never_engaged else
            _fmt_lag(v.median_reaction_mute_ms, v.p95_reaction_mute_ms, v.max_reaction_mute_ms, v.n_mute_transitions)),
+        "- missed expected-state intervals (never reached before the next change): "
+        + (", ".join(f"{s} at {t:.2f}s for {d:.2f}s" for s, t, d in v.missed_intervals)
+           if v.missed_intervals else "none"),
+        f"- not timed: {v.n_untimed_edge_intervals} expected-state intervals begun by a person "
+        f"crossing within {v.roi_edge_band_m:g} m of the ROI edge",
         "",
         "## BA events (mdx-events Kafka)",
         "",
@@ -1517,6 +1606,8 @@ def render_summary(verdicts: list[ClipVerdict], top_level: bool = False,
     near_n = sum(1 for v in verdicts if v.verdict == "NEAR")
     fail_n = sum(1 for v in verdicts if v.verdict == "FAIL")
     match_series = pd.Series([v.match_rate for v in verdicts])
+    raw_series = pd.Series([v.match_rate if v.raw_match_rate is None else v.raw_match_rate
+                            for v in verdicts])
     all_unmute_max = [v.max_reaction_unmute_ms for v in verdicts if v.max_reaction_unmute_ms is not None]
     all_mute_max = [v.max_reaction_mute_ms for v in verdicts if v.max_reaction_mute_ms is not None]
     worst_unmute = max(all_unmute_max) if all_unmute_max else None
@@ -1693,7 +1784,11 @@ def render_summary(verdicts: list[ClipVerdict], top_level: bool = False,
          f"(person always in ROI → mute function untestable); {n_trivial_pass} of them "
          f"are PASS and inflate this headline. Judge mute behaviour on the mute-test "
          f"scenarios + per-scenario rollup, not this blended number." if n_trivial else ""),
-        f"- match%: mean {match_series.mean():.1f} · median {match_series.median():.1f} · min {match_series.min():.1f}",
+        f"- match%: mean {match_series.mean():.1f} · median {match_series.median():.1f} · min {match_series.min():.1f}"
+        f" (scored frames: frames resting on a person within {verdicts[0].roi_edge_band_m} m of the ROI edge"
+        f" or within {verdicts[0].settle_s} s of an expected-state change are not scored)",
+        f"- raw match% (every frame): mean {raw_series.mean():.1f} · min {raw_series.min():.1f}",
+        f"- missed expected-state intervals: {sum(len(v.missed_intervals) for v in verdicts)}",
         f"- **Mute correct%** (system muted when GT said mute): **{mute_correct_hd}**",
         f"- **Unmute correct%** (system unmuted when GT said no mute): **{unmute_correct_hd}**",
         "",
@@ -2017,6 +2112,10 @@ def main() -> None:
     p.add_argument("--calib",    default="/app/calibration.json")
     p.add_argument("--top-level", action="store_true",
                    help="Scan <runs-dir>/<run>/scenes/*.parquet recursively, write top-level summary at <runs-dir>/summary.md.")
+    p.add_argument("--roi-edge-band-m", type=float, default=ROI_EDGE_BAND_M,
+                   help="Do not score frames whose expected state rests on a person this close to the ROI edge.")
+    p.add_argument("--settle-allowance-s", type=float, default=SETTLE_ALLOWANCE_S,
+                   help="Do not score frames this long after each expected-state change.")
     args = p.parse_args()
 
     runs_dir = Path(args.runs_dir)
@@ -2062,7 +2161,9 @@ def main() -> None:
                     scene_end = float(scene_df["arrival_wall_time"].iloc[-1])
                     ba_override = filter_ba_pool(pool, scene_start, scene_end)
             v, _df = analyze_clip(pq, roi, tw,
-                                   ba_events_override=ba_override)
+                                   ba_events_override=ba_override,
+                                   roi_edge_band_m=args.roi_edge_band_m,
+                                   settle_s=args.settle_allowance_s)
             verdicts.append(v)
             if args.top_level:
                 report_dir = pq.parent.parent / "reports"
