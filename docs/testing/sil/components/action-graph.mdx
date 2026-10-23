@@ -2,7 +2,7 @@
 title: "Isaac Sim Action Graphs"
 description: ""
 ---
-The ROS 2 Action Graphs that drive the SIL scene in Isaac Sim. In Isaac Sim 6.0 these graphs are **built at run time by Python builders** (one module per graph under `closed-loop-testing/isaac-sim/sil/scripts/action_graphs/`) instead of being baked into the scene USD. Each builder is idempotent, reads its shape from `robots.yaml` / `cameras.yaml`, and creates a graph at a predictable `/World/<Name>Graph` path so operators can find it in the Stage panel.
+The ROS 2 Action Graphs that drive the SIL scene in Isaac Sim. Since Isaac Sim 6.0 these graphs are **built at run time by Python builders** (one module per graph under `closed-loop-testing/isaac-sim/sil/scripts/action_graphs/`) instead of being baked into the scene USD. Each builder is idempotent, reads its shape from `robots.yaml` / `cameras.yaml`, and creates a graph at a predictable `/World/<Name>Graph` path so operators can find it in the Stage panel.
 
 <Note>
 Adding a robot or camera is a **config change, not a code change** — add a block to `robots.yaml` / `cameras.yaml` and the matching graph is built for it on the next run.
@@ -16,9 +16,10 @@ At load time, `forklift_common.strip_baked_scene_graphs()` deletes any residual 
 | --- | --- | --- | --- |
 | Clock | `/World/ClockPublisherGraph` | `clock.py` | Publishes `/clock` (sim time) for all ROS 2 nodes |
 | RTSP cameras | `/World/RTSPMultiGraph` | `rtsp_cameras.py` | One h264 RTSP stream per camera in `cameras.yaml` |
-| Forklift control | `/World/<name>_ControlGraph` | `forklift_control.py` | `cmd_vel` (Twist) → swivel-IK → articulation |
-| Forklift odometry | `/World/<name>_OdometryGraph` | `forklift_odometry.py` | `IsaacComputeOdometry` → `/odom` + TF tree |
-| Safety indicator | `/World/<name>_SafetyGraph` | `forklift_safety_indicator.py` | `/safety/is_muted` → indicator light color |
+| Forklift control | `/World/<name>_ControlGraph` | `forklift_control.py` | `/<name>/cmd_vel` (Twist) → swivel-IK → articulation |
+| Forklift odometry | `/World/<name>_OdometryGraph` | `forklift_odometry.py` | `IsaacComputeOdometry` → `/<name>/odom` + TF tree |
+| Safety indicator | `/World/<name>_SafetyGraph` | `forklift_safety_indicator.py` | Mute decision or proximity level → indicator disc color |
+| Proximity line | `/World/ProximityLineGraph` | `proximity_line.py` | **Opt-in** (`proximity_line.enabled`): the pair of each proximity decision drawn on the floor |
 | Regression Testing Reporter ground truth | `/World/SRRGraph` | `srr_ground_truth.py` | **Opt-in** (`--srr-gt`): publishes `/gt/*/tf` |
 
 The per-robot graphs (control, odometry, safety) are built once **per robot** in `robots.yaml` — the `<name>` in the path is the robot's `name` (e.g. `forklift_b_ControlGraph`). Each block carries an `enabled` flag, so any graph can be turned off without removing its config.
@@ -72,14 +73,14 @@ Config — the `cameras:` list in `cameras.yaml` (`name`, `camera_prim`, `port`,
 
 ## Forklift Control Graph
 
-<Frame caption="`/World/forklift_b_ControlGraph` — `ROS2 Subscribe Twist` (`cmd_vel`) → SwivelIK `Script Node` → `Articulation Controller`.">
+<Frame caption="`/World/forklift_b_ControlGraph` — `ROS2 Subscribe Twist` (`forklift_b/cmd_vel`) → SwivelIK `Script Node` → `Articulation Controller`.">
   <img src="/assets/images/sil/forklift-control-graph.png" alt="Forklift control Action Graph in the OmniGraph editor" />
 </Frame>
 
-Turns velocity commands into forklift joint commands. It **subscribes to `cmd_vel`** (`geometry_msgs/Twist`, published by the `forklift-controller` service) and maps it through a single swivel-drive IK `ScriptNode` to the `IsaacArticulationController`.
+Turns velocity commands into forklift joint commands. It **subscribes to the robot's `control.cmd_vel_topic`** (`forklift_b/cmd_vel`; `geometry_msgs/Twist`, published by the `forklift-controller` service, which reads the same key) and maps it through a single swivel-drive IK `ScriptNode` to the `IsaacArticulationController`.
 
 ```text
-OnPlaybackTick ─> ROS2SubscribeTwist (cmd_vel) ─> SwivelIK (ScriptNode) ─> ArticulationController
+OnPlaybackTick ─> ROS2SubscribeTwist (forklift_b/cmd_vel) ─> SwivelIK (ScriptNode) ─> ArticulationController
 ROS2Context ────────────────────────────────────┘                          (targetPrim = robot)
 ```
 
@@ -89,10 +90,10 @@ ROS2Context ──────────────────────�
 
 ### SwivelIK ScriptNode
 
-The IK math from the old baked `ROS_Forklift_Control_Graph` plus the downstream *divide-by-wheel-radius* and *construct-array* plumbing are folded into one ScriptNode (same math, far fewer fragile node-to-node connections). Build-time constants are prepended by the builder from the `robots.yaml` `control:` block.
+The IK math from the old baked `ROS_Forklift_Control_Graph` plus the downstream *divide-by-wheel-radius* and *construct-array* plumbing are folded into one ScriptNode (same math, far fewer fragile node-to-node connections). Build-time constants are prepended by the builder from the robot's model block in `robots.yaml` (`models.<model>`).
 
 ```python
-# Prepended by the builder from robots.yaml control:
+# Prepended by the builder from the robots.yaml model block:
 #   DRIVE_JOINT, SWIVEL_JOINT, WHEELBASE, WHEEL_RADIUS, MAX_STEER,
 #   FLIP_LINEAR_X, FLIP_ANGULAR_Z
 import math
@@ -130,7 +131,7 @@ The controller applies two joints: a **velocity**-controlled drive wheel and a *
 
 ### Forklift parameters
 
-Defined per robot in `robots.yaml` `control:` (defaults shown):
+Defined once per model in `robots.yaml` `models:` (defaults shown); a robot block can override any of them:
 
 | Parameter | Value | Usage |
 | --- | --- | --- |
@@ -143,17 +144,17 @@ Defined per robot in `robots.yaml` `control:` (defaults shown):
 
 ## Forklift Odometry Graph
 
-<Frame caption="`/World/forklift_b_OdometryGraph` — `Isaac Compute Odometry` → `ROS2 Publish Odometry` (`/odom`) + `ROS2 Publish Raw Transform Tree` (TF).">
+<Frame caption="`/World/forklift_b_OdometryGraph` — `Isaac Compute Odometry` → `ROS2 Publish Odometry` (`/forklift_b/odom`) + `ROS2 Publish Raw Transform Tree` (TF).">
   <img src="/assets/images/sil/forklift-odometry-graph.png" alt="Forklift odometry Action Graph in the OmniGraph editor" />
 </Frame>
 
 Publishes the forklift's **odometry** — where the robot thinks it is and how fast it is moving. `IsaacComputeOdometry` reads the chassis prim's motion in the simulation and outputs position, orientation, and linear/angular velocity; two publishers then put that on the ROS 2 graph:
 
-- `ROS2PublishOdometry` → `/odom` (`nav_msgs/Odometry`)
-- `ROS2PublishRawTransformTree` → the `odom` → base TF
+- `ROS2PublishOdometry` → `/forklift_b/odom` (`nav_msgs/Odometry`)
+- `ROS2PublishRawTransformTree` → the `forklift_b/odom` → `forklift_b/base_link` TF, so two trucks do not publish the same edge onto one `/tf`
 
 ```text
-OnPlaybackTick ─> IsaacComputeOdometry ─┬─> ROS2PublishOdometry     (/odom)
+OnPlaybackTick ─> IsaacComputeOdometry ─┬─> ROS2PublishOdometry     (/forklift_b/odom)
 ROS2Context ────────────────────────────┼─> ROS2PublishRawTransformTree (TF)
                                          └─ (chassisPrim = robot articulation)
 ```
@@ -165,9 +166,12 @@ Config — the `robots.yaml` `odometry:` block:
 ```yaml
 odometry:
   enabled: true
-  odom_topic: odom              # ROS2PublishOdometry.topicName
+  odom_topic: forklift_b/odom   # ROS2PublishOdometry.topicName; the controller reads it too
   tf_topic: tf                  # ROS2PublishRawTransformTree.topicName
-  robot_front: [-1.0, 0.0, 0.0] # which body axis points "forward"
+  # odom_frame_id / base_frame_id: default <name>/odom -> <name>/base_link
+
+# in the model block:
+robot_front: [-1.0, 0.0, 0.0]   # which body axis points "forward"
 ```
 
 `robot_front` tells `IsaacComputeOdometry` which local axis is the robot's forward direction (the forklift asset's forward is `-X`), so reported heading and velocity match the actual travel direction.
@@ -178,49 +182,29 @@ odometry:
   <img src="/assets/images/sil/indicator-graph.png" alt="Safety indicator Action Graph in the OmniGraph editor" />
 </Frame>
 
-Subscribes to `/safety/is_muted` (`std_msgs/Bool`) and recolors the forklift's indicator disk each tick — **green** when safety is muted (loading allowed), **red/orange** when the alarm is active.
+Recolors the forklift's indicator disc each tick from one of three sources. `safety_indicator.source` picks it, and defaults from `PSF_APP`:
+
+| Source | Subscribes to | Colors |
+| --- | --- | --- |
+| `mute` (`atl`) | `safety_indicator.muted_topic` (`std_msgs/Bool`) | **green** `(0.0, 1.0, 0.0)` muted (loading allowed), **red/orange** `(1.0, 0.3, 0.0)` alarm |
+| `proximity` (`pxc`) | `/<name>/proximity/state` (`std_msgs/String`), the level the forklift-controller applies, holds included | **green** NORMAL, **orange** `(1.0, 0.1, 0.0)` REDUCE, **red** `(1.0, 0.0, 0.0)` STOP, **grey** before the first decision or with proximity disabled |
+| `both` (`both`) | both of the above | red / orange while the truck is stopped / slowed for a person, otherwise the mute colors with the alarm in **yellow** `(1.0, 0.85, 0.0)` |
 
 ```text
 OnPlaybackTick ─> ROS2Subscriber (/safety/is_muted) ─> Indicator (ScriptNode)
 ROS2Context ────────────────────────────────────────┘
 ```
 
-### Indicator ScriptNode
+The Script Node polls the subscriber's `outputs:data` each tick rather than through a connection:
+`ROS2Subscriber` creates that attribute dynamically, and a USD-authored connection to it is not
+reliably bound by OmniGraph. Each `color_*` key in the block overrides a default.
 
-```python
-# INDICATOR_PRIM and SUB_DATA_ATTR are prepended by the builder.
-from pxr import UsdGeom, Gf
-import omni.graph.core as og
-import omni.usd
+The mute topic defaults to the per-robot `/<name>/safety/is_muted`, which the comm-layer publishes
+for every robot in `COMM_ROBOT_IDS`; the shipped 20x20 fleet names the global `/safety/is_muted`
+explicitly. With two ATL zones (`atl-dual-override.yaml`), the comm-layer publishes each robot's
+topic from the zone in its `safety_indicator.zone` (default 1).
 
-def compute(db):
-    # Poll the subscriber output each tick. ROS2Subscriber creates
-    # outputs:data dynamically, and a USD-authored connection to that
-    # dynamic attribute is not reliably bound by OmniGraph (the input
-    # would stay False forever). Reading the value directly sidesteps it.
-    try:
-        is_muted = bool(og.Controller.get(og.Controller.attribute(SUB_DATA_ATTR)))
-    except Exception:
-        is_muted = bool(db.inputs.is_muted)
-
-    stage = omni.usd.get_context().get_stage()
-    disk_prim = stage.GetPrimAtPath(INDICATOR_PRIM)
-    if disk_prim.IsValid():
-        mesh = UsdGeom.Mesh(disk_prim)
-        color_attr = mesh.GetDisplayColorAttr()
-        if is_muted:
-            color_attr.Set([Gf.Vec3f(0.0, 1.0, 0.0)])   # GREEN  - muted
-        else:
-            color_attr.Set([Gf.Vec3f(1.0, 0.3, 0.0)])   # ORANGE - alarm
-    return True
-```
-
-Indicator states:
-
-- `is_muted = true` → GREEN `(0.0, 1.0, 0.0)`
-- `is_muted = false` → ORANGE `(1.0, 0.3, 0.0)`
-
-Config — the `robots.yaml` `safety_indicator:` block (`muted_topic`, `indicator_prim`; the disk defaults to `<articulation_prim>/body/body/safety_indicator`).
+Config — the `robots.yaml` `safety_indicator:` block (`source`, `muted_topic`, `zone`, `color_*`, `indicator_prim`; the disk defaults to `<articulation_prim>/<indicator.parent_prim_rel>/safety_indicator` from the model, and `indicator_loader.py` authors it, since no scene carries a baked one).
 
 <Info>
 **Difference from the VST overlay**: this indicator is a **3D mesh in the simulation scene**, visible to the cameras as part of the environment. It is separate from the VST/VIOS overlay (proximity bubble, Standard/Efficient Mode text) that VIOS renders on top of the video stream in the VST UI. The VST overlay is configured in VIOS config files and provides feedback in the monitoring interface; this indicator represents a simulated physical alarm light on the forklift.
@@ -250,17 +234,18 @@ The graphs control drive and steering only; the forks stay at a fixed height.
 
 Because shape lives in YAML, most changes are config-only:
 
-- **New robot** — add a block to `robots.yaml` (`name` +
-  `articulation_prim` + the `control` / `odometry` / `safety_indicator` sub-blocks you need). No code change.
+- **New robot** — add a block to `robots.yaml` (`name`, `model`,
+  `articulation_prim`, `spawn`, and the `control` / `odometry` / `safety_indicator` sub-blocks you need) and a forklift-controller service naming its `ROBOT_ID`. No code change.
 - **New camera** — add an entry to `cameras.yaml` with a unique `port`.
-- **Different forklift model** — update `wheelbase` / `wheel_radius` /
-  `drive_joint` / `swivel_joint` in the `control:` block.
+- **Different forklift model** — add a `models:` entry with its `asset_path`, `wheelbase` /
+  `wheel_radius` / `drive_joint` / `swivel_joint`, and point the robot's `model` at it.
 - **Relocated indicator mesh** — set `safety_indicator.indicator_prim`.
 - **Turn a graph off** — set `enabled: false` on that block.
 
 ## See also
 
 - [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — scene, cameras, and motion authoring
-- [Forklift Controller](/testing/sil/components/forklift-controller) — the service that publishes `cmd_vel` and consumes `/odom`
+- [Forklift Controller](/testing/sil/components/forklift-controller) — the service that publishes `cmd_vel` and consumes odometry
+- [Extending the Fleet](/testing/sil/extending-the-fleet) — add a truck, a drive type, or a scene
 - [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) — author curved forklift routes
 - [Architecture](/testing/srr/architecture) — how `/gt/*` ground truth is scored
