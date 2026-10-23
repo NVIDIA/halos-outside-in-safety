@@ -1,48 +1,22 @@
 ---
 title: "Event Mapping Configuration"
-description: ""
+description: "How the MDX client turns VSS Kafka messages into Safety Core events: file format, rule matching, validation, and the mappings shipped for each application."
 ---
-## 1. Overview
+The MDX client, `mdx_client`, consumes the VSS Kafka topics `mdx-events` and `mdx-frames` and
+turns matching messages into Safety Core events. The event mapping, passed with `--config`, decides
+which messages match and which event type (`EVENT_0` to `EVENT_23`) each one becomes. The SDM
+configuration then decides what each event type means to a decision maker: the two must use the
+same codes.
 
-The event-mapping configuration controls how VSS messages are translated into
-HOISA `SafetyEvent` types. The `mdx_client` reads the configuration passed
-with `--config` and evaluates each incoming `mdx-events` or
-`mdx-frames` candidate against the rules. Empty condition fields match any
-value. Rules are evaluated in file order; the first matching rule is reported.
+## File format
 
-The ATL reference mapping is installed at:
-
-```text
-/opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt
-```
-
-The mapping is a Protobuf text-format `EventMappingConfig` file. A binary
-Protobuf configuration is also accepted by `mdx_client`.
-
-## 2. Launching Event Ingestion
-
-Pass the event mapping and sensor configuration to `mdx_client`:
-
-```bash
-/opt/nvidia/psf/apps/mdx-client/mdx_client \
-    --config /opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt \
-    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
-```
-
-`--config` (`-c`) and `--sensor-config` (`-s`) are required;
-`mdx_client` exits at startup without them. `--broker` (`-b`)
-`<host:port>` sets the Kafka broker, taking precedence over the
-`MDX_MSGBUS_BROKERS` environment variable, which in turn overrides the
-`localhost:9092` default. `--debug` prints
-matched events instead of reporting them to the SEI daemon.
-
-## 3. Rule Format
-
-Each `rules { ... }` block describes one mapping:
+The mapping is a Protobuf `EventMappingConfig` message: a list of `rules { ... }` blocks. The MDX
+client reads the file as binary Protobuf first and, if that fails, as Protobuf text format. A field
+name it does not know makes the file fail to load.
 
 ```protobuf
 rules {
-  name: "Human restricted-area violation"
+  name: "Person restricted area ROI violation"
   message_source: "mdx-frames"
   alert_type: "roi"
   object_type: "person"
@@ -52,56 +26,136 @@ rules {
 }
 ```
 
-The common fields are:
+### Rule fields
 
-| Field | Required | Description |
+| Field | Effect |
+| --- | --- |
+| `name` | Label used in logs and in `--debug` output. |
+| `message_source` | `mdx-events` or `mdx-frames`. |
+| `alert_type` | The kind of alert. From `mdx-events` the MDX client produces `tripwire` and `roi`. From `mdx-frames` it produces `roi`, `social_distancing`, `object_presence` and `co_movement`. `empty_roi` is accepted in a rule but never produced, so such a rule never matches. |
+| `event_type` | Direction or transition, for example `IN`, `OUT`, `ENTRY`, `EXIT`. |
+| `object_type` | Object class, for example `person` or `forklift`. |
+| `rule_id` | The tripwire or ROI identifier, or, for a proximity-pair rule, the rule's own unique identifier. |
+| `restricted_area_violation`, `confined_area_violation`, `social_distancing_violation` | Violation filters for `mdx-frames`. See [Violation filters](#violation-filters). |
+| `object_type_primary`, `object_type_secondary`, `proximity_violation`, `distance_threshold_meters` | Proximity-pair fields. See [Proximity-pair rules](#proximity-pair-rules). |
+| `scale_factor` | `mdx-frames` rules only: report every Nth frame per sensor. A value of 1 or less, or no value, reports every frame. |
+| `output_event` | The event type to report: `EVENT_0` to `EVENT_23`. |
+
+`severity` is reserved: a rule that contains it fails to load. `rule_id_prefix_match` is still in
+the message but is ignored. Co-movement rules (`alert_type: "co_movement"` with the
+`comovement_*` fields) are accepted, but no shipped mapping uses them.
+
+## Matching
+
+- Rules are tried in file order, and the **first** matching rule is used. If that rule's
+  `scale_factor` skips the current frame, the message is dropped: it does not fall through to
+  later rules.
+- An empty field matches any value. Every other string field must match exactly, ignoring case.
+- `rule_id` also matches a producer identifier of the form `<rule_id>:<suffix>`. In that form the
+  `<rule_id>` part is compared with case.
+- The restricted-area "cleared" events that the MDX client creates itself (see below) compare ROI
+  identifiers with case. Keep `rule_id` in exactly the case VSS uses.
+- The sensor name in the message is then looked up in the identity file to find its `pipelineId`:
+  `sensor_config.conf` in 2D, `sensor_pipelines_config.conf` in 3D. A message whose sensor is not
+  there is dropped with `Dropping event: sensor not in sensor_config, so it has no pipelineID: <name>`.
+  See [Sensor files](/reference/sensor-files).
+
+Use `mdx_client --debug` to see which rule each message matches. In that mode the MDX client prints
+`[MDX_DEBUG] Matched rule: ...` instead of reporting events, and does not register with the SEI
+daemon.
+
+<a id="violation-filters"></a>
+
+## Violation filters
+
+| Filter | Values | Requires |
 | --- | --- | --- |
-| `name` | No | Human-readable rule name used for diagnostics. |
-| `message_source` | In practice | Kafka message source: `mdx-events` or `mdx-frames`. An empty value is accepted at load time but matches nothing, so the rule never fires. |
-| `alert_type` | In practice | Alert category: `tripwire`, `roi`, `empty_roi`, `social_distancing`, or `object_presence`. As with `message_source`, an empty value loads but never matches. |
-| `event_type` | For `mdx-events` rules as needed | Direction or event value: `IN`, `OUT`, `ENTRY`, or `EXIT`. |
-| `object_type` | No | Object type to match. It is also the primary-type fallback for a proximity-pair rule. |
-| `rule_id` | As needed | Exact, case-insensitive tripwire or ROI identifier. It is required and unique for proximity-pair rules. |
-| `output_event` | In practice | HOISA event type to report, for example `EVENT_0` or `EVENT_4`. Not checked at load time: a rule with a missing or misspelled value matches normally and reports an event of type `EVENT_UNKNOWN`, which no decision maker subscribes to. |
-| `scale_factor` | No | `mdx-frames` emission interval in frames. The default is `1`. |
+| `restricted_area_violation` | `"true"`, `"false"`, `"any"` or empty, in lower case | `message_source: "mdx-frames"`, `alert_type: "roi"` |
+| `confined_area_violation` | The same | `message_source: "mdx-frames"`, `alert_type: "roi"` |
+| `social_distancing_violation` | The same | `message_source: "mdx-frames"`, `alert_type: "social_distancing"` |
 
-`severity` is reserved and must not be included in a rule.
+- A rule may set at most one filter.
+- `"any"` is not the same as empty: it still restricts the rule to that kind of candidate.
+- For a rule with `restricted_area_violation: "true"`, the MDX client also creates a "cleared"
+  candidate when the area is present in a frame but no violator is in it. A matching rule with
+  `restricted_area_violation: "false"` turns that into the cleared event, as `EVENT_5` does in the
+  forklift mapping.
 
-`rule_id_prefix_match` remains in the Protobuf message for compatibility,
-but is deprecated and ignored. Rule identifiers are matched
-case-insensitively, either exactly or against a producer identifier of the
-form `<rule_id>:<suffix>`.
+<a id="proximity-pair-rules"></a>
 
-<Note>
-Only proximity-pair rules and the three violation filters are validated
-when the file is loaded. Everything else in this table is matched at
-runtime, so a typo in `message_source`, `alert_type`, or
-`output_event` produces a mapping that loads cleanly and silently
-never fires. Confirm with `--debug` that each rule you added actually
-matches before relying on it.
-</Note>
+## Proximity-pair rules
 
-For binary Protobuf mappings, preserve the presence of the optional
-`proximity_violation` and `distance_threshold_meters` fields. Presence is
-meaningful: an omitted distance threshold is valid only when
-`proximity_violation` is `false`; a present threshold must be finite and
-positive when `proximity_violation` is `true`.
+A proximity-pair rule reports the distance between two object classes in `mdx-frames`:
 
-## 4. ATL Reference Mapping
+```protobuf
+rules {
+  name: "Forklift-Person 2m >= distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_lt_2m"
+  object_type_primary: "Forklift"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_13"
+}
+```
 
-The ATL use case translates tripwire and ROI events into `EVENT_0` through
-`EVENT_5`:
+A rule is a pair rule when it sets `proximity_violation`, `distance_threshold_meters`,
+`object_type_primary` or `object_type_secondary`. It must then have:
 
-| Input | Match | Output event | SDM state update |
-| --- | --- | --- | --- |
-| Forklift tripwire OUT | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_0` | Forklift entered trailer. |
-| Forklift tripwire IN | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_1` | Forklift exited trailer. |
-| Person tripwire OUT | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_2` | Increment persons-in-trailer count. |
-| Person tripwire IN | `mdx-events` / `tripwire` / `tripwire-id-1` | `EVENT_3` | Decrement persons-in-trailer count. |
-| Person restricted-area violation | `mdx-frames` / `roi` / `restricted_area_violation: "true"` | `EVENT_4` | Set restricted-area violation. |
-| Person restricted-area violation cleared | `mdx-frames` / `roi` / `restricted_area_violation: "false"` | `EVENT_5` | Clear restricted-area violation. |
+- `message_source: "mdx-frames"`, `alert_type: "social_distancing"`, a primary type, and
+  `proximity_violation` present, with no violation filter;
+- for `proximity_violation: true`, a finite `distance_threshold_meters` greater than 0; for
+  `false`, no threshold;
+- a `rule_id` that is not empty, shorter than 64 characters, and unique (ignoring case);
+- at most one rule per pair and threshold, and at most one "no violation" rule per pair.
 
-The shipped ATL mapping is:
+The two object types are matched in either order. The distance is the 3D distance between the two
+objects. The rule with the smallest threshold that is at least the distance wins. The "no
+violation" rule applies when the frame reports no social-distancing violation.
+
+When a frame reports a violation, a pair whose largest `distance_threshold_meters` is above the
+social-distancing threshold reported in that frame is skipped for the frame. Configure the VSS
+social-distancing threshold to at least the largest threshold in your pair rules.
+
+For binary Protobuf mappings, keep `proximity_violation` and `distance_threshold_meters` as present
+or absent exactly as above: their presence is part of the rule.
+
+## Validation and errors
+
+`mdx_client` validates the mapping at startup and exits if it is unusable:
+
+| Problem | Message |
+| --- | --- |
+| No `--config` | `error: config path is required (use -c or positional argument)` |
+| File missing or not Protobuf | `Failed to load config file: <path>` |
+| No rules | `No rules in config or load failed` |
+| A rule that cannot be read | `Invalid event mapping rule` |
+| A rule that breaks the filter or pair rules above | `Rejected unsafe event mapping rule` |
+
+`message_source`, `alert_type` and `output_event` are not checked against known values. A typo
+loads cleanly and the rule never matches. An unknown `output_event` makes matching messages report
+`EVENT_UNKNOWN`, which no SDM can subscribe to. Check new rules with `--debug`.
+
+Restart the MDX client, or the Safety Core, after changing a mapping.
+
+## Shipped mappings
+
+| File | Used by default for `--app` | Rules |
+| --- | --- | --- |
+| `/opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt` | `atl`, `atl,atl`, `atl_dual` | Forklift safety function, zone 1 (`EVENT_0`–`EVENT_5`) and zone 2 (`EVENT_6`–`EVENT_11`) |
+| `/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt` | `pxc`, `pxc,pxc`, `atl,pxc`, `pxc,atl` | Both forklift zones (`EVENT_0`–`EVENT_11`) and four proximity pairs (`EVENT_12`–`EVENT_23`) |
+| `/opt/nvidia/psf/apps/atl_proximity/event_mapping_atl_proximity.pb.txt` | `atl_proximity` (container entrypoint only) | Forklift zone 1 (`EVENT_0`–`EVENT_5`) and one forklift–person pair (`EVENT_8`–`EVENT_10`) |
+
+The launchers pass `--event-mapping <file>` through to the MDX client in place of the default; see
+[Launchers and command-line options](/reference/launcher). With `launch_hoisa.sh --runtime docker`
+the MDX client runs in the container and reads the image's copy of the default mapping, so editing
+the host's copy has no effect; pass your file with `--event-mapping` instead.
+
+### Forklift safety function
+
+Zone 1, as shipped:
 
 ```protobuf
 rules {
@@ -160,68 +214,54 @@ rules {
 }
 ```
 
-## 5. `mdx-frames` Violation Filters
+| Input | Zone 1 | Zone 2 | Meaning to `atl_sdm` (`--config` key) |
+| --- | --- | --- | --- |
+| Forklift crosses the tripwire OUT | `EVENT_0` | `EVENT_6` | Forklift entered the trailer (`forklift_entered`) |
+| Forklift crosses the tripwire IN | `EVENT_1` | `EVENT_7` | Forklift left the trailer (`forklift_exited`) |
+| Person crosses the tripwire OUT | `EVENT_2` | `EVENT_8` | Person entered the trailer (`person_entered`) |
+| Person crosses the tripwire IN | `EVENT_3` | `EVENT_9` | Person left the trailer (`person_exited`) |
+| Person in the restricted area | `EVENT_4` | `EVENT_10` | Restricted-area violation (`roi_violation`) |
+| Restricted-area violation cleared | `EVENT_5` | `EVENT_11` | Violation cleared (`roi_cleared`) |
 
-`restricted_area_violation` and `confined_area_violation` accept
-`"true"`, `"false"`, `"any"`, or an empty value. A non-empty filter
-requires `message_source: "mdx-frames"` and `alert_type: "roi"`.
-The rule is evaluated against the current frame; there is no separate
-transition-only cleared alert type.
+Zone 1 uses `tripwire-id-1` and `roi-id-1`; zone 2 uses `tripwire-id-2` and `roi-id-2`, with rule
+names prefixed `Zone2`. The `atl_sdm_zone1.conf.sample` and `atl_sdm_zone2.conf.sample` templates
+bind these codes.
 
-`social_distancing_violation` uses the same values and requires
-`message_source: "mdx-frames"` with
-`alert_type: "social_distancing"`.
+### Proximity Monitoring
 
-At most one of the three filters may be set in a rule. Two ROI filters
-together are rejected just as an ROI filter combined with the
-social-distance filter is, and the rejection takes the whole file down with
-`Rejected unsafe event mapping rule`.
+`proximity_event_mapping.pb.txt` holds both forklift zones above, and these pair rules. Each is
+`mdx-frames` / `social_distancing` with `Person` as the secondary type:
 
-## 6. Proximity-Pair Rules
+| Primary type | `rule_id` prefix | No violation | 2 m or less | 1 m or less |
+| --- | --- | --- | --- | --- |
+| `Forklift` | `forklift_person_` | `EVENT_12` | `EVENT_13` | `EVENT_14` |
+| `Agility_Digit_Humanoid` | `agility_digit_person_` | `EVENT_15` | `EVENT_16` | `EVENT_17` |
+| `Transporter` | `transporter_person_` | `EVENT_18` | `EVENT_19` | `EVENT_20` |
+| `Fourier_GR1_T2_Humanoid` | `fourier_humanoid_person_` | `EVENT_21` | `EVENT_22` | `EVENT_23` |
 
-Proximity-pair rules apply to an unordered pair of object types in
-`mdx-frames`:
+The `rule_id` suffixes are `no_violation`, `lt_2m` and `lt_1m`. `proximity_sdm` maps the three
+codes of each pair to `<group>_normal`, `<group>_reduce` and `<group>_stop` in its `--config`
+file. The `pxc_sdm_forklift.conf.sample` template selects the forklift pair; the
+`pxc_sdm_robots.conf.sample` template selects the other three.
 
-```protobuf
-rules {
-  name: "Person and robot within 2 m"
-  message_source: "mdx-frames"
-  alert_type: "social_distancing"
-  rule_id: "robot_person_lt_2m"
-  object_type_primary: "Agility_Digit_Humanoid"
-  object_type_secondary: "Person"
-  proximity_violation: true
-  distance_threshold_meters: 2.0
-  output_event: "EVENT_9"
-}
-```
+### Forklift safety function with proximity
 
-For a pair rule:
+`event_mapping_atl_proximity.pb.txt` holds forklift zone 1 (`EVENT_0`–`EVENT_5`) and three pair
+rules with primary `forklift` and secondary `person`: `forklift_person_no_violation` (`EVENT_8`),
+`forklift_person_lt_2m` (2.0 m, `EVENT_9`) and `forklift_person_lt_1m` (1.0 m, `EVENT_10`).
+`EVENT_6` and `EVENT_7` are unused. `atl_sdm` receives `EVENT_0`–`EVENT_5` and
+`atl_proximity_sdm` receives `EVENT_8`–`EVENT_10`.
 
-- `rule_id` must be unique and non-empty.
-- `proximity_violation: true` requires a finite, positive
-  `distance_threshold_meters`.
-- `proximity_violation: false` requires
-  `distance_threshold_meters` to be omitted.
-- The primary and secondary object types are matched without order.
+## Before you change a mapping
 
-## 7. Validation and Troubleshooting
+1. Confirm that the sensor names VSS emits are in the identity file
+   ([`sensor_config.conf`](/reference/sensor-files#sensor_config) in 2D,
+   [`sensor_pipelines_config.conf`](/reference/sensor-files#sensor_pipelines_config) in 3D).
+2. Confirm that object types and tripwire or ROI identifiers match the deployed VSS configuration,
+   including case.
+3. Keep the `output_event` codes and the SDM `--config` bindings in step. Two SDMs on one gateway
+   must not share a code.
+4. Run with `--debug` to see which rule each message matches before you report to the SEI daemon.
 
-`mdx_client` rejects an empty mapping or a rule that violates the mapping
-contract, then exits without reporting events. Check the event-ingestion log
-for `Invalid event mapping rule` or `Rejected unsafe event mapping rule`.
-
-Before changing a mapping:
-
-1. Confirm the VSS producer emits the exact camera names used by
-   `sensor_config.conf`.
-2. Confirm object-type labels and tripwire or ROI identifiers match the
-   deployed VSS configuration.
-3. Use `--debug` to inspect matched events before reporting to SEI.
-4. Restart `mdx_client` or the Safety Core after changing the mapping.
-
-<Info>
-- Safety Event Integrator configuration: [SEI Configuration](/reference/sei-configuration)
-- Application-specific mapping and SDM logic: [Integration Guide](/integration)
-- Sensor configuration: [sensor configuration file](/deployment#sensor-configuration-file)
-</Info>
+Related pages: [SEI Configuration](/reference/sei-configuration), and the decision makers in the
+[Integration Guide](/integration/components/decision-maker).

@@ -5,7 +5,7 @@ description: ""
 Deploy Halos SIL for Software-in-Loop testing.
 
 <Note>
-Halos SIL requires VSS Warehouse 3.2.1 as its perception backend. Deploy VSS Warehouse first using the official [VSS Warehouse Blueprint - 2D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html) documentation before proceeding with Halos SIL deployment.
+Halos SIL requires VSS Warehouse 3.3 (GitHub release `v3.3.0rc0`) as its perception backend. Deploy VSS Warehouse first, as in [Deploy AI Perception](/getting-started/inference-pipeline), with the SIL overrides of Step 2, before proceeding with Halos SIL deployment.
 </Note>
 
 ## Prerequisites
@@ -24,7 +24,7 @@ Clone the Halos Outside-In Safety repository (ships the compose files, profiles,
 
 ```bash
 # Clone the Halos Outside-In Safety repo
-git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.4.0
 cd halos-outside-in-safety
 
 # Download SIL data
@@ -42,28 +42,33 @@ tar -xvf sample-sil-data_v*/halos-outside-in-sil-data.tar.gz \
 
 ## Step 2: Deploy VSS Warehouse
 
-Deploy VSS Warehouse 3.2.1 following the official [VSS Warehouse Blueprint - 2D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html) documentation. Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, a rebuild costs another 15-20 min.
+Deploy VSS Warehouse 3.3 (`v3.3.0rc0`) as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
 
 <Note>
-`<wh_ops>` below is the VSS warehouse-operations directory, `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. Edit the override files there in place, but **do not run** `docker compose` **from** `<wh_ops>/` — its `compose.yml` is only an app fragment and pulls in no infrastructure (Kafka, Redis, `sdr-controller`). Deploy from `<vss_repo>/deploy/docker/` with `--env-file industry-profiles/warehouse-operations/.env`.
+`<wh_ops>` below is the VSS warehouse-operations directory, `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. Edit the override files there in place, but **do not run** `docker compose` **from** `<wh_ops>/` — its `compose.yml` is only an app fragment and pulls in no infrastructure (Kafka, Redis, `sdr-controller`). Deploy from `<vss_repo>/deploy/docker/` with `containers.env`, `industry-profiles/warehouse-operations/.env` and `industry-profiles/warehouse-operations/overrides.env`, in that order.
 </Note>
 
-### 2.1 `.env` Overrides
+### 2.1 `overrides.env` Overrides
 
-Set these in `<wh_ops>/.env`. Only `VLM_MODE` already carries the value below; the
-defaults select a different profile, dataset, and stream count, so the rest have to be
-changed. `BP_PROFILE` is the one that matters most — the default `bp_wh` brings up no
-Kafka, and the Safety Core then receives no events while every container still looks
-healthy.
+Set these in `<wh_ops>/overrides.env`, which Docker Compose reads last. `COMPOSE_PROFILES` is the one that matters most: the shipped list is the agent profile (`bp_wh`), which brings up no Kafka, and the Safety Core then receives no events while every container still looks healthy.
 
 ```bash
 HOST_IP='<HOST_IP>'                                             # get with: hostname -I | awk '{print $1}'
-BP_PROFILE=bp_wh_kafka                                          # default: bp_wh; Kafka is required for the Safety Core
-LLM_MODE=none                                                   # default: local; not needed for SIL
-VLM_MODE=none                                                   # already the default
-SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: nv-warehouse-4cams
+MODE=2d
+BP_PROFILE=bp_wh_kafka                                          # Kafka is required for the Safety Core
+STREAM_TYPE=kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}         # default: the bp_wh agent list, no Kafka
+SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: warehouse-4cams-20mx20m-synthetic
 NUM_STREAMS=3                                                   # default: 4; matches 3 Isaac Sim cameras
+HARDWARE_PROFILE=L40S                                           # default: H100; the perception GPU
+LLM_MODE=none                                                   # default: local; not needed for SIL
+VLM_MODE=none
+LLM_NAME_SLUG=none
+VSS_APPS_DIR="<vss_repo>/deploy/docker"
+VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
 ```
+
+Export `VSS_CONTAINER_TAG=develop-4c432f24cf39` and `NGC_CLI_API_KEY` in the shell that runs Docker Compose (see [Deploy AI Perception](/getting-started/inference-pipeline), step 3).
 
 ### 2.2 DeepStream Config
 
@@ -86,11 +91,11 @@ attach-sys-ts-as-ntp=1       # timestamp each frame with host (wall-clock) arriv
 # drop-backward-sei=1        # moot with SEI extraction off
 ```
 
-Isaac Sim 6.0 RTSP *does* embed SEI, but the Safety Core does not consume sim time — using it as the frame timestamp makes the Safety Core drop every event as **STALE**. System timestamps keep decisions flowing. Without these changes the perception pipeline also reports low FPS and bounding boxes flicker on VST.
+Isaac Sim 6.1 RTSP *does* embed SEI, but the Safety Core does not consume sim time — using it as the frame timestamp makes the Safety Core drop every event as **STALE**. System timestamps keep decisions flowing. Without these changes the perception pipeline also reports low FPS and bounding boxes flicker on VST.
 
 ### 2.3 Perception Model Config
 
-Nothing to change. 2D runs the RT-DETR R50 model that ships with `warehouse-2d-app`, and the shipped `warehouse-loading-dock-3cams-synthetic` calibration is used as-is. (3D is different — it needs the R101 Sparse4D model plus a `config.yaml`; see [SIL — 3D Perception](/testing/sil/sil-3d).)
+Nothing to change. 2D runs the RT-DETR model that `warehouse-2d-app` downloads into `<vss_data>/models/` at start, and the shipped `warehouse-loading-dock-3cams-synthetic` calibration is used as-is. (3D downloads its Sparse4D model the same way; see [SIL — 3D Perception](/testing/sil/sil-3d).)
 
 ### 2.4 VST Config
 
@@ -106,18 +111,15 @@ Several copies of `vst_config.json` exist in the deploy tree. Edit the one the V
 "bbox_tolerance_ms": 100
 ```
 
-- `rtsp_streaming_over_tcp: true` — ingest Isaac's self-hosted RTSP over TCP. UDP ingest
-  hits a silent RTP-delivery stall on Isaac Sim 6.0 (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming), 6477478).
-- `use_sensor_ntp_time: false` — pair with `attach-sys-ts-as-ntp=1` above so VST and
-  DeepStream agree on wall-clock arrival time.
-- `bbox_tolerance_ms: 100` — widen the metadata-to-frame match window (default `0`) to
-  reduce bbox flicker on VST.
+- `rtsp_streaming_over_tcp: true` — ingest Isaac's self-hosted RTSP over TCP. UDP ingest can stall RTP delivery silently (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming)).
+- `use_sensor_ntp_time: false` — pair with `attach-sys-ts-as-ntp=1` above so VST and DeepStream agree on wall-clock arrival time.
+- `bbox_tolerance_ms: 100` — widen the metadata-to-frame match window (default `0`) to reduce bbox flicker on VST.
 
 This file also carries a `halo_safety_*` block. Leave `halo_safety_udp_port` at its shipped `-1` for the `sil` profile — SIL drives the safety indicator through the comm-layer / ROS 2 path, not the VST overlay. Only the `base` profile sets it to `12345`.
 
 ### 2.5 Wait for the TensorRT Engine
 
-Start VSS Warehouse. First startup takes 15-20 min to build the TensorRT engine. Poll `vss-rtvi-cv` until all 3 cameras report a non-zero FPS:
+Start VSS Warehouse. The first startup downloads the model and builds the TensorRT engine, which takes several minutes. Poll `vss-rtvi-cv` until all 3 cameras report a non-zero FPS:
 
 ```bash
 docker logs vss-rtvi-cv 2>&1 | grep -E 'Active sources|PERF' -A3 | tail -6
@@ -162,13 +164,20 @@ Required settings:
 ```bash
 MDX_SAMPLE_APPS_DIR="/path/to/halos-outside-in-safety"  # this repo checkout root
 MDX_DATA_DIR="/path/to/sil-data"                        # the extracted sil-data dir from Step 1
-HOST_IP='<HOST_IP>'                                      # same value as the VSS Warehouse .env
-ISAAC_GPU_DEVICE=0                                       # Use GPU 1 if available, else 0
+HOST_IP='<HOST_IP>'                                      # same value as the VSS overrides.env
+ISAAC_GPU_DEVICE=1                                       # an RT-core GPU that does not run perception
 ROS_DOMAIN_ID=0                                          # MUST be unique per host (0-232); see Troubleshooting
 DOCKER_GID=999                                           # run: getent group docker | cut -d: -f3
 ```
 
-`PSF_IMAGE` and `ISAAC_SIM_IMAGE` are pre-set in `sil.env` — leave them.
+Set `PSF_IMAGE` to the PSF 1.4 Safety Core image: the 1.4 configurations do not run on the 1.3 image that `sil.env` pins until PSF 1.4 is published on NGC. `ISAAC_SIM_IMAGE` (`nvcr.io/nvidia/isaac-sim:6.1.0`) is pre-set — leave it.
+
+`PSF_LAUNCH_MODE` (Safety AI Monitor) and `PSF_PCM_MODE` (Perception Monitor) ship `skip`. To run one `active`, also set its key to `1` in `closed-loop-testing/safety-core/configs/nvpss.conf` (`required_safety_monitor` or `required_perception_monitor`). Otherwise the Safety Core stops at start with `Error: --saim-mode active conflicts with required_safety_monitor = 0 in /opt/nvidia/psf/bin/nvpss.conf.` See [Required monitors](/deployment/custom-deployment#required-monitors).
+
+Two more settings choose the run, and their defaults are the 2D test scenario:
+
+- `SCENARIO=warehouse_20x20_1fl` names the scene, fleet file, cameras config and waypoints together (`closed-loop-testing/isaac-sim/sil/configs/scenarios.yaml`); Isaac and every controller read it.
+- `PSF_APP` (unset = `atl`) picks the decision maker. `pxc` and `both` (proximity) expect the 3D feed; see [SIL — 3D Perception](/testing/sil/sil-3d) and [Proximity Monitoring](/deployment/applications#proximity-monitoring) in the Deployment Guide.
 
 ## Step 4: Deploy Halos SIL
 
@@ -185,20 +194,20 @@ Services started: `safety-core`, `comm-layer`, `isaac-sim`, `forklift-controller
 
 ```bash
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+  ./run_sdg.sh --start --headless --enable-vst'
 ```
+
+`SCENARIO` from `sil.env` supplies the IRA config, the fleet file and the cameras config. `-c`, `--robots-config` and `--cameras-config` still win over it for a one-off run.
 
 For script usage details and additional options, see [Execution Script](/testing/sil/components/isaac-sim#execution-script).
 
 **What happens**:
 
 1. **Loads** warehouse scene (20×20m)
-2. **Spawns** forklift and 3 digital humans from USD
+2. **Spawns** the forklift from the fleet file (`robots.yaml`) and 3 digital humans
 3. **Initializes** ROS2 Action Graph for forklift
 4. **Runs** forklift playback sequence
-5. **Starts** RTSP streaming — Isaac 6.0 self-hosts one RTSP server per camera (`8554/camera`, `8555/camera_01`, `8556/camera_02`). See [RTSP Multi-Camera Graph](/testing/sil/components/action-graph#rtsp-multi-camera-graph) for the graph that builds them.
+5. **Starts** RTSP streaming — Isaac 6.1 self-hosts one RTSP server per camera (`8554/camera`, `8555/camera_01`, `8556/camera_02`). See [RTSP Multi-Camera Graph](/testing/sil/components/action-graph#rtsp-multi-camera-graph) for the graph that builds them.
 6. **Registers** 3 cameras with VST (`--enable-vst` deletes existing sensors, then adds the Isaac cameras once the render is warm)
 
 **Startup time**:
@@ -280,7 +289,7 @@ Expect the mounts to warm in ~1–2 min (cached shaders), VST to resume, and Dee
 
 ### Reset to a Fresh Deployment
 
-When a stack misbehaves in ways a restart doesn't fix, return it to the clean first-bring-up state **without** paying the TensorRT/shader rebuild. Stop the scenario and the Halos stack, tear down VSS's VST postgres volume (selectively — do **not** `down -v`, which also removes the TensorRT engine volume), redeploy VSS, then clear Redis before relaunching:
+When a stack misbehaves in ways a restart doesn't fix, return it to the clean first-bring-up state **without** paying the TensorRT/shader rebuild. Stop the scenario and the Halos stack, tear VSS down with `down -v` (it drops the VST sensor database volume; the models and the TensorRT engine live under `VSS_DATA_DIR/models/` and are kept), redeploy VSS, then clear Redis before relaunching:
 
 ```bash
 docker exec redis redis-cli FLUSHALL
@@ -288,7 +297,7 @@ docker restart sdr-controller
 docker restart vss-rtvi-cv
 ```
 
-Keep the TensorRT engine volume and the `isaac-cache/` shader dirs — rebuilding them costs 10–20 min.
+Keep `VSS_DATA_DIR/models/` and the `isaac-cache/` shader dirs — rebuilding them costs several minutes each.
 
 ### Full Cleanup
 
@@ -299,15 +308,12 @@ docker compose --env-file profiles/sil.env down
 bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh sil
 docker volume prune -f
 
-# Stop VSS Warehouse (refer to VSS Warehouse docs for full cleanup)
-# https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html#teardown-the-deployment
+# Stop VSS Warehouse: see "Stop VSS Warehouse Blueprint" in
+# the Deploy AI Perception page (same env files as the deployment)
 ```
 
 <Warning>
-`docker volume prune -f` removes every dangling volume on the host, not only this
-stack's. With the stack down that includes the perception TensorRT engine cache, which
-costs a 15 to 20 minute rebuild on the next start, and the VST sensor database. Skip it
-unless you want that reset, or remove the specific volumes instead.
+`docker volume prune -f` removes every dangling volume on the host, not only this stack's. With the VSS stack down that includes the VST sensor database. Skip it unless you want that reset, or remove the specific volumes instead.
 </Warning>
 
 ## Troubleshooting
@@ -325,11 +331,11 @@ If Kafka is not running, redeploy VSS Warehouse following [Step 2: Deploy VSS Wa
 
 ### STALE Events in Safety Core (PSF)
 
-Increase `timeWindowSize` in `nvpss.conf` (e.g., 900ms → 1200ms) to resolve STALE events in SIL.:
+First check that DeepStream stamps frames with system time (2.2). `nvpss.conf` ships `timeWindowSize = 6000` (ms) for SIL; raise it only if events still arrive STALE:
 
 ```bash
 nano closed-loop-testing/safety-core/configs/nvpss.conf
-# Increase: timeWindowSize=1200
+# Increase: timeWindowSize
 cd deployments && docker compose --env-file profiles/sil.env restart safety-core
 ```
 
@@ -353,7 +359,7 @@ Should show `Publisher count: 1`.
 
 ## Known Issues
 
-Four upstream Isaac Sim and VST issues affect the stream path on Isaac Sim 6.0, with workarounds for each. They are not specific to 2D — see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming).
+Upstream Isaac Sim and VST issues affect the stream path; their status on Isaac Sim 6.1 and the workarounds are in [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming). They are not specific to 2D.
 
 ## Next Steps
 

@@ -1,50 +1,182 @@
 ---
 title: "Sensor Input Processing Pipeline (SIPP)"
-description: ""
+description: "The perception pipeline that feeds Safety Core, the Kafka contract it must meet, and the MDX client that turns its messages into safety events."
 ---
-SIPP is the data generation unit of HOISA. It processes **sensor inputs** to
-identify safety-relevant conditions and **reports them downstream to SEI**.
-Behavior differs between Tegra-based and x86-64-based platforms.
+SIPP is the data generation unit of Safety Core. It processes **sensor inputs** to find
+safety-relevant conditions and reports them downstream to SEI. Safety Core does not include a
+SIPP: it consumes the output of a perception pipeline that you deploy, through an adapter that
+reports `SafetyEvent`s to the SEI daemon.
 
 ## Architecture
 
 SIPP has two logical parts:
 
-- **Physical Sensors** — Monitor environment parameters. Most common: cameras
-  (image streams). Others: temperature, pressure, flow rate, smoke density.
-- **Software Framework** — Processes sensor data against defined safety
-  conditions. May use Deep Learning or legacy algorithms.
+- **Physical sensors** monitor the environment. The most common are cameras (image streams).
+  Others include temperature, pressure, flow-rate and smoke-density sensors.
+- **A software framework** processes the sensor data against defined safety conditions. It may
+  use deep learning or conventional algorithms.
 
-**Reference SIPP Implementation**
+**Reference SIPP.** The [Deploy AI Perception](/getting-started/inference-pipeline) page uses
+the NVIDIA VSS Warehouse Blueprint (NVIDIA Metropolis). It detects objects such as people and
+forklifts in the camera streams and publishes tripwire, region-of-interest (ROI) and proximity
+alerts.
 
-The [Deploy AI Perception](/getting-started/inference-pipeline) page uses the
-[VSS Warehouse Blueprint - 2D Vision AI](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html)
-(NVIDIA Metropolis). Reference capabilities: **person**, **forklift**, and
-**AMR detection** with ROI, tripwire, and proximity event generation.
-
-**Platform-Specific Hardware Acceleration**
-
-On **Tegra**, SIPP may use these hardware engines:
+**Hardware acceleration.** On Tegra, a SIPP may use these engines:
 
 | Engine | Use case |
 | --- | --- |
-| **iGPU** (Integrated Graphics Processing Unit) | DNN inference; best for parallelizable non-DNN |
+| **iGPU** (Integrated Graphics Processing Unit) | DNN inference; best for parallelizable non-DNN work |
 | **PVA** (Programmable Vision Accelerator) | Non-DNN computer vision algorithms |
 | **DLA** (Deep Learning Accelerator) | Accelerated DNN inference |
 
-On **x86-64**, discrete GPU (dGPU) typically drives SIPP; CPU-based
-implementations also exist.
+On x86-64, a discrete GPU (dGPU) typically drives the SIPP; CPU-based implementations also
+exist.
 
-**Connecting SIPP to HOISA**
+## Connecting a SIPP to Safety Core
 
-The SIPP-to-HOISA interface is unified across platforms. Connection options:
+| Method | What you provide | Adapter |
+| --- | --- | --- |
+| Metropolis MDX messages on Kafka | A perception pipeline that publishes the [perception contract](#perception-contract) | The shipped [MDX client](#mdx-client) (`mdx_client`) |
+| Your own SEI client | A process that registers with the SEI daemon and reports `SafetyEvent`s through `libnvpssd_interface.so` | Your code; see [Custom event sources](/integration/custom-event-sources) |
 
-| Method | Description |
+## Perception contract
+
+A perception backend that replaces VSS must meet this contract for the MDX client to use it.
+
+| Item | Requirement |
 | --- | --- |
-| SEI interface library | Link directly to `libnvpssd_interface.so` |
-| Message brokering | Publish to Kafka, Redis, or similar |
-| PSSCom library | Use the PSSCom communication library |
+| Transport | Kafka. The broker is `--broker`, else the `MDX_MSGBUS_BROKERS` environment variable, else `localhost:9092`. |
+| Topic `mdx-events` | Metropolis MDX `Behavior` messages (protobuf). The MDX client uses only tripwire and ROI alerts; it ignores every other message. |
+| Topic `mdx-frames` | Metropolis MDX `Frame` messages (protobuf), one per analysed frame. The MDX client derives ROI, proximity (social-distancing) and object-presence alerts from them. |
+| Sensor identity | `Behavior.sensor.id` on `mdx-events` and `Frame.sensorId` on `mdx-frames`. The value must equal a `sensorName` in the identity file (see [Sensor identity](#sensor-identity)). Names longer than 63 characters are cut to 63. |
+| Object types | The class labels the event mapping names, such as `Person` or `forklift`. `person` or `Person` is reported as PERSON, `vehicle` or `Vehicle` as VEHICLE, and any other label as OBJECT. |
+| Timestamp | The alert's end timestamp, in UTC. An alert without a parsable timestamp is sent with timestamp 0, which SEI rejects. |
 
-<Info>
-[Integration Guide](/integration) describes the SEI interface calls used for source/sink setup when connecting the Sensor Input Processing Pipeline to HOISA.
-</Info>
+The topic names are fixed. Which alert becomes which safety event is set by the event mapping;
+see [Event mapping configuration](/reference/event-mapping-configuration).
+
+## MDX client
+
+The MDX client (`mdx_client`) is the reference SIPP-to-SEI adapter. It reads the perception
+contract from Kafka, matches each alert against the event-mapping rules, and reports each match
+to the SEI daemon as a `SafetyEvent`. It is installed at
+`/opt/nvidia/psf/apps/mdx-client/mdx_client`. The launchers start one MDX client: inside the
+Safety Core container under the Docker runtime, on the host under `--runtime host`.
+
+![MDX client: Kafka consumers for mdx-events and mdx-frames, parsers, event mapping, sensor identity, and the SEI client with heartbeat](/assets/images/safety-core/mdx-client.svg)
+
+### Command line
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-c`, `--config <path>` | — (required) | Event mapping file, protobuf binary or text format. |
+| `-s`, `--sensor-config <path>` | — | 2D identity file. Give exactly one of `-s` and `-g`. |
+| `-g`, `--sensor-pipelines-config <path>` | — | 3D identity file. Give exactly one of `-s` and `-g`. |
+| `-i`, `--instance-id <N>` | anonymous | Instance number, 1–8. See [Instances](#instances). |
+| `-b`, `--broker <host:port>` | see [Perception contract](#perception-contract) | Kafka broker. |
+| `-d`, `--debug` | off | Print matched events instead of reporting them. The client does not register with SEI. |
+| `-h`, `--help` | — | Print usage and exit 0. |
+
+Every command-line error prints a message and the usage, and exits 1. Giving both identity
+files prints
+`error: -s/--sensor-config and -g/--sensor-pipelines-config are mutually exclusive`; giving
+neither prints `error: a sensor identity file is required`.
+
+### Rule matching
+
+The MDX client loads the event mapping at startup. It tries the binary format first, then the
+text format. It exits 1 with `No rules in config or load failed` when the file cannot be read,
+holds no rules, or contains a rule that fails validation (`Invalid event mapping rule` or
+`Rejected unsafe event mapping rule`). The rule `output_event` is not checked: an unknown name is
+reported as `EVENT_UNKNOWN`, which no SDM subscribes to.
+
+For each alert the rules are tried in file order and the first match is reported. An alert that
+matches no rule is ignored. The rule format is in
+[Event mapping configuration](/reference/event-mapping-configuration).
+
+A reported `SafetyEvent` carries:
+
+| Field | Value |
+| --- | --- |
+| `type` | The rule's `output_event`. |
+| `fusionMetadata.pipelineID` | The sensor's `pipelineId` from the identity file. |
+| `sensorIdentifier` | The Kafka sensor identity. |
+| `objectID`, `coordinates`, `objectType` | The object, or for a proximity rule the two objects of the pair. |
+| `timestamp` | The alert time, converted to the host's monotonic clock. |
+| `confidenceLevel` | Always 0.7. The detector's confidence is not used. |
+| `cause` | `CAUSE_NONE`. |
+
+Severity is not part of a reported event; the SEI daemon assigns it.
+
+### Sensor identity
+
+The MDX client turns the Kafka sensor identity into a `pipelineId` with one identity file:
+
+| Deployment | Identity file | Kafka sensor identity names |
+| --- | --- | --- |
+| 2D | `sensor_config.conf` (`-s`) | A camera |
+| 3D | `sensor_pipelines_config.conf` (`-g`) | The BEV sensor group |
+
+The formats are in [Sensor files](/reference/sensor-files#sensor_config). The launchers read
+`deploymentMode` from `nvpss.conf` and pass exactly one file:
+
+- the 2D file given with `--sensor-config`, or
+- in 3D, `/opt/nvidia/psf/bin/sensor_pipelines_config.conf`. The container launcher refuses to
+  start when that file is not readable. Under the Docker runtime this is the file inside the
+  container image; `launch_hoisa.sh` does not mount its `--sensor-pipelines-config` file into
+  the container.
+
+An alert from a sensor that is not in the identity file is dropped and logged as
+`Dropping event: sensor not in sensor_config, so it has no pipelineID: <name>` (in 3D,
+`sensor_pipelines_config`). Add the sensor to the file, or correct the name the producer emits.
+
+### Instances
+
+| Instance | SEI behaviour |
+| --- | --- |
+| 1–8 (`--instance-id`) | One client per number. SEI refuses a second client with the same number. When a numbered instance stops or misses its heartbeats, SEI raises `SW_FAIL` cause 18, and every SDM latches. |
+| None (anonymous) | Any number of anonymous clients may register. SEI cannot report their loss. |
+
+Both launchers run one MDX client as instance 1. The shipped `nvpss.conf` sets
+`required_mdx_instances = 1`, so instance 1 must register; if it never does, SEI raises cause 18
+with reason `never_registered` after the heartbeat budget (about 4.2 minutes with the shipped
+`max_hb_failures = 50`). See
+[Safety Event Integrator (SEI)](/integration/components/event-integrator#source-presence).
+
+### Registration and heartbeat
+
+The MDX client registers with the SEI daemon on `/run/nvpsf/nvpssd` as `CLIENT_MDX`, once, with
+no retry; a failure exits 1. It must run with the same primary group as the SEI daemon; see
+[Shared process group](/integration#shared-process-group). It then sends a heartbeat every 5 s.
+After 10 consecutive failed heartbeats it logs
+`PSS heartbeat ACK failure limit reached — PSS presumed dead, exiting` and exits with status 0.
+The launchers stop the stack when any process they started exits.
+
+### Failure behaviour
+
+| Situation | Behaviour |
+| --- | --- |
+| A Kafka consumer cannot be created at startup | Logs `MsgBus mdx-events consumer creation failed` (or `mdx-frames`), unregisters and exits 1. There is no retry. |
+| Kafka receive error at run time, including broker loss | Waits 100 ms and tries again. Nothing is logged and no `SW_FAIL` is raised; heartbeats continue. A lost broker therefore shows only as missing events. |
+| A message larger than 8192 bytes | Dropped as a receive error. |
+| A message that does not decode | Logged as `Failed to decode events message` or `Failed to decode frames message` and dropped. |
+| An alert from an unknown sensor | Dropped; see [Sensor identity](#sensor-identity). |
+| SEI refuses a report | Logged as `Failed to report safety event to PSS`; the event is not retried. |
+
+The MDX client starts reading each topic at the newest message, so messages published before it
+started are not read. Loss of the perception data stream is detected by the Perception Container
+Monitor, not by the MDX client; see
+[Perception Container Monitor (PCM)](/integration/components/perception-monitor).
+
+### Logs
+
+The MDX client writes to syslog with the tag `nv_mdx_client`; see
+[Safety Black Box (SBB)](/integration/components/black-box) for where that lands.
+
+| Log line | Meaning |
+| --- | --- |
+| `Loaded event mapping config, <N> rules` | The mapping loaded. |
+| `Sensor identity map loaded from sensor_config` (or `sensor_pipelines_config`) | The identity file loaded; the line lists every name and ID. |
+| `Registered with PSS` | Registration succeeded. The line gives the instance, or says it is anonymous. |
+| `Safety event reported: <event> (rule: <name>)` | A matched alert was reported. |
+| `Heartbeat failed` | One heartbeat failed; the line gives the miss count. |

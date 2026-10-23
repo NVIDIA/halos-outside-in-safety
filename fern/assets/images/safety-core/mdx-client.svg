@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1000" width="2000" height="1000" font-family="'JetBrains Mono','Fira Code','DejaVu Sans Mono','Liberation Mono',monospace" role="img" aria-label="MDX client (mdx_client): Kafka consumers, parsers, event-mapping rules, sensor identity and the SEI client">
+<title>MDX client (mdx_client): Kafka consumers, parsers, event-mapping rules, sensor identity and the SEI client</title>
+<defs>
+<pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#14212d"/></pattern>
+<marker id="arrow-data" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#53d6b6"/></marker>
+<marker id="arrow-safety" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#f2859f"/></marker>
+<marker id="arrow-plain" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#7f9aad"/></marker>
+<marker id="arrow-config" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#a996f5"/></marker>
+</defs>
+<rect width="2000" height="1000" fill="#0a1520"/>
+<rect width="2000" height="1000" fill="url(#grid)"/>
+<rect x="30" y="20" width="1940" height="800" rx="16" fill="#111a24" fill-opacity="0.55" stroke="#e3c34f" stroke-width="2" stroke-dasharray="14 6 3 6"/>
+<rect x="38" y="29" width="311.59999999999997" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="45" y="49" fill="#e3c34f" font-size="16" font-weight="700">MDX client process (mdx_client)</text>
+<rect x="1020" y="290" width="920" height="270" rx="16" fill="none" fill-opacity="0.55" stroke="#f2859f" stroke-width="2" stroke-dasharray="10 7"/>
+<rect x="1028" y="523" width="225.2" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="1035" y="543" fill="#f2859f" font-size="16" font-weight="700">SEI reporting boundary</text>
+<rect x="60" y="80" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="80" cy="100" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="150.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Event Consumer Worker</text>
+<text x="245.0" y="180.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">dedicated topic loop</text>
+<rect x="550" y="80" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="570" cy="100" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="150.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Behavior Parser</text>
+<text x="735.0" y="180.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">decode and validate fields</text>
+<rect x="1040" y="80" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="1060" cy="100" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="144.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Event Mapping Config</text>
+<text x="1225.0" y="174.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">ordered first-match rules</text>
+<text x="1225.0" y="214" text-anchor="middle" fill="#a996f5" font-size="13.5">--config, per app</text>
+<rect x="60" y="340" width="370" height="150" rx="10" fill="#262a30" stroke="#f3a65a" stroke-width="2.5"/>
+<circle cx="80" cy="360" r="5" fill="none" stroke="#f3a65a" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="410.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Kafka / MsgBus</text>
+<text x="245.0" y="440.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">mdx-events and mdx-frames</text>
+<rect x="1040" y="340" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="360" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="410.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Rule Matcher and Builder</text>
+<text x="1225.0" y="440.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">build validated SafetyEvent</text>
+<rect x="1530" y="340" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1550" cy="360" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="404.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Client and Heartbeat</text>
+<text x="1715.0" y="434.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">register, heartbeat, report</text>
+<text x="1715.0" y="474" text-anchor="middle" fill="#f2859f" font-size="13.5">instance id via --instance-id</text>
+<rect x="60" y="620" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="80" cy="640" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="690.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Frame Consumer Worker</text>
+<text x="245.0" y="720.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">dedicated topic loop</text>
+<rect x="550" y="620" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="570" cy="640" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="690.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Frame / ROI Parser</text>
+<text x="735.0" y="720.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">decode and spatial checks</text>
+<rect x="1040" y="620" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="1060" cy="640" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="668.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Sensor Identity</text>
+<text x="1225.0" y="698.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">Kafka sensor id to pipelineID</text>
+<text x="1225.0" y="721.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">2D: sensor_config.conf</text>
+<text x="1225.0" y="744.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">3D: sensor_pipelines_config.conf</text>
+<rect x="1530" y="620" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="1550" cy="640" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="684.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Daemon</text>
+<text x="1715.0" y="714.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">SafetyEvent intake</text>
+<text x="1715.0" y="754" text-anchor="middle" fill="#8db4c8" font-size="13.5">AF_UNIX SOCK_SEQPACKET</text>
+<path d="M 245.0 340.0 L 245.0 230.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 245.0 490.0 L 245.0 620.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 430.0 155.0 L 550.0 155.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 430.0 695.0 L 550.0 695.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 920.0 155.0 L 985.0 155.0 L 985.0 390.0 L 1040.0 390.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 920.0 695.0 L 985.0 695.0 L 985.0 440.0 L 1040.0 440.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 1225.0 230.0 L 1225.0 340.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 1225.0 620.0 L 1225.0 490.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 1410.0 415.0 L 1530.0 415.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1715.0 490.0 L 1715.0 620.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<text x="60" y="850" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">The launcher passes exactly one identity file, chosen from deploymentMode in nvpss.conf; mdx_client refuses both or neither.</text>
+<text x="70" y="930" fill="#e9eef3" font-size="20" font-weight="700">Legend</text>
+<rect x="70" y="948" width="30" height="20" rx="4" fill="#11313a" stroke="#53d6b6" stroke-width="2"/>
+<text x="110" y="964" fill="#9fb4c5" font-size="16">Backend</text>
+<rect x="210" y="948" width="30" height="20" rx="4" fill="#1d2550" stroke="#a996f5" stroke-width="2"/>
+<text x="250" y="964" fill="#9fb4c5" font-size="16">Configuration / state</text>
+<rect x="490" y="948" width="30" height="20" rx="4" fill="#262a30" stroke="#f3a65a" stroke-width="2"/>
+<text x="530" y="964" fill="#9fb4c5" font-size="16">Transport</text>
+<rect x="650" y="948" width="30" height="20" rx="4" fill="#24222f" stroke="#f2859f" stroke-width="2"/>
+<text x="690" y="964" fill="#9fb4c5" font-size="16">Safety check</text>
+<rect x="840" y="948" width="30" height="20" rx="4" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2"/>
+<text x="880" y="964" fill="#9fb4c5" font-size="16">External</text>
+<line x1="990" y1="958" x2="1030" y2="958" stroke="#7f9aad" stroke-width="2.6" marker-end="url(#arrow-plain)"/>
+<text x="1042" y="964" fill="#9fb4c5" font-size="16">dependency</text>
+<line x1="1170" y1="958" x2="1210" y2="958" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-config)"/>
+<text x="1222" y="964" fill="#9fb4c5" font-size="16">reads configuration</text>
+<line x1="1440" y1="958" x2="1480" y2="958" stroke="#53d6b6" stroke-width="2.6" marker-end="url(#arrow-data)"/>
+<text x="1492" y="964" fill="#9fb4c5" font-size="16">data flow</text>
+<line x1="1610" y1="958" x2="1650" y2="958" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-safety)"/>
+<text x="1662" y="964" fill="#9fb4c5" font-size="16">validated / safety handoff</text>
+</svg>

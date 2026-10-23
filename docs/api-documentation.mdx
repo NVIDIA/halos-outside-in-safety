@@ -1,0 +1,48 @@
+---
+title: "API Documentation"
+description: "The C and C++ headers an integrator builds against, what each one declares, and where the generated API reference is published."
+---
+The development packages, `psf-desktop-dev` and `psf-tegra-dev`, install the Safety Core
+headers that an integrator builds against in `/opt/nvidia/psf/include`. This page describes what
+each header declares.
+
+Each header published in this repository's `safety-core/` directory has a generated reference
+page in this section, with every function, type, constant and macro it declares. The pages are
+regenerated from the headers whenever a change to them is merged. Headers the repository does not
+publish yet are described on this page only.
+
+## SEI client interface
+
+| Header | Contents | Used in |
+| --- | --- | --- |
+| `pss_daemon.h` | The client API of `libnvpssd_interface`: register with the SEI daemon, send heartbeats, report safety events and trust verdicts, and terminate. The development package at this release does not install it. | [Custom event sources](/integration/custom-event-sources) |
+| `pss_protocol.h` | The safety messages and their vocabulary: `SafetyEvent`, `DecisionRequest`, event types, event causes, presence bits and the protocol schema version. | [Custom event sources](/integration/custom-event-sources), [Writing a decision maker](/integration/writing-a-decision-maker) |
+| `pss_message_validate.h` | CRC-32 integrity and field-range validation of `SafetyEvent` and `DecisionRequest`. | [Writing a decision maker](/integration/writing-a-decision-maker) |
+
+## NvPSD Gateway interface
+
+| Header | Contents | Used in |
+| --- | --- | --- |
+| `NvPSDGatewayProtocol.h` | The gateway wire format: registration (REGR), registration refusal (RGNK) and its reasons, and the envelope that carries each decision request to an SDM. | [Writing a decision maker](/integration/writing-a-decision-maker), [NvPSD Gateway](/integration/components/gateway) |
+| `NvPSDGatewayContract.hpp` | The gateway's contract with an SDM: subscribable and mandatory event types, the request-ID range and the records the gateway synthesises. C++. | [NvPSD Gateway](/integration/components/gateway) |
+
+## Transport
+
+| Header | Contents | Used in |
+| --- | --- | --- |
+| `nvpsf_transport.h` | The message-oriented AF_UNIX `SOCK_SEQPACKET` transport that every Safety Core link uses: endpoint configuration, socket paths under `/run/nvpsf`, the peer group check and the socket-buffer sizing. | [Transports](/integration#transports), [Writing a decision maker](/integration/writing-a-decision-maker) |
+
+## FSI error reporting
+
+These headers carry fault reports from a decision maker to the Functional Safety Island through
+`fsicom-agent`.
+
+| Header | Contents |
+| --- | --- |
+| `epl_proxy_wire_contract.h` | The 16-byte report payload and the default socket path of the error-report proxy. |
+| `fsicom_epl_proxy_wire.h` | The proxy wire protocol between a client and `fsicom-agent`. |
+| `fsicom_epl_proxy.h` | The proxy listener inside `fsicom-agent`. |
+| `atl_epl_proxy_send.h` | The function the forklift safety function's decision maker uses to send a report. |
+| `atl_epl_attr.h` | The layout of the `error_attr` field in the forklift safety function's reports. |
+| `oisf_error_codes.h` | The error codes reported to the FSI. |
+| `oisf_error_report.h` | The FSI-side error-report library. |

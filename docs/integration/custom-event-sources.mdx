@@ -1,0 +1,322 @@
+---
+title: "Custom Event Sources"
+description: "How to add your own event source or monitor to the Safety Core through the SEI client library, and what the SEI daemon does when a source misbehaves or disappears."
+---
+
+Every input to the SEI daemon (`nvpss_daemon`) arrives through one client library,
+`libnvpssd_interface`. The shipped clients use it: `mdx_client` reports safety events, SAIM
+(`safety_monitor`) reports sensor verdicts, PCM (`nv_perception_monitor`) reports AI-pipeline
+verdicts, and the NvPSD Gateway heartbeats the daemon. A custom event source or monitor uses the
+same library and is held to the same rules.
+
+This page covers the client contract. How the daemon fuses and routes what it receives is on
+[Safety Event Integrator](/integration/components/event-integrator). Every `nvpss.conf` key named
+here is described on [SEI Configuration](/reference/sei-configuration).
+
+## Library and link
+
+| Item | Value |
+| --- | --- |
+| Library | `libnvpssd_interface.so` in `/opt/nvidia/psf/lib`. It depends on `libnvpsb.so` in the same directory. The runtime package registers the directory with the dynamic linker through `/etc/ld.so.conf.d/nvidia-psf.conf`. |
+| API header | `pss_daemon.h`. It declares the five functions below and includes `pss_protocol.h`, which defines `SafetyEvent`, `EventType`, `EventCause` and the presence bits. See [API Documentation](/api-documentation). |
+| Socket | `/run/nvpsf/nvpssd`, `AF_UNIX`, `SOCK_SEQPACKET`. The server is `nvpss_daemon`, which sets the socket to mode `0660`. |
+| Credential check | The daemon compares the client's primary GID, read with `SO_PEERCRED`, with its own and refuses a mismatch. See [Shared process group](/integration#shared-process-group). The library does not check the daemon's credential. |
+| Call timeout | Each call waits at most 500 ms to send and 500 ms for the reply. |
+| Threads | Calls for one client id are serialised, so a heartbeat thread and a reporting thread can share one id. |
+
+<Note>
+The development package at this release installs `pss_protocol.h` but not `pss_daemon.h`, which
+the sample below includes. The declarations it provides are listed in [API](#api) and
+[Client types](#client-types).
+</Note>
+
+A minimal event source registers as a numbered MDX client, heartbeats, and reports one event per
+heartbeat:
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include "pss_daemon.h"   /* the client API; includes pss_protocol.h */
+
+static uint64_t monotonicNs(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+}
+
+int main(void)
+{
+    uint32_t clientId = 0;
+    uint32_t nextEventId = 1;
+
+    /* Instance 2: the launchers already run mdx_client as instance 1. */
+    if (NvPSSRegisterPSSClientInstance(&clientId, CLIENT_MDX, 2) != NVPSSD_SUCCESS) {
+        fprintf(stderr, "registration refused\n");
+        return 1;
+    }
+
+    for (;;) {
+        if (NvPSSSendHeartbeat(clientId, CLIENT_MDX) != NVPSSD_SUCCESS) {
+            fprintf(stderr, "heartbeat not acknowledged\n");
+        }
+
+        SafetyEvent ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.id = nextEventId++;                              /* unique per event */
+        snprintf(ev.sensorIdentifier, sizeof(ev.sensorIdentifier), "%s", "Camera");
+        ev.type = EVENT_12;
+        ev.timestamp = monotonicNs();                       /* CLOCK_MONOTONIC, not 0 */
+        ev.confidenceLevel = 0.9f;                          /* below 0.6 is rejected */
+        ev.processed = false;
+        ev.fusionMetadata.pipelineID = 1;                   /* from the identity file */
+        ev.fusionMetadata.clientID = (uint8_t)clientId;     /* the daemon's slot */
+        ev.cause = CAUSE_NONE;
+
+        if (NvPSSReportSafetyEvent(clientId, &ev) != NVPSSD_SUCCESS) {
+            fprintf(stderr, "report rejected; see the SEI daemon log\n");
+        }
+        sleep(5);                                           /* heartbeat every 5 s */
+    }
+}
+```
+
+Build it against both libraries:
+
+```bash
+gcc -o my_event_source my_event_source.c \
+    -I /opt/nvidia/psf/include \
+    -L /opt/nvidia/psf/lib -lnvpssd_interface -lnvpsb
+```
+
+## API
+
+| Function | Purpose |
+| --- | --- |
+| `NvPSSDErr NvPSSRegisterPSSClient(uint32_t* clientId, uint8_t clientType)` | Register. The same as the call below with instance 0. |
+| `NvPSSDErr NvPSSRegisterPSSClientInstance(uint32_t* clientId, uint8_t clientType, uint8_t instanceId)` | Register a numbered `CLIENT_MDX` instance, 1 to 8 (`PSS_MDX_INSTANCE_MAX`). |
+| `NvPSSDErr NvPSSSendHeartbeat(const uint32_t clientId, const uint8_t clientType)` | Heartbeat. Succeeds only when the daemon acknowledges it. |
+| `NvPSSDErr NvPSSReportSafetyEvent(const uint32_t clientId, const SafetyEvent* event)` | Report one event or verdict. The library fills in the schema version and CRC. |
+| `NvPSSDErr NvPSSTerminatePSSClient(const uint32_t clientId)` | Unregister on shutdown. |
+
+Every call returns `NVPSSD_SUCCESS` (0) or `NVPSSD_FAIL`. The reason for a refusal is logged by
+the daemon, not returned. There is no initialisation call and no automatic reconnect: after the
+daemon restarts, a client must register again.
+
+## Client types
+
+| Type | Value | Instances | May report |
+| --- | --- | --- | --- |
+| `CLIENT_MDX` | 1 | Any number of anonymous clients (instance 0), plus one client per numbered instance 1 to 8. | `EVENT_0` to `EVENT_23`, `SW_FAIL` |
+| `CLIENT_SAFETY_MONITOR` | 2 | One. | The same, plus `SENSOR_INVALID` and `SENSOR_VALID` |
+| `CLIENT_PSD_GATEWAY` | 3 | One. Used by `nvpsd_gateway`. | The same as `CLIENT_MDX` |
+| `CLIENT_PERCEPTION_MONITOR` | 4 | One. | The same, plus `AI_PIPELINE_INVALID` and `AI_PIPELINE_VALID` |
+
+There is no generic type; any other value is refused. That gives two cases:
+
+- **An event source** registers as `CLIENT_MDX`. Give it a numbered instance so that the daemon
+  supervises it by name (see [Required sources and presence](#required-sources-and-presence)).
+  Both launchers already run `mdx_client` as instance 1, so pick another number.
+- **A sensor or AI-pipeline monitor** must register as `CLIENT_SAFETY_MONITOR` or
+  `CLIENT_PERCEPTION_MONITOR`. Each is a single slot, so it replaces SAIM or PCM rather than
+  running beside it. The launchers start SAIM and PCM according to `--saim-mode` and
+  `--pcm-mode`; see [Launchers](/reference/launcher).
+
+## Register
+
+What the daemon does with a registration:
+
+| Outcome | Server status | Daemon log |
+| --- | --- | --- |
+| Accepted | `REGISTER_ACCEPTED` (1) | — |
+| A live client already holds this single slot (a monitor, the gateway, or a numbered MDX instance) | `REGISTER_REJECTED_DUPLICATE_TYPE` (2). The daemon then drops the connection. | `REGISTER_CLIENT: duplicate singleton client type rejected` |
+| Unknown type | `REGISTER_REJECTED_INVALID_TYPE` (3) | `REGISTER_CLIENT: invalid clientType` |
+| Instance above 8, or a non-zero instance for a type other than `CLIENT_MDX` | `REGISTER_REJECTED_INVALID_INSTANCE` (4) | `REGISTER_CLIENT: invalid instance id (MDX only, 1..8)` |
+
+If the client already holding a single slot is in heartbeat fault, the daemon evicts it and
+accepts the newcomer, and logs `REGISTER_CLIENT: evicted fault-latched stale singleton`.
+
+Capacity and timing:
+
+- The daemon holds 8 client connections. A ninth is closed and logged as
+  `admission dropped: no free client slot`. The reference stack uses 4: SAIM, PCM, the gateway and
+  `mdx_client`.
+- A connection that has not registered when the heartbeat timeout (6500 ms) has passed is closed
+  on the next 5-second check: `Closing unregistered connection: registration timeout`.
+- The returned `clientId` encodes the daemon's slot in its low 8 bits. Copy
+  `(uint8_t)clientId` into `fusionMetadata.clientID` of every event you report.
+
+## Heartbeat
+
+Send `NvPSSSendHeartbeat(clientId, clientType)` every 5000 ms (`HB_INTERVAL_MS`), with the same
+`clientType` you registered with. A heartbeat with a different type disconnects the client.
+
+The daemon checks every client once per 5-second tick. A client whose last heartbeat is older than
+6500 ms (`HB_TIMEOUT_MS`) gets one miss on that tick. With `M` = `max_hb_failures` from
+`nvpss.conf` (1 to 255; the shipped file sets 50):
+
+| Misses | What the daemon does |
+| --- | --- |
+| Above `M / 2` | Rejects the client's event reports (`Dropping REPORT_SAFETY_EVENT: client in heartbeat fault tier (degraded)`). |
+| `M` | Declares the client failed, disconnects it, and reports the loss (next table). |
+
+With the shipped value of 50, a client that stops heartbeating is declared failed between about
+4 minutes 12 seconds and 4 minutes 17 seconds later, depending on where the 5-second tick falls. A trust report (`SENSOR_*`, `AI_PIPELINE_*`) is also refused if the
+reporter's last heartbeat is older than 6500 ms.
+
+What every SDM is told when a client is lost:
+
+| Client | Hangs (heartbeat budget exhausted) | Crashes, unregisters, or is dropped for a protocol error |
+| --- | --- | --- |
+| SAIM (`CLIENT_SAFETY_MONITOR`) | `SW_FAIL`, cause `CAUSE_SAFETY_MONITOR_LOST` (15) | The same |
+| PCM (`CLIENT_PERCEPTION_MONITOR`) | `SW_FAIL`, cause `CAUSE_PERCEPTION_MONITOR_LOST` (17) | The same |
+| Numbered `CLIENT_MDX` instance | `SW_FAIL`, cause `CAUSE_MDX_CLIENT_LOST` (18) | The same |
+| Anonymous `CLIENT_MDX` (instance 0) or the gateway | `SW_FAIL`, cause `CAUSE_HEARTBEAT_FAULT` (8) | Nothing |
+
+Every SDM latches on these. A loss of SAIM, PCM or a numbered instance clears only when that same
+source registers and heartbeats again. The SAIM heartbeat also sets the daemon's mode: `DEGRADED`
+above the warn tier, `ERROR` at `M`.
+
+The library does not retry or reconnect for you. `mdx_client`, for example, exits after 10
+consecutive failed heartbeats, 5 seconds apart, and logs
+`PSS heartbeat ACK failure limit reached — PSS presumed dead, exiting`.
+
+## Report events
+
+Fill a `SafetyEvent` from `pss_protocol.h`:
+
+| Field | Rule |
+| --- | --- |
+| `id` | Unique per event. Fusion uses it to recognise duplicates. |
+| `sensorIdentifier` | The sensor's name, exactly as in the identity file (see [Identity rules](#identity-rules)). At most 63 characters plus the terminating NUL. |
+| `type` | An `EventType` this client type may report (see [Client types](#client-types)). |
+| `timestamp` | `CLOCK_MONOTONIC` nanoseconds. Must not be 0. An event older than `timeWindowSize` (400 ms in the shipped `nvpss.conf`), or dated more than `timeWindowSize` in the future, when the daemon processes it is marked `STALE` with fusion on or off, and SDMs drop `STALE` entries. |
+| `confidenceLevel` | 0.0 to 1.0. An event (not a verdict) below 0.6 is rejected. |
+| `processed` | `false`. |
+| `fusionMetadata.pipelineID` | The sensor's pipeline id from the identity file. 0 is allowed only for `SW_FAIL` and `AI_PIPELINE_*`. |
+| `fusionMetadata.clientID` | `(uint8_t)clientId`. |
+| `fusionMetadata.objectType`, `objectID`, `coordinates`, `speed` | Payload for the SDMs. `objectType` must be a valid `ObjectType` value. |
+| `cause` | An `EventCause` value below 19. Use `CAUSE_NONE` when there is no cause. |
+| `integrity` | Leave it; the library fills it. |
+
+There is no severity field. The daemon assigns `OPERATIONAL` or `CRITICAL` itself.
+
+The daemon checks each report in this order and answers with the first failure:
+
+| # | Check | Server status | Daemon log |
+| --- | --- | --- | --- |
+| 1 | The client is registered. | 3, and the connection is closed | `Dropping REPORT_SAFETY_EVENT: client not registered` |
+| 2 | The client is not past the heartbeat warn tier. | 3 | `Dropping REPORT_SAFETY_EVENT: client in heartbeat fault tier (degraded)` |
+| 3 | Payload size. | 3 | `Dropping REPORT_SAFETY_EVENT: payload size mismatch` |
+| 4 | `validateSafetyEvent()`: schema, CRC, type, confidence range, timestamp, name termination, cause, object type. | 5 | `Dropping REPORT_SAFETY_EVENT: validation failed` |
+| 5 | A per-sensor event has a non-zero `pipelineID`. | 6 | `Dropping REPORT_SAFETY_EVENT: sensor identity unresolved (pipelineID 0 on a per-sensor event type)`, at most once a minute |
+| 6 | A verdict comes from the authorised client type with a recent heartbeat. | 3 | `Dropping trust report: client type not authorized for this event type or heartbeat stale` |
+| 7 | `fusionMetadata.clientID` matches the connection (events only). | 2 | `Dropping safety event: payload clientID does not match RPC connection` |
+| 8 | `confidenceLevel` is at least 0.6 (events only). | 4 | `Dropping the reported event due to low confidenceLevel` |
+
+The client sees only `NVPSSD_FAIL` and logs
+`safety event reporting by client <id> rejected` with the status number.
+
+A report that passes is accepted, and the call returns success, before its sensor identity is
+checked. An identity that does not match the configuration is dropped later and logged by the
+daemon (for example `Rejecting event: sensorIdentifier '<name>' does not match sensor_config entry '<expected>' for pipelineID <n>`).
+The client is not told, and this drop does not count towards the rejection streak below.
+
+## Trust reports
+
+| Report | Who may send it | `pipelineID` | Effect on every SDM |
+| --- | --- | --- | --- |
+| `SENSOR_INVALID` | `CLIENT_SAFETY_MONITOR` only | The camera's id | Entries from that pipeline arrive with `isHealthy = false`, and SDMs skip them. If every pipeline in an SDM's reviewed sensor set is invalid, the SDM latches. |
+| `SENSOR_VALID` | `CLIENT_SAFETY_MONITOR` only | The camera's id | Clears that pipeline's verdict. |
+| `AI_PIPELINE_INVALID` | `CLIENT_PERCEPTION_MONITOR` only | 0 | Every entry, from every client and pipeline, arrives with `isTrustedSource = false`, and every SDM latches. |
+| `AI_PIPELINE_VALID` | `CLIENT_PERCEPTION_MONITOR` only | 0 | Clears the AI-pipeline verdict. |
+
+Rules that follow from the daemon's behaviour:
+
+- **A verdict is a level, not an event.** The daemon keeps the last verdict until the monitor
+  sends the opposite one. Losing the monitor does not clear it; restarting the daemon does.
+- **Send on change, and repeat.** SAIM and PCM send each verdict when it changes and repeat it:
+  SAIM every 30 seconds, PCM every 5 seconds. The daemon itself re-sends every standing `INVALID` verdict to the SDMs once
+  per status interval, so an SDM that restarts relearns it (see the
+  [safe-state model](/integration/safe-state-model#re-assertion-of-standing-verdicts)).
+- **Cause.** Put the reason in `cause`. On `SENSOR_INVALID`, `CAUSE_SAIM_INIT` (1) marks a
+  start-up seed that SDMs do not count as a failed sensor; every other value counts. The values
+  are on [Causes and Records](/reference/causes-and-records).
+- **3D.** In a 3D deployment the BEV group's health is derived from its member cameras. A
+  `SENSOR_*` report that names the group is refused:
+  `Trust report rejected: pipelineID names a sensor group, whose health is derived from its members and cannot be reported directly`.
+
+## Identity rules
+
+| Rule | Detail |
+| --- | --- |
+| Pipeline id range | 1 to 8 in the identity files, and no higher than `maxPipelines` in `nvpss.conf` (3 in the shipped file, at most 8). A higher id is dropped: `Event from unregistered sensor: <n>`. |
+| 2D | `pipelineID` and `sensorIdentifier` must match a row of `sensor_config.conf`. |
+| 3D | Events are reported under the BEV group. `pipelineID` and `sensorIdentifier` must match the group in the sensor group file named by `sensorGroupConfig`; the group must be named explicitly. |
+| Unknown id | `Rejecting event: pipelineID <n> not in sensor_config` |
+| Name mismatch | `Rejecting event: sensorIdentifier '<name>' does not match sensor_config entry '<expected>' for pipelineID <n>` |
+| Empty name | `Rejecting event: empty sensorIdentifier for pipelineID <n>; an event that drives a decision must name its sensor, expected '<expected>'`. Applies to 2D cameras and 3D members, in both fusion modes; a 3D group is refused with `Rejecting event: empty sensorIdentifier for sensor group pipelineID <n>`. `SW_FAIL` and the trust reports (`SENSOR_*`, `AI_PIPELINE_*`) on a camera are not refused for an empty name. |
+
+The daemon reads `sensor_config.conf` and, in 3D, the group file. It does not read
+`sensor_pipelines_config.conf`; that file is read by `mdx_client`, to turn Kafka sensor names into
+pipeline ids in 3D, and by the SDMs. File formats are on
+[Sensor files](/reference/sensor-files).
+
+## Required sources and presence
+
+`nvpss.conf` names the sources a deployment must run. All three keys are mandatory, and the daemon
+refuses to start if one is missing, repeated or out of range.
+
+| Key | Range | Shipped | Meaning |
+| --- | --- | --- | --- |
+| `required_safety_monitor` | 0 or 1 | 1 | SAIM must be present. |
+| `required_perception_monitor` | 0 or 1 | 1 | PCM must be present. |
+| `required_mdx_instances` | 0 to 8 | 1 | Numbered `CLIENT_MDX` instances 1 to N must be present. |
+
+How the daemon tracks sources:
+
+- **Present.** A source is present once it has registered and sent at least one heartbeat, and
+  while it is not in heartbeat fault.
+- **Tracked.** SAIM, PCM and every numbered `CLIENT_MDX` instance are tracked whether or not they
+  are required. If one is lost, every SDM latches until that source is back.
+- **Never registered.** A required source that has not registered when the heartbeat budget has
+  run out since the daemon started is reported lost once, with reason `never_registered`. The
+  budget is 6500 ms plus `max_hb_failures - 1` times 5000 ms, checked on the 5-second tick: about
+  4 minutes 12 seconds with the shipped value of 50. From then on every SDM expects it, including an SDM that starts later.
+- **Presence report.** Every status no-op (every `status_noop_interval_ms`, 5000 ms in the shipped
+  file) carries cause `CAUSE_SOURCE_PRESENCE` (16) with two sets: the sources present now, and the
+  sources expected. An SDM raises a loss for a source it knows of that is missing from the present
+  set, and clears it only when the report names that source again.
+
+Anonymous `CLIENT_MDX` clients are not tracked by name. Use a numbered instance for any source the
+deployment depends on, and count it in `required_mdx_instances`. The key covers instances 1 to N,
+so requiring instance 2 also requires instance 1.
+
+## Rejection streak
+
+A source that keeps sending reports the daemon rejects is live but unusable. The daemon counts
+consecutive rejected reports per client; any accepted report resets the count.
+
+| Item | Value |
+| --- | --- |
+| Threshold | `client_reject_error_threshold` in `nvpss.conf`: 3 to 10000, shipped 50. About 2 seconds of continuous rejection at 30 reports a second. |
+| Counted reasons | Bad CRC or schema, a `clientID` that does not match the connection, low confidence, an unresolved sensor, an unauthorised client type. |
+| Who escalates | Only a required source: one whose identity is required, or whose established pipeline is required. A client that has never had a report accepted cannot escalate. |
+| What escalates | One `SW_FAIL` with cause `CAUSE_CLIENT_INPUT_UNUSABLE` (13) per episode, carrying the source's identity bit. The daemon logs `PSS_CLIENT_INPUT_UNUSABLE`. Every SDM latches. |
+| Not escalated | A source outside the reviewed set is logged as `PSS_CLIENT_REJECT_STREAK` with `escalated=no`. |
+| How it clears | The SDMs clear the cause when the presence report shows the same source confirmed usable, which happens after the daemon accepts a report from it. The latch still needs a release. |
+
+## Checklist
+
+1. Run with the same primary group as the SEI daemon. See
+   [Shared process group](/integration#shared-process-group).
+2. Register with the right type and, for an event source, a numbered instance that is not 1.
+3. Heartbeat every 5 s with the registered type. Register again if the daemon restarts.
+4. Fill `fusionMetadata.clientID` with `(uint8_t)clientId`, a unique `id`, a monotonic
+   `timestamp`, and a confidence of at least 0.6.
+5. Use the pipeline id and name from the identity file for the deployment mode.
+6. Add the source to `required_*` in `nvpss.conf` if the deployment depends on it.
+7. Call `NvPSSTerminatePSSClient()` on shutdown. For a tracked source this is reported to the SDMs
+   as a loss, which is the intended fail-safe behaviour.

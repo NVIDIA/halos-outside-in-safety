@@ -1,0 +1,356 @@
+---
+title: "Causes and records"
+description: "Numeric tables of event types, causes, SDM latch causes and PSS sub-causes, and the formats of the audit records the Safety Core writes."
+---
+This page holds the look-up tables behind the safe-state behaviour: every event type and cause
+value, what latches each SDM and what clears it, and the records each component writes. The
+narrative, including the release protocol, is in [Safe-state model](/integration/safe-state-model).
+
+Logs print causes as numbers (`cause=4`), never as names. Use the tables below to read them.
+
+## Event types
+
+The wire values of `EventType` in schema version 5. An SDM rejects a message whose schema version
+differs, so every runtime, including the FSI firmware, must be built from the same release.
+
+| Value | Name | Meaning |
+| --- | --- | --- |
+| 0–23 | `EVENT_0` … `EVENT_23` | Application events. Their meaning comes from the event mapping and the SDM configuration. |
+| 24 | `SW_FAIL` | A fault in the safety path. Carries a cause. |
+| 25 | `EVENT_UNKNOWN` | An `output_event` the MDX client did not recognise. No SDM can subscribe to it. |
+| 26 | `SENSOR_INVALID` | SAIM, or the SEI daemon for a 3D group: a camera (or group) cannot be trusted |
+| 27 | `SENSOR_VALID` | The camera (or group) can be trusted again |
+| 28 | `AI_PIPELINE_INVALID` | PCM: the perception pipeline cannot be trusted |
+| 29 | `AI_PIPELINE_VALID` | The perception pipeline can be trusted again |
+| 30 | `PSS_STATUS_NOOP` | The SEI daemon's periodic status request, which carries the presence report |
+
+Every SDM is subscribed to `SW_FAIL`, `PSS_STATUS_NOOP`, `SENSOR_INVALID`, `SENSOR_VALID`,
+`AI_PIPELINE_INVALID` and `AI_PIPELINE_VALID` whatever it registers for.
+
+Other enumerations on the wire:
+
+| Field | Values |
+| --- | --- |
+| SEI mode (`pssStatus.mode`) | `NORMAL` 0, `DEGRADED` 1, `ERROR` 2 |
+| Event status | `FUSED` 0, `PASSTHROUGH` 1, `STALE` 2, `UNKNOWN` 3 |
+| Severity | `OPERATIONAL` 0, `CRITICAL` 1 |
+
+## Causes
+
+Every event carries a one-byte cause, protected by the event's CRC. A value of 19 or more fails
+validation, and the whole request is dropped.
+
+| Value | Name | Carried on | Sent by | Meaning |
+| --- | --- | --- | --- | --- |
+| 0 | `CAUSE_NONE` | Any | PCM verdicts, MDX client events, re-sent `AI_PIPELINE_INVALID` | No cause stated. On a sensor failure it latches like cause 6. |
+| 1 | `CAUSE_SAIM_INIT` | `SENSOR_INVALID` | SAIM | Start-up seed, sent for every camera before its first frame. The only cause that does not mark the sensor failed in an SDM. |
+| 2 | `CAUSE_SAIM_INPUT_DEGRADED` | `SENSOR_INVALID` | SAIM | Frame-quality score stayed below threshold, or a keyframe arrived but the camera did not become valid within 15 s |
+| 3 | `CAUSE_SAIM_INTERNAL_ERROR` | `SENSOR_INVALID` | SAIM | The frame analyser failed to start, failed 30 frames in a row, or used up its 5 restarts |
+| 4 | `CAUSE_SAIM_STREAM_DISCONNECT` | `SENSOR_INVALID` | SAIM | A trusted camera's stream ended or a connection attempt to it failed, or no keyframe arrived within 30 s |
+| 5 | `CAUSE_SAIM_FRAME_DROP` | `SENSOR_INVALID` | SAIM | 5 dropped video fragments, after a 10 s minimum dwell |
+| 6 | `CAUSE_SAIM_UNKNOWN` | `SENSOR_INVALID` | SAIM; the SEI daemon for a 3D group | Invalid with a missing or contradictory cause |
+| 7 | `CAUSE_SAIM_SENSOR_HEALTHY` | `SENSOR_VALID` | SAIM; the SEI daemon for a 3D group | Recovery after a sustained run of good frames. Every `SENSOR_VALID` carries it. |
+| 8 | `CAUSE_HEARTBEAT_FAULT` | `SW_FAIL` | SEI daemon (`PSS_RPC`) | An untracked client, for example an MDX client without an instance number, missed `max_hb_failures` heartbeats. `fusionMetadata.clientID` names the client. |
+| 9 | `CAUSE_GATEWAY_SEQUENCE_GAP` | `SW_FAIL` | `fsicom-agent` (`FSICOM_AGENT`) | A gap in the gateway's request sequence, or a request the agent could not queue for the FSI. Sent ahead of the next request. |
+| 10 | `CAUSE_PSS_REQUEST_SEQUENCE_GAP` | `SW_FAIL` | NvPSD Gateway (`PSD_GATEWAY`) | The SEI daemon's request ids jumped, or restarted after a daemon restart |
+| 11 | `CAUSE_PSS_REQUEST_ID_INVALID` | `SW_FAIL` | NvPSD Gateway (`PSD_GATEWAY`) | A request id outside 1 to 4294967294 |
+| 12 | `CAUSE_PSS_ERROR` | `SW_FAIL` | NvPSD Gateway (`PSD_GATEWAY`) | The SEI daemon reported `ERROR` mode |
+| 13 | `CAUSE_CLIENT_INPUT_UNUSABLE` | `SW_FAIL` | SEI daemon (`PSS_RPC`) | A required source had `client_reject_error_threshold` reports in a row rejected. `objectID[0]` holds the source's identity bit. Sent once per episode. |
+| 14 | `CAUSE_PSS_COMM_RECOVERED` | `PSS_STATUS_NOOP` | NvPSD Gateway (`PSD_GATEWAY`) | The recovery record: the condition behind causes 10–12 has cleared. It can never latch. |
+| 15 | `CAUSE_SAFETY_MONITOR_LOST` | `SW_FAIL` | SEI daemon (`PSS_RPC`) | SAIM stopped being registered: it hung, crashed, unregistered, broke the protocol, or never registered. `objectID[0]` = `0x1`. |
+| 16 | `CAUSE_SOURCE_PRESENCE` | `PSS_STATUS_NOOP` | SEI daemon (`PSS_DAEMON`) | The presence report (see [Presence report](#presence-report)) |
+| 17 | `CAUSE_PERCEPTION_MONITOR_LOST` | `SW_FAIL` | SEI daemon (`PSS_RPC`) | As cause 15, for PCM. `objectID[0]` = `0x2`. |
+| 18 | `CAUSE_MDX_CLIENT_LOST` | `SW_FAIL` | SEI daemon (`PSS_RPC`) | As cause 15, for MDX client instance k (1–8). `objectID[0]` = `0x100 << (k − 1)`. |
+
+The name in brackets is the `sensorIdentifier` of the event.
+
+### Reasons on lost-source records
+
+Causes 15, 17 and 18 are logged with a reason.
+
+| Reason | When |
+| --- | --- |
+| `never_registered` | A required source had not registered within the heartbeat budget after the SEI daemon started |
+| `heartbeat_budget_exhausted` | The source missed `max_hb_failures` heartbeats |
+| `connection_dropped` | The source's connection closed |
+| `unregistered` | The source unregistered itself |
+| `protocol_error_malformed_request`, `protocol_error_recv_failed`, `protocol_error_heartbeat_type_mismatch` | The SEI daemon dropped the source for a protocol error |
+
+An MDX client registered without an instance number, and the NvPSD Gateway, are not tracked: a
+lost connection from either raises no lost-source record.
+
+<a id="presence-report"></a>
+
+### Presence report
+
+Every status request (`PSS_STATUS_NOOP`, every `status_noop_interval_ms`) carries cause 16 and two
+32-bit words:
+
+| Field | Bits 0–15 | Bits 16–31 |
+| --- | --- | --- |
+| `fusionMetadata.objectID[0]` | Sources present: registered, heartbeating, not faulted | Input identities whose reports are being rejected |
+| `fusionMetadata.objectID[1]` | Sources expected: every source seen since the SEI daemon started, plus the required sources once the start-up budget has passed | Input identities confirmed usable |
+
+| Bit | Source |
+| --- | --- |
+| `0x0001` | SAIM |
+| `0x0002` | PCM |
+| `0x0004` | An MDX client without an instance number (input identities only) |
+| `0x0100` … `0x8000` | MDX client instances 1 to 8 |
+
+For example, SAIM, PCM and MDX instances 1 and 2 present, with instance 2's reports being rejected
+and the others confirmed usable, gives `objectID[0] = 0x02000303` and `objectID[1] = 0x01030303`.
+
+## What each monitor reports
+
+### SAIM
+
+| Verdict | Cause | Condition |
+| --- | --- | --- |
+| `SENSOR_INVALID` | 1 | At registration, for every camera |
+| `SENSOR_INVALID` | 2 | Quality counter reached its maximum while the frame score was below the low threshold |
+| `SENSOR_INVALID` | 3 | Analyser failure |
+| `SENSOR_INVALID` | 4 | A trusted camera's stream ended (more than 5 s without packets, or RTCP `BYE`) or a connection attempt failed, or no keyframe within 30 s |
+| `SENSOR_INVALID` | 5 | Video fragment drops |
+| `SENSOR_VALID` | 7 | Quality counter returned to zero while the score was above the high threshold |
+
+SAIM re-sends each camera's current verdict, with its cause, every 30 s.
+
+### PCM
+
+| Verdict | Cause | Condition |
+| --- | --- | --- |
+| `AI_PIPELINE_INVALID` | 0 | `bad_ticks_to_invalid` bad one-second evaluations in a row (4 in the shipped `pcm_monitor.cfg`). An evaluation is bad when the container health check or the data validation check is bad. |
+| `AI_PIPELINE_VALID` | 0 | First verdict: `initial_valid_ms` of good evaluations (4000 ms shipped). After `INVALID`: `good_ticks_to_valid` good evaluations with no bad one between them (8 shipped). |
+
+PCM sends nothing before its first verdict, sends every change at once, and re-sends an unchanged
+verdict every `verdict_resend_ms` (5000 ms shipped, and when the key is missing). In LEARN mode it
+does not register and sends nothing. See
+[Verdict aggregation](/integration/components/perception-monitor#verdict-aggregation).
+
+### SEI daemon re-assertion
+
+On every status interval the SEI daemon re-sends every standing `SENSOR_INVALID` (with its recorded
+cause) and `AI_PIPELINE_INVALID` (cause 0), so an SDM that restarts latches again within one
+interval.
+
+## SEI mode
+
+| `ERROR` comes from | Clears when |
+| --- | --- |
+| Delivery to the gateway failed after every retry (`PSS_TO_PSD_DELIVERY_FAILURE`) | An `ERROR`-marked request has been acknowledged |
+| An event-processing stage failed without interruption for `fusion_failure_error_ms` (`PSS_FUSION_HEALTH_ERROR`) | Every stage is healthy again |
+| SAIM missed `max_hb_failures` heartbeats. Above half that many misses the mode is `DEGRADED`. | SAIM heartbeats again, or the daemon drops it, which raises cause 15 |
+| A fault or trust report was refused by the full critical queue (`PSS_CRITICAL_LANE_OVERFLOW`) | The queue has drained to half its depth and an `ERROR`-marked request has been delivered |
+
+The NvPSD Gateway turns every `ERROR` request into a `SW_FAIL` with cause 12 for each SDM. If the
+gateway itself loses the SEI daemon (its own heartbeat fails `max_hb_failures` times and it cannot
+re-register), it sends every SDM one request with `mode=ERROR` and no events.
+
+## SDM latch causes
+
+A CCPLEX SDM latches its safe state when any cause below becomes active. The cause clearing does
+not release the latch: only a validated safe-release request from the command receiver does, and
+it is denied while any cause is still active. SDM logs print the active causes as a decimal sum of
+the bit values, for example `active_causes=34`.
+
+| Cause | `atl_sdm` bit | `proximity_sdm`, `atl_proximity_sdm` bit | Becomes active | Stops being active |
+| --- | --- | --- | --- | --- |
+| Gateway heartbeat | 1 | 1 | Tier 2 (more than half of `--max_hb_failures` misses): safe output, release denied, not latched. Tier 3 (`--max_hb_failures` misses): latched. | Heartbeats resume |
+| SEI | 2 | 2 | Any PSS sub-cause (table below) | Every sub-cause has cleared |
+| Count drift | 4 | — | A person enters with the count already at 10000, or leaves with the count at 0 | Latched only: the next accepted release clears it |
+| Decision freshness | 8 | 4 | No accepted `DecisionRequest` for `--decision_freshness_timeout_ms` (default 7000 ms, checked every 500 ms) | An accepted request arrives |
+| Gateway sequence | 16 | 8 | A gap in the gateway's request sequence | The next in-order request |
+| All safety-relevant sensors failed | 32 | 16 | Every `pipelineId` in the reviewed sensor set is failed | One of them recovers (`SENSOR_VALID`, or a healthy and trusted event) |
+| AI pipeline invalid | 64 | 32 | `AI_PIPELINE_INVALID` that is not `STALE` | `AI_PIPELINE_VALID` |
+
+A sensor is marked failed by a `SENSOR_INVALID`, or by an event that arrives unhealthy, except with
+cause 1. A camera still in its start-up state is not marked failed by unhealthy events either.
+
+### PSS sub-causes
+
+Each sub-cause raises the SEI latch cause and suppresses decisions from fused events.
+
+| Sub-cause | Raised by | Cleared by |
+| --- | --- | --- |
+| `pss_mode_error` | A request with `mode=ERROR` | Any request with a mode other than `ERROR`, including a status request |
+| `gateway_comm` | `SW_FAIL` with cause 10, 11 or 12 | The cause 14 recovery record, or a usable request carrying events |
+| `sw_fail` | Any other `SW_FAIL`, including causes 0, 8, 9, 13 without an identity, and unknown causes | A usable request: not `ERROR`, not only a status request, and no `SW_FAIL` in it |
+| `safety_monitor_lost` | `SW_FAIL` with cause 15, or a presence report that omits SAIM after SAIM was seen | Only a presence report that names SAIM, with a mode other than `ERROR` |
+| `perception_monitor_lost` | The same, with cause 17 and PCM | The same, for PCM |
+| `mdx_client_lost` | The same, with cause 18 and an MDX client instance | The same, for that instance |
+| `input_unusable` | `SW_FAIL` with cause 13 naming an identity, or a presence report listing it as rejected | Only a presence report showing that identity confirmed usable, with a mode other than `ERROR` |
+
+Every `SW_FAIL` latches, wherever it is in the request, whatever the mode, and even when it is
+`STALE`.
+
+### What the SDM sends
+
+| SDM | Packet identifier | While latched | Release accepted | Release denied |
+| --- | --- | --- | --- | --- |
+| `atl_sdm` | `0xA2` | `CMD_UNMUTE` (`0x07`), then `CMD_SW_ERROR` (`0x03`) | `CMD_SAFE_RELEASE_ACK` (`0x09`), then `CMD_UNMUTE` | `CMD_SAFE_RELEASE_DENIED` (`0x0A`), `CMD_UNMUTE`, `CMD_SW_ERROR` |
+| `proximity_sdm`, `atl_proximity_sdm` | `0xA5` | `CMD_STOP` (`0x02`), then `CMD_SW_ERROR` (`0x03`) | `CMD_SAFE_RELEASE_ACK` (`0x09`), then `CMD_NORMAL` (`0x07`) | `CMD_SAFE_RELEASE_DENIED` (`0x0A`), `CMD_STOP`, `CMD_SW_ERROR` |
+
+The command receiver requests a release with `CMD_SAFE_RELEASE_REQUEST` (`0x08`).
+
+### SDMs on the FSI
+
+The FSI SDMs apply the same causes and sub-causes, with a compiled reviewed sensor set and these
+bits (printed in hexadecimal on the FSI UART):
+
+| Cause | ATL on FSI | Proximity on FSI |
+| --- | --- | --- |
+| CCPLEX heartbeat | `0x01` | `0x01` |
+| SEI | `0x02` | `0x02` |
+| Count drift | `0x04` | — |
+| Decision freshness (7000 ms, fixed) | `0x08` | `0x04` |
+| All safety-relevant sensors failed | `0x10` | `0x08` |
+| SDM watchdog | `0x20` | `0x10` |
+| AI pipeline invalid | `0x40` | `0x20` |
+
+The SDM watchdog fault (a task silent for 2000 ms) has no runtime clear, so a release is denied
+until the FSI restarts.
+
+## Records
+
+### Where records go
+
+Most Safety Core processes write audit records through the SBB library to syslog.
+
+| Process | Syslog tag | Endpoint in the record |
+| --- | --- | --- |
+| `nvpss_daemon` | `NVPSB_PSS_DAEMON` | `NVPSB_PSS_DAEMON` |
+| `nvpsd_gateway` | `nvpsd_gateway` for its first records, `NVPSB_PSD_CLIENT` after it connects to the SEI daemon | `NVPSB_PSD_CLIENT` |
+| `mdx_client` | `nv_mdx_client` | `NVPSB_PSS_SOURCE` |
+
+| Deployment | File |
+| --- | --- |
+| In the container | `/var/log/psf/psf.log` (the container's rsyslog writes every syslog record there and to the container output) |
+| On the host, with the package's rsyslog rule (`/etc/rsyslog.d/99-pss-logs.conf`) | `/var/log/psf/pss.log` |
+
+Each record's message has this form. The record name and its details are joined with no space:
+
+```text
+ Timestamp: <YYYY-MM-DD HH:MM:SS:uuuuuu> Endpoint: <endpoint> Data: <record><details>
+```
+
+The SDMs, SAIM, PCM, the command receivers and `fsicom-agent` do not use syslog; see
+[SDM log lines](#sdm-log-lines).
+
+### SEI daemon records
+
+| Record | Level | Details | Written when |
+| --- | --- | --- | --- |
+| `PSS_SAFETY_MONITOR_LOST`, `PSS_PERCEPTION_MONITOR_LOST`, `PSS_MDX_CLIENT_LOST` | ERR | `client=<slot\|none>[, instance=<k>], reason=<reason>, action=SW_FAIL, clears=only when <source> registers and heartbeats again` | Cause 15, 17 or 18 is raised |
+| `PSS_CLIENT_INPUT_UNUSABLE` | ERR | `client=, pipelineID=, consecutiveRejections=, threshold=, lastReason=, requiredBy=, action=SW_FAIL, auditPath=PSB_LOG` | Cause 13 is raised |
+| `PSS_CLIENT_REJECT_STREAK` | WARNING | As above, with `escalated=no` | The threshold is reached by a source that is not required |
+| `PSS_CLIENT_REJECT_STREAK_ENDED` | INFO | `client=, consecutiveRejections=, escalated=, endedBy=accepted_report\|client_state_cleared` | A rejection episode ends |
+| `PSS_FUSION_STAGE_FAILURE` | ERR | `stage=, episode=started` or `episode=ongoing, ...` | A processing stage fails |
+| `PSS_FUSION_HEALTH_ERROR` | ERR | `stage=, consecutiveFailures=, threshold=, fusionFailureErrorMs=, resultingMode=ERROR, auditPath=PSB_LOG` | A stage has failed for `fusion_failure_error_ms` |
+| `PSS_FUSION_STAGE_RECOVERED`, `PSS_FUSION_HEALTH_RECOVERED` | INFO | | Recovery |
+| `PSS_TO_PSD_DELIVERY_FAILURE` | ERR | `backend=, requestId=, class=, reason=process_decision_request_failed\|response_timeout, attempts=, timeoutMs=, resultingMode=ERROR, auditPath=PSB_LOG` | Every delivery attempt failed |
+| `PSS_TO_PSD_DELIVERY_RECOVERED` | INFO | `..., previousReason=` | Delivery works again |
+| `PSD_STAGING_QUEUE_HIGH_WATER` | INFO | `priority=critical\|operational, highWater=<d>/<capacity>, acceptedTotal=` | A queue reaches a new high-water mark |
+| `PSD_STAGING_QUEUE_OVERFLOW` | WARNING, at most once a second | `priority=, depth=, eventType=, pipelineID=, droppedTotal=, ...` | An event is dropped from a full queue |
+| `PSD_CRITICAL_LANE_EVICTION` | WARNING, at most once a second | `evictedEventType=, evictedPipelineID=, admittedEventType=, evictedTotal=, reason=a must-deliver report displaced an event from a distrusted source` | A fault or trust report displaces an event |
+| `PSS_CRITICAL_LANE_OVERFLOW` | ERR | `refusedEventType=, pipelineID=, depth=, reason=no evictable entry, action=PSS_ERROR, ...` | A fault or trust report is refused |
+| `PSS_CRITICAL_LANE_READMITTED` | WARNING | `readmitted=, stillPending=, ...` | Refused reports are re-delivered as the queue drains |
+| `PSS_CRITICAL_LANE_REFUSED_LOST` | ERR | `pending=, lostTotal=, effect=PSS stays ERROR, ...` | A refused report could not be kept |
+| `PSS_CRITICAL_LANE_RECOVERED` | INFO | `depth=, errorStampDelivered=yes, refusedReportsDelivered=yes, auditPath=PSB_LOG` | The overflow has cleared |
+| `PSD_STAGING_BATCH_UNDELIVERABLE` | ERR | `priority=, eventCount=, requestId=, attempts=<a>/3, undeliverableTotal=, events(id:type:pipelineID:clientID)=[...], auditPath=PSB_LOG` | A batch is abandoned after 3 delivery attempts |
+| `PSD_STAGING_DELIVERY_RESUMED` | WARNING | `requestId=, abandonedBatches=, abandonedEvents=, abandonedRequestIds=[...], ...` | The first request acknowledged after an abandonment. Join it with the SDM logs by request id. |
+| `PSS_TRUST_VERDICTS_REASSERTED` | INFO | `<summary>, every=status interval, reason=a restarted SDM must relearn verdicts sent on change` | The set of re-sent verdicts changes |
+| `PSS RPC client <id> heartbeat stale: miss_count=<m>/<max> (<tier>) elapsed_ms=<ms>` | WARNING | | First miss, first degraded-tier miss, and failure |
+
+### Refusal records
+
+The SEI daemon refuses reports and registrations with these WARNING records:
+
+| Record | Meaning |
+| --- | --- |
+| `Dropping REPORT_SAFETY_EVENT: sensor identity unresolved (pipelineID 0 on a per-sensor event type)` | A per-sensor event without a `pipelineId`. At most one record a minute. |
+| `Dropping REPORT_SAFETY_EVENT: validation failed` | Bad CRC, schema version or field |
+| `Dropping REPORT_SAFETY_EVENT: client not registered` | Report before registration |
+| `Dropping REPORT_SAFETY_EVENT: client in heartbeat fault tier (degraded)` | Report from a client past the degraded tier |
+| `Dropping trust report: client type not authorized for this event type or heartbeat stale` | A verdict from a client other than SAIM (sensor verdicts) or PCM (pipeline verdicts) |
+| `Dropping safety event: payload clientID does not match RPC connection` | The event names another client |
+| `Dropping the reported event due to low confidenceLevel` | Confidence below the daemon's threshold |
+| `Event from unregistered sensor: <n>` (ERR) | `pipelineId` above `maxPipelines` |
+| `Rejecting event: pipelineID <n> not in sensor_config` | Unknown `pipelineId` |
+| `Rejecting event: sensorIdentifier '<name>' does not match sensor_config entry '<name>' for pipelineID <n>` | Name and `pipelineId` disagree |
+| `Rejecting event: empty sensorIdentifier for pipelineID <n>; an event that drives a decision must name its sensor, expected '<name>'` | A camera event that drives a decision carries no name, so its `pipelineId` cannot be checked |
+| `REGISTER_CLIENT: invalid clientType` | Unknown client type |
+| `REGISTER_CLIENT: invalid instance id (MDX only, 1..8)` | Bad MDX instance number |
+| `REGISTER_CLIENT: duplicate singleton client type rejected` | A second SAIM, PCM, gateway, or MDX client with the same instance number |
+
+### NvPSD Gateway records
+
+| Record | Level | Written when |
+| --- | --- | --- |
+| `PSD-Gateway: peer credential allowlist` + `requiredPrimaryGid=<gid>` | INFO | Startup: the primary group every SDM must have |
+| `PSD-Gateway: registered client <slot> (<n> event types)` | ERR | An SDM registers |
+| `PSD-Gateway: registration refused` + `reason=<malformed\|no_valid_event_types\|table_full\|rate_limited>, peer=, replySent=` | WARNING | A registration is refused; the SDM gets an `RGNK` reply |
+| `PSD-Gateway: received DecisionRequest id=<n> with <m> events` | INFO | Every request from the SEI daemon |
+| `PSD-Gateway: duplicate PSS DecisionRequest suppressed` | WARNING | A repeated request id |
+| `PSD-Gateway: invalid PSS DecisionRequest id suppressed; sending SW_FAIL to all clients` | ERR | Cause 11 |
+| `PSD-Gateway: PSS DecisionRequest sequence gap/reset detected; sending SW_FAIL before current request` | ERR | Cause 10 |
+| `PSD-Gateway: PSS in ERROR mode; sending SW_FAIL to all clients before filtered request` | WARNING | Cause 12 |
+| `PSD-Gateway: PSS link recovered; recovery record delivered to every client that was owed one` | INFO | Cause 14 delivered to all |
+| `PSD-Gateway: ... some clients still owed one ...; retried on the next accepted request` | WARNING | Cause 14 not yet delivered to every SDM |
+| `PSD-Gateway: no HB ACK from client <c> seq=<s> miss=<m>/<max>` with `[warn tier]` or `[degraded: DecisionRequest forwarding stopped]` | ERR | An SDM misses heartbeats |
+| `PSD-Gateway: client <c> reclaimed (heartbeat exhausted); SDM may REGR again` | ERR | The gateway frees the SDM's slot |
+| `PSD-Gateway: DecisionRequest dropped, consumer not keeping up` + `seq=, drops=` | ERR | The SDM's socket is full. The SDM sees a sequence gap and latches. |
+| `PSD-Gateway: PSS re-registered after daemon restart; heartbeat resumed instead of declaring PSS dead` | ERR | The gateway re-registered with a restarted SEI daemon |
+| `PSD-Gateway: PSS heartbeat ACK failure limit reached — PSS presumed dead` | ERR | The gateway gives up on the SEI daemon |
+
+<a id="sdm-log-lines"></a>
+
+### SDM log lines
+
+Each CCPLEX SDM writes `[<date> <time>.<ms>] [ATL|PXC|APX][INFO|WARNING|ERR] <message>` to its log
+file and its console. The table shows the `atl_sdm` text; `proximity_sdm` and `atl_proximity_sdm`
+use the prefixes `Proximity:` and `APX:`.
+
+| Line | Level |
+| --- | --- |
+| `ATL: SW_FAIL received — triggering safe hold; cause=<n><note>` | ERR |
+| `ATL: source reported lost, or missing from the presence report -- triggering safe hold; sub-cause=<name> (clears only when it is back)` | ERR |
+| `ATL: a source's reports are being rejected -- triggering safe hold; sub-cause=input_unusable (clears only when PSS confirms that source usable again)` | ERR |
+| `ATL: PSS sub-cause cleared: <name>; latch awaits PLC release` | INFO |
+| `ATL: AI pipeline reported INVALID; entering safe hold` | ERR |
+| `ATL: AI pipeline reported VALID; condition cleared, latch awaits PLC release` | INFO |
+| `ATL: safety-sensor health change pipelineID=<n> state=FAILED\|RECOVERED cause=<n>` | INFO |
+| `ATL: All safety-relevant sensors failed; entering safe hold` | ERR |
+| `ATL: DecisionRequest freshness timeout; entering safe hold, elapsed_ms=<ms>` | ERR |
+| `ATL: Gateway DecisionRequest sequence gap; entering safe hold, epoch=<e> txSeq=<s>` | ERR |
+| `HB-PSD: gateway HB warn tier miss_count=<m>/<max> elapsed_ms=<ms>` | WARNING |
+| `HB-PSD: active fault (tier 2) — safe hold + bounded REGR; miss=<m>` | ERR |
+| `HB-PSD: gateway HB fault latched (tier 3) — local fail-safe, no PSS connection` | ERR |
+| `HB-PSD: gateway HB recovered; safe-state latch awaits PLC release` | INFO |
+| `ATL: PLC safe-release denied; active safe-state fault source remains, active_causes=<n>` | WARNING |
+| `ATL: PLC safe-release accepted; local state reset to clear condition` (Proximity: `...; returning to normal mode`) | INFO |
+| `SDM: the gateway refused this SDM's registration; reason=<reason> -- not registered, no decisions will arrive` | ERR |
+| `SDM: dropping PLC packet with unsupported command` | WARNING |
+
+The note after a `SW_FAIL` cause names the sub-cause, for example
+` (Safety Monitor lost -- clears only when it is back)`.
+
+`fsicom-agent` writes `[GW]`-prefixed lines to stdout and stderr; see
+[`fsicom-agent`](/reference/launcher#fsicom-agent-options). The FSI SDMs write to the FSI UART,
+for example `[SDM] PSS sub-cause active: <name>`,
+`[SDM] Safe-release denied; active safe-state fault source remains (active_causes=0x<hex>)` and
+`[SDM-WD] ATL SDM watchdog fault task=<n> reason=<n> elapsed=<ms> ms -> UNMUTE + SW_ERROR`.
+
+### Example lines
+
+Constructed from the format strings. The syslog prefix in front of SEI and gateway records depends
+on the rsyslog template.
+
+```text
+<syslog prefix> NVPSB_PSS_DAEMON[812]:  Timestamp: 2026-10-12 14:03:27:481203 Endpoint: NVPSB_PSS_DAEMON Data: PSS_SAFETY_MONITOR_LOSTclient=3, reason=heartbeat_budget_exhausted, action=SW_FAIL, clears=only when a SafetyAIMonitor registers and heartbeats again
+<syslog prefix> NVPSB_PSS_DAEMON[812]:  Timestamp: 2026-10-12 14:03:29:002115 Endpoint: NVPSB_PSS_DAEMON Data: PSS_CLIENT_INPUT_UNUSABLEclient=5, pipelineID=2, consecutiveRejections=50, threshold=50, lastReason=5, requiredBy=identity, action=SW_FAIL, auditPath=PSB_LOG
+<syslog prefix> NVPSB_PSD_CLIENT[655]:  Timestamp: 2026-10-12 14:03:29:010877 Endpoint: NVPSB_PSD_CLIENT  Data: PSD-Gateway: registration refusedreason=rate_limited, peer=7, replySent=yes
+[2026-10-12 14:03:27.490] [ATL][ERR] ATL: SW_FAIL received — triggering safe hold; cause=15 (Safety Monitor lost -- clears only when it is back)
+[2026-10-12 14:05:02.007] [ATL][INFO] ATL: PSS sub-cause cleared: safety_monitor_lost; latch awaits PLC release
+[2026-10-12 14:05:10.112] [PXC][WARNING] Proximity: PLC safe-release denied; active safe-state fault source remains, active_causes=2
+```

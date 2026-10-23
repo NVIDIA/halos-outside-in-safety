@@ -24,7 +24,7 @@ The system simulates:
 These components run as production software:
 
 - **Safety Event Integrator**: Multi-camera sensor fusion
-- **Safety Decision Maker**: MUTE/UNMUTE logic for Automated Trailer Loading (ATL)
+- **Safety Decision Maker**: MUTE/UNMUTE logic for Automated Trailer Loading (ATL), and with `PSF_APP=pxc` or `both` the NORMAL/REDUCE/STOP proximity logic (see [SIL — 3D Perception](/testing/sil/sil-3d))
 - **Communication Layer**: UDP, OPC UA, and ROS2 protocol translation
 - **VSS Warehouse Blueprint**: RT-DETR perception pipeline
 
@@ -79,7 +79,7 @@ Eliminate expenses associated with hardware testing:
 
 ## Automated Trailer Loading (ATL) Use Case
 
-Current testing harness specifically validates the Automated Trailer Loading scenario.
+The default testing harness validates the Automated Trailer Loading scenario. Forklift–person proximity (`PSF_APP=pxc` / `both`) runs on the 3D feed and is described in [SIL — 3D Perception](/testing/sil/sil-3d).
 
 ### Scenario Description
 

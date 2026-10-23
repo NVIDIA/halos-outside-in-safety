@@ -1,0 +1,224 @@
+---
+title: "Safe-State Model"
+description: "What puts a Safety Decision Maker into its latched safe state, what clears each cause, how standing verdicts survive a restart, and how a controller releases the latch."
+---
+
+Every reference Safety Decision Maker (SDM) follows one safe-state model. This page explains it:
+what puts an SDM into the safe state, what each cause needs before it clears, and how the PLC or
+command receiver releases the latch. How to implement the model in your own SDM is on
+[Writing a decision maker](/integration/writing-a-decision-maker). The numeric cause values and
+the audit records are on [Causes and Records](/reference/causes-and-records).
+
+## Causes, latch and output
+
+The model has three parts:
+
+- **Causes.** Each fault condition the SDM watches is a cause, and each cause is either active or
+  not.
+- **The latch.** Raising any latching cause sets the latch. While the latch is set, the SDM sends
+  its safe output instead of its decision, and repeats it.
+- **The release.** The latch clears only when the SDM accepts a release request from the PLC, and
+  it accepts one only while no cause is active.
+
+| SDM | Safe output |
+| --- | --- |
+| `atl_sdm` | `CMD_UNMUTE` (prevent operation), then `CMD_SW_ERROR` |
+| `proximity_sdm`, `atl_proximity_sdm` | `CMD_STOP`, then `CMD_SW_ERROR` |
+
+Two rules follow, and they are the core of the model:
+
+1. **A cause clears only on its own evidence.** A lost monitor clears when that monitor is back,
+   not when other traffic arrives. Ordinary traffic never stands in for the evidence a cause is
+   waiting for.
+2. **A cause clearing never clears the latch.** The SDM logs `... latch awaits PLC release` and
+   keeps the safe output until an operator, through the PLC, confirms that the area is safe.
+
+The latch is held in the SDM process. A restarted SDM starts with no latch and no active cause,
+then relearns the standing conditions from the SEI (see
+[Re-assertion of standing verdicts](#re-assertion-of-standing-verdicts)). Its freshness and
+gateway-heartbeat checks start at launch, so an SDM that receives nothing still latches after
+about 7 seconds.
+
+## Cause categories
+
+| Cause | Raised by | Clears when | Latches |
+| --- | --- | --- | --- |
+| SEI mode error | A request with `pssStatus.mode` `ERROR`, including the gateway's stop sentinel. | Any request with another mode, including a status no-op. | Yes |
+| Gateway communication | `SW_FAIL` causes 10, 11 or 12, which the gateway sends about its own link to the SEI: a gap in the SEI's request numbering, an invalid request id, or the SEI in `ERROR`. | The gateway's recovery record (a status no-op with cause 14), or any request that is not only a no-op, is not in `ERROR` and carries no `SW_FAIL`. | Yes |
+| Other `SW_FAIL` | Any other `SW_FAIL`, including cause 8 (a client's heartbeat fault), cause 9 (a gap seen by `fsicom-agent`), and causes this build does not know. | A request that is not only a no-op, is not in `ERROR`, and carries no `SW_FAIL`. | Yes |
+| Source lost | `SW_FAIL` cause 15 (SAIM), 17 (PCM) or 18 (a numbered MDX client), or a presence report that no longer names a source the SDM knows of. | A presence report that names that source again, in a request that is not in `ERROR`. Nothing else clears it. | Yes |
+| Source input unusable | `SW_FAIL` cause 13 naming a source, or the presence report's unusable set. | A presence report showing that source confirmed usable and not unusable, in a request that is not in `ERROR`. | Yes |
+| All reviewed sensors failed | Every pipeline in the reviewed sensor set is failed (see [Sensor health](#sensor-health)). | Any one of them recovering. | Yes |
+| AI pipeline invalid | `AI_PIPELINE_INVALID`, unless `STALE`. | `AI_PIPELINE_VALID`. | Yes |
+| Decision freshness | No accepted decision packet for longer than the freshness timeout (7000 ms by default). | The next accepted packet. | Yes |
+| Gateway sequence | A gap in the gateway's per-SDM packet numbering. | The next packet in order. | Yes |
+| Gateway heartbeat, tier 2 | The SDM's own gateway-heartbeat check reaches its active-fault tier (32.5 s by default). | Heartbeats returning. | No: the safe output is held while it lasts, and a release is denied. |
+| Gateway heartbeat, tier 3 | The same check reaches its limit (54.5 s by default). | Heartbeats returning. | Yes |
+| Person count (`atl_sdm` only) | A person leaving an empty trailer, or the count reaching its cap. | Has no external source, so it never blocks a release. | Yes |
+| CCPLEX heartbeat (FSI SDM only) | The CCPLEX heartbeat on the FSI channel is lost. | The heartbeat returning. | Yes |
+| Task watchdog (FSI SDM only) | An FSI SDM task misses its watchdog deadline. | Never. Only a restart of the FSI clears it, so a release is always denied. | Yes |
+
+The first five rows are sub-causes of one SEI cause. Each `SW_FAIL` in a request raises its own
+sub-cause, whatever its position in the request and whatever the mode, so a request carrying two
+faults leaves both active until each has its own evidence.
+
+What puts the SEI into `ERROR`: delivery to the gateway failing past its retry budget, a
+must-deliver report refused because its queue is full, a processing stage failing without
+interruption for `fusion_failure_error_ms`, or SAIM's heartbeat budget running out. SAIM's
+heartbeat above the warn tier puts it into `DEGRADED`, which the SDMs treat like `NORMAL`.
+
+## Conditions that do not latch
+
+Some conditions affect decisions only while they last:
+
+- **One unhealthy sensor.** Entries from a pipeline with a standing `SENSOR_INVALID` arrive with
+  `isHealthy = false`, and the SDM skips them. The SDM keeps deciding on the other sensors, and
+  latches only when every sensor in the reviewed set has failed.
+- **Untrusted entries.** Entries with `isTrustedSource = false` are skipped. The
+  `AI_PIPELINE_INVALID` that causes this also latches, as above.
+- **`STALE` entries.** Entries older than the SEI's `timeWindowSize`, or dated more than that far in the future, are dropped.
+- **Gateway heartbeat, tiers 1 and 2.** Tier 1 only warns; tier 2 holds the safe output without
+  latching.
+- **FSI cold boot.** Until the FSI SDM has received its first decision and its first CCPLEX
+  heartbeat after boot, it holds the safe output without latching, so it does not need a release
+  before the CCPLEX side is up. A loss after that latches.
+
+<a id="sensor-health"></a>
+
+## Sensor health
+
+Each CCPLEX SDM reads its reviewed sensor set from `sensor_pipelines_config.conf`. In 2D the set is
+the cameras; in 3D it is the BEV group alone. The FSI SDMs use a compiled 2D set.
+
+| Event | Effect on that pipeline |
+| --- | --- |
+| `SENSOR_INVALID` with any cause except `CAUSE_SAIM_INIT` | Failed |
+| An entry with `isHealthy = false` | Failed, unless the pipeline is still initialising |
+| `SENSOR_VALID`, or an entry that is healthy and trusted | Recovered |
+| `SENSOR_INVALID` with `CAUSE_SAIM_INIT` | Initialising: not counted as failed |
+| `STALE` entries and status no-ops | Ignored |
+
+SAIM reports every camera as `SENSOR_INVALID` with `CAUSE_SAIM_INIT` when it starts, before the
+first frame. That seed does not latch, and it marks the pipeline as initialising until the pipeline
+next reports `SENSOR_VALID`, or healthy and trusted. While SAIM initialises, the SEI can mark the
+camera's other events unhealthy with their own cause; those entries with `isHealthy = false` are
+not counted as failed for an initialising pipeline. A `SENSOR_INVALID` with any other cause,
+including one the SDM does not recognise, counts as a real failure, also while the pipeline is
+initialising. Every SDM, on the CCPLEX and on the FSI, applies this rule, and clears the
+initialising state when it starts.
+
+A pipeline id outside the reviewed set is logged once and does not affect the latch. A set that
+lists a camera that never reports can never be all-failed, so the latch can never fire; a set
+that lists fewer cameras than are deployed fires while a working camera is still delivering. Match
+the file to the cameras the deployment runs. Each SDM logs the set it loaded at start-up.
+
+In 3D the SEI derives the group's verdict from its member cameras: the group is valid while any
+member is valid, invalid only when every member is invalid and none is still initialising.
+
+<a id="reading-active-causes"></a>
+
+## Reading `active_causes`
+
+A denied release logs the active causes as a decimal bitmask, for example
+`ATL: PLC safe-release denied; active safe-state fault source remains, active_causes=10`. The bit
+values differ between `atl_sdm` and the other SDMs; both sets are in
+[SDM latch causes](/reference/causes-and-records#sdm-latch-causes). For `atl_sdm`, `10` is 8 + 2:
+decision freshness and an SEI sub-cause. The SDM's log names the sub-cause when it is raised and
+when it clears (`ATL: PSS sub-cause cleared: <name>; latch awaits PLC release`).
+
+<a id="re-assertion-of-standing-verdicts"></a>
+
+## Re-assertion of standing verdicts
+
+Monitors report a verdict when it changes. An SDM that starts, restarts or reconnects after that
+change would never hear it. Three mechanisms close the gap:
+
+| Mechanism | What it carries | When |
+| --- | --- | --- |
+| Verdict re-assertion by the SEI | Every standing `INVALID` verdict: `AI_PIPELINE_INVALID`, and `SENSOR_INVALID` for each invalid camera with its cause (2D) or for the BEV group (3D). `VALID` is never re-sent. The SEI logs `PSS_TRUST_VERDICTS_REASSERTED` when the set changes. | Once per status interval (`status_noop_interval_ms`, 5000 ms in the shipped `nvpss.conf`). |
+| Presence report | The sources present now and the sources expected. The expected set includes every source seen since the SEI started and, once their budget has run out, the required ones. A restarted SDM therefore learns which sources must be present, including one that is down. | Every status no-op. |
+| Gateway recovery record | Cause 14, which clears the gateway-communication sub-cause. Owed to every SDM registered when the gateway reported a fault on its SEI link, and to every SDM that registers while one is owed. | With the next in-order, non-`ERROR` request from the SEI. |
+
+The SEI keeps its verdicts across a monitor's loss; only the monitor's next report changes them. A
+restarted PCM always sends its first verdict, so its first `AI_PIPELINE_VALID` clears an
+`AI_PIPELINE_INVALID` that the previous PCM left; the latch still needs a release. The verdicts are
+lost when the SEI itself restarts. SAIM repeats its verdicts every 30 seconds and PCM every
+5 seconds (`verdict_resend_ms`), but both register only at start and do not register with a
+restarted SEI daemon, so restart them with it.
+
+<a id="the-release-protocol-from-the-controller-side"></a>
+
+## The release protocol from the controller side
+
+A PLC or command receiver that drives the release must follow this exchange. The packet format and
+the SDM's checks are on
+[Writing a decision maker](/integration/writing-a-decision-maker#release-the-latch).
+
+1. The SDM latches and sends its safe output, ending in `CMD_SW_ERROR` (`0x03`). It repeats it on
+   every decision request and on its periodic repeat.
+2. The controller holds the machine in its safe state and shows the operator that a release is
+   possible. The reference receivers offer it once they have received `CMD_SW_ERROR` or
+   `CMD_SAFE_RELEASE_DENIED`.
+3. The operator confirms that the area is safe. The controller sends `CMD_SAFE_RELEASE_REQUEST`
+   (`0x08`) from the address and port the SDM is configured with (`--cmd_rx_ip`,
+   `--cmd_rx_port`), with the application's identifier and a valid CRC.
+4. The SDM answers:
+
+   | SDM state | Answer |
+   | --- | --- |
+   | A cause is still active | `CMD_SAFE_RELEASE_DENIED` (`0x0A`), then the safe output again. |
+   | Latched, no cause active | `CMD_SAFE_RELEASE_ACK` (`0x09`), then its normal command: `CMD_UNMUTE` for ATL, `CMD_NORMAL` for PXC. The latch is cleared and the decision state reset. |
+   | Not latched | `CMD_SAFE_RELEASE_ACK`, then the normal command. The decision state is reset. |
+
+5. On `CMD_SAFE_RELEASE_ACK`, the controller resumes acting on decisions. On
+   `CMD_SAFE_RELEASE_DENIED`, it stays in the safe state; the SDM log names the active causes.
+
+<Warning>
+An accepted release resets the SDM's view of the scene. `atl_sdm` then treats the trailer as empty:
+no forklift, no person, no restricted-area violation. Release only when the forklift is outside
+the trailer and the restricted area, and no person is inside either. The reference receivers send
+one release on their own about 500 ms after they first hear from the SDM, so restarting a receiver
+resets the scene in the same way, and needs the same check.
+</Warning>
+
+The SDM checks only its own causes. It cannot see the work area, so a release is the operator's
+statement that the area is safe. A `CMD_SAFE_RELEASE_DENIED` usually means the original fault is
+still present, not that the scene is unsafe.
+
+### The reference command receivers
+
+| Behaviour | Detail |
+| --- | --- |
+| Prompt | `Is it safe to return to normal mode? Enter 'release' to exit safe-state, or 'no' to stay safe:` |
+| Accepted input | `release`, `r`, `safe-release`, `y`, `yes` send the request. `no` or `n` keeps the safe state. |
+| Before a release is possible | Input is answered with `Ignoring safe-release input until SDM reports a release-ready safe state.` |
+| Without a terminal | Standard input is always read, so a script or service can send `echo release` into the receiver's standard input or a FIFO. There is no flag to turn this off. |
+| Automatic release | One request, about 500 ms after the receiver first hears from its peer: `Startup: peer connected — sending safe-release to clear any pre-existing latch`. The SDM validates it like any other request and denies it while a cause is active. |
+| Loss of the SDM | If the SDM's `CMD_HEARTBEAT` stops, the receiver exits after about 54.5 seconds at the default `--max_hb_failures 10`: `cmd_rx: upstream CMD_HEARTBEAT fault latched (tier 3) — local fail-safe, no PSS — stopping`. |
+
+## What the operator sees
+
+On the command receiver console:
+
+| Line | Meaning |
+| --- | --- |
+| `*** FSI SAFE-STATE LATCHED ***  (<command>, SeqNo <n>)` followed by `Enter 'release' to clear once the area is confirmed safe.` | The SDM entered the safe state. The banner reads `FSI` for CCPLEX SDMs too. |
+| `safe-release DENIED (SeqNo <n>) — latch cause still active.` | A release was refused. |
+| `>>> safe-state CLEARED <<<  (<command>, SeqNo <n>) — normal operation resumed.` | The release was accepted. |
+
+The per-packet detail goes to the receiver's log file, `/tmp/cmdrx.log` by default.
+
+In the SDM's log, with the prefix `ATL:`, `Proximity:` or `APX:`:
+
+| Line | Meaning |
+| --- | --- |
+| `<cause>; entering safe hold` | A latching cause was raised, for example `DecisionRequest freshness timeout; entering safe hold, elapsed_ms=<e>`. |
+| `SW_FAIL received — triggering safe hold; cause=<n>` | An SEI fault; the note after the number names the sub-cause. |
+| `<cause> ...; latch awaits PLC release` | That cause has cleared. The latch remains. |
+| `PLC safe-release denied; active safe-state fault source remains, active_causes=<n>` | See [Reading `active_causes`](#reading-active-causes). |
+| `PLC safe-release accepted; ...` | The latch was cleared. |
+| `PLC safe-release received while no safe-state latch is active` | A release with no latch, for example the receiver's automatic one. |
+
+The full list of SEI and gateway records is on [Causes and Records](/reference/causes-and-records).
+Where each log file is depends on how the Safety Core was started; see
+[Logs](/deployment/troubleshooting#logs).

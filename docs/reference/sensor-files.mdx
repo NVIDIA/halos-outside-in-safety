@@ -1,0 +1,328 @@
+---
+title: "Sensor files"
+description: "Format, rules, readers and error messages of sensor_config.conf, sensor_pipelines_config.conf and the 3D sensor group file, and how the three must agree."
+---
+Three files tell the Safety Core which sensors exist and under which identity their events arrive.
+
+| File | One row per | Read by | Needed in |
+| --- | --- | --- | --- |
+| [`sensor_config.conf`](#sensor_config) | Camera: `pipelineId, sensorName, rtspUrl` | The SEI daemon, SAIM, and the MDX client in 2D | 2D and 3D |
+| [`sensor_pipelines_config.conf`](#sensor_pipelines_config) | Event identity: `pipelineId, sensorName` | The CCPLEX SDMs, and the MDX client in 3D | 2D and 3D |
+| [The sensor group file](#sensor-group-file) | One BEV group: `pipelineId, groupName, members` | The SEI daemon | 3D only |
+
+`deploymentMode` in `nvpss.conf` selects 2D or 3D. See
+[SEI Configuration](/reference/sei-configuration).
+
+## How identity flows
+
+1. The perception producer names a sensor in each Kafka message: `sensorId` in `mdx-frames`
+   messages, `sensor.id` in `mdx-events` messages.
+2. The MDX client looks the name up, as an exact and case-sensitive match. In 2D it uses
+   `sensor_config.conf`; in 3D it uses `sensor_pipelines_config.conf`. The event is sent with the
+   `pipelineId` it finds and the name as `sensorIdentifier`. A name it cannot find is dropped,
+   never sent with `pipelineId` 0.
+3. The SEI daemon accepts the event only if its `pipelineId` is at most `maxPipelines` and the
+   `pipelineId` and name match a row of `sensor_config.conf` or, in 3D, the group.
+4. SAIM reports `SENSOR_INVALID` and `SENSOR_VALID` for each camera of `sensor_config.conf`. In 3D
+   the SEI daemon derives the group's verdict from its members.
+5. Each CCPLEX SDM raises its all-safety-relevant-sensors-failed latch when every `pipelineId` in
+   `sensor_pipelines_config.conf` has failed.
+
+`pipelineId` 0 is reserved for events that name no sensor: `AI_PIPELINE_INVALID`,
+`AI_PIPELINE_VALID`, `SW_FAIL` and the status no-op. A per-sensor event with `pipelineId` 0 is
+refused.
+
+## Rules shared by all three files
+
+- One row per line. Leading and trailing whitespace is trimmed, including a trailing carriage
+  return.
+- A line whose first non-blank character is `#` is a comment. Blank lines are ignored.
+- There are no inline comments: a `#` after a value becomes part of the last field.
+- A `pipelineId` is a decimal number from 1 to 8.
+- A name may contain spaces but not commas. Names longer than 63 characters are cut to 63 without
+  an error.
+- Parsing stops at the first error. The messages do not include a line number.
+
+<a id="sensor_config"></a>
+
+## `sensor_config.conf`
+
+The cameras: the RTSP streams that SAIM opens and watches, and, in 2D, the identities that events
+arrive under.
+
+```text
+pipelineId, sensorName, rtspUrl
+```
+
+| Field | Rule |
+| --- | --- |
+| `pipelineId` | 1–8, unique in the file. Must also be at most `maxPipelines` in `nvpss.conf`. |
+| `sensorName` | Not empty, unique (case-sensitive). In 2D it must equal the sensor name the perception producer sends. SAIM names its baseline file `<sensorName>_baseline.cfg`. |
+| `rtspUrl` | Everything after the second comma, commas included. At most 255 characters. It must be a stream SAIM can play directly. |
+
+The file holds at most 8 rows.
+
+### Where it is and who reads it
+
+The package installs only a template, `/opt/nvidia/psf/bin/sensor_config.conf.sample`. Create the
+live file yourself, normally at `/opt/nvidia/psf/bin/sensor_config.conf`.
+
+| Reader | How it gets the path | What it does with the file |
+| --- | --- | --- |
+| SEI daemon (`nvpss_daemon`) | `sensorConfig` in `nvpss.conf` | Builds the identity map that every event is checked against |
+| SAIM (`safety_monitor`) | `--sensor-config` | Opens one stream per row and reports a verdict per camera |
+| MDX client, 2D | `--sensor-config` | Maps Kafka sensor names to `pipelineId` |
+
+`launch_hoisa.sh --sensor-config` gives the file to SAIM and the MDX client. The SEI daemon reads
+the path in `nvpss.conf`. With `--runtime docker` the launcher mounts the file at
+`/opt/nvidia/psf/bin/sensor_config.conf` in the container, which is the shipped `sensorConfig`
+value, so the two agree. With `--runtime host`, nothing checks that `sensorConfig` names the same
+file as `--sensor-config`: keep them the same.
+
+### Errors
+
+| Problem | Parser message |
+| --- | --- |
+| File missing or unreadable | `cannot open sensor config file` |
+| A ninth row | `too many entries (max 8)` |
+| Fewer than three fields, or nothing after the second comma | `malformed line (expected: pipelineId, sensorName, rtspUrl)` |
+| Empty name | `empty sensorName` |
+| `pipelineId` not a decimal number from 1 to 8 | `pipelineId out of range [1..8]` |
+| Repeated `pipelineId` | `duplicate pipelineId` |
+| Repeated name | `duplicate sensorName` |
+| No rows at all | The parser reports no error, and every reader then refuses the empty list with an empty reason |
+
+How each reader reports the problem:
+
+| Reader | Message | Result |
+| --- | --- | --- |
+| SEI daemon | `Failed to load sensor config from <path>: <parser message>: <path>` | Refuses to start |
+| SAIM | `Error: <parser message>: <path>` | Exits with status 1 |
+| MDX client | `Failed to load sensor config: <parser message>: <path>` | Exits |
+
+<a id="sensor_pipelines_config"></a>
+
+## `sensor_pipelines_config.conf`
+
+The reviewed sensor set: the identities that decision-driving events arrive under. The CCPLEX SDMs
+use it as the condition of the all-safety-relevant-sensors-failed latch.
+
+```text
+pipelineId, sensorName
+```
+
+| Field | Rule |
+| --- | --- |
+| `pipelineId` | 1–8, unique |
+| `sensorName` | Not empty, unique. In 3D it must equal the group name in the sensor group file and the name the perception producer sends. |
+
+The file holds 1 to 8 rows. A row with three fields is refused, so a copy of `sensor_config.conf`
+cannot be used by mistake.
+
+### What to list
+
+- **2D:** the cameras whose combined failure must latch the SDMs, normally every camera in
+  `sensor_config.conf`.
+  - A row that no camera ever reports can never fail, so the condition can never be met and the
+    latch is silently disabled.
+  - Listing fewer cameras than are deployed makes the latch fire while a working camera is still
+    delivering frames.
+- **3D:** the BEV group only, with the group's `pipelineId` and name. Do not list the cameras.
+
+### Where it is and who reads it
+
+The package installs the file live at `/opt/nvidia/psf/bin/sensor_pipelines_config.conf`, with the
+three cameras of the reference scene:
+
+```text
+1, Camera
+2, Camera_01
+3, Camera_02
+```
+
+| Reader | How it gets the path | What it does with the file |
+| --- | --- | --- |
+| `atl_sdm`, `proximity_sdm`, `atl_proximity_sdm` | `--sensor_pipelines_config`, default `/opt/nvidia/psf/bin/sensor_pipelines_config.conf` | Loads the reviewed set before opening any socket. A missing or malformed file stops the SDM. |
+| MDX client, 3D | `--sensor-pipelines-config` | Maps Kafka sensor names (the group name) to `pipelineId` |
+| SDMs on the FSI | Not read | They carry the reviewed set compiled into the firmware: `1 Camera`, `2 Camera_01`, `3 Camera_02`. Changing the cameras means rebuilding and reflashing the FSI firmware. |
+
+The SEI daemon, SAIM and PCM do not read this file.
+
+`launch_hoisa.sh --sensor-pipelines-config <file>` passes the file to every CCPLEX SDM and, with
+`--runtime host` in 3D, to the MDX client. The container entrypoint has no option for it: the MDX
+client in the container always reads `/opt/nvidia/psf/bin/sensor_pipelines_config.conf`, so mount
+your file over that path. `launch_hoisa.sh --runtime docker` does not do this for you; see
+[Known Limitations](/known-limitations#3d-files-are-not-mounted-into-the-container).
+
+### Errors
+
+| Problem | Message |
+| --- | --- |
+| File missing or unreadable | `cannot open sensor config file` |
+| No rows | `file contains no entries` |
+| A ninth row | `too many entries (max 8)` |
+| No comma, or a third field | `malformed line (expected exactly two fields: pipelineId, sensorName; a line with three fields is a sensor_config.conf, which is a different file)` |
+| Empty name | `empty sensorName` |
+| `pipelineId` not a decimal number from 1 to 8 | `pipelineId out of range [1..8]` |
+| Repeated `pipelineId` or name | `duplicate pipelineId`, `duplicate sensorName` |
+
+| Reader | On failure | On success |
+| --- | --- | --- |
+| `atl_sdm` | Logs `ATL: cannot load the reviewed sensor set; refusing to start: <message>: <path>`, prints `error: <message>: <path>`, and exits with status 255 | Logs `ATL: reviewed sensor set from <path>: count=<n> {<id>:<name>, ...}` |
+| `proximity_sdm`, `atl_proximity_sdm` | The same, with the prefix `Proximity:` or `APX:` | The same |
+| MDX client | Logs `Failed to load sensor pipelines config: <message>` and exits | Logs `Sensor identity map loaded from sensor_pipelines_config` with the file, the count and the names |
+
+At run time an SDM logs once for each `pipelineId` it sees outside the set:
+`ATL: pipelineID <n> is outside the reviewed sensor set count=<n> {...}; its health does not affect the all-safety-relevant-sensors-failed latch`.
+This is not a fault. In 3D every camera's own verdict produces this line once, because only the
+group is in the set.
+
+<a id="sensor-group-file"></a>
+
+## The sensor group file
+
+3D only. It names the one BEV group and the cameras it is built from. The SEI daemon reads it from
+the path in `sensorGroupConfig`. No file is shipped; the commented example in `nvpss.conf` names
+`/opt/nvidia/psf/bin/sensor_group_config.conf`.
+
+```text
+groupPipelineId, groupName, memberId|memberId|...
+```
+
+| Field | Rule |
+| --- | --- |
+| `groupPipelineId` | 1–8. Must not be the `pipelineId` of a camera in `sensor_config.conf`, and must be at most `maxPipelines`. |
+| `groupName` | Not empty. The name the perception producer reports BEV events under, for example `bev-sensor-1`. |
+| Members | `pipelineId` values from `sensor_config.conf`, separated by `\|`. At least one, no repeats, and not the group's own `pipelineId`. |
+
+The file holds exactly one non-comment row. Because group and camera `pipelineId` values cannot
+overlap, a 3D deployment has at most 7 cameras.
+
+### Errors
+
+| Problem | Parser message |
+| --- | --- |
+| File missing or unreadable | `cannot open sensor config file` |
+| No row | `file contains no entries` |
+| A second row | `more than one group declared (only one is supported)` |
+| Fewer than three fields, or an empty member between two `\|` | `malformed line (expected: pipelineId, sensorName, rtspUrl)`. The message names the camera-file format, but it is about this file. |
+| Empty group name | `empty sensorName` |
+| Group or member `pipelineId` not a decimal number from 1 to 8 (this includes members separated by commas) | `pipelineId out of range [1..8]` |
+| No members | `group has no member pipelineIds` |
+| More than 8 members | `too many entries (max 8)` |
+| The group listed as its own member | `group pipelineId listed as its own member` |
+| A repeated member | `duplicate member pipelineId in group` |
+
+The SEI daemon logs `Failed to load sensor group config; refusing to start` with the file and the
+parser message, prints `error: <path>: <parser message>.`, and exits. It then checks the group
+against the other files:
+
+| Check | Message on stderr |
+| --- | --- |
+| The group `pipelineId` is not a camera's | `error: group pipelineId <n> is already used by camera '<name>' in <sensor_config path>.` |
+| Every member is a camera in `sensor_config.conf` | `error: sensor group member pipelineId <n> is not present in <sensor_config path>.` |
+| The group `pipelineId` is at most `maxPipelines` | `error: group pipelineId <n> exceeds maxPipelines <m>; every group event would be rejected as an unregistered sensor.` |
+
+On success it logs `deploymentMode=3D: BEV sensor group loaded` with
+`group=<name>, pipelineId=<n>, members=<a>|<b>|<c>`.
+
+### How the group's verdict is derived
+
+SAIM keeps reporting each camera. The SEI daemon derives the group's state from its members every
+time a member's verdict changes:
+
+| Member state | Group state | What the daemon sends |
+| --- | --- | --- |
+| At least one member healthy | Trusted | `SENSOR_VALID` for the group (cause 7) when it changes to Trusted |
+| Every member invalid, none still in SAIM's start-up state | Untrusted | `SENSOR_INVALID` for the group (cause 6) |
+| Every member invalid, at least one still in SAIM's start-up state | Pending | Nothing. The group is not untrusted, so nothing latches. |
+
+Each change is logged as `BEV group trust transition -> SENSOR_INVALID` or
+`BEV group trust transition -> SENSOR_VALID`. A client that reports a verdict for the group's
+`pipelineId` directly is refused with
+`Trust report rejected: pipelineID names a sensor group, whose health is derived from its members and cannot be reported directly`.
+
+## How the files must agree
+
+| What must agree | Checked by | When | If it does not |
+| --- | --- | --- | --- |
+| Every group member is a camera in `sensor_config.conf` | SEI daemon | Startup | Refuses to start |
+| The group `pipelineId` is not a camera's | SEI daemon | Startup | Refuses to start |
+| The group `pipelineId` is at most `maxPipelines` | SEI daemon | Startup | Refuses to start |
+| Every camera `pipelineId` is at most `maxPipelines` | Nobody at startup | Each event | The event is rejected: `Event from unregistered sensor: <n>` |
+| The sensor name in Kafka is in the MDX client's identity file | MDX client | Each event | The event is dropped: `Dropping event: sensor not in sensor_config, so it has no pipelineID: <name>` (in 3D, `sensor_pipelines_config`) |
+| An event's `pipelineId` and name match `sensor_config.conf` or the group | SEI daemon | Each event | The event is rejected: `Rejecting event: pipelineID <n> not in sensor_config`, `Rejecting event: sensorIdentifier '<name>' does not match sensor_config entry '<name>' for pipelineID <n>`, or, for an event with no name, `Rejecting event: empty sensorIdentifier for pipelineID <n> ...` |
+| In 3D, the group row of `sensor_pipelines_config.conf` has the group file's `pipelineId` and name | Nobody at startup | Each event | Every group event is rejected by the SEI daemon, as in the row above |
+| `sensor_pipelines_config.conf` lists cameras that actually report (2D) | Nobody | — | The all-sensors-failed latch never fires |
+| `sensorConfig` in `nvpss.conf` and the launcher's `--sensor-config` name the same file | Nobody | — | SAIM and the MDX client use one camera list and the SEI daemon another |
+
+## Examples
+
+### 2D (the reference scene)
+
+`sensor_config.conf`:
+
+```text
+# pipelineId, sensorName, rtspUrl
+1, Camera,    rtsp://192.0.2.10:8555/live/Camera
+2, Camera_01, rtsp://192.0.2.10:8555/live/Camera_01
+3, Camera_02, rtsp://192.0.2.10:8555/live/Camera_02
+```
+
+`sensor_pipelines_config.conf`, as shipped:
+
+```text
+1, Camera
+2, Camera_01
+3, Camera_02
+```
+
+`nvpss.conf`, relevant lines:
+
+```ini
+deploymentMode = 2D
+maxPipelines = 3
+sensorConfig = /opt/nvidia/psf/bin/sensor_config.conf
+```
+
+### 3D (one BEV group of three cameras)
+
+`sensor_config.conf` stays as in 2D: SAIM still watches every camera, and the group members must
+be listed here.
+
+The sensor group file, `/opt/nvidia/psf/bin/sensor_group_config.conf`:
+
+```text
+# groupPipelineId, groupName, members
+4, bev-sensor-1, 1|2|3
+```
+
+`sensor_pipelines_config.conf`, the group only:
+
+```text
+4, bev-sensor-1
+```
+
+`nvpss.conf`, relevant lines:
+
+```ini
+deploymentMode = 3D
+enableFusion = false
+sensorGroupConfig = /opt/nvidia/psf/bin/sensor_group_config.conf
+maxPipelines = 4
+sensorConfig = /opt/nvidia/psf/bin/sensor_config.conf
+```
+
+The perception producer must report BEV events under `bev-sensor-1`. After startup, confirm:
+
+- the SEI log shows `deploymentMode=3D: BEV sensor group loaded` with
+  `group=bev-sensor-1, pipelineId=4, members=1|2|3`;
+- each SDM log shows `reviewed sensor set from /opt/nvidia/psf/bin/sensor_pipelines_config.conf: count=1 {4:bev-sensor-1}`;
+- the MDX client log shows `Sensor identity map loaded from sensor_pipelines_config` with
+  `bev-sensor-1`.
+
+If any of the three lists the cameras where you expected the group, that component is running a
+2D configuration.
+
+The SDMs on the FSI carry a compiled camera list and are verified for 2D only. See
+[SDM on FSI](/deployment/custom-deployment#sdm-on-fsi).

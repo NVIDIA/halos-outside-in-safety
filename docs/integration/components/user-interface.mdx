@@ -1,18 +1,63 @@
 ---
 title: "Safety User Interface (SUI)"
-description: ""
+description: "The planned Safety User Interface, and where the safety decision can be seen until it exists."
 ---
 <Warning>
-SUI is not currently implemented. The capabilities below are planned
-for future releases.
+SUI is not implemented. Safety Core has no operator interface of its own. The capabilities
+below are planned for future releases.
 </Warning>
 
 ## Planned capabilities
 
 Safety User Interface is designed to serve the following three purposes:
 
-- **Real-time monitoring** — Operational parameters of HOISA
+- **Real-time monitoring** — Operational parameters of Safety Core
 - **Query** — Registered safety events, system health, security alerts,
   operational status
 - **Configuration** — Parameters for SIPP and SEI (e.g., safety event
   thresholds, add/remove safety conditions)
+
+## Showing the decision today
+
+Until SUI exists, the decision can be seen in these places:
+
+| Where | What it shows | Fed by |
+| --- | --- | --- |
+| Command receiver console | Safe-state latch, clear and release events. The Proximity Monitoring receiver also prints the action it applies. | The reference command receivers; see [Command receivers](/integration/components/decision-maker#command-receivers) |
+| VST on-video overlay | The forklift safety function state, on the camera video in the VST UI | Forklift safety function command packets, sent to VST over UDP |
+| VST halo overlay | A normal, reduced or stop halo around forklifts | A copy of every `proximity_sdm` command packet, sent to VST over UDP |
+
+The VST overlays are part of VSS, not of Safety Core. Safety Core sends them the same 64-byte
+command packets it sends to a command receiver.
+
+### Forklift safety function overlay
+
+VST listens for forklift safety function packets on the UDP port set by `halo_safety_udp_port`
+in the VSS 2D VST configuration (`vst_config.json`). It ships as `-1`, which disables the
+overlay. Set it to a free port and restart VST. Then send the packets to that port in one of
+two ways:
+
+| Arrangement | Settings | Notes |
+| --- | --- | --- |
+| `atl_sdm` sends straight to VST | Make VST the SDM's command endpoint: `--cmd_rx_ip <vst-host>`, and `--cmd_rx_port` equal to `halo_safety_udp_port`. With the launcher, use `--cmd-rx-ip` and `--cmd-rx-port`. | No command receiver runs. The SDM accepts a safe-release request only from its command endpoint, which here is VST. |
+| The ATL command receiver relays to VST | Run `atl_sdm_cmd_receiver` with `--vst_ip <vst-host>` and `--vst_port` equal to `halo_safety_udp_port`. | The receiver keeps the operator release path. It relays the `CMD_MUTE`, `CMD_UNMUTE`, `CMD_HW_ERROR` and `CMD_SW_ERROR` packets that pass its checks. A relay failure is logged once and does not affect command handling. |
+
+Use the relay arrangement when an operator must be able to release a latched safe state from the
+command receiver. In both arrangements the destination port must equal `halo_safety_udp_port`.
+The `base` deployment profile uses port `12345` for the overlay. When the command receiver and
+VST run on the same host, give the receiver a different listen port (`-p`).
+
+### Proximity Monitoring halo overlay
+
+`proximity_sdm` can send a copy of every command packet, including heartbeats and release
+responses, to a VST halo listener:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--halo_ip <IP>` | none | Address of the VST halo listener. Setting it turns the copy on. |
+| `--halo_port <PORT>` | `12346` | Listener port, 1–65535. |
+
+With the launcher, pass `--halo-ip` and `--halo-port`. The launcher accepts them only when the
+`--app` value runs exactly one Proximity Monitoring SDM. The copy goes out on its own
+non-blocking socket that is never read, so it does not affect acknowledgements or the safe
+state. Send failures are logged at most once a second.

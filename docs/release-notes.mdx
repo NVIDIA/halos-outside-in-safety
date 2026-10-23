@@ -1,8 +1,295 @@
 ---
 title: "Release Notes"
-description: ""
+description: "Key features, enhancements and integrator-facing changes in each NVIDIA Halos Outside-In Safety Blueprint release."
 ---
 These Release Notes describe the key features, software enhancements and improvements for NVIDIA Halos Outside-In Safety Blueprint releases.
+
+## 1.4 EA
+
+This release changes how Safety Core processes connect to each other, makes the SEI
+configuration strict, makes the Perception Monitor safety-relevant, and selects each AI monitor's
+mode on the launcher command line. Several changes stop an
+existing 1.3 deployment from starting until you act. Each item below says what changed and what to
+do.
+
+Rebuild or reinstall every Safety Core runtime from this release together: the CCPLEX packages,
+the container image and, for SDM on FSI, the FSI firmware. Mixed versions reject each other's
+messages (see [Wire format](#wire-format)).
+
+### Transports
+
+- **Every link between Safety Core processes is now an AF_UNIX `SOCK_SEQPACKET` socket in
+  `/run/nvpsf`:** client registration and reports (`nvpssd`), the SEI daemon to the NvPSD Gateway
+  (`nvpssd_to_psd`), and the NvPSD Gateway to the SDMs and `fsicom-agent` (`nvpsd_gateway`). None of
+  them can be selected or configured.
+- **The NvPSD Gateway no longer listens on UDP port 50000** and opens no network port. Its
+  `--sdm_ip` and `--sdm_port` options are gone and are refused as unknown options, as are
+  `--transport`, `--sdm_socket` and `--sdm_allow`.
+- **`fsicom-agent` connects through the socket.** `--gw-ip` and `--gw-port` are retired and refused,
+  as are `--gw-transport` and `--gw-socket`.
+- **`atl_sdm` no longer accepts `--gateway_ip` or `--gateway_port`.** `proximity_sdm` still accepts
+  them, with no effect.
+- **Peer check.** Every socket accepts a peer only if the peer's primary group id equals its own,
+  and the SDMs, `fsicom-agent` and the NvPSD Gateway also check the server they connect to. Every
+  Safety Core process, on the host and in the container, must therefore run with one primary
+  group. All processes in the container, or all on the host as root, meet this.
+  `launch_hoisa.sh --runtime docker` starts the SDMs or `fsicom-agent` on the host with the
+  container user's group; a process you start on the host next to the container needs the same.
+  See [Shared process group](/integration#shared-process-group).
+- **Kernel socket buffers.** The NvPSD Gateway, the CCPLEX SDMs and `fsicom-agent` check that the
+  kernel grants the socket buffers they need. The gateway refuses to start when
+  `net.core.rmem_max` or `net.core.wmem_max` is too small, with
+  `nvpsf_transport: SO_RCVBUF granted <n> bytes but <m> are required ...; raise net.core.rmem_max`.
+  See [Kernel socket buffers](/integration/install#kernel-socket-buffers).
+- **Registration refusals are answered.** The gateway replies to a refused SDM registration with a
+  reason (`malformed`, `no_valid_event_types`, `table_full` or `rate_limited`), and the SDMs and
+  `fsicom-agent` log it. Registrations are rate limited per connection by the new gateway options
+  `--regr_max_per_window` (default 4) and `--regr_window_ms` (default 10000).
+- **`fsicom-agent --relay-fsi-resp` now requires `--cmd-identifier`**: `0xA2` for the forklift
+  safety function, `0xA5` for Proximity Monitoring. `launch_hoisa.sh` passes it.
+
+### SEI configuration (`nvpss.conf`)
+
+- **New mandatory keys:** `deploymentMode` (`2D` or `3D`), `enableFusion` (`true` or `false`),
+  `required_safety_monitor`, `required_perception_monitor` and `required_mdx_instances`. Add them
+  before you upgrade; the shipped file sets `2D`, `true`, `1`, `1` and `1`.
+- **Strict loading.** A missing or unreadable file, a missing mandatory key, a line without `=`,
+  or a repeated `deploymentMode`, `enableFusion` or required-source key now stops the daemon. In 1.3
+  a missing required key made the daemon discard the whole file and run on built-in defaults.
+- **`PSSDToPSDComBackend` is retired.** A file that still contains it is refused, whatever its
+  value. Delete the line.
+- **Unknown names in `bypassFusionEvents`** are now ignored with an error record, instead of being
+  replaced by `EVENT_0`. `SW_FAIL` is always bypassed.
+- **New optional keys:** `psd_operational_queue_depth`, `psd_critical_queue_depth`,
+  `fusion_failure_error_ms`, `client_reject_error_threshold`, and, in 3D, `sensorGroupConfig`.
+- **The shipped `timeWindowSize` is now 400 ms** (it was 1000 ms). Events older than this, or dated
+  more than this far in the future, are marked stale and dropped by the SDMs, with or without fusion.
+- **`nvpss_daemon --conf <path>`** reads another file.
+
+See [SEI Configuration](/reference/sei-configuration) for every key and its failure message.
+
+### Sensor identity
+
+- **`sensor_pipelines_config.conf` is new and mandatory for the CCPLEX SDMs.** It lists the
+  reviewed sensor set behind the all-safety-relevant-sensors-failed latch, which used to be
+  compiled into each SDM. The package installs it live at
+  `/opt/nvidia/psf/bin/sensor_pipelines_config.conf` with the three reference cameras. A site with
+  a different camera set must edit it. The SDMs refuse to start if it is missing or malformed.
+- **Events from sensors that are not configured are refused.** In 1.3 the MDX client sent such an
+  event with `pipelineId` 0, which bypassed the identity and sensor-health checks. It is now dropped
+  (`Dropping event: sensor not in sensor_config, so it has no pipelineID: <name>`), and the SEI
+  daemon refuses any per-sensor event without a `pipelineId`. Make the names in Kafka and in
+  `sensor_config.conf` agree.
+- **An event that drives a decision must name its sensor.** An event with an empty
+  `sensorIdentifier` on a camera `pipelineId` used to be accepted, which skipped the name check
+  that catches a wrong `pipelineId`. It is now rejected in 2D and 3D, with fusion on or off
+  (`Rejecting event: empty sensorIdentifier for pipelineID <n> ...`). `SW_FAIL` and the trust
+  reports (`SENSOR_*`, `AI_PIPELINE_*`) are not refused for an empty name. The MDX client
+  already names every event; a custom event source that leaves the name empty must set it.
+- **3D (BEV) deployments are declared, not inferred.** With `deploymentMode = 3D` the SEI daemon
+  needs a sensor group file (`sensorGroupConfig`) and `enableFusion = false`, the MDX client
+  resolves the BEV group name through `sensor_pipelines_config.conf`, and that file lists the group
+  instead of the cameras. This replaces the 1.3 advice to leave the group out of the configuration.
+  See [Sensor files](/reference/sensor-files).
+
+### Launchers
+
+- **Each AI monitor has its own required mode.** `launch_hoisa.sh` and the container both require
+  `--saim-mode learn|active|skip` and `--pcm-mode learn|active|skip`. Neither selects the other.
+  `launch_hoisa.sh --mode` remains as a deprecated alias for `--saim-mode` only, and `--skip-pcm`
+  as a deprecated alias for `--pcm-mode skip`; both print a warning. A command line with only
+  `--mode` now stops with `Error: --pcm-mode is required and must be learn, active, or skip`:
+  add `--pcm-mode`.
+- **`launch_hoisa.sh --runtime docker` starts host processes with the container user's group.**
+  Once the container runs, the launcher reads the group ID of its `nvidia` user and starts the SDMs
+  or `fsicom-agent` on the host as root with that group, through `setpriv`, so the NvPSD Gateway in
+  the container accepts them. A control-plane run with `--runtime docker` now needs `setpriv`
+  through passwordless `sudo`, and refuses Docker with user-namespace remapping or in rootless
+  mode. It warns, without stopping, when host accounts share the container user's group or user
+  ID, because they can reach the Safety Core sockets. `--runtime host` is unchanged. See
+  [Host processes and the container's group](/reference/launcher#host-processes-and-the-container-group)
+  and [Known Limitations](/known-limitations#host-accounts-share-the-container-group).
+- **The modes must match `nvpss.conf`.** When the control plane runs (a monitor in `active`, or
+  both skipped), `required_safety_monitor` and `required_perception_monitor` must be `1` for a
+  monitor in `active` and `0` for one in `learn` or `skip`. A mismatch stops the launcher before
+  anything starts. The launchers never change the file.
+- **Learning runs.** With only `learn` and `skip` selected, the launchers run the learning
+  monitors and exit. They start no SEI daemon, NvPSD Gateway, MDX client or SDM, and do not read
+  `nvpss.conf`; `--nvpss-conf` is ignored with a warning. A learning monitor never switches to
+  active. In a run where the other monitor is `active`, a learning monitor stops when it has
+  written its baselines and the rest keeps running.
+- **PCM runs in the container.** Under `--runtime docker`, SAIM and PCM both run inside the Safety
+  Core container, which now also gets `/var/run/docker.sock`, the PCM baseline directory and
+  `pcm.log`. Under `--runtime host` both run on the host. The container entrypoint starts PCM, so
+  a plain `docker run` needs no PCM on the host.
+- **New PCM options** on both launchers: `--pcm-baseline-dir` (default
+  `/opt/nvidia/psf/bin/pcm_baseline`) and `--pcm-config` (default
+  `/opt/nvidia/psf/bin/pcm_monitor.cfg`). The container's `--broker` now reaches PCM too, as
+  `launch_hoisa.sh --kafka-broker` does. `--app`, `--sdm-config` and `--event-mapping` also apply to
+  learning runs, where they select the decision maker bindings PCM records.
+- **Supervision.** Both launchers stop the run when an active monitor exits, when a learning
+  monitor fails, or when a monitor's log can no longer be written. `launch_hoisa.sh` also stops
+  everything when the container exits, with `Error: PSF Docker container exited unexpectedly`.
+- **Every CCPLEX ATL and Proximity SDM needs an SDM configuration file** that binds its situations
+  to event codes. Pass it with the new `--sdm-config` option, of `launch_hoisa.sh` or of the
+  container. Templates are installed in `/opt/nvidia/psf/bin/` as `*.conf.sample`. This applies to
+  a plain `docker run` that starts the SDM in the container too.
+- **Several decision makers on one stack.** `--app` accepts `atl,pxc`, `pxc,atl`, `atl,atl`,
+  `pxc,pxc` and `atl_dual`, with one `--sdm-config`, command receiver port and optional
+  `--sdm-log-file` per SDM. The container also accepts `--app atl_proximity`.
+- **New `launch_hoisa.sh` options:** `--sdm-config`, `--sdm-log-file`, `--event-mapping`,
+  `--sensor-pipelines-config`, `--atl-zone1-conf`, `--atl-zone2-conf`, `--zone2-cmd-rx-port`,
+  `--halo-ip`, `--halo-port`, `--saim-mode`, `--pcm-mode`, `--pcm-baseline-dir` and
+  `--pcm-config`.
+- **New container options:** `--sdm-config`, `--sdm-log-file`, `--event-mapping`,
+  `--sdm-external`, `--atl-zone1-conf`, `--atl-zone2-conf`, `--zone2_cmd_rx_port`,
+  `--proximity_cmd_rx_port`, `--pair_ttl_ms`, `--pcm-mode`, `--pcm-baseline-dir` and
+  `--pcm-config`.
+- **`--nvpss-conf` applies to both runtimes.** With `--runtime host` it is passed to the daemon
+  as `--conf`.
+- **`--gateway-ip` and `--gateway-port` have no effect** and should be left out.
+- **The MDX client** takes `--instance-id`, which the launchers set to 1, and exactly one of
+  `--sensor-config` (2D) or `--sensor-pipelines-config` (3D).
+
+See [Launchers and command-line options](/reference/launcher).
+
+### Perception Monitor is safety-relevant and required by default
+
+- In 1.3 the Perception Monitor (PCM) was a preview whose `AI_PIPELINE_INVALID` only suppressed
+  event-driven decisions. Now every SDM, on the CCPLEX and on the FSI, latches its safe state on
+  `AI_PIPELINE_INVALID`, and accepts a release only after `AI_PIPELINE_VALID`.
+- The shipped `nvpss.conf` requires PCM: start it with `--pcm-mode active`, or set
+  `required_perception_monitor = 0` and use `--pcm-mode skip`. A required PCM that never
+  registers latches every SDM about 4 minutes after the SEI daemon starts.
+- PCM sends its first `AI_PIPELINE_VALID` only when its checks have real evidence, and re-sends
+  the current verdict every 5 s by default (`verdict_resend_ms`). In LEARN mode it never reports.
+- **PCM checks the data the SDMs decide on.** Besides unknown cameras and frame rate, its data
+  check now covers frame freshness (observation time stamps), the ROI and proximity data that the
+  configured SDMs use, and ten consecutive undecodable messages. Bounding boxes, confidence and
+  object classes no longer count.
+- **Setup problems are not faults.** Docker unreachable, a Kafka error, no usable baseline or an
+  empty container list is logged and turns the affected check off instead of reporting
+  `AI_PIPELINE_INVALID`. A listed container that never appears is logged, not a fault; once seen,
+  a container that stops with any exit code is a fault. The shipped container list now names five
+  containers: `vss-vios-nvstreamer`, `vss-vios-streamprocessing`, `vss-rtvi-cv`,
+  `vss-behavior-analytics` and `kafka`.
+- **`pcm_monitor.cfg` needs new sections.** `[fault_aggregator]` with `bad_ticks_to_invalid` and
+  `good_ticks_to_valid` is required, and so are `bad_objects_percent` and `bad_frames_percent` in
+  `[data_validation]` while the data check is on. Without them PCM does not start in active mode.
+  Start from the shipped file instead of a 1.3 copy.
+- **New baseline location and format.** PCM baselines live in `/opt/nvidia/psf/bin/pcm_baseline/`.
+  LEARN writes one `pcm_baseline.cfg` for the whole camera set, including the decision maker
+  bindings it was learned with; an active run with other bindings does not use it. Baselines
+  learned into `/opt/nvidia/psf/bin` by 1.3 are ignored, with a warning: learn again.
+- **Reference PCM baselines** for the three demo cameras ship as
+  `pcm_<camera>_baseline.cfg.default`. They fit `--app atl,pxc` with `atl_sdm_zone1.conf` and
+  `pxc_sdm_forklift.conf`; other configurations need a learn run.
+- **PCM log lines** now read `[<date> <time>] [PCM][INFO|WARNING|ERR] <message>`, in
+  `/var/log/psf/pcm.log` under both runtimes.
+
+<a id="safety-ai-monitor"></a>
+
+### Safety AI Monitor
+
+- **Learn the SAIM baselines again after upgrading.** SAIM refuses baselines from earlier releases
+  with `... was learned on a 0x0 tile grid but this build uses 15x15. Re-run LEARN to regenerate this baseline.`
+  and stops watching that camera. The camera then stays at its start-up state and is never
+  counted as failed, so learn every camera before you rely on active mode. The shipped
+  `.cfg.default` templates are new too; under the
+  Docker runtime the container reads them from the host, so upgrade the Debian package together
+  with the image. See [Baselines](/integration/components/ai-monitor#baselines).
+- **Scoring per tile.** SAIM also measures a 15×15 grid of tiles in every frame. A change in the
+  whole-frame metrics counts only as far as the tiles agree on it, so moving forklifts and people
+  no longer lower the score. A new area score drops below the low threshold when a blocked,
+  saturated, blurred or noisy part of the image covers more than about 2.5% of the frame for about
+  5 s; the verdict follows after the debounce. The frame score is the lowest of the brightness and
+  structure, colour and area scores. See
+  [What SAIM checks](/integration/components/ai-monitor#what-saim-checks).
+- **Supported frame sizes.** SAIM analyses 1920×1080 and 3840×2160 streams only, and a baseline
+  only at the size it was learned at. Other sizes stop that camera with `SAIM_INTERNAL_ERROR`. See
+  [Known Limitations](/known-limitations#saim-frame-sizes).
+- **Lost streams are reported sooner and recovered without a restart.** A stream ends after more
+  than 5 s without packets, instead of 60 s, and a trusted camera reports `SAIM_STREAM_DISCONNECT`
+  at once. In active mode SAIM retries a lost or unreachable camera every 5 s for as long as it
+  runs, and starts watching it again when it comes back. It no longer gives up on a camera after
+  six attempts, except when the camera's URL is malformed, and no longer exits when no camera can
+  be reached. See
+  [Camera failures](/integration/components/ai-monitor#camera-failures).
+- **RTSP control URL.** SAIM sends `PLAY`, keep-alives and `TEARDOWN` to the control URL the server
+  returns, so servers that answer with a per-viewer URL, such as NVStreamer, work.
+- **Fixed:** on IGX Thor (PVA), SAIM could analyse a frame before it was fully copied.
+
+### Safe state
+
+- **Lost safety sources latch every SDM.** If SAIM, PCM or a numbered MDX client stops being
+  registered for any reason (hang, crash, exit, heartbeat loss), or a required one never registers,
+  every SDM latches, and no release is accepted until that source is back. Restarting a monitor
+  therefore needs a release afterwards.
+- **A source whose reports are all rejected latches every SDM**, after
+  `client_reject_error_threshold` consecutive rejections, until the SEI daemon confirms it usable
+  again.
+- **Standing verdicts are re-sent.** The SEI daemon re-sends every standing `SENSOR_INVALID` and
+  `AI_PIPELINE_INVALID` each status interval, so an SDM that restarts latches again.
+- **New fault reports.** The gateway sends a recovery record (cause 14) once its link to the SEI
+  daemon is healthy again. When the SEI daemon's queue for fault reports is full, a report displaces
+  an event from a distrusted source, or the daemon reports `ERROR` until it can deliver it. On FSI,
+  a request that `fsicom-agent` cannot queue now latches the FSI SDM.
+- **A safe release is evaluated against a whole request**, so it cannot be accepted between one
+  cause clearing and another being raised by the same request.
+- **Camera initialisation does not latch.** Every SDM, on the CCPLEX and on the FSI, does not count
+  a camera as failed while SAIM initialises it, from SAIM's `CAUSE_SAIM_INIT` report until the
+  camera reports healthy, including events that the SEI marks unhealthy in that time. A
+  `SENSOR_INVALID` with any other cause still counts as a failure. See
+  [Sensor health](/integration/safe-state-model#sensor-health).
+
+See [Causes and records](/reference/causes-and-records) and
+[Safe-state model](/integration/safe-state-model).
+
+<a id="wire-format"></a>
+
+### Wire format
+
+- **Schema version 5** (1.3 used 3). Every event carries a one-byte cause (0–18) instead of a rule
+  name string, and the event types after `EVENT_23` are renumbered (`SW_FAIL` is 24). A runtime
+  built from another schema rejects every message, so install the CCPLEX packages, the image and
+  the FSI firmware in the same maintenance action.
+- **Logs print causes as numbers** (`cause=4`), on every runtime. Scripts that search for cause
+  names must use the numbers in [Causes and records](/reference/causes-and-records).
+
+### Other changes
+
+- The Proximity reference command receiver now supports the VST relay options `--vst_ip` and
+  `--vst_port`.
+- `proximity_sdm` can send its commands to a VST halo overlay too (`--halo_ip`, `--halo_port`;
+  `launch_hoisa.sh --halo-ip`, `--halo-port`).
+- The runtime package and the image install a log rotation rule, `/etc/logrotate.d/pss`, for
+  `/var/log/psf/*.log` and `/var/log/pss.log`: daily, 7 old files kept, rotated early above
+  100 MB, compressed.
+- The runtime package installs `/opt/nvidia/psf/tests/pcm/test_monitor_launch.sh`, a check of the
+  launchers' monitor handling that needs no Docker, Kafka, GPU or `sudo`.
+
+### Closed-loop testing
+
+The closed-loop harness gains Safety Core proximity control of the simulated forklift, one scenario id per run, and multi-forklift fleets. The reference perception pipeline has been upgraded to VSS Warehouse Blueprint 3.3, and the simulation to NVIDIA Isaac Sim 6.1. The IGX Thor profiles (`hil`, `base` on IGX Thor) stay on VSS Warehouse 3.2.1 and the Safety Core 1.3 package in this release, so the Safety Core changes above do not apply to them yet. Some features remain in an alpha state and should not be used in production.
+
+#### Proximity control in the closed loop
+
+- `PSF_APP=pxc` runs the Proximity SDM in the SIL loop on the 3D feed, and `PSF_APP=both` runs it beside ATL in one container. The forklift controller obeys the decision — capped speed on REDUCE, stopped on STOP, stopped when the link goes silent — and the in-scene indicator shows the level. An optional floor line draws each scored pair with its separation. See [SIL — 3D Perception](/testing/sil/sil-3d).
+
+#### Scenarios and fleets *(breaking for the closed-loop harness)*
+
+- One `SCENARIO` id names the scene, fleet file, cameras config and waypoint set, read by Isaac Sim and every forklift controller (`scenarios.yaml`).
+- Forklifts are spawned from `robots.yaml`, which also carries each truck's `drive:` and `proximity:` behavior. The `FORKLIFT_*` drive variables, `FORKLIFT_WAYPOINTS_DIR`, `FORKLIFT_USE_NAMESPACE` and `FORKLIFT_ROBOT_ID` are removed; waypoints moved to `waypoints/<map>/<robot>.json`.
+- The ROS surface is namespaced per robot: `/forklift_b/cmd_vel`, `/forklift_b/odom`, TF `forklift_b/odom` → `forklift_b/base_link`, node `forklift_b_controller`. Scripts and RViz configs that name the 1.3 topics need the prefix. See [Forklift Controller](/testing/sil/components/forklift-controller).
+- Added two-forklift runs through the `multi-robot` compose profile on the experimental `warehouse_40x20` scene.
+
+#### VSS Warehouse Blueprint 3.3 upgrade
+
+- The reference perception pipeline is VSS Warehouse 3.3 (GitHub release `v3.3.0rc0`), deployed with the VSS repository's `vss-build-vision-ai` skill or by hand. VSS 3.3 ships the Sparse4D model and the loading-dock BEV calibration, so the separate R101 model install and the `-3d` calibration dataset are gone. See [Deploy AI Perception](/getting-started/inference-pipeline).
+
+#### NVIDIA Isaac Sim 6.1
+
+- The closed-loop harness runs on Isaac Sim 6.1 (`nvcr.io/nvidia/isaac-sim:6.1.0`), with IRA configs at version 1.7.0; Isaac Sim 6.1 refuses 1.6.0. Isaac Sim 6.1 ships the upstream fix for the RTSP cold-start `has no caps` race.
 
 ## 1.3 EA
 
