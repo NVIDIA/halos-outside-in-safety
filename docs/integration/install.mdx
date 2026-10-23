@@ -1,0 +1,508 @@
+---
+title: "Install and Run Without Docker"
+description: "Debian packages, install paths and runtime libraries for the Safety Core, the kernel and directory set-up it needs, how to run every process on the host, and how to build the reference applications."
+---
+
+The Safety Core ships as Debian packages and as a container image. The image is built from the
+same packages. Install the runtime package on every host that runs the launcher, a decision maker
+or a command receiver, even when the rest of the Safety Core runs in the container. Install the
+development package where you build your own decision maker or event source.
+
+## Packages
+
+| Package | Architecture | Platform | Contents |
+| --- | --- | --- | --- |
+| `psf-desktop` | `amd64` | x86-64 | Runtime: binaries, libraries, reference applications, launchers, configuration templates, system set-up. |
+| `psf-desktop-dev` | `amd64` | x86-64 | Development: public headers and the reference application sources. |
+| `psf-tegra` | `arm64` | IGX Thor | Runtime, as `psf-desktop`. |
+| `psf-tegra-dev` | `arm64` | IGX Thor | Development, as `psf-desktop-dev`. |
+| `psf-tegra-fsi` | `arm64` | IGX Thor | The FSI decision-maker firmware and the `fsicom-agent` bridge. See [FSI package](#fsi-package). |
+
+None of the packages declares a dependency, so `dpkg` does not install the libraries the binaries
+need. Install them yourself; see [Runtime libraries](#runtime-libraries).
+
+## Download
+
+The packages are NGC resources. Each package is one version of the resource
+`nvidia/halos-outside-in/outside-in-safety`, named by the release tag and the package name.
+
+| Placeholder | Meaning |
+| --- | --- |
+| `<release-tag>` | The release tag for your platform, from the [Release Notes](/release-notes). |
+| `<download-dir>` | The directory the NGC CLI downloaded the package into. |
+
+```bash
+# x86-64
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-desktop"
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-desktop-dev"
+
+# IGX Thor (aarch64)
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-tegra"
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-tegra-dev"
+```
+
+`psf-tegra-fsi` is published separately, as
+`nvidia/outside-in-safety/outside-in-safety:<release-tag>-psf-tegra-fsi`, and needs a separate
+[sign-up](https://developer.nvidia.com/halos-for-outside-in-safety-agents-early-access).
+
+## Install
+
+On x86-64:
+
+```bash
+sudo dpkg -i <download-dir>/psf-desktop.deb
+sudo dpkg -i <download-dir>/psf-desktop-dev.deb    # only where you build
+```
+
+On IGX Thor:
+
+```bash
+sudo dpkg -i <download-dir>/psf-tegra.deb
+sudo dpkg -i <download-dir>/psf-tegra-dev.deb      # only where you build
+sudo dpkg -i <download-dir>/psf-tegra-fsi.deb      # only for an SDM on the FSI
+```
+
+To cross-compile for IGX Thor on an x86-64 host, extract the packages instead of installing them:
+
+```bash
+dpkg -x <download-dir>/psf-tegra.deb <extraction-path>
+dpkg -x <download-dir>/psf-tegra-dev.deb <extraction-path>
+```
+
+### Reinstall, upgrade and remove
+
+- **Same version.** Every build of a package carries the same version string. `dpkg -i`
+  replaces the installed files even when the version is unchanged, so a reinstall does install
+  the new build. Confirm it by the file times, not the version:
+
+  ```bash
+  ls -l /opt/nvidia/psf/bin/nvpss_daemon /opt/nvidia/psf/bin/nvpsd_gateway
+  ```
+
+- **Edited configuration is overwritten.** The packages mark no configuration files. A reinstall
+  or upgrade replaces `nvpss.conf`, `sensor_pipelines_config.conf`, `thresholds.cfg` and
+  `pcm_monitor.cfg` in `/opt/nvidia/psf/bin`, and the rsyslog rule, with the shipped versions, and
+  empties `/var/log/psf/pss.log`. Copy your edited files elsewhere first, and keep your own
+  configuration under names the package does not ship (for example `sensor_config.conf`, which
+  ships only as `sensor_config.conf.sample`). Learned baselines are not package files and are
+  kept. SAIM refuses its baselines from an earlier release, so learn them again after upgrading;
+  see [Baselines](/integration/components/ai-monitor#baselines).
+- **Remove.** `dpkg --purge` removes the package files and, for the runtime package, the three
+  socket files in `/run/nvpsf`. It leaves the `/run/nvpsf` directory.
+
+  ```bash
+  # x86-64
+  sudo dpkg --purge psf-desktop-dev psf-desktop
+  # IGX Thor
+  sudo dpkg --purge psf-tegra-fsi psf-tegra-dev psf-tegra
+  ```
+
+## Install paths
+
+| Path | Package | Contents |
+| --- | --- | --- |
+| `/opt/nvidia/psf/bin` | runtime | `nvpss_daemon`, `nvpsd_gateway`, `safety_monitor`, `nv_perception_monitor`, `launch_hoisa.sh`, `launch_psf.sh`, `sdm_launch_common.sh`, and the configuration files listed below. |
+| `/opt/nvidia/psf/bin/saim_baseline` | runtime | Default SAIM baselines, `<camera>_baseline.cfg.default`, for the three-camera reference scene. |
+| `/opt/nvidia/psf/bin/pcm_baseline` | runtime | Default PCM baselines, `pcm_<camera>_baseline.cfg.default`, for the three-camera reference scene and the `atl,pxc` reference configuration. See [PCM baselines](/reference/launcher#pcm-baselines). |
+| `/opt/nvidia/psf/tests/pcm` | runtime | `test_monitor_launch.sh`, a check of the launchers' monitor handling that needs no Docker, Kafka, GPU or `sudo`. |
+| `/opt/nvidia/psf/lib` | runtime | The Safety Core libraries, including `libnvpsf_transport.so`, `libnvpssd_interface.so`, `libnvpsd.so`, `libnvpsb.so` and the SAIM backend (`libsaim_gpu.so`, or `libsaim_pva.so` on IGX Thor). |
+| `/opt/nvidia/psf/apps/mdx-client` | runtime | `mdx_client` |
+| `/opt/nvidia/psf/apps/atl` | runtime | `atl_sdm`, `atl_sdm_cmd_receiver`, `event_mapping_atl.pb.txt` |
+| `/opt/nvidia/psf/apps/proximity` | runtime | `proximity_sdm`, `proximity_sdm_cmd_receiver`, `proximity_event_mapping.pb.txt` |
+| `/opt/nvidia/psf/apps/atl_proximity` | runtime | `atl_proximity_sdm`, `atl_proximity_sdm_cmd_receiver`, `event_mapping_atl_proximity.pb.txt` |
+| `/var/log/psf/pss.log` | runtime | Target of the rsyslog rule, mode `0666`. |
+| `/opt/nvidia/psf/include` | development | Public headers. See [Building the reference applications](#building-the-reference-applications) and [API Documentation](/api-documentation). |
+| `/opt/nvidia/psf/examples/apps/metropolis` | development | Reference application sources. |
+| `/opt/nvidia/psf/etc/fsi-fw` | FSI | FSI firmware. |
+
+Configuration files in `/opt/nvidia/psf/bin`:
+
+| File | Shipped as | Read by | Reference |
+| --- | --- | --- | --- |
+| `nvpss.conf` | live file | `nvpss_daemon`, both launchers | [SEI Configuration](/reference/sei-configuration) |
+| `sensor_config.conf` | `sensor_config.conf.sample` only. Copy it and edit it. | `nvpss_daemon` (through `sensorConfig` in `nvpss.conf`), `mdx_client` in 2D, `safety_monitor` | [Sensor files](/reference/sensor-files#sensor_config) |
+| `sensor_pipelines_config.conf` | live file, listing the three reference cameras | the CCPLEX SDMs, `mdx_client` in 3D | [Sensor files](/reference/sensor-files#sensor_pipelines_config) |
+| `atl_sdm_zone1.conf`, `atl_sdm_zone2.conf` | `.sample` only | `atl_sdm --config` | [Writing a decision maker](/integration/writing-a-decision-maker#atl-specifics) |
+| `pxc_sdm_forklift.conf`, `pxc_sdm_robots.conf` | `.sample` only | `proximity_sdm --config` | [Writing a decision maker](/integration/writing-a-decision-maker#pxc-specifics) |
+| `thresholds.cfg` | live file | `safety_monitor` | [SAIM](/integration/components/ai-monitor) |
+| `pcm_monitor.cfg` | live file | `nv_perception_monitor` | [PCM](/integration/components/perception-monitor) |
+
+## Runtime libraries
+
+| Library | Needed by | Provided by |
+| --- | --- | --- |
+| `librdkafka.so.1` | `mdx_client`, `nv_perception_monitor` | Ubuntu package `librdkafka1` |
+| `libprotobuf.so.32` | `mdx_client`, `nv_perception_monitor` | Ubuntu 24.04 package `libprotobuf32t64` |
+| `libcuda.so.1`, `libnvcuvid.so.1` | `safety_monitor` | The NVIDIA driver |
+| `libcupva_host.so.2.9` | `safety_monitor` with the PVA backend (IGX Thor default) | The PVA SDK 2.9 package, `pva-sdk-2.9-l4t` |
+
+On Ubuntu 24.04:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y librdkafka1 libprotobuf32t64
+```
+
+Ubuntu 22.04's protobuf package provides `libprotobuf.so.23`, not `libprotobuf.so.32`, so it does
+not satisfy `mdx_client` or `nv_perception_monitor`. The container image is based on
+Ubuntu 24.04 and already contains the libraries its platform needs, except the driver's.
+
+Check that nothing is missing:
+
+```bash
+ldd /opt/nvidia/psf/apps/mdx-client/mdx_client /opt/nvidia/psf/bin/nv_perception_monitor \
+    /opt/nvidia/psf/bin/safety_monitor | grep "not found"
+```
+
+Expected result: no output.
+
+### PATH and LD_LIBRARY_PATH
+
+The Safety Core executables carry no library search path of their own. The runtime package
+registers `/opt/nvidia/psf/lib` with the dynamic linker through
+`/etc/ld.so.conf.d/nvidia-psf.conf` and runs `ldconfig`, so after `dpkg -i` no
+`LD_LIBRARY_PATH` is needed. The binaries are not added to `PATH`; call them by their full path,
+or:
+
+```bash
+export PATH=/opt/nvidia/psf/bin:"${PATH}"
+```
+
+If you extracted the packages with `dpkg -x` instead of installing them, the linker
+configuration is not in place. Set the library path to the extracted tree:
+
+```bash
+export LD_LIBRARY_PATH=<extraction-path>/opt/nvidia/psf/lib:"${LD_LIBRARY_PATH}"
+```
+
+<a id="what-the-runtime-package-sets-up"></a>
+
+## What the runtime package sets up
+
+| Item | What the package does | What you must do |
+| --- | --- | --- |
+| `/run/nvpsf` | Installs `/usr/lib/tmpfiles.d/nvpsf.conf` with `d /run/nvpsf 1777 root root -`, so the directory is created at every boot. `postinst` also creates it at once with mode `1777`. | Nothing. Without the package, create it after every boot (see [Running without Docker](#running-without-docker)). |
+| Dynamic linker | Installs `/etc/ld.so.conf.d/nvidia-psf.conf` and runs `ldconfig` on install and removal. | Nothing. |
+| Syslog | Installs `/etc/rsyslog.d/99-pss-logs.conf`, which sends the Safety Core's syslog tags (`nvpss_daemon`, `nvpsd_gateway`, `nv_mdx_client`, `NVPSB_PSS_SOURCE`, `NVPSB_PSS_SINK`, `NVPSB_PSS_DAEMON`, `NVPSB_PSD_CLIENT`, `NVPSB_SDM_CLIENT`) to `/var/log/psf/pss.log` and stops further processing of them. | Restart rsyslog once, because `postinst` does not: `sudo systemctl restart rsyslog`. |
+| Log rotation | Installs `/etc/logrotate.d/pss`, which rotates `/var/log/psf/*.log` and `/var/log/pss.log` daily, keeps 7 compressed old files, rotates early above 100 MB, and truncates in place. `postinst` makes the rule owned by root with mode 0644. The container image has the same rule. | Nothing, if the host runs `logrotate`. |
+| Kernel limits | Nothing. | Raise the socket buffer limits. See [Kernel socket buffers](#kernel-socket-buffers). |
+
+<a id="kernel-socket-buffers"></a>
+
+## Kernel socket buffers
+
+The transport sizes the gateway-to-SDM link for 516 decision packets, because a packet the
+gateway cannot send burns a sequence number and the SDM latches on the gap. When the gateway and
+each SDM open the link, they request receive and send buffers for 516 messages, read back what the
+kernel granted, and refuse to continue if it is less. Linux caps the grant at
+`net.core.rmem_max` (receive) and `net.core.wmem_max` (send), and the stock limits are lower than
+the request.
+
+| Process | Message size | Minimum `net.core.rmem_max` and `net.core.wmem_max` |
+| --- | --- | --- |
+| `nvpsd_gateway`, `atl_sdm`, `proximity_sdm`, `atl_proximity_sdm` | 1621 bytes | `836436` (516 × 1621) |
+| `fsicom-agent` | 10240 bytes | `5283840` (516 × 10240) |
+
+Set both limits on the host that runs these processes. The container uses the host's network
+namespace and shares the host's limits. Do not lower a larger value that is already set.
+
+Files in `/etc/sysctl.d/` apply in name order, and a later file overrides an earlier one. The
+file names below are chosen against the VSS settings file (`99-vss.conf`), which sets both limits
+to `5242880`.
+
+On a host with CCPLEX SDMs only, the file sorts before the VSS file, so a larger VSS value still
+wins:
+
+```bash
+printf 'net.core.rmem_max = 836436\nnet.core.wmem_max = 836436\n' | sudo tee /etc/sysctl.d/60-nvpsf.conf
+sudo sysctl --system
+```
+
+On an IGX Thor that runs `fsicom-agent`, the file sorts after the VSS file, because the agent needs
+more than VSS sets:
+
+```bash
+printf 'net.core.rmem_max = 5283840\nnet.core.wmem_max = 5283840\n' | sudo tee /etc/sysctl.d/99-zz-nvpsf-fsi.conf
+sudo sysctl --system
+```
+
+Check:
+
+```bash
+sysctl net.core.rmem_max net.core.wmem_max
+```
+
+What happens when a limit is too low:
+
+| Process | Behaviour |
+| --- | --- |
+| `nvpsd_gateway` | Prints `nvpsf_transport: SO_RCVBUF granted <n> bytes but 1672872 are required for 516 messages of 1621 bytes; raise net.core.rmem_max` (or `SO_SNDBUF` and `wmem_max`), logs `PSD-Gateway: transport open failed`, and exits with status 1. |
+| SDMs, `fsicom-agent` | Print the same line, then retry every 500 ms without end. The SDM never connects, so it latches on lost freshness and gateway heartbeat. |
+
+The requested size is twice the payload because Linux reports buffer sizes with its own
+accounting overhead included. The check is in `provisionSocketBuffer()` of the transport library.
+The transport also honours an environment variable, `NVPSF_MIN_QUEUE_DEPTH`, that lowers the
+516-packet floor for test machines and prints a warning when set. Do not set it in production: a
+lower floor re-opens the drop that the floor exists to prevent.
+
+<a id="running-without-docker"></a>
+
+## Running without Docker
+
+Every Safety Core process can run directly on the host.
+
+### Before you start
+
+1. Install the runtime package and the [runtime libraries](#runtime-libraries).
+2. Raise the [kernel socket buffers](#kernel-socket-buffers).
+3. Check that `/run/nvpsf` exists with mode `1777` (`ls -ld /run/nvpsf`). The package creates it
+   at every boot. Without the package, create it after every boot, because `/run` is cleared:
+   `sudo mkdir -p /run/nvpsf && sudo chmod 1777 /run/nvpsf`.
+4. Create `/opt/nvidia/psf/bin/sensor_config.conf` from `sensor_config.conf.sample`, or point
+   `sensorConfig` in `nvpss.conf` at your file. The daemon reads the file named by `sensorConfig`,
+   not the one you pass to the launcher or to `mdx_client`, so all three must name the same file.
+5. Check `sensor_pipelines_config.conf` against your cameras (2D) or your BEV group (3D).
+6. Copy the SDM configuration from its `.sample` and edit it.
+7. For SAIM in active mode, make sure `/opt/nvidia/psf/bin/saim_baseline` holds a baseline for
+   every camera, learned (`<camera>_baseline.cfg`) or shipped (`<camera>_baseline.cfg.default`).
+8. For PCM in active mode, make sure `/opt/nvidia/psf/bin/pcm_baseline` holds a baseline learned
+   with the same event mapping and SDM configurations as the active run (see
+   [Learning by hand](#learning-by-hand)), and that `/opt/nvidia/psf/bin/pcm_monitor.cfg` lists the
+   perception containers of this host.
+
+### With the launcher
+
+`launch_hoisa.sh --runtime host` starts every process on the host, in the right order. It runs
+them as root through `sudo -n`, so they all have the same primary group; run it as root or with
+passwordless `sudo`.
+
+| Placeholder | Meaning |
+| --- | --- |
+| `<cmd-rx-ip>` | Address of the PLC or command receiver. |
+| `<cmd-rx-port>` | Its UDP port. |
+
+```bash
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode active --runtime host --app atl \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port <cmd-rx-port>
+```
+
+To learn the baselines first, run the same command with `--saim-mode learn --pcm-mode learn` and
+without the two `--cmd-rx` options. Every option is on
+[Launcher](/reference/launcher#launch_hoisa-options). The launcher does not start the command
+receiver; start it first, as in step 4 below.
+
+### By hand
+
+Start the processes in this order. The constraints that force it are:
+
+| Process | Constraint |
+| --- | --- |
+| `mdx_client` | Registers with the SEI once and exits if that fails, so `nvpss_daemon` must already be listening. |
+| `nvpsd_gateway` | Retries its connect to `nvpss_daemon` 60 times at 500 ms intervals, then exits. |
+| `safety_monitor`, `nv_perception_monitor` | In active mode, try to register 6 times, 5 seconds apart, then exit. In learn mode they do not register, so they can run without the SEI daemon. |
+| Command receivers | Exit about 54.5 seconds after start if no SDM heartbeat arrives (default `--max_hb_failures 10`). |
+| SDMs | Wait for the gateway without limit, but latch on lost freshness after 7 seconds without decisions. |
+| Required sources | Must register within the heartbeat budget (about 4 minutes with the shipped `max_hb_failures = 50`), or every SDM latches. |
+
+These steps start the forklift safety function (ATL) in 2D. Run steps 1 to 3 and 5 to 8 in one root
+shell (`sudo -i`), so that every Safety Core process runs as root with the same primary group (see
+[Shared process group](/integration#shared-process-group)). Run step 4 in its own terminal,
+because the receiver reads release commands from its standard input; the receiver does not use the
+`AF_UNIX` links, so it can run as any user.
+
+| Placeholder | Meaning |
+| --- | --- |
+| `<cmd-rx-ip>` | Address of the PLC or command receiver. `127.0.0.1` if it runs on this host. |
+| `<cmd-rx-port>` | Its UDP port, for example `12345`. |
+| `<kafka-broker>` | Kafka broker of the perception stack, for example `localhost:9092`. |
+| `<sdm-host-ip>` | Address of the host that runs the SDM, as the receiver sees it. `127.0.0.1` if the receiver runs on the same host. |
+
+1. Prepare the log files:
+
+   ```bash
+   mkdir -p /var/log/psf && cd /var/log/psf
+   touch psf.log atl_sdm.log saim.log pcm.log && chmod 666 psf.log atl_sdm.log saim.log pcm.log
+   ```
+
+2. Start the SEI daemon, then wait for its socket:
+
+   ```bash
+   /opt/nvidia/psf/bin/nvpss_daemon --conf /opt/nvidia/psf/bin/nvpss.conf >> /var/log/psf/psf.log 2>&1 &
+   sleep 1 && ls -l /run/nvpsf/nvpssd /run/nvpsf/nvpssd_to_psd
+   ```
+
+   Expected result: both sockets are listed.
+3. Start the gateway and the MDX client:
+
+   ```bash
+   /opt/nvidia/psf/bin/nvpsd_gateway >> /var/log/psf/psf.log 2>&1 &
+   /opt/nvidia/psf/apps/mdx-client/mdx_client \
+       --config /opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --instance-id 1 --broker <kafka-broker> >> /var/log/psf/psf.log 2>&1 &
+   ```
+
+   In 3D, replace `--sensor-config /opt/nvidia/psf/bin/sensor_config.conf` with
+   `--sensor-pipelines-config /opt/nvidia/psf/bin/sensor_pipelines_config.conf`.
+
+4. In a separate terminal, on the PLC side, start the command receiver:
+
+   ```bash
+   /opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver -p <cmd-rx-port> --sdm_ip <sdm-host-ip>
+   ```
+
+   Expected result: `ATL UDP Command Receiver listening on port <cmd-rx-port>`.
+
+5. Start the SDM:
+
+   ```bash
+   /opt/nvidia/psf/apps/atl/atl_sdm \
+       --config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+       --log_file /var/log/psf/atl_sdm.log \
+       --cmd_rx_ip <cmd-rx-ip> --cmd_rx_port <cmd-rx-port> \
+       --decision_interval_ms 0 >> /var/log/psf/psf.log 2>&1 &
+   ```
+
+6. Start SAIM from its baseline directory, if `required_safety_monitor = 1`:
+
+   ```bash
+   (cd /opt/nvidia/psf/bin/saim_baseline && /opt/nvidia/psf/bin/safety_monitor --mode ACTIVE \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --threshold-config /opt/nvidia/psf/bin/thresholds.cfg >> /var/log/psf/saim.log 2>&1 &)
+   ```
+
+7. Start PCM, if `required_perception_monitor = 1`, with the same event mapping and SDM
+   configuration as the SDM:
+
+   ```bash
+   /opt/nvidia/psf/bin/nv_perception_monitor --mode ACTIVE \
+       --event-mapping /opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+       --kafka-broker <kafka-broker> >> /var/log/psf/pcm.log 2>&1 &
+   ```
+
+   PCM reads `/opt/nvidia/psf/bin/pcm_monitor.cfg` and the baseline in
+   `/opt/nvidia/psf/bin/pcm_baseline`. Check that it loaded both checks with
+   `grep 'checks: container_health=' /var/log/psf/pcm.log | tail -n 1`; the line should show
+   `data_validation=on`.
+
+8. Check that the SDM registered and is receiving decisions:
+
+   ```bash
+   grep -E "sent registration|received DecisionRequest" /var/log/psf/atl_sdm.log | tail -3
+   ```
+
+   Expected result: a `SDM: sent registration (7 event types) to gateway` line, followed by
+   `SDM: received DecisionRequest from psdGateway` lines at least every 5 seconds. The receiver's
+   console shows the latch and release events.
+
+For PXC, use `/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt`,
+`proximity_sdm --config /opt/nvidia/psf/bin/pxc_sdm_forklift.conf --log_file /var/log/psf/pxc_sdm.log`,
+the same two files for PCM, and `proximity_sdm_cmd_receiver`.
+
+To stop, send `SIGTERM` to every process; the gateway and the SDMs shut down cleanly on it:
+
+```bash
+pkill -TERM -f '^/opt/nvidia/psf/'
+```
+
+<a id="learning-by-hand"></a>
+
+### Learning by hand
+
+Learn mode needs no SEI daemon: neither monitor registers with it. Run both in one root shell,
+against the normal, unobstructed scene, with `<kafka-broker>` as in [By hand](#by-hand). Each
+stops after `--learn-duration` seconds (1–3600, default 300). PCM exits with status 1 when it
+could not write its baseline.
+
+```bash
+(cd /opt/nvidia/psf/bin/saim_baseline && /opt/nvidia/psf/bin/safety_monitor --mode LEARN \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf --learn-duration 300 >> /var/log/psf/saim.log 2>&1) &
+/opt/nvidia/psf/bin/nv_perception_monitor --mode LEARN --learn-duration 300 \
+    --event-mapping /opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --kafka-broker <kafka-broker> >> /var/log/psf/pcm.log 2>&1 &
+wait
+```
+
+Expected result: one `<camera>_baseline.cfg` per camera in `/opt/nvidia/psf/bin/saim_baseline`,
+and `/opt/nvidia/psf/bin/pcm_baseline/pcm_baseline.cfg`. PCM logs
+`DVM: baseline: published <n> camera(s) in /opt/nvidia/psf/bin/pcm_baseline/pcm_baseline.cfg; bbox/confidence/occupancy are not fault baselines`.
+Give PCM the same `--event-mapping` and `--sdm-config` values in learn and active mode; an active
+PCM does not use a baseline learned with other values. See
+[PCM baselines](/reference/launcher#pcm-baselines).
+
+<a id="building-the-reference-applications"></a>
+
+## Building the reference applications
+
+The development package installs:
+
+| Path | Contents |
+| --- | --- |
+| `/opt/nvidia/psf/include` | `pss_protocol.h`, `pss_message_validate.h`, `NvPSDGatewayProtocol.h`, `NvPSDGatewayContract.hpp`, `nvpsf_transport.h`, and headers for the IGX error-reporting path. |
+| `examples/apps/metropolis/atl` | `sdm/ccplex/` (`ATL.cpp`, `ATLControl.cpp`, `ATLControl.h`, `atl_sdm_config.cpp`, `atl_sdm_config.h`, `atl_fault_report_noop.cpp`, `pss_message_validate.c`), `udp_cmd_receiver/cmd_rx.cpp`, `include/atl_cmd_pkt.h`, the event mapping, `atl_sdm_zone1.conf`, `atl_sdm_zone2.conf`. |
+| `examples/apps/metropolis/proximity` | `sdm/ccplex/` (`Proximity.cpp`, `ProximityControl.cpp`, `ProximityControl.h`, `proximity_sdm_config.cpp`, `proximity_sdm_config.h`, `pss_message_validate.c`), `udp_cmd_receiver/cmd_rx.cpp`, `include/proximity_cmd_pkt.h`, the event mapping, `pxc_sdm_forklift.conf`, `pxc_sdm_robots.conf`. |
+| `examples/apps/metropolis/atl_proximity` | `sdm/ccplex/` sources, `include/atl_proximity_pair_fusion.h`, the event mapping. |
+| `examples/apps/metropolis/common/include` | `metropolis_cmd_identifiers.h` |
+
+`examples` is `/opt/nvidia/psf/examples/apps/metropolis` after `dpkg -i`, or the same path under
+`<extraction-path>` after `dpkg -x`.
+
+### Command receivers
+
+The receivers need only their own source and packet header. On x86-64:
+
+```bash
+E=/opt/nvidia/psf/examples/apps/metropolis
+g++ -std=c++11 -o atl_sdm_cmd_receiver $E/atl/udp_cmd_receiver/cmd_rx.cpp \
+    -I $E/atl/include -lpthread
+g++ -std=c++11 -o proximity_sdm_cmd_receiver $E/proximity/udp_cmd_receiver/cmd_rx.cpp \
+    -I $E/proximity/include -lpthread
+```
+
+For IGX Thor, cross-compile on an x86-64 host with `aarch64-linux-gnu-g++` and
+`E=<extraction-path>/opt/nvidia/psf/examples/apps/metropolis`.
+
+### Decision makers
+
+A reference SDM is built from these inputs:
+
+| Input | `atl_sdm` | `proximity_sdm` |
+| --- | --- | --- |
+| Sources | `ATL.cpp`, `ATLControl.cpp`, `atl_sdm_config.cpp`, `atl_fault_report_noop.cpp`, `pss_message_validate.c`, `sensor_config_parser.cpp` | `Proximity.cpp`, `ProximityControl.cpp`, `proximity_sdm_config.cpp`, `pss_message_validate.c`, `sensor_config_parser.cpp` |
+| Include directories | `/opt/nvidia/psf/include`, the app's `include/` and `sdm/ccplex/`, the shared SDM headers, the sensor-config parser headers | The same |
+| Libraries | `-lnvpsf_transport -lpthread -lrt`, from `/opt/nvidia/psf/lib` | The same |
+
+The shared SDM headers are `sdm_decision_request_state.h`, `sdm_decision_freshness.hpp`,
+`sdm_gateway_decision_sequence.hpp` and `sdm_reviewed_sensor_set.hpp`. The sensor-config parser is
+`sensor_config_parser.h` and `sensor_config_parser.cpp`.
+
+<Note>
+The development package at this release does not include the shared SDM headers or the
+sensor-config parser, so the reference SDMs cannot be compiled from the package alone. The built
+SDMs are in the runtime package, under `/opt/nvidia/psf/apps`. Use the shipped sources as the
+reference for your own decision maker; its contract is on
+[Writing a decision maker](/integration/writing-a-decision-maker).
+</Note>
+
+<a id="fsi-package"></a>
+
+## FSI package
+
+`psf-tegra-fsi` is for IGX Thor only. Install it on the Thor, with `psf-tegra`.
+
+| Path | Contents |
+| --- | --- |
+| `/opt/nvidia/psf/etc/fsi-fw/atl/fsi-ffw-t264.bin` | FSI firmware with the forklift safety function SDM. |
+| `/opt/nvidia/psf/etc/fsi-fw/proximity/fsi-ffw-t264.bin` | FSI firmware with the Proximity Monitoring SDM. |
+| `/opt/nvidia/psf/bin/fsicom-agent` | The CCPLEX bridge between the gateway, the FSI SDM and the PLC. |
+
+`fsicom-agent` needs `libnvpsf_transport.so` from `psf-tegra`, and the NvFsiCom and EPL libraries
+of the IGX Safety Extension Package, which the Safety Core packages do not include. It also needs
+the [larger kernel socket buffers](#kernel-socket-buffers). Flashing the firmware and running the
+agent are covered in [Custom Deployment](/deployment/custom-deployment#sdm-on-fsi); the agent's
+options are on [Launcher](/reference/launcher#fsicom-agent-options); its contract with the
+gateway is on [Writing a decision maker](/integration/writing-a-decision-maker#sdm-on-the-fsi).

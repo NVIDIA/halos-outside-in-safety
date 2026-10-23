@@ -2,24 +2,52 @@
 title: "Isaac Sim Configuration"
 description: ""
 ---
-Configuration files controlling Isaac Sim simulation behavior. Halos SIL runs on **Isaac Sim 6.0** (`nvcr.io/nvidia/isaac-sim:6.0.0`) with **Replicator Agent (IRA) 1.6.0**.
+Configuration files controlling Isaac Sim simulation behavior. Halos SIL runs on **Isaac Sim 6.1** (`nvcr.io/nvidia/isaac-sim:6.1.0`) with **Replicator Agent (IRA) config 1.7.0**. Isaac Sim 6.1 refuses a 1.6.0 config, so a scene written for 6.0 shuts down at startup until its `version` is raised.
 
 <Info>
-IRA 1.x (Isaac Sim 6.0) is **not** config-compatible with IRA 0.x (Isaac Sim 5.1 and earlier). A 0.x config will not load. The three changes that matter most here: `global.simulation_length` (frames) became top-level `simulation_duration` (seconds); flat `character`/`sensor` blocks became named **groups**; and character behavior moved from text command files to JSON **behavior trees**. See the official [IRA migration guide](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/migration_guides/isaac_sim_6_0/ext_isaacsim_replicator_agent_migration_guide.html).
+IRA 1.x (Isaac Sim 6.0 and later) is **not** config-compatible with IRA 0.x (Isaac Sim 5.1 and earlier). A 0.x config will not load. The three changes that matter most here: `global.simulation_length` (frames) became top-level `simulation_duration` (seconds); flat `character`/`sensor` blocks became named **groups**; and character behavior moved from text command files to JSON **behavior trees**. See the official [IRA migration guide](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/migration_guides/isaac_sim_6_0/ext_isaacsim_replicator_agent_migration_guide.html).
 </Info>
 
 ## Configuration Files
 
 Located in `/isaac-sim/sil/configs/`:
 
+- `scenarios.yaml` — one entry per scenario id, naming the four files below that make up a run
 - `default_config_ros.yaml` — IRA scene, characters, cameras, writer
 - `cameras.yaml` — camera prims, RTSP ports, and VST registration
-- `robots.yaml` — forklift control / odometry / safety-indicator and `/clock` Action Graphs
+- `robots.yaml` — the fleet file: which trucks exist, where they spawn, how each drives, and the forklift control / odometry / safety-indicator and `/clock` Action Graphs
+- `*-40x20.yaml` — the same trio for the experimental two-dock, two-truck `warehouse_40x20` scene
+- `postprocessing.yaml` — RTX sensor-anomaly presets (`active: baseline` = no degradation)
 - `inspect_loop.bt.json`, `gather_bend_loop.bt.json`, `pickup_loop.bt.json` — per-group character behavior trees
 
 <Note>
-`default_command.txt` and `default_robot_command.txt` are the IRA 0.x `omni.anim.people` command files. Nothing in the 6.0 pipeline reads them — they are kept only for reference against older recordings.
+`default_command.txt` and `default_robot_command.txt` are the IRA 0.x `omni.anim.people` command files. Nothing in the 6.x pipeline reads them — they are kept only for reference against older recordings.
 </Note>
+
+## scenarios.yaml
+
+One id describes a run, and Isaac Sim and every forklift controller read the same one, so they cannot be launched against different halves of it. Set it in the profile env file:
+
+```bash
+SCENARIO=warehouse_20x20_1fl
+```
+
+```yaml
+warehouse_20x20_1fl:
+  ira:       default_config_ros.yaml   # IRA config; names the scene USD
+  robots:    robots.yaml               # fleet file; its scene: key is checked against the IRA scene
+  cameras:   cameras.yaml              # its scene: key is checked the same way
+  waypoints: warehouse_20x20           # forklift-controller/waypoints/<dir>/<robot>.json
+
+warehouse_40x20:
+  ira:       default_config_ros_40x20.yaml
+  robots:    robots-40x20.yaml
+  cameras:   cameras-40x20.yaml
+  waypoints: warehouse_40x20
+  experimental: true                   # no published calibration: watch it, do not score it
+```
+
+A flag still wins over the scenario (`-c`, `--robots-config`, `--cameras-config`) for a one-off run. A different fleet in the same scene is a different run, so it gets an id of its own; `WAYPOINTS_MAP` is the one override, for a new route set in an existing scene.
 
 ## default_config_ros.yaml
 
@@ -27,7 +55,7 @@ Main simulation configuration:
 
 ```yaml
 isaacsim.replicator.agent:
-  version: 1.6.0
+  version: 1.7.0
   seed: 42
   simulation_duration: 20.0
   environment:
@@ -73,7 +101,7 @@ isaacsim.replicator.agent:
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `version` | 1.6.0 | IRA config schema version. Must be 1.x on Isaac Sim 6.0. |
+| `version` | 1.7.0 | IRA config schema version. Isaac Sim 6.1 needs 1.7.0 and refuses 1.6.0. |
 | `seed` | 42 | Random seed for reproducible scenarios (top-level in 1.x, was `global.seed`) |
 | `simulation_duration` | 20.0 | Run length in **seconds**, not frames. IRA ticks the timeline at 30 Hz. |
 | `environment.base_stage_asset_path` | USD file path | Warehouse scene to load (was `scene.asset_path`) |
@@ -85,7 +113,7 @@ isaacsim.replicator.agent:
 | `replicator.writers.IRABasicWriter` | all annotators off | Kept only to satisfy IRA's writer requirement — see below |
 
 <Note>
-**The writer no longer produces the camera streams.** On IRA 0.x this file set `writer: RTSPWriter` and RTSP came out of the replicator writer. On 6.0 the streams come from the [RTSP multi-camera Action Graph](/testing/sil/components/action-graph#rtsp-multi-camera-graph) built from `cameras.yaml`, so every `IRABasicWriter` annotator is switched off and nothing is written to disk.
+**The writer no longer produces the camera streams.** On IRA 0.x this file set `writer: RTSPWriter` and RTSP came out of the replicator writer. On 6.x the streams come from the [RTSP multi-camera Action Graph](/testing/sil/components/action-graph#rtsp-multi-camera-graph) built from `cameras.yaml`, so every `IRABasicWriter` annotator is switched off and nothing is written to disk.
 </Note>
 
 <Note>
@@ -97,6 +125,9 @@ Every camera is driven from a single `OnPlaybackTick`, routed through an `IsaacS
 Camera registration configuration for VST:
 
 ```yaml
+scene:
+  - sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+
 cameras:
   - name: Camera
     camera_prim: /World/Cameras/Camera
@@ -127,6 +158,7 @@ rtsp:
 
 Camera registration:
 
+- `scene`: The scene USDs these camera positions are measured in, checked against the scene loading (path-suffix match) before the stage opens
 - `name`: Camera identifier in VST
 - `camera_prim`: USD prim path of the camera in the stage
 - `port`: TCP port of the in-process RTSP server — **unique per camera**
@@ -137,37 +169,65 @@ Camera registration:
 When Isaac Sim starts with `--enable-vst`, cameras automatically register with VST using these definitions.
 
 <Warning>
-Two fields from the Isaac Sim 5.1 schema must **not** appear: per-camera `rtsp_path` (the `RTSPWriter_World_Cameras_*_rgb` string) and the top-level `rtsp.port` of the old external broker. `vst_sensor_manager.py` rejects a config that still carries them.
+Two fields from the Isaac Sim 5.1 schema must **not** appear: per-camera `rtsp_path` (the `RTSPWriter_World_Cameras_*_rgb` string) and the top-level `rtsp.port` of the old external broker. `vst_sensor_manager.py` rejects a config that still carries them, and a scalar `rtsp` or `cameras` is a validation error.
 </Warning>
 
 ## robots.yaml
 
-Drives the forklift Action Graph builders. One block per robot — adding a robot means adding a block here, with no code change. See [Isaac Sim Action Graphs](/testing/sil/components/action-graph) for what each builder produces.
+The fleet file. It drives the forklift Action Graph builders and the forklift controllers. One block per robot — adding a robot means adding a block here plus a controller service naming its `ROBOT_ID`, with no code change. What follows from the asset is stated once per model under `models:`; each robot names its model and keeps only its own choices. See [Isaac Sim Action Graphs](/testing/sil/components/action-graph) for what each builder produces and [Forklift Controller](/testing/sil/components/forklift-controller) for the `drive:` and `proximity:` keys.
 
 ```yaml
+scene: sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd   # checked before the stage opens
+
+models:
+  forklift_b:
+    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.1/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+    drive_type: swivel
+    drive_joint: back_wheel_drive       # velocity-controlled
+    swivel_joint: back_wheel_swivel     # position-controlled steer
+    wheelbase: 1.49
+    wheel_radius: 0.15
+    max_steer_deg: 45.0
+    reverse_logic:
+      flip_linear_x: true
+      flip_angular_z: true
+    robot_front: [-1.0, 0.0, 0.0]
+    indicator:                          # the safety disc indicator_loader.py authors
+      parent_prim_rel: body/body
+      radius: 1.5
+    drive:                              # forklift-controller, shared by every truck of this model
+      heading_offset: 180.0
+      no_invert: false
+      angular_speed: 0.4
+
 robots:
-  - name: forklift_b
+  - name: forklift_b                    # == the controller's ROBOT_ID == the prim leaf
+    model: forklift_b
     articulation_prim: /World/forklift_b
+    drive:
+      speed: 1.5
+      loop: true
+    spawn:                              # authored into scenes/generated/, sublayering the scene
+      position: [1.0, -13.39, 0.0]      # world metres; also the origin of every waypoint file
+      yaw_deg: 180.0
+    proximity:                          # PSF_APP=pxc / both
+      reduce_speed: 0.5
+      stop_hold_s: 2.0
+      reduce_hold_s: 1.0
+      stale_s: 10.0
     control:
       enabled: true
-      cmd_vel_topic: cmd_vel
-      drive_joint: back_wheel_drive       # velocity-controlled
-      swivel_joint: back_wheel_swivel     # position-controlled steer
-      wheelbase: 1.49
-      wheel_radius: 0.15
-      max_steer_deg: 45.0
-      reverse_logic:
-        flip_linear_x: true
-        flip_angular_z: true
+      cmd_vel_topic: forklift_b/cmd_vel # the controller reads this too
     odometry:
       enabled: true
-      odom_topic: odom
-      tf_topic: tf
-      robot_front: [-1.0, 0.0, 0.0]
+      odom_topic: forklift_b/odom
+      tf_topic: tf                      # frames forklift_b/odom -> forklift_b/base_link
     safety_indicator:
       enabled: true
       muted_topic: /safety/is_muted
-      indicator_prim: /World/forklift_b/body/body/safety_indicator
+
+proximity_line:
+  enabled: false                        # draw each proximity decision's pair on the floor
 
 clock:
   enabled: true
@@ -176,11 +236,15 @@ clock:
 
 The `reverse_logic` flags exist because the forklift asset's vehicle frame is opposite the ROS twist convention on both axes. Set them to `false` for a robot whose asset already matches ROS.
 
+- `spawn` — the scenes carry no forklift prim; `forklift_overlay.py` authors each truck from its `spawn:` block into a generated layer before IRA opens the stage. Declaring `spawn:` for a prim the scene already has is an error. The position must match the `origin` of the truck's waypoint files; `deployments/scripts/preflight.py` compares the two.
+- `safety_indicator` — the disc shows `/safety/is_muted` under `PSF_APP=atl`, the proximity level (`/<robot>/proximity/state`: green / orange / red, grey before the first decision) under `pxc`, and STOP / REDUCE while proximity acts, otherwise the mute, under `both`. `source:` pins one. With two ATL zones, `zone: 2` makes the disc follow the second bay.
+- `proximity_line` — off by default because it is scene geometry: the cameras, and therefore perception, see it too.
+
 ## Forklift Motion
 
 Forklift motion is driven by the **forklift-controller** service, not by a node inside the Action Graph. The controller reads a waypoint file and publishes `cmd_vel` (`geometry_msgs/Twist`); the [Forklift Control Action Graph ](/testing/sil/components/action-graph) only converts that `cmd_vel` into wheel commands.
 
-Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) below. For the controller's ROS interface, route-following behavior, and the `FORKLIFT_*` environment variables, see [Forklift Controller](/testing/sil/components/forklift-controller).
+Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) below. For the controller's ROS interface, route-following behavior, and the `drive:` keys, see [Forklift Controller](/testing/sil/components/forklift-controller).
 
 <Note>
 `sil/playback/segments.json` (a list of `duration` / `linear_x` / `angular_z` steps) is left over from the pre-6.0 pipeline, where a playback script node inside the Action Graph read it directly. Nothing in the current codebase loads it.
@@ -214,7 +278,7 @@ character:
 
 ### Change Character Behavior
 
-Point a group at a different behavior tree. Trees are authored with `omni.behavior.tree.ui` and reference the `omni.behavior.tree.core` and `omni.anim.behavior.tree` node libraries — see the [IRA configuration guide](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/action_and_event_data_generation/ext_replicator-agent/ext_isaacsim_replicator_agent_configuration.html).
+Point a group at a different behavior tree. Trees are authored with `omni.behavior.tree.ui` and reference the `omni.behavior.tree.core` and `omni.anim.behavior.tree` node libraries — see the [IRA configuration guide](https://docs.isaacsim.omniverse.nvidia.com/6.1.0/action_and_event_data_generation/ext_replicator-agent/ext_isaacsim_replicator_agent_configuration.html).
 
 ```yaml
 character:
@@ -281,7 +345,7 @@ The exported JSON is the **input format of the SIL forklift controller**:
 
 ### Using the Path in SIL
 
-`closed-loop-testing/forklift-controller/robot_controller.py` loads the file via `--path <file>.json`. The simplest route into the deployment is to replace the default `closed-loop-testing/forklift-controller/waypoints/waypoints.json` with the export; to keep it elsewhere, see the `FORKLIFT_WAYPOINTS_DIR` and `FORKLIFT_WAYPOINT_FILE` pair in [Forklift Controller](/testing/sil/components/forklift-controller).
+Each controller reads `closed-loop-testing/forklift-controller/waypoints/<map id>/<ROBOT_ID>.json`. Save the export as `waypoints/warehouse_20x20/forklift_b.json` to replace the default route, or under a directory of your own selected with `WAYPOINTS_MAP` (see [Forklift Controller](/testing/sil/components/forklift-controller)). The `origin` must be the truck's `spawn.position`.
 
 ### Calibration for New Scenes
 
@@ -290,7 +354,7 @@ The bundled `public/Top.png` and calibration match the `closed-loop-testing` loa
 - Scale factor: 49.51 pixels/metre
 - Default forklift start: `(1.0, -13.39)` in world coordinates
 
-To target a different scene, replace `public/Top.png` and update `src/config/calibration.json` with that scene's calibration, then set `defaultForkliftStart` from the forklift prim's transform in Isaac Sim.
+To target a different scene, replace `public/Top.png` and update `src/config/calibration.json` with that scene's calibration, then set `defaultForkliftStart` from the truck's `spawn.position` in `robots.yaml`.
 
 ## Execution Script
 
@@ -300,7 +364,8 @@ Isaac Sim scenarios are executed using `run_sdg.sh`, a thin wrapper that locates
 
 | Parameter | Description |
 | --- | --- |
-| `-c, --config_file` | Path to the IRA config file (required) |
+| `--scenario` | Scenario id from `scenarios.yaml`; defaults to `SCENARIO` from the environment and fills the IRA, robots and cameras configs |
+| `-c, --config_file` | Path to the IRA config file; optional when the scenario names one |
 | `--start` | Automatically start data generation (no manual UI start needed) |
 | `--setup-only` | Set the scene up but do not start generation |
 | `--headless` | Run without a GUI window (for automated testing) |
@@ -311,19 +376,18 @@ Isaac Sim scenarios are executed using `run_sdg.sh`, a thin wrapper that locates
 | `--width` / `--height` | Viewport resolution (default 1920×1080) |
 | `--vst-register-warmup-sec` | Sim-time seconds the timeline must advance under Play before VST registration (default 1.0) |
 | `--vst-register-timeout-sec` | Wall-clock ceiling before VST registers best-effort even if the render never warms (default 1200) |
+| `--postprocessing-config` / `--postprocessing-preset` | RTX sensor-anomaly presets (`postprocessing.yaml`); pin `baseline` for a reference run |
 | `--save_usd` | Save the USD scene after generation |
 | `--debug_print` | Enable debug output |
 
-The build steps are all on by default and can be switched off individually for debugging: `--no-rtsp` (RTSP graph), `--no-forklift` (control, odometry, safety indicator), `--no-clock` (`/clock` publisher), `--no-camera-spawn` (dynamic camera prim spawn), `--no-runtime-patches`.
+The build steps are all on by default and can be switched off individually for debugging: `--no-rtsp` (RTSP graph), `--no-forklift` (control, odometry, safety indicator), `--no-forklift-spawn` (forklift prims from `spawn:`), `--no-indicator-spawn` (safety disc geometry), `--no-clock` (`/clock` publisher), `--no-camera-spawn` (dynamic camera prim spawn), `--no-postprocessing`, `--no-runtime-patches`.
 
 Example execution:
 
 ```bash
+# SCENARIO from sil.env supplies the IRA, robots and cameras configs
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml \
-  --robots-config /isaac-sim/sil/configs/robots.yaml'
+  ./run_sdg.sh --start --headless --enable-vst'
 ```
 
 VST Integration:
@@ -332,7 +396,7 @@ VST Integration:
 - Reads camera definitions from `cameras.yaml`
 - Constructs RTSP URLs: `rtsp://${HOST_IP}:${port}${mount_path}`
 - Requires the `HOST_IP` and `VST_BASE_URL` environment variables
-- Registration waits for the render to warm, which avoids the cold-bind `has no caps` failure (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming), 6478845)
+- Registration waits for the render to warm, which avoids the cold-bind `has no caps` failure on Isaac Sim 6.0 (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming))
 
 Example with UI:
 
@@ -360,20 +424,17 @@ Then start Isaac Sim with UI:
 
 ```bash
 docker exec -it isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml \
-  --robots-config /isaac-sim/sil/configs/robots.yaml'
+  ./run_sdg.sh --start --enable-vst'
 ```
 
 ![Isaac Sim UI](/assets/images/sil/isaac-sim-ui.png)
 
 <Warning>
-Run headless for anything repeated. On a GeForce card the windowed UI leaks NVENC encode sessions across timeline stop/play and dies after roughly three replays (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming), 6478175).
+Run headless for anything repeated. On a GeForce card the windowed UI leaks NVENC encode sessions across timeline stop/play and dies after roughly three replays (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming)).
 </Warning>
 
 <Tip>
-For the full IRA schema — character and robot groups, behavior trees, camera placement strategies, and writer options — see the [IRA Configuration File Guide](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/action_and_event_data_generation/ext_replicator-agent/ext_isaacsim_replicator_agent_configuration.html) and the [Actor Simulation tutorial](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/action_and_event_data_generation/tutorial_replicator_agent.html).
+For the full IRA schema — character and robot groups, behavior trees, camera placement strategies, and writer options — see the [IRA Configuration File Guide](https://docs.isaacsim.omniverse.nvidia.com/6.1.0/action_and_event_data_generation/ext_replicator-agent/ext_isaacsim_replicator_agent_configuration.html) and the [Actor Simulation tutorial](https://docs.isaacsim.omniverse.nvidia.com/6.1.0/action_and_event_data_generation/tutorial_replicator_agent.html).
 </Tip>
 
 ## Next Steps

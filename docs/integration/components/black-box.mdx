@@ -1,37 +1,75 @@
 ---
 title: "Safety Black Box (SBB)"
-description: ""
+description: "How Safety Core components write audit records to syslog through the Safety Black Box, which tags they use, and where the records land."
 ---
-Safety Black Box provides centralized logging and audit trail capabilities
-for HOISA.
+The Safety Black Box (SBB) is the audit trail of Safety Core. Components write their errors,
+fault decisions and safety-event traces to it, for compliance auditing and post-incident
+analysis. SBB is a small library, `libnvpsb.so`, that writes each record to the Linux syslog.
 
-All HOISA components write runtime details to SBB — including **errors**,
-**exceptions**, and **safety event traces**. SBB supports compliance auditing
-and post-incident analysis.
+![SBB: the SEI daemon, the NvPSD Gateway and the MDX client write records through libnvpsb.so to syslog; the container's rsyslog stores them in psf.log and the container output, and the host rsyslog rule stores them in pss.log](/assets/images/safety-core/sbb.svg)
 
-**Backend**: Linux syslog, with an rsyslog drop-in
-(`/etc/rsyslog.d/99-pss-logs.conf`) that routes every HOISA program to
-`/var/log/psf/pss.log` and stops further processing. Read the logs there in
-real time; they are deliberately not written to `/var/log/syslog`.
-Snapshots of that file enable offline analysis of deployment behavior and
-system health.
+## Who writes to SBB
 
-## Component roles that write to SBB
+| Syslog tag | Component | What it records |
+| --- | --- | --- |
+| `NVPSB_PSS_DAEMON` | SEI daemon (`nvpss_daemon`) | Every audit record of the SEI daemon: source loss, rejection streaks, delivery failures, staging overflows, fusion health, and each accepted report. See [Safety Event Integrator (SEI)](/integration/components/event-integrator#audit-records). |
+| `nvpsd_gateway`, `NVPSB_PSD_CLIENT` | NvPSD Gateway (`nvpsd_gateway`) | Requests received from SEI, synthetic faults, recovery records, SDM registration and refusals, heartbeat tiers and dropped requests. See [NvPSD Gateway](/integration/components/gateway#logs). |
+| `nv_mdx_client` | MDX client (`mdx_client`) | Mapping and identity loading, registration, each reported event, dropped events and heartbeat failures. |
 
-| Endpoint type | Role |
+The client library that event sources use to talk to the SEI daemon also writes its errors
+through SBB. In SAIM and PCM, which do not set a tag, those lines carry the program name. SAIM,
+PCM, the reference SDMs, the command receivers and `fsicom-agent` write their own logs to
+standard output, standard error or a log file instead; see their component pages.
+
+## Record format
+
+Each record is one syslog message with facility `LOG_USER`, the tag above and the process ID:
+
+```text
+ Timestamp: 2026-01-01 12:00:00:123456 Endpoint: NVPSB_PSS_DAEMON Data: <message><detail>
+```
+
+- `Timestamp` is the local wall-clock time with microseconds.
+- `Endpoint` names the component role: `NVPSB_PSS_DAEMON` for the SEI daemon,
+  `NVPSB_PSD_CLIENT` for the gateway, `NVPSB_PSS_SOURCE` for the MDX client.
+- The message and its detail are joined with no separator, for example
+  `registration refusedreason=table_full, peer=3`.
+- The syslog priority is the record's level, from `EMERG` to `DEBUG`. `EMERG` and `ALERT` are
+  reserved for the SEI daemon; any other component's record at those levels is written at `CRIT`.
+  SBB itself does not filter by level.
+
+The fields of each audit record are listed in [Causes and records](/reference/causes-and-records).
+
+## Where the records land
+
+| Deployment | SBB records | Standard output and error |
+| --- | --- | --- |
+| Docker runtime (`launch_hoisa.sh`, or `docker run` of the Safety Core image) | The container's rsyslog writes every syslog message to `/var/log/psf/psf.log` inside the container and to the container output (`docker logs`). `launch_hoisa.sh` mounts the host's `/var/log/psf/psf.log` there. | Container output (`docker logs`). |
+| Host (Debian package, `launch_hoisa.sh --runtime host`) | The rsyslog rule `/etc/rsyslog.d/99-pss-logs.conf` sends the tags `nvpss_daemon`, `nvpsd_gateway`, `nv_mdx_client`, `NVPSB_PSS_SOURCE`, `NVPSB_PSS_SINK`, `NVPSB_PSS_DAEMON`, `NVPSB_PSD_CLIENT` and `NVPSB_SDM_CLIENT` to `/var/log/psf/pss.log` and stops there, so these records do not reach `/var/log/syslog`. | `launch_hoisa.sh` appends the output of the SEI daemon, the gateway and the MDX client to `/var/log/psf/psf.log`. |
+
+- On a host, the package installs the rule and an empty `/var/log/psf/pss.log` (mode `0666`),
+  but does not restart rsyslog. Restart rsyslog after installing the package so that the rule
+  takes effect.
+- On a host, the SBB records and the process output of the same component are in two files:
+  `pss.log` and `psf.log`. Read both when you investigate a fault.
+- Transport diagnostics, such as a refused peer GID or a socket-buffer shortfall, are written to
+  standard error, not to SBB.
+- Where each component's own log lands is listed in
+  [Troubleshooting](/deployment/troubleshooting#logs).
+
+## Library interface
+
+`libnvpsb.so` has three functions:
+
+| Function | Purpose |
 | --- | --- |
-| `NVPSB_PSS_SOURCE` | SIPP source endpoint |
-| `NVPSB_PSS_SINK` | SIPP sink endpoint |
-| `NVPSB_PSS_DAEMON` | SEI daemon |
-| `NVPSB_PSD_CLIENT` | NvPSD gateway client |
-| `NVPSB_SDM_CLIENT` | Safety Decision Maker |
+| `NvPSBInitialize(ident, endpoint)` | Opens syslog with the tag `ident` and records the endpoint role. |
+| `NvPSBWriteData(level, data, additionalInfo)` | Writes one record. |
+| `NvPSBExit()` | Closes syslog. |
 
-<Info>
-The SBB API (`NvPSBInitialize`, `NvPSBWriteData`, `NvPSBExit`) provides
-interfaces for initializing the safety black box, writing data records, and
-gracefully terminating the logging session. Each call returns an
-`NvPSBErr` value: `NVPSB_SUCCESS`, `NVPSB_FAIL`, `NVPSB_NO_RSP`, or
-`NVPSB_UNINITIALIZED`. Records are written at one of the
-`NvPSBLogLevel_t` levels, which follow the syslog severities from
-`NVPSB_LOG_EMERG` through `NVPSB_LOG_DEBUG`.
-</Info>
+The endpoint roles are `NVPSB_PSS_SOURCE`, `NVPSB_PSS_SINK`, `NVPSB_PSS_DAEMON`,
+`NVPSB_PSD_CLIENT` and `NVPSB_SDM_CLIENT`. The functions return an `NvPSBErr`
+(`NVPSB_SUCCESS`, `NVPSB_FAIL`, `NVPSB_NO_RSP` or `NVPSB_UNINITIALIZED`); the levels are the
+syslog severities, `NVPSB_LOG_EMERG` to `NVPSB_LOG_DEBUG`. The SBB header is not part of the
+development package, so the library is for Safety Core components; a custom component can write
+to syslog directly.

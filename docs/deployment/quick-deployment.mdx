@@ -1,0 +1,379 @@
+---
+title: "Quick Deployment"
+description: "Run the forklift safety function on the VSS Warehouse 2D demo dataset with the Safety Core Docker container started by docker run."
+---
+This page runs the [forklift safety function](/deployment/applications#forklift-safety-function)
+on the VSS Warehouse 2D demo dataset (cameras `Camera`, `Camera_01` and `Camera_02`). The Safety
+Core runs in one Docker container, `nv-psf`, on the same host as AI Perception: the SEI daemon, the
+NvPSD Gateway, the MDX client, SAIM, PCM and the decision maker `atl_sdm`. The command receiver
+runs on the host. The commands are the same on x86-64 and IGX Thor, except `<gpu-options>`.
+
+Complete [Prerequisites](/deployment/prerequisites) first. You need two terminals on the host.
+
+## Placeholders
+
+| Placeholder | Meaning | How to find it |
+| --- | --- | --- |
+| `<release-tag>` | Tag of the Safety Core container image | The image you pulled in [Prerequisites](/deployment/prerequisites#docker-login) |
+| `<deb-resource>` | NGC resource of the Safety Core Debian package for your release and target | [Release Notes](/release-notes), or the [NGC resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety) |
+| `<deb-file>` | Debian package file name | `psf-desktop.deb` on x86-64, `psf-tegra.deb` on IGX Thor |
+| `<gpu-options>` | Docker options that give the container the GPU | `--gpus all` on x86-64; `--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all` on IGX Thor |
+
+## Steps
+
+1. <a id="install-the-debian-package"></a>
+   **Install the Debian package.** It provides the command receiver, which runs on the host, the
+   decision maker configuration template, and the baseline directories that you mount into the
+   container.
+
+   ```bash
+   mkdir -p ~/hoisa-demo/pkg && cd ~/hoisa-demo/pkg
+   ngc registry resource download-version "<deb-resource>"
+   sudo apt-get install -y "$(find ~/hoisa-demo/pkg -name '<deb-file>' | head -n 1)"
+   ldd /opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver | grep -c 'not found'
+   ```
+
+   Expected: the last command prints `0`.
+
+2. <a id="copy-the-decision-maker-configuration"></a>
+   **Copy the decision maker configuration.** The Debian package installs the forklift safety
+   function's event binding as a template, `/opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample`. Its
+   bindings match the demo dataset. The SEI daemon configuration needs no copy: the container uses
+   its own `/opt/nvidia/psf/bin/nvpss.conf`, which requires both AI monitors.
+
+   ```bash
+   cp /opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample ~/hoisa-demo/atl_sdm.conf
+   grep -cE '^[a-z_]+ *= *EVENT_[0-9]+' ~/hoisa-demo/atl_sdm.conf
+   ```
+
+   Expected: `6`, one line for each binding.
+
+3. <a id="write-the-camera-file"></a>
+   **Write the camera file for this host.** VST gives each camera a stream URL that changes whenever
+   VSS is redeployed. This command reads the current URLs from VST and writes
+   `~/hoisa-demo/sensor_config.conf`.
+
+   ```bash
+   python3 - ~/hoisa-demo/sensor_config.conf <<'EOF'
+   import json, sys, urllib.request
+   vst = "http://127.0.0.1:30888/vst/api/v1"
+   def get(path):
+       with urllib.request.urlopen(vst + path, timeout=10) as r:
+           return json.load(r)
+   sensors = get("/sensor/list")
+   sensors = sensors if isinstance(sensors, list) else sensors.get("sensors", [])
+   ids = {s.get("name"): s.get("sensorId") for s in sensors if s.get("state") == "online"}
+   urls = {}
+   for entry in get("/sensor/streams"):
+       for sid, streams in entry.items():
+           main = next((s for s in streams if s.get("isMain")), streams[0] if streams else None)
+           if main and main.get("url"):
+               urls[sid] = main["url"]
+   lines = ["# pipelineId, sensorName, rtspUrl"]
+   for pid, name in ((1, "Camera"), (2, "Camera_01"), (3, "Camera_02")):
+       if not urls.get(ids.get(name)):
+           sys.exit(f"error: VST has no online sensor {name} with a stream URL")
+       lines.append(f"{pid}, {name}, {urls[ids[name]]}")
+   open(sys.argv[1], "w").write("\n".join(lines) + "\n")
+   print("\n".join(lines))
+   EOF
+   ```
+
+   Expected: four lines, for example:
+
+   ```text
+   # pipelineId, sensorName, rtspUrl
+   1, Camera, rtsp://192.0.2.10:30554/live/<id>
+   2, Camera_01, rtsp://192.0.2.10:30555/live/<id>
+   3, Camera_02, rtsp://192.0.2.10:30556/live/<id>
+   ```
+
+4. <a id="check-the-camera-streams"></a>
+   **Check that each camera stream plays.** VST can list a camera as online while its stream does
+   not play, and the Safety AI Monitor (SAIM) needs every stream.
+
+   ```bash
+   for u in $(awk -F', *' '!/^#/ && NF >= 3 {print $3}' ~/hoisa-demo/sensor_config.conf); do
+     ffprobe -v error -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "$u"
+   done
+   ```
+
+   Expected: three lines, each `h264`.
+
+5. <a id="prepare-the-log-files"></a>
+   **Prepare the log files.** You mount the host directory `/var/log/psf` into the container, so
+   the logs stay on the host. The processes in the container run as the container user `nvidia`,
+   which can write to these files but cannot create new files in the directory.
+
+   ```bash
+   sudo mkdir -p /var/log/psf
+   sudo touch /var/log/psf/psf.log /var/log/psf/saim.log /var/log/psf/pcm.log /var/log/psf/atl_sdm.log
+   sudo chmod 666 /var/log/psf/psf.log /var/log/psf/saim.log /var/log/psf/pcm.log /var/log/psf/atl_sdm.log
+   ls -l /var/log/psf/psf.log /var/log/psf/saim.log /var/log/psf/pcm.log /var/log/psf/atl_sdm.log
+   ```
+
+   Expected: four lines, each starting with `-rw-rw-rw-`.
+
+6. <a id="learn-the-baselines"></a>
+   **Learn the baselines.** This one-time run records what the three cameras and the perception
+   output normally look like. SAIM writes one baseline per camera. The Perception Monitor (PCM)
+   writes one baseline for all cameras, which also records the event bindings of the decision
+   maker, so this run takes the same `--app` and `--sdm-config` as the next step. The reference PCM
+   baselines in the package were recorded for another decision maker configuration, so this step
+   is needed. The container runs in the foreground for about 5 minutes, can take a little longer,
+   and is removed when it exits. It starts no decision maker.
+
+   ```bash
+   docker run --rm --name nv-psf-learn --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-demo/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-demo/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode learn --pcm-mode learn --app atl \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf
+   ls /opt/nvidia/psf/bin/saim_baseline/ /opt/nvidia/psf/bin/pcm_baseline/
+   grep 'DVM: baseline: published' /var/log/psf/pcm.log | tail -n 1
+   ```
+
+   Expected: the container output contains `SAIM completed LEARN successfully`,
+   `PCM completed LEARN successfully` and `All selected monitors completed LEARN successfully`,
+   and the prompt returns. `ls` lists `Camera_baseline.cfg`, `Camera_01_baseline.cfg` and
+   `Camera_02_baseline.cfg` in `saim_baseline`, and `pcm_baseline.cfg` in `pcm_baseline`, each
+   next to the shipped `.cfg.default` files. `grep` prints a line that ends in
+   `DVM: baseline: published 3 camera(s) in /opt/nvidia/psf/bin/pcm_baseline/pcm_baseline.cfg; bbox/confidence/occupancy are not fault baselines`.
+
+7. <a id="start-the-safety-core"></a>
+   **Start the Safety Core.** In terminal 1, start the container in the background with both
+   monitors active. It runs every Safety Core process, including the decision maker, which sends
+   its commands to the command receiver at `127.0.0.1:12350` and writes its log to
+   `/var/log/psf/atl_sdm.log` on the host.
+
+   ```bash
+   docker run -d --name nv-psf --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/run/docker.sock:/var/run/docker.sock \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-demo/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-demo/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode active --pcm-mode active --app atl \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf \
+       --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12350
+   sleep 30; docker logs nv-psf 2>&1 | grep -E '^(Required sources|All processes started)'
+   ```
+
+   Expected: `docker run` prints the container ID, and `grep` prints
+   `Required sources: safety_monitor=1 perception_monitor=1 (from /opt/nvidia/psf/bin/nvpss.conf)`
+   and `All processes started. Waiting for shutdown signal...`.
+
+8. <a id="start-the-command-receiver"></a>
+   **Start the command receiver.** In terminal 2, start the reference command receiver. It listens
+   for the decision maker on port `12350`, forwards every decision to the VST overlay on port
+   `12345`, and reads operator commands from the named pipe `~/hoisa-demo/cmdrx.in`, so you can send
+   them from any terminal.
+
+   Start it only when no person is in the trailer or the ROI. The receiver sends one release
+   request on its own when it starts (see
+   [Release a latched safe state](#release-a-latched-safe-state)), and every accepted release
+   resets what the decision maker knows about people and the forklift.
+
+   ```bash
+   rm -f ~/hoisa-demo/cmdrx.in && mkfifo ~/hoisa-demo/cmdrx.in
+   /opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver -p 12350 --vst_ip 127.0.0.1 --vst_port 12345 0<> ~/hoisa-demo/cmdrx.in
+   ```
+
+   Expected: `ATL UDP Command Receiver listening on port 12350`, then within about 6 seconds
+   `Startup: peer connected — sending safe-release to clear any pre-existing latch`. Leave it
+   running. Without the VST overlay, the receiver can print
+   `VST relay send failed; continuing without display delivery` once; commands are not affected.
+
+## Check that it is working
+
+Run these checks in terminal 1, about 5 minutes after you
+[started the Safety Core](#start-the-safety-core). By then every monitor the
+configuration requires has either registered or been reported missing.
+
+1. **The container is up.**
+
+   ```bash
+   docker ps --filter name=nv-psf --format '{{.Names}}: {{.Status}}'
+   ```
+
+   Expected: `nv-psf: Up` followed by the uptime.
+
+2. **Every required source registered, and no process was refused.** A required source (SAIM,
+   PCM or the MDX client) that has not registered within about 4 minutes is reported as
+   `PSS_SAFETY_MONITOR_LOST`, `PSS_PERCEPTION_MONITOR_LOST` or `PSS_MDX_CLIENT_LOST`.
+
+   ```bash
+   docker logs nv-psf 2>&1 | grep -cE 'does not match the required PSF group|PSS_[A-Z_]*_LOST'
+   ```
+
+   Expected: `0`.
+
+3. **The Perception Monitor runs both of its checks.**
+
+   ```bash
+   grep -E 'checks: container_health=|pipeline -> VALID \(first status\)' /var/log/psf/pcm.log | tail -n 2
+   grep -cE 'not present: |Docker socket unreachable|Docker API error|have sent no frames since start|Kafka source unavailable|has not reported for|no PCM baseline found|baseline not used|nothing is being checked' /var/log/psf/pcm.log
+   ```
+
+   Expected: a line that ends in
+   `checks: container_health=on (5 container(s) listed) data_validation=on (3 baseline camera(s))`,
+   a line that contains `pipeline -> VALID (first status) (health=ok dvm=ok`, and `0` from the
+   second command. The `checks:` line shows only which checks were set up; the
+   `pipeline -> VALID` line shows that both reported good results, and the count shows that no
+   container, camera or Kafka feed was missing, Docker answered, no check went silent and the
+   baseline was usable.
+
+   If the count is not `0`, read the matching lines in `/var/log/psf/pcm.log`. If
+   `data_validation=off (no baseline)` appears, no usable PCM baseline remained: it is missing,
+   unreadable or corrupt, or the learn run in [Learn the baselines](#learn-the-baselines) used other
+   `--app` or `--sdm-config` values. The warnings logged just before the `checks:` line give the
+   cause. See also [Troubleshooting](/deployment/troubleshooting).
+
+4. **The Perception Monitor trusts the perception pipeline.**
+
+   ```bash
+   grep -E 'AI_PIPELINE_(VALID|INVALID)' /var/log/psf/pcm.log | tail -n 1
+   ```
+
+   Expected: a line that contains `[PCM][INFO] -> AI_PIPELINE_VALID`. PCM repeats its verdict every
+   5 seconds, so the line can end in `(re-sent, unchanged)`.
+
+5. **The decision maker started and registered with the NvPSD Gateway.**
+
+   ```bash
+   grep -E 'reviewed sensor set|sent registration|ATL Control Algorithm initialized' /var/log/psf/atl_sdm.log
+   ```
+
+   Expected: a line ending in `count=3 {1:Camera, 2:Camera_01, 3:Camera_02}`, a line
+   `SDM: sent registration (7 event types) to gateway`, and a line that starts with
+   `ATL Control Algorithm initialized`.
+
+6. **Decision requests arrive.** The SEI daemon sends at least one every 5 seconds.
+
+   ```bash
+   grep -c 'SDM: received DecisionRequest from psdGateway' /var/log/psf/atl_sdm.log; sleep 10
+   grep -c 'SDM: received DecisionRequest from psdGateway' /var/log/psf/atl_sdm.log
+   ```
+
+   Expected: the second number is larger than the first.
+
+7. **Commands reach the receiver and are acknowledged.**
+
+   ```bash
+   grep -E 'Sending decision command|Received acknowledgment' /var/log/psf/atl_sdm.log | tail -n 4
+   grep 'Received ATL command' /tmp/cmdrx.log | tail -n 3
+   ```
+
+   Expected: `Sending decision command` lines, each followed by a `Received acknowledgment` line
+   with the same `SeqNo`, and receiver lines such as
+   `Received ATL command: 0x07 - UNMUTE (PREVENT OPERATION)`. `0x02 - MUTE (ALLOW OPERATION)`
+   appears while the forklift is in the trailer with no person in the trailer or the ROI.
+
+8. **No safe state is held.** Look at terminal 2.
+
+   Expected: no `*** FSI SAFE-STATE LATCHED ***` banner after the startup release. The receiver
+   prints this banner for every latched safe state, also when the decision maker runs on the
+   CCPLEX. If you see it, follow [Release a latched safe state](#release-a-latched-safe-state).
+
+9. **The decision shows on the video.** Skip this check if you did not turn on the
+   [VST overlay](/deployment/prerequisites#vst-overlay). Open `http://<HOST_IP>:30888/vst/`,
+   where `<HOST_IP>` is the address of this host, and play one of the three cameras.
+
+   Expected: the overlay changes between `Standard Mode` and `Efficient Mode` as the forklift
+   enters and leaves the trailer.
+
+Every log file, and what writes it, is listed in [Logs](/deployment/troubleshooting#logs).
+
+## Release a latched safe state
+
+When the decision maker detects a fault, it latches a safe state: it sends `UNMUTE` followed by
+`SW_ERROR`, keeps sending them, and does not return to normal operation on its own. The latch is
+released only by a validated release request from the command receiver.
+
+**Automatic release at receiver start.** About half a second after the receiver first hears
+from the decision maker, it sends one release request on its own (the `Startup: peer connected`
+line). This clears a latch whose cause has already gone, for example one left over from a
+previous run. It happens once per receiver start. A latch whose cause is still active is denied.
+
+**Manual release.** Every safe state entered after that needs an operator. Run these steps in
+terminal 1:
+
+1. Find the cause. The decision maker names it when it enters the safe state.
+
+   ```bash
+   grep -E 'safe hold|fault latched' /var/log/psf/atl_sdm.log | tail -n 5
+   ```
+
+   Expected: one or more lines such as `ATL: AI pipeline reported INVALID; entering safe hold`.
+
+2. Fix the cause and wait for it to clear. For each cause, the decision maker logs a line that
+   ends in `latch awaits PLC release`.
+
+   ```bash
+   grep 'latch awaits PLC release' /var/log/psf/atl_sdm.log | tail -n 5
+   ```
+
+   Expected: one line for each cause found in step 1.
+
+3. Confirm the work area is safe: the forklift is outside the trailer and the ROI, and no person
+   is in either. The decision maker checks only its own fault sources and cannot see the scene.
+
+4. Send the release request.
+
+   ```bash
+   echo release > ~/hoisa-demo/cmdrx.in
+   ```
+
+   Expected: terminal 2 prints `Sent SAFE RELEASE REQUEST`, then
+   `>>> safe-state CLEARED <<<`, and `atl_sdm.log` gets
+   `ATL: PLC safe-release accepted; local state reset to clear condition`.
+
+If a cause is still active, terminal 2 prints `safe-release DENIED (SeqNo N) — latch cause still
+active.` and the decision maker logs
+`ATL: PLC safe-release denied; active safe-state fault source remains, active_causes=N`. `N` is
+the sum of the active causes:
+
+| Value | Cause |
+| --- | --- |
+| `1` | NvPSD Gateway heartbeat lost |
+| `2` | SEI fault: SEI error mode, a `SW_FAIL`, or a lost source such as SAIM, PCM or the MDX client |
+| `8` | Decision requests stopped arriving (freshness timeout) |
+| `16` | Gap in the decision request sequence |
+| `32` | Every reviewed camera reported invalid |
+| `64` | AI pipeline reported invalid by PCM |
+
+After a release, including the automatic one at receiver start, the decision maker forgets where
+the forklift and people were, and sends `UNMUTE` until it next sees the forklift enter the
+trailer.
+
+## Stop
+
+1. In terminal 1, stop and remove the container.
+
+   ```bash
+   docker stop nv-psf
+   docker rm nv-psf
+   docker ps -a --filter name=nv-psf -q
+   ```
+
+   Expected: `nv-psf` twice, and nothing from the last command. `docker rm` deletes the container
+   output that `docker logs` shows; the files in `/var/log/psf` remain.
+
+2. In terminal 2, press `Ctrl-C`.
+
+   Expected: `Shutting down...`. A receiver left running stops on its own about 55 seconds after
+   the last heartbeat from the decision maker, with
+   `cmd_rx: upstream CMD_HEARTBEAT fault latched (tier 3) — local fail-safe, no PSS — stopping`.
+
+To run on your own cameras, or with another application, continue with
+[Custom Deployment](/deployment/custom-deployment).

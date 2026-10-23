@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 900" width="2000" height="900" font-family="'JetBrains Mono','Fira Code','DejaVu Sans Mono','Liberation Mono',monospace" role="img" aria-label="SBB (libnvpsb.so): audit records from the SEI daemon, the NvPSD Gateway and the MDX client to syslog, and where each runtime stores them">
+<title>SBB (libnvpsb.so): audit records from the SEI daemon, the NvPSD Gateway and the MDX client to syslog, and where each runtime stores them</title>
+<defs>
+<pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#14212d"/></pattern>
+<marker id="arrow-data" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#53d6b6"/></marker>
+<marker id="arrow-safety" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#f2859f"/></marker>
+<marker id="arrow-plain" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#7f9aad"/></marker>
+<marker id="arrow-config" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#a996f5"/></marker>
+</defs>
+<rect width="2000" height="900" fill="#0a1520"/>
+<rect width="2000" height="900" fill="url(#grid)"/>
+<rect x="510" y="20" width="960" height="660" rx="16" fill="#111a24" fill-opacity="0.55" stroke="#e3c34f" stroke-width="2" stroke-dasharray="14 6 3 6"/>
+<rect x="518" y="29" width="225.2" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="525" y="49" fill="#e3c34f" font-size="16" font-weight="700">SBB library and syslog</text>
+<rect x="60" y="60" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="80" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="124.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Daemon</text>
+<text x="245.0" y="154.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">nvpss_daemon</text>
+<text x="245.0" y="194" text-anchor="middle" fill="#8db4c8" font-size="13.5">tag NVPSB_PSS_DAEMON</text>
+<rect x="60" y="280" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="300" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="344.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">NvPSD Gateway</text>
+<text x="245.0" y="374.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">nvpsd_gateway</text>
+<text x="245.0" y="414" text-anchor="middle" fill="#8db4c8" font-size="13.5">tags nvpsd_gateway, NVPSB_PSD_CLIENT</text>
+<rect x="60" y="500" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="520" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="564.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">MDX Client</text>
+<text x="245.0" y="594.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">mdx_client</text>
+<text x="245.0" y="634" text-anchor="middle" fill="#8db4c8" font-size="13.5">tag nv_mdx_client</text>
+<rect x="550" y="280" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="570" cy="300" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="333.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SBB Library</text>
+<text x="735.0" y="363.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">NvPSBInitialize, NvPSBWriteData</text>
+<text x="735.0" y="386.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">Timestamp, Endpoint, Data</text>
+<text x="735.0" y="414" text-anchor="middle" fill="#53d6b6" font-size="13.5">libnvpsb.so</text>
+<rect x="1040" y="280" width="370" height="150" rx="10" fill="#262a30" stroke="#f3a65a" stroke-width="2.5"/>
+<circle cx="1060" cy="300" r="5" fill="none" stroke="#f3a65a" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="339.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Syslog</text>
+<text x="1225.0" y="369.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">facility LOG_USER</text>
+<text x="1225.0" y="392.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">priority = record level</text>
+<rect x="1530" y="60" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="1550" cy="80" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="119.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Docker Runtime</text>
+<text x="1715.0" y="149.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">container rsyslog</text>
+<text x="1715.0" y="172.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">/var/log/psf/psf.log and docker logs</text>
+<rect x="1530" y="500" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="1550" cy="520" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="553.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Host Runtime</text>
+<text x="1715.0" y="583.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">rule 99-pss-logs.conf</text>
+<text x="1715.0" y="606.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">/var/log/psf/pss.log</text>
+<text x="1715.0" y="634" text-anchor="middle" fill="#a996f5" font-size="13.5">restart rsyslog after install</text>
+<path d="M 430.0 135.0 L 490.0 135.0 L 490.0 315.0 L 550.0 315.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 430.0 355.0 L 550.0 355.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 430.0 575.0 L 490.0 575.0 L 490.0 395.0 L 550.0 395.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 920.0 355.0 L 1040.0 355.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1410.0 315.0 L 1470.0 315.0 L 1470.0 135.0 L 1530.0 135.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1410.0 395.0 L 1470.0 395.0 L 1470.0 575.0 L 1530.0 575.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<text x="60" y="750" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">SAIM, PCM, the SDMs, the command receivers and fsicom-agent write their own logs. Transport diagnostics go to standard error.</text>
+<text x="70" y="830" fill="#e9eef3" font-size="20" font-weight="700">Legend</text>
+<rect x="70" y="848" width="30" height="20" rx="4" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2"/>
+<text x="110" y="864" fill="#9fb4c5" font-size="16">External</text>
+<rect x="220" y="848" width="30" height="20" rx="4" fill="#11313a" stroke="#53d6b6" stroke-width="2"/>
+<text x="260" y="864" fill="#9fb4c5" font-size="16">Backend</text>
+<rect x="360" y="848" width="30" height="20" rx="4" fill="#262a30" stroke="#f3a65a" stroke-width="2"/>
+<text x="400" y="864" fill="#9fb4c5" font-size="16">Transport</text>
+<rect x="520" y="848" width="30" height="20" rx="4" fill="#1d2550" stroke="#a996f5" stroke-width="2"/>
+<text x="560" y="864" fill="#9fb4c5" font-size="16">Configuration / state</text>
+<line x1="800" y1="858" x2="840" y2="858" stroke="#53d6b6" stroke-width="2.6" marker-end="url(#arrow-data)"/>
+<text x="852" y="864" fill="#9fb4c5" font-size="16">data flow</text>
+</svg>

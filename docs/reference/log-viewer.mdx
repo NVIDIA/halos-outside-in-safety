@@ -1,14 +1,14 @@
 ---
 title: "Log Viewer"
-description: ""
+description: "Use pss_log_viewer, a browser dashboard that tails and filters up to two Safety Core log files."
 ---
-Log Viewer provides a browser-based dashboard for real-time analysis of HOISA software
-logs. It is packaged as a self-contained binary with all runtime dependencies included.
+Log Viewer provides a browser-based dashboard for real-time analysis of Safety Core logs. It is
+packaged as a self-contained binary with all runtime dependencies included.
 
-## 1. Overview
+## Overview
 
-Log Viewer streams HOISA software logs to a browser-based dashboard. It auto-detects
-components, parses multiple log formats, and reflects new log entries in near real-time.
+Log Viewer streams Safety Core logs to a browser-based dashboard. It auto-detects components,
+parses multiple log formats, and reflects new log entries in near real-time.
 
 | **Property** | **Details** |
 | --- | --- |
@@ -17,7 +17,7 @@ components, parses multiple log formats, and reflects new log entries in near re
 | Max log files | Up to 2 files merged into one dashboard |
 | Default port | 8080 (configurable via `--port`) |
 
-## 2. Features
+## Features
 
 - **Dashboard** — per-component tabs with stats, error counts, and timeline charts.
 - **Filtering** — severity, free-text search, and timestamp range filters per tab.
@@ -25,35 +25,37 @@ components, parses multiple log formats, and reflects new log entries in near re
 - **Export** — HTML, PDF, Excel, and CSV; respects active filters.
 - **AI Debug** — ask natural-language questions against the live log state; export chat as HTML/PDF.
 
-## 3. Launching the Tool
+## Launching the tool
 
 <Note>
-`pss_log_viewer` is distributed separately and is not part of the HOISA
-Debian packages or the Safety Core container image. The commands below
-assume you have already obtained the binary and are running it from its
-own directory.
+`pss_log_viewer` is distributed separately and is not part of the Safety Core Debian packages
+or the Safety Core container image. The commands below assume you have already obtained the
+binary and are running it from its own directory.
 </Note>
+
+The Safety Core writes its logs under `/var/log/psf/`. Which file holds which component is
+listed in [Launchers and command-line options](/reference/launcher#logs). In a Docker
+deployment the SEI daemon, the NvPSD Gateway and the MDX client log to `psf.log`; with
+`--runtime host` and the package's rsyslog rule installed, their records go to `pss.log`.
 
 ```bash
 # Single log file (default port 8080)
-./pss_log_viewer /path/to/pss.log
+./pss_log_viewer /var/log/psf/psf.log
 
 # Two log files merged
-./pss_log_viewer /path/to/pss.log /path/to/atl_sdm.log
+./pss_log_viewer /var/log/psf/psf.log /var/log/psf/atl_sdm.log
 
 # Custom port
-./pss_log_viewer /path/to/pss.log --port 9090
+./pss_log_viewer /var/log/psf/psf.log --port 9090
 
-# Large files — load only last N lines on startup
-./pss_log_viewer /path/to/pss.log --last 50000
+# Large files: load only the last N lines on startup
+./pss_log_viewer /var/log/psf/psf.log --last 50000
 ```
 
-<Tip>
-The tool prints the full network URL on startup (e.g. `http://192.168.1.42:8080`).
-Open it from any browser on the same network.
-</Tip>
+The tool prints the full network URL on startup, for example `http://192.0.2.10:8080`. Open it
+from any browser on the same network.
 
-## 4. Launching with AI Debug
+## Launching with AI Debug
 
 The AI Debug tab is an optional feature that enables natural-language querying of the live
 log state. It supports any LLM inference endpoint that implements the standard Chat
@@ -65,7 +67,7 @@ Set the following environment variables before launching:
 export PSS_AI_BASE_URL=<your-llm-endpoint-url>
 export PSS_AI_MODEL=<your-model-name>
 export PSS_AI_API_KEY=<your-api-key>
-./pss_log_viewer /path/to/pss.log
+./pss_log_viewer /var/log/psf/psf.log
 ```
 
 <Note>
@@ -73,7 +75,7 @@ All other dashboard features — log viewing, filtering, and export — are avai
 without configuring the AI Debug tab.
 </Note>
 
-## 5. CLI Reference
+## CLI reference
 
 ```text
 Usage: pss_log_viewer [logfile1] [logfile2] [options]

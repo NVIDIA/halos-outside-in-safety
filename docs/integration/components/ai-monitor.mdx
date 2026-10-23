@@ -1,114 +1,219 @@
 ---
 title: "Safety AI Monitor (SAIM)"
-description: ""
+description: "How the Safety AI Monitor learns each camera's normal image, reports per-camera trust verdicts to SEI, and behaves when a camera fails."
 ---
-Safety AI Monitor continuously assesses the **health of the camera sensor
-inputs** feeding HOISA. It independently observes the same camera streams
-consumed by the perception pipeline (SIPP) and reports per-sensor trust
-verdicts to SEI, so that fusion and downstream decisions can factor sensor
-integrity into the safety response. If a camera can no longer be trusted,
-SAIM makes that visible to the rest of the stack rather than letting a
-degraded feed silently influence safety decisions.
+The Safety AI Monitor (SAIM, `safety_monitor`) judges whether each camera's video can be
+trusted. It reads the same RTSP streams as the perception pipeline, compares every frame with a
+baseline learned for that camera, and reports a per-camera verdict, `SENSOR_INVALID` or
+`SENSOR_VALID`, to the SEI daemon. SEI uses the verdicts to mark events from an untrusted
+camera, and the SDMs use them for their all-sensors-failed check.
 
-## Operating modes
+![SAIM process: for each camera an RTSP client, NVDEC decoder and frame analyzer feed a frame scorer that uses the camera's baseline and thresholds; a debounce counter and the verdict reporter send SENSOR_INVALID or SENSOR_VALID through the SEI client](/assets/images/safety-core/saim.svg)
 
-SAIM runs in one of two modes. A camera is taught its normal appearance once
-in LEARN mode, and is then monitored against that reference in ACTIVE mode.
+SAIM is required by default. The shipped `nvpss.conf` sets `required_safety_monitor = 1`. When a
+required SAIM never registers, or is lost after registering, SEI raises a `SW_FAIL` with cause 15
+and every SDM latches its safe state. Set the key to `0` only for a deployment without SAIM, and
+then start the launchers with `--saim-mode skip`; see
+[SEI configuration](/reference/sei-configuration).
 
-| **Mode** | **Description** |
+Under the Docker runtime SAIM runs inside the Safety Core container. Under `--runtime host` it
+runs on the host.
+
+## Modes
+
+| Mode | What SAIM does |
 | --- | --- |
-| LEARN | Observes all configured cameras for a configurable duration and records a per-camera reference of what a healthy feed looks like. No trust verdicts are reported in this mode. Run once for all cameras during installation, or whenever a camera's mounting or scene changes. |
-| ACTIVE | Loads the learned references, registers with SEI, and continuously checks every camera against its reference. Reports trust verdicts to SEI whenever a camera's health changes. This is the mode used in production. |
+| `LEARN` | Reads every configured camera for `--learn-duration` seconds and writes one baseline file per camera. It does not register with SEI and reports no verdict. Run it at installation, and again when a camera is moved or its scene changes. |
+| `ACTIVE` | Loads the baselines, registers with SEI, checks every frame and reports verdicts. |
 
-## What SAIM detects
+Both launchers select the mode with `--saim-mode learn|active|skip`; `skip` does not start SAIM.
+`launch_hoisa.sh --mode` is a deprecated alias for `--saim-mode`. The Perception Monitor has its
+own `--pcm-mode`. When the launchers start the control plane, `required_safety_monitor` in
+`nvpss.conf` must be `1` for `--saim-mode active` and `0` for `learn` or `skip`. A learning SAIM
+stops when its baselines are written and never switches to ACTIVE. See
+[Monitor modes](/reference/launcher#monitor-modes).
 
-In ACTIVE mode, SAIM compares each live camera feed against the healthy
-reference it learned for that camera. Because the reference captures how that
-specific camera normally looks — its brightness, contrast, sharpness, level
-of detail, and color — SAIM can recognize a wide range of problems that make
-a sensor untrustworthy, including:
+## Command line
 
-- **Out-of-distribution frames** whose measured image characteristics fall
-  outside the camera's learned normal range.
-- **Camera blockage or lens obstruction**, such as an object partly or fully
-  covering the lens.
-- **Fogging or condensation** on the lens.
-- **Loss of focus or sharpness.**
-- **Abnormal brightness, contrast, or color**, such as exposure or lighting
-  faults.
-- **Loss of the camera stream** that cannot be re-established.
-- **Corrupted or incomplete video**, such as heavy packet loss.
-
-Learning each camera's own normal appearance lets SAIM adapt to different
-scenes and lighting instead of relying on fixed, one-size-fits-all checks, so
-it flags genuine departures while tolerating each camera's normal variation.
-
-## Accelerator backends
-
-SAIM offloads its per-frame image analysis to the platform's vision
-accelerator, with two interchangeable backends that produce the same trust
-verdicts:
-
-- **GPU** — used on x86-64 deployments.
-- **PVA** (Programmable Vision Accelerator) — used on IGX / aarch64
-  deployments, which keeps the GPU free for other workloads.
-
-## Trust reporting to SEI
-
-SAIM reports two verdicts to SEI:
-
-- `SENSOR_INVALID` — the camera's input can no longer be trusted, because
-  its image has degraded, its stream was lost, or its video is corrupted.
-- `SENSOR_VALID` — the camera has returned to normal and its input can be
-  trusted again.
-
-SEI consumes these verdicts to qualify per-sensor input integrity and
-propagates the resulting health state to SDM (see [Safety Event Integrator (SEI)](/integration/components/event-integrator)). SAIM reports a
-trust-state change only once a condition is sustained, so brief, transient
-glitches do not cause the verdict to flap back and forth. It also reasserts
-each sensor's current verdict every 30 seconds so SEI can recover the health
-state after a restart.
-
-Every verdict also carries a **cause identifier** that is recorded in the
-PSS logs, so operators can see *why* a sensor changed state. The identifiers
-SAIM reports are:
-
-| **Identifier** | **Verdict** | **Reported when** |
+| Option | Default | Meaning |
 | --- | --- | --- |
-| `SAIM_INPUT_DEGRADED` | `SENSOR_INVALID` | The camera's frame-quality score stays below its healthy range. This is the general image-degradation cause and covers blockage or obstruction, fogging, loss of focus, abnormal brightness/contrast/ color, and out-of-distribution frames. |
-| `SAIM_STREAM_DISCONNECT` | `SENSOR_INVALID` | The camera stream is lost and cannot be re-established, or is being reconnected (connection-retry exhaustion or a mid-session reconnect). |
-| `SAIM_FRAME_DROP` | `SENSOR_INVALID` | The incoming video is corrupted or incomplete, from dropped video packets (heavy packet loss). |
-| `SAIM_INTERNAL_ERROR` | `SENSOR_INVALID` | SAIM cannot analyze the feed because of an internal analyzer or per-frame processing failure. |
-| `SAIM_INIT` | `SENSOR_INVALID` | Fail-safe seed emitted once per camera at startup, before any frames have been processed (see the cold-start note below). |
-| `SAIM_UNKNOWN` | `SENSOR_INVALID` | Defensive fallback, used only if a `SENSOR_INVALID` verdict is raised without a specific cause. |
-| `SAIM_SENSOR_HEALTHY` | `SENSOR_VALID` | The camera has produced a sustained streak of healthy frames and its input can be trusted again. |
+| `--mode <mode>` | `ACTIVE` | `LEARN` or `ACTIVE`, upper case only; `learn` is rejected. |
+| `--sensor-config <file>` | — (required) | The camera list. See [Inputs](#inputs). |
+| `--threshold-config <file>` | `thresholds.cfg` in the working directory | Scoring thresholds, ACTIVE only. See [Thresholds](#thresholds). |
+| `--learn-duration <sec>` | `300` | LEARN observation time, 1–3600. |
+| `--gpu <id>` | round-robin | Run every camera on this GPU. See [GPU selection](#gpu-selection). |
 
-<Note>
-**Cold-start behavior.** SAIM treats every camera as untrusted until it
-is proven healthy. On startup it therefore emits one `SENSOR_INVALID`
-verdict per configured camera — carrying the `SAIM_INIT` cause — before
-any frames have been processed. Once the streams are established and a
-sustained streak of frames passes the health checks, SAIM emits a
-matching `SENSOR_VALID` (`SAIM_SENSOR_HEALTHY`) verdict per camera to
-restore trust. This invalid-then-valid transient is expected and does not
-indicate a sensor fault.
-</Note>
+SAIM has no `--help` and no baseline-directory option: it reads and writes baselines in its
+working directory, and the launchers change into the baseline directory before they start it.
+An unknown argument prints `Error: unknown argument: <arg>` and exits 1. SAIM exits 0 only when
+every camera's pipeline ended without error.
 
-<Note>
-**Per-camera isolation.** SAIM monitors every configured camera
-independently. If one camera's stream drops or its analysis fails, SAIM
-reports that camera as `SENSOR_INVALID` and attempts automatic
-recovery (reconnecting to the stream or reinitializing its analysis);
-the remaining cameras continue to be monitored without interruption.
-</Note>
+## Inputs
 
-<Info>
-- Deployment and launch instructions:
-  [Deployment Guide](/deployment) Sections 2.1 and 2.4
-- Launcher modes, `--learn-duration`/`--baseline-dir`, and default
-  baselines: [launch_hoisa.sh](/reference/launcher)
-- How SEI consumes SAIM's trust verdicts: [Safety Event Integrator (SEI)](/integration/components/event-integrator)
-- Version changes for this release: [Release Notes](/release-notes)
-- Platform and accelerator resource notes: [Known Limitations](/known-limitations)
-- SAIM troubleshooting: [Deployment Guide](/deployment) Sections 6.3, 6.7–6.9
-</Info>
+SAIM reads the cameras from `sensor_config.conf`: one line per camera with `pipelineId`,
+`sensorName` and `rtspUrl`. The format and limits are in
+[Sensor files](/reference/sensor-files#sensor_config).
+
+| Item | Behaviour |
+| --- | --- |
+| RTSP control | TCP over IPv4, 10 s timeouts. The URL must start with `rtsp://`; the default port is 554. No authentication is supported. SAIM sends `DESCRIBE` to the `rtspUrl`, then sends `PLAY`, keep-alives and `TEARDOWN` to the control URL in the server's answer (the session-level `a=control`, resolved against `Content-Base`), so a server that answers with a per-viewer URL, such as NVStreamer, works. |
+| RTSP media | RTP over **UDP** unicast. A firewall between SAIM and the camera or VST must allow it. |
+| Codec | H.264 only, decoded on the GPU with NVDEC. Frames before the first IDR frame are dropped. |
+| Frame size | 1920×1080 or 3840×2160. The analysis divides each frame into a 15×15 grid of equal tiles, and the GPU and PVA kernels accept only sizes that fit it exactly. Other common sizes, such as 1280×720, 1920×1200, 2560×1440 and 4096×2160, are refused. In LEARN SAIM logs a `[QA]` size error, such as `[QA] <w>x<h> is not compatible with the 15x15 analysis grid` (`[QA-PVA]` on the PVA), and learns no baseline for that camera. In ACTIVE the stream's size differs from the baseline's, so SAIM stops that camera with `SAIM_INTERNAL_ERROR`; see [Camera failures](#camera-failures). |
+| Session end | The session ends after more than 5 s without packets, which SAIM notices within about 8 s, or on an RTCP `BYE`. |
+
+## What SAIM checks
+
+SAIM computes 12 image metrics on every frame: histogram mean and variance, RMS contrast, edge
+density, entropy, Laplacian variance (sharpness), the mean and variance of the two colour
+channels, and saturation mean and variance. It also measures each tile of a 15×15 grid over the
+frame. The GPU or PVA only measures; the scoring runs on the CPU and gives three scores from 0 to
+100:
+
+- **Brightness and structure**, from the brightness, contrast, edge, entropy and sharpness
+  metrics, and **colour**, from the colour metrics. Each metric is scored against the camera's
+  baseline, but a change counts only as far as the tiles agree on it beyond chance. A forklift or
+  a crowd that changes a few tiles therefore does not lower these scores; a change across the
+  whole lens does.
+- **Area**, from still tiles that have newly turned black or white, lost fine detail, or gained
+  colour noise compared with the baseline, for about 5 s. Tiles with movement are skipped. With
+  the default thresholds the area score reaches the low threshold, 45, when about 2.5% of the
+  frame is affected, and 0 at about 4.5%.
+
+The frame score is the lowest of the three.
+
+Because the baseline captures how that camera normally looks, a sustained low score points to
+problems such as:
+
+- out-of-distribution frames whose image statistics leave the learned range;
+- a blocked or partly covered lens, including a covered area of a few percent of the frame;
+- fogging or condensation;
+- loss of focus;
+- abnormal brightness, contrast or colour.
+
+SAIM also reports a lost stream, dropped video packets and its own analysis failures.
+
+To check these responses on a test deployment, inject camera faults with
+[SAIM distortion injection](/integration/saim-distortion-injection).
+
+The analysis runs on the GPU on x86-64 and on the PVA on aarch64. The backend is fixed when
+SAIM is built. Both backends need CUDA and NVDEC, and both give the same verdicts.
+
+## Baselines
+
+| Item | Behaviour |
+| --- | --- |
+| File name | `<sensorName>_baseline.cfg` in the working directory. Renaming a camera therefore needs a new baseline. |
+| Contents | The camera's whole-frame metrics, its frame size and a profile of every tile. A baseline scores only the frame size it was learned at: in ACTIVE a stream of another size stops that camera with `[<sensor>] profile was learned at <w>x<h> but the stream is <w>x<h>; re-run LEARN for this camera`. |
+| Earlier releases | Baselines learned by an earlier release have no tile profile and are refused: `[Config] BaselineValues: <file> was learned on a 0x0 tile grid but this build uses 15x15. Re-run LEARN to regenerate this baseline.` Learn every camera again after upgrading. A learned `.cfg` is used before the shipped `.cfg.default`, so an old learned file is not replaced by the new template; delete it or learn again. |
+| Default directory | `/opt/nvidia/psf/bin/saim_baseline`, set with `launch_hoisa.sh --baseline-dir`. Under the Docker runtime the launcher mounts this host directory into the container, writable in LEARN and read-only in ACTIVE, so baselines persist from LEARN to ACTIVE. |
+| Shipped defaults | `Camera_baseline.cfg.default`, `Camera_01_baseline.cfg.default` and `Camera_02_baseline.cfg.default`, learned on the reference warehouse scene. They match only those camera names. |
+| Lookup in ACTIVE | A learned `.cfg` wins. Without it SAIM uses `.cfg.default` and logs `Notice: baseline '<file>' not found for sensor '<name>'; falling back to default`. With neither, SAIM exits 1 before registering. |
+| LEARN result | A baseline is saved only when the camera delivered the planned number of frames, at least 30, and the outlier filter kept enough of them. Otherwise the log says why and nothing is saved. In LEARN, six failed connection attempts, or more than five interruptions of a stream, stop every camera; a gap of more than 5 s without packets counts as an interruption. `[<sensor>] LEARN: tiles: <n> series too short for a band; run LEARN longer` means the run was too short for some tile checks: the baseline is saved, but those checks can never alert for that camera. Learn again for longer. |
+
+The shipped defaults describe the reference scene only. A site with other cameras or another
+scene must run LEARN; see [Custom deployment](/deployment/custom-deployment#saim-baselines).
+
+## Thresholds
+
+ACTIVE reads `thresholds.cfg`. The launchers pass `/opt/nvidia/psf/bin/thresholds.cfg`, and
+the container launcher refuses to start SAIM when that file is missing.
+`launch_hoisa.sh --threshold-config <file>` replaces it.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `w_histogram`, `w_contrast`, `w_edge`, `w_entropy`, `w_laplacian` | 0.25, 0.20, 0.20, 0.20, 0.15 | Weights of the brightness and structure metrics. |
+| `uv_weight_cb`, `uv_weight_cr`, `uv_weight_sat` | 0.4, 0.4, 0.2 | Weights of the colour metrics. |
+| `k`, `sigma_floor_fraction`, `score_at_k_sigma` | 4.0, 0.0001, 55 | How far from the baseline a metric may move before it scores low. |
+| `canny_low_thresh`, `canny_high_thresh` | 50, 150 | Edge detector thresholds. |
+| `score_low_threshold`, `score_high_threshold` | 45, 55 | Frame scores below 45 count as bad, above 55 as good. `score_low_threshold` also sets where the area score reaches 0 (2.5% of the frame divided by 1 − threshold/100, about 4.5% at the default) and, with `k` and `score_at_k_sigma`, how far a tile may move from its baseline. The area score crosses the low threshold at 2.5% of the frame whatever its value. |
+| `counter_max`, `max_increment`, `max_decrement` | 225, 45, 9 | Debounce counter; see [Verdicts and timing](#verdicts-and-timing). |
+
+The shipped file holds the built-in defaults. When the file is missing or fails validation,
+SAIM logs `WARNING: threshold config <path> is missing or invalid; using built-in defaults` for
+each camera and continues.
+
+## Verdicts and timing
+
+SAIM reports two verdicts per camera, each with a cause. The cause values are listed in
+[Causes and records](/reference/causes-and-records).
+
+| Cause | Verdict | Reported when |
+| --- | --- | --- |
+| `SAIM_INIT` | `SENSOR_INVALID` | Once per camera at registration, before any frame is analysed. Every camera starts untrusted. |
+| `SAIM_INPUT_DEGRADED` | `SENSOR_INVALID` | The frame score stays low (see below), or the camera sent a keyframe but did not reach `SENSOR_VALID` within 15 s. |
+| `SAIM_STREAM_DISCONNECT` | `SENSOR_INVALID` | No keyframe within 30 s of the first packet; or, for a trusted camera, its stream ends (more than 5 s without packets, or an RTCP `BYE`) or a connection attempt fails. It is sent before SAIM reconnects. |
+| `SAIM_FRAME_DROP` | `SENSOR_INVALID` | While the camera is trusted: every fifth dropped video packet in a session, at most once per 10 s. The next good frame reports `SENSOR_VALID` again. |
+| `SAIM_INTERNAL_ERROR` | `SENSOR_INVALID` | SAIM's analysis failed to start or failed permanently for that camera. |
+| `SAIM_UNKNOWN` | `SENSOR_INVALID` | Fallback when no specific cause is set. |
+| `SAIM_SENSOR_HEALTHY` | `SENSOR_VALID` | The camera produced a sustained run of good frames. |
+
+**Debounce.** Each camera keeps a counter from 0 to `counter_max` (225). A frame scoring below
+45 raises it, by more the worse the frame; a frame scoring above 55 lowers it; scores from 45 to
+55 leave it unchanged. `SENSOR_INVALID` is reported when the counter reaches 225 and the frame is
+bad; `SENSOR_VALID` when it reaches 0 and the frame is good. With the default thresholds:
+
+| Change | Frames needed | At 30 frames/s |
+| --- | --- | --- |
+| Trusted to `SENSOR_INVALID` | 5 (score 0) to 225 (score 44) | about 0.2 to 7.5 s |
+| Untrusted to `SENSOR_VALID` | 25 (score 100) to 225 (score 56) | about 0.8 to 7.5 s |
+
+The counter starts at 225 when a stream connects, so a camera becomes trusted only after a run
+of good frames.
+
+**Re-assertion.** SAIM re-sends every camera's current verdict, with its cause, every 30 s.
+
+## Camera failures
+
+| Situation | Behaviour |
+| --- | --- |
+| A camera cannot be reached at startup | SAIM retries 5 s after each failed attempt, for as long as it runs, and logs `[<sensor>] RTSP connection failed, retrying every 5s` on every 12th failed attempt: about once a minute when the camera refuses the connection at once, less often when the connection times out after 10 s. No new verdict is sent: the camera keeps its startup `SENSOR_INVALID` with cause `SAIM_INIT`, re-sent every 30 s. SEI marks its events unhealthy, but the SDMs do not count a `SAIM_INIT` camera as failed, so it never contributes to the all-sensors-failed latch. When the camera comes up, SAIM starts watching it and it becomes trusted through the normal debounce. Other cameras continue. |
+| The stream stops mid-session | After more than 5 s without packets, or on an RTCP `BYE`, the session ends. A trusted camera reports `SAIM_STREAM_DISCONNECT` at once (`[<sensor>] SENSOR_INVALID handed to reporter (stream ended)`). SAIM then reconnects every 5 s, for as long as it runs, and the camera recovers through the normal debounce. |
+| A reconnection attempt fails | A trusted camera reports `SAIM_STREAM_DISCONNECT`, if it has not already. SAIM keeps retrying every 5 s; it does not give up on a camera in ACTIVE. |
+| The camera URL is malformed | SAIM tries 6 times, 5 s apart, logs `[<sensor>] RTSP: exceeded 5 connection retries (init failed), giving up`, and stops that camera. A camera that was never trusted keeps `SAIM_INIT`. |
+| The stream's frame size differs from the size its baseline was learned at | SAIM logs `[<sensor>] profile was learned at <w>x<h> but the stream is <w>x<h>; re-run LEARN for this camera`, then `[<sensor>] FATAL: frame quality analyzer cannot start; shutting down this stream`, reports `SAIM_INTERNAL_ERROR` and stops that camera. A size that does not fit the analysis grid always takes this path, because every baseline was learned at a size that fits. See [Inputs](#inputs) and [Baselines](#baselines). |
+| Analysis fails repeatedly | After 30 consecutive frame errors SAIM restarts that camera's analysis, up to 5 times. After that it stops that camera and, if the camera was trusted, reports `SAIM_INTERNAL_ERROR`. The other cameras continue. |
+| A baseline or GPU setup fails for one camera in ACTIVE | That camera's thread ends without a new verdict, so it stays at `SAIM_INIT`. This includes a baseline from an earlier release (`was learned on a 0x0 tile grid`). |
+| Every camera has stopped | SAIM exits 1 and unregisters. SEI raises `SW_FAIL` cause 15 and every SDM latches. |
+
+## GPU selection
+
+SAIM selects the GPU only through `--gpu`. Without it, camera `i` runs on GPU `i` modulo the
+number of visible GPUs. SAIM does not read `CUDA_VISIBLE_DEVICES` itself, but CUDA applies it:
+`--gpu` is an index among the GPUs that `CUDA_VISIBLE_DEVICES` leaves visible. An index out of
+range exits with `Error: --gpu <N> is out of range (0-<max>)`.
+
+| Launch | What happens with `--gpu <N>` |
+| --- | --- |
+| `launch_hoisa.sh --runtime host --gpu <N>` | SAIM gets `--gpu <N>`. `CUDA_VISIBLE_DEVICES` is passed on only if you set it. |
+| `launch_hoisa.sh --gpu <N>` (Docker runtime) or the container option `--gpu <N>` | The container launcher passes `--gpu <N>` **and** sets `CUDA_VISIBLE_DEVICES=<N>`. Only one GPU is then visible, as index 0, so any `N` other than 0 makes SAIM exit with the out-of-range error, and the container stops. Leave `--gpu` unset, or use `0`. |
+
+## Registration and supervision
+
+| Item | Behaviour |
+| --- | --- |
+| Client type | `CLIENT_SAFETY_MONITOR` on `/run/nvpsf/nvpssd`, in ACTIVE only. SAIM must run with the same primary group as the SEI daemon; see [Shared process group](/integration#shared-process-group). |
+| Registration | After the baselines load. Up to 6 attempts, 5 s apart, then `Failed to register with PSS daemon after 6 attempts. Exiting.` and exit 1. |
+| Heartbeat | Every 5 s. A failed heartbeat is logged (`[SAI] Heartbeat send failed`); SAIM keeps running. |
+| Single instance | SEI refuses a second ACTIVE SAIM (`duplicate singleton client type rejected`); the second process exits 1 after its retries. SEI accepts `SENSOR_INVALID` and `SENSOR_VALID` only from the registered SAIM. |
+| Never registered or lost | `SW_FAIL` cause 15. The never-registered budget is the same as for PCM: about 4.2 minutes with the shipped `max_hb_failures = 50`. |
+
+SAIM registers once, at startup. When the SEI daemon restarts, SAIM keeps running but does not
+register again, so the new daemon reports it as never registered when the budget runs out.
+Restart SAIM after restarting the SEI daemon.
+
+## Seeing the verdicts
+
+SAIM writes to standard output and standard error, not to syslog. The launchers send both to
+`/var/log/psf/saim.log`; the container launcher also copies them to the container output
+(`docker logs`).
+
+- SAIM logs most `SENSOR_INVALID` hand-offs on standard error, as
+  `[<sensor>] SENSOR_INVALID handed to reporter (<reason>)`. It writes no line when a camera
+  becomes `SENSOR_VALID` or when the frame score makes it `SENSOR_INVALID`.
+- Progress lines such as the mode banner and `Notice: baseline …` go to standard output, which
+  SAIM does not flush. Under the launchers they can appear late or out of order relative to the
+  standard-error lines.
+- For per-camera state changes, read the SDM log: each reference SDM logs
+  `safety-sensor health change pipelineID=<id> state=FAILED|RECOVERED cause=<n>` for the cameras
+  in its reviewed set. A camera at `SAIM_INIT` is not logged as failed.

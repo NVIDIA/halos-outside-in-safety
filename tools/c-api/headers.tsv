@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Integrator headers of the Safety Core C API, in the order the reference lists them.
+# Columns (tab-separated): header, group, description. generate.sh documents every header listed
+# here that exists under safety-core/ and skips the rest, so a header published in a later source
+# snapshot appears in the reference without a change to this tool.
+pss_daemon.h	SEI client interface	The client API of `libnvpssd_interface`: register with the SEI daemon, send heartbeats, report safety events and trust verdicts, and terminate.
+pss_protocol.h	SEI client interface	The safety messages and their vocabulary: `SafetyEvent`, `DecisionRequest`, event types, event causes, presence bits and the protocol schema version.
+pss_message_validate.h	SEI client interface	CRC-32 integrity and field-range validation of `SafetyEvent` and `DecisionRequest`.
+NvPSDGatewayProtocol.h	NvPSD Gateway interface	The gateway wire format: registration (REGR), registration refusal (RGNK) and its reasons, and the envelope that carries each decision request to an SDM.
+NvPSDGatewayContract.hpp	NvPSD Gateway interface	The gateway's contract with an SDM: subscribable and mandatory event types, the request-ID range and the records the gateway synthesises. C++.
+nvpsf_transport.h	Transport	The message-oriented AF_UNIX `SOCK_SEQPACKET` transport that every Safety Core link uses: endpoint configuration, socket paths under `/run/nvpsf`, the peer group check and the socket-buffer sizing.
+epl_proxy_wire_contract.h	FSI error reporting	The 16-byte report payload and the default socket path of the error-report proxy.
+fsicom_epl_proxy_wire.h	FSI error reporting	The proxy wire protocol between a client and `fsicom-agent`.
+fsicom_epl_proxy.h	FSI error reporting	The proxy listener inside `fsicom-agent`.
+atl_epl_proxy_send.h	FSI error reporting	The function the forklift safety function's decision maker uses to send a report.
+atl_epl_attr.h	FSI error reporting	The layout of the `error_attr` field in the forklift safety function's reports.
+oisf_error_codes.h	FSI error reporting	The error codes reported to the FSI.
+oisf_error_report.h	FSI error reporting	The FSI-side error-report library.

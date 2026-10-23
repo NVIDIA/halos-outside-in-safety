@@ -1,37 +1,268 @@
 ---
 title: "Safety Event Integrator (SEI)"
-description: ""
+description: "How the SEI daemon admits event sources, validates their reports, tracks trust and source presence, and delivers decision requests to the NvPSD Gateway."
 ---
-SEI is a core component of the Halos Outside-In Safety AI Agent. It fuses
-reported events, prioritizes them by severity, and forwards consolidated
-results to SDM for control decisions.
+The Safety Event Integrator (SEI) collects the safety events that event sources report, checks
+them, fuses or passes them through, and sends the result to the decision makers as
+`DecisionRequest`s through the [NvPSD Gateway](/integration/components/gateway). Its daemon is
+`nvpss_daemon`; its configuration file is `nvpss.conf`.
 
-## Sub-components
+SEI also tracks the trust verdicts from the Safety AI Monitor (SAIM) and the Perception Container
+Monitor (PCM), checks that every required source is present, and reports its own health in every
+request. Under the Docker runtime it runs inside the Safety Core container; under
+`--runtime host` it runs on the host.
 
-- **Communication Interface** (legacy: PSSComm) — Manages IPC between SEI
-  clients, SDM, and Safety Black Box.
-- **Core Processing Unit** (legacy: PSSCore) — Collates event parameters from
-  SIPP clients and evaluates them against defined safety conditions. Also
-  consumes per-sensor trust reports from SAIM and pipeline trust reports from
-  PCM to qualify input integrity, and propagates the resulting health state
-  to SDM so that downstream decisions can react to compromised sensors or a
-  compromised perception pipeline.
+![SEI daemon: client RPC server, admission and validation, source presence, trust and sensor health, fusion or pass-through, fail-safe staging, serialized gateway sender and status no-op producer](/assets/images/safety-core/sei-daemon.svg)
 
-## Fusion operations
+## Startup
 
-| **Operation** | **Description** |
+The daemon reads `/opt/nvidia/psf/bin/nvpss.conf`, or the file given with `--conf <path>`. Every
+key is described in [SEI configuration](/reference/sei-configuration). The daemon refuses to
+start, and exits 1, when any of the conditions below holds. It does not report unknown keys: a
+misspelt optional key is ignored and its default applies.
+
+| Condition | Log |
 | --- | --- |
-| Temporal | Correlates events from multiple pipelines at different time points (same real-world occurrence). |
-| Spatial | Correlates events from multiple sensors observing the same area. |
-| Attribute | Combines event attributes across sources for a balanced representation. |
-| Prioritized delivery | Not part of fusion itself. Fusion orders candidates by timestamp; the send path then draws from separate critical and operational queues, so critical events reach the SDM with minimal latency. |
+| The retired key `PSSDToPSDComBackend` is present | `Retired configuration key present; refusing to start` |
+| The file cannot be read, or a line has no `=` or an empty key | `Cannot read configuration file; refusing to start` |
+| A required key is missing | `Required configuration keys are missing; refusing to start`, and `Error: Required config key missing: <key>` on standard error |
+| `deploymentMode`, `enableFusion` or a `required_*` key is repeated or has a bad value | `<key> … refusing to start` |
+| `deploymentMode = 3D` with `enableFusion = true`, or without `sensorGroupConfig` | `deploymentMode=3D requires enableFusion=false` or `sensorGroupConfig is required when deploymentMode=3D` |
+| The sensor configuration or the 3D group file cannot be loaded or is inconsistent | `Failed to load sensor config from <path>: <reason>`, or a `Sensor group …; refusing to start` line |
 
-Output: SEI forwards fused events to SDM with parameters (type, severity,
-confidence) for action determination. `severity` is daemon-owned and takes
-one of two values, `OPERATIONAL` (0) or `CRITICAL` (1); a client cannot
-set it, and the daemon forces a single severity across every entry of one
-decision request.
+Other numeric keys with a bad value fall back to a default or are clamped, with a warning.
 
-<Info>
-- Fusion configuration parameters (`nvpss.conf`): [SEI Configuration](/reference/sei-configuration)
-</Info>
+The daemon serves two sockets in `/run/nvpsf`. It does not create the directory; a missing
+directory makes it fail with `nvpsf_transport: bind(<path>) failed`.
+
+| Socket | Peers |
+| --- | --- |
+| `/run/nvpsf/nvpssd` | Event sources and the gateway register, send heartbeats and report events here. |
+| `/run/nvpsf/nvpssd_to_psd` | The gateway connects here to receive `DecisionRequest`s. |
+
+Both are AF_UNIX `SOCK_SEQPACKET` sockets with mode `0660`. A peer is accepted only when its
+primary GID equals the daemon's; see [Shared process group](/integration#shared-process-group).
+
+## Client admission
+
+| Client type | Who | Instances |
+| --- | --- | --- |
+| `CLIENT_MDX` (1) | MDX client, or any custom event source | Numbered 1–8, one each; or anonymous, any number |
+| `CLIENT_SAFETY_MONITOR` (2) | SAIM | One |
+| `CLIENT_PSD_GATEWAY` (3) | NvPSD Gateway | One |
+| `CLIENT_PERCEPTION_MONITOR` (4) | PCM | One |
+
+- **Slots.** The daemon has 8 client slots in total, shared by every client, including the
+  gateway, SAIM and PCM. A connection takes a slot before it registers. When no slot is free the
+  connection is dropped (`admission dropped: no free client slot`).
+- **Registration.** A connection that has not registered 6.5 s after connecting is closed at the
+  next 5 s check. A heartbeat or a report before registration closes the connection.
+- **Refusals.** An unknown client type, an instance number on a non-MDX client, or an instance
+  outside 1–8 is refused. A second client of a single-instance type, or a second MDX client with
+  the same number, is refused with `duplicate singleton client type rejected`. If the existing
+  holder has exhausted its heartbeats, it is evicted instead and the newcomer is accepted. A
+  refused client is disconnected.
+- **Heartbeats.** Clients send a heartbeat every 5 s. A client is stale 6.5 s after its last
+  heartbeat; each further 5 s check counts one more miss. With `M` = `max_hb_failures` (range
+  1–255; 10 when the key is absent; the shipped file sets 50) and `W` = `M / 2` rounded down:
+
+| Misses | Effect |
+| --- | --- |
+| 1 to `W` | Logged (`heartbeat stale … warn tier`). |
+| More than `W`, fewer than `M` | The client's reports are refused. |
+| `M` | The client is disconnected and its loss is reported; see [Source presence](#source-presence). |
+
+The custom-source API is described in [Custom event sources](/integration/custom-event-sources).
+
+## Report validation
+
+Each `SafetyEvent` a client reports goes through these checks in order. The first five answer
+the client with a rejection code.
+
+| Check | Rejected when |
+| --- | --- |
+| Heartbeat tier | The client is in the degraded or failure heartbeat tier. |
+| Format | The size is wrong; the schema version or CRC does not match; the type is not a reportable type; the confidence is outside 0–1; the timestamp is 0; the cause is unknown. |
+| Sensor identity | A per-sensor event has `pipelineID` 0. Logged at most once a minute. |
+| Trust reports | `SENSOR_INVALID` or `SENSOR_VALID` from anyone but SAIM, `AI_PIPELINE_*` from anyone but PCM, or a reporter whose heartbeat is stale. SAIM may not report a 3D sensor group directly. |
+| Client and confidence | The event's `clientID` is not the reporting connection's, or the confidence is below 0.6. |
+
+Accepted events are then checked against the sensor configuration. These checks run after the
+client was told the report was accepted, so their rejections are visible only in the log:
+
+| Rejected when | Log |
+| --- | --- |
+| `pipelineID` is above `maxPipelines` | `Event from unregistered sensor: <id>` |
+| `pipelineID` is not in the sensor configuration | `Rejecting event: pipelineID <id> not in sensor_config` |
+| `sensorIdentifier` names a different sensor for that `pipelineID` | `Rejecting event: sensorIdentifier '<x>' does not match sensor_config entry '<y>'` |
+| A 3D group event has an empty `sensorIdentifier` | `Rejecting event: empty sensorIdentifier for sensor group pipelineID <id>` |
+| A camera event has an empty `sensorIdentifier`, unless it is `SW_FAIL` or a trust report (`SENSOR_*`, `AI_PIPELINE_*`) | `Rejecting event: empty sensorIdentifier for pipelineID <id>; an event that drives a decision must name its sensor, expected '<name>'` |
+
+A client cannot set the severity; the daemon assigns it.
+
+**Rejection streak.** Every rejected report adds to the client's run of consecutive rejections;
+an accepted report resets it. The checks that run after acceptance do not count. When the run
+reaches `client_reject_error_threshold` (default 50, range 3–10000):
+
+- If the source is required, by its own identity or because its last accepted report was for a
+  pipeline in the sensor configuration (in 3D, the sensor group), SEI logs
+  `PSS_CLIENT_INPUT_UNUSABLE` and sends `SW_FAIL` cause 13 once per episode. Every SDM latches.
+  The SDMs clear the condition only when a later presence report confirms that source usable
+  again.
+- Otherwise SEI logs the warning `PSS_CLIENT_REJECT_STREAK` once and takes no action.
+
+## Trust and sensor health
+
+SEI keeps three kinds of trust and stamps them on every event it forwards, as `isHealthy` and
+`isTrustedSource`.
+
+| Trust | Source | Rule |
+| --- | --- | --- |
+| Camera health (2D) | SAIM verdicts per `pipelineID` | A camera is healthy while it has no outstanding `SENSOR_INVALID`. A camera still at `SAIM_INIT` counts as unhealthy here. |
+| Sensor-group health (3D) | SAIM verdicts for the member cameras in the [group file](/reference/sensor-files#sensor-group-file) | Trusted while any member is healthy. Untrusted when every member is unhealthy and none is at `SAIM_INIT`. While every member is unhealthy but one is still at `SAIM_INIT`, the group stays trusted and SEI logs a warning. SEI reports each change to the SDMs as a `SENSOR_INVALID` or `SENSOR_VALID` for the group's `pipelineID`. |
+| AI pipeline | PCM verdicts | One flag for the whole pipeline. While `AI_PIPELINE_INVALID` stands, every event is untrusted. |
+
+- An event that is unhealthy or untrusted is not fused and not checked against the sensor
+  configuration. It is forwarded as `CRITICAL` with status `UNKNOWN` (or `STALE` when old), so
+  the SDMs can see it but do not act on it.
+- A stamp can only get worse between queueing and sending: the daemon uses the trust at queue
+  time and the trust at send time, whichever is lower.
+- With every status no-op, SEI re-sends each standing `INVALID` verdict: the AI-pipeline verdict,
+  each unhealthy camera in 2D, or the untrusted group in 3D. Valid verdicts are not re-sent.
+
+## Source presence
+
+Three mandatory keys in `nvpss.conf` name the sources that must be present:
+
+| Key | Range | Shipped | Source |
+| --- | --- | --- | --- |
+| `required_safety_monitor` | 0–1 | 1 | SAIM |
+| `required_perception_monitor` | 0–1 | 1 | PCM |
+| `required_mdx_instances` | 0–8 | 1 | MDX client instances 1 to N |
+
+A source is present while it is registered, has sent a heartbeat since registering, and has not
+faulted. SEI reports a missing source to every SDM as a `SW_FAIL`:
+
+| Situation | `SW_FAIL` cause | Reason in the log |
+| --- | --- | --- |
+| A required source has not registered within the budget | 15 (SAIM), 17 (PCM), 18 (MDX instance) | `never_registered` |
+| A source that was present crashes, disconnects, unregisters or breaks the protocol | 15, 17, 18 | `connection_dropped`, `unregistered`, `protocol_error_…` |
+| A source that was present runs out of heartbeats | 15, 17, 18 | `heartbeat_budget_exhausted` |
+| The gateway or an anonymous MDX client runs out of heartbeats | 8 | — |
+
+- The never-registered budget is 6.5 s plus 5 s for each of `max_hb_failures` − 1 misses, counted
+  from daemon start: about 4.2 minutes with the shipped value of 50.
+- A loss is reported whether or not the source is required. It clears only when the source
+  registers and sends heartbeats again.
+- The log record names the source: `PSS_SAFETY_MONITOR_LOST`, `PSS_PERCEPTION_MONITOR_LOST` or
+  `PSS_MDX_CLIENT_LOST`.
+- Every status no-op also carries a presence report (cause 16) that lists the present and the
+  expected sources. An SDM latches when the report shows an expected source as absent. The
+  format is in [Causes and records](/reference/causes-and-records).
+
+## Fusion or pass-through
+
+`enableFusion` in `nvpss.conf` selects how accepted events are processed.
+
+| Setting | Behaviour |
+| --- | --- |
+| `enableFusion = true` (2D only) | Events of a type in `bypassFusionEvents` skip fusion. Other events go to the fusion engine. It scores each pair of candidate events on temporal, spatial and attribute similarity, weighted by `alpha`, `beta` and `gamma`, and fuses pairs that reach `fusionThreshold`. |
+| `enableFusion = false` (required in 3D) | Every event is passed through. In 3D the BEV pipeline has already fused perception. |
+
+`SW_FAIL`, `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID` and `AI_PIPELINE_VALID` always
+bypass fusion. Each forwarded event carries a status:
+
+| Status | Meaning |
+| --- | --- |
+| `FUSED` | Produced by the fusion engine. |
+| `PASSTHROUGH` | Not matched by fusion within the window. The status no-op also carries it. |
+| `STALE` | Older than `timeWindowSize`, or dated more than `timeWindowSize` in the future. Applied before fusion, so it does not depend on `enableFusion`. The reference SDMs do not use stale events for decisions. |
+| `UNKNOWN` | Bypassed fusion, or fusion is off. |
+
+The fusion keys are described in [SEI configuration](/reference/sei-configuration).
+
+## Fail-safe staging
+
+Forwarded events wait in one of two lanes until they are sent.
+
+| Lane | Events |
+| --- | --- |
+| Critical | Every event while SEI is in `ERROR` mode; `SW_FAIL`, `SENSOR_*` and `AI_PIPELINE_*`; events that are unhealthy, untrusted or already `CRITICAL`. |
+| Operational | Everything else, including the status no-op. |
+
+- Each lane holds `psd_critical_queue_depth` and `psd_operational_queue_depth` events (default
+  32, range 8–512).
+- A request carries at most 8 events. The critical lane is served first.
+- **Operational lane full.** The new event is dropped and counted (`PSD_STAGING_QUEUE_OVERFLOW`,
+  logged at most once a second). A status no-op that finds the lane full is retried after
+  100 ms.
+- **Critical lane full.** An ordinary event is dropped. A `SW_FAIL` or trust report evicts the
+  newest evictable entry, an event from an untrusted source or a stale one, outside the first 8
+  (`PSD_CRITICAL_LANE_EVICTION`). If nothing can be evicted, the report is refused but kept (up to
+  32), and every request is stamped `ERROR` (`PSS_CRITICAL_LANE_OVERFLOW`) until the lane is at
+  most half full, an `ERROR`-stamped request has been acknowledged and every refused report has
+  been delivered (`PSS_CRITICAL_LANE_RECOVERED`).
+
+Severity is `OPERATIONAL` (0) or `CRITICAL` (1). One request carries one severity: if any entry
+is `CRITICAL`, or SEI is in `ERROR` mode, every entry is `CRITICAL`.
+
+## Delivery to the gateway
+
+One sender thread sends one request at a time and waits for the gateway's `DecisionResponse`.
+
+| Item | Behaviour |
+| --- | --- |
+| Request ID | Starts at 1, increases by one per request and wraps from `4294967294` to 1. The gateway checks this sequence. |
+| Attempts | Up to `pss_to_psd_retry_budget` attempts (default 3, range 1–10), back to back. Each waits up to `pss_to_psd_response_timeout_ms` (default 2000, range 100–30000) for a response with the same ID. If the two multiplied exceed 6000 ms, both revert to their defaults. |
+| Retries | A retry reuses the request ID and the status stamp of the first attempt. |
+| All attempts fail | SEI enters `ERROR` mode (`PSS_TO_PSD_DELIVERY_FAILURE`). The events stay staged and are sent again after 100 ms. After 3 failed deliveries of the same batch they are dropped (`PSD_STAGING_BATCH_UNDELIVERABLE`). |
+| Recovery | `ERROR` mode ends when a request stamped `ERROR` has been acknowledged (`PSS_TO_PSD_DELIVERY_RECOVERED`), so the SDMs always see the error before it clears. |
+
+## Status no-op
+
+So that the SDMs hear from SEI even when no events occur, SEI queues a `PSS_STATUS_NOOP`
+request every `status_noop_interval_ms` (default 5000, range 100–600000), whatever other traffic
+there is. It carries:
+
+- one event of type `PSS_STATUS_NOOP`, severity `OPERATIONAL`, status `PASSTHROUGH`, with
+  `sensorIdentifier` `PSS_DAEMON`;
+- the current SEI mode;
+- the presence report (cause 16).
+
+Queueing a no-op also re-sends the standing `INVALID` trust verdicts. The SDMs use the no-op to
+refresh their decision-freshness timer; see
+[Writing a decision maker](/integration/writing-a-decision-maker).
+
+## Modes
+
+Every request carries the SEI mode in `pssStatus.mode`.
+
+| Mode | Set when |
+| --- | --- |
+| `ERROR` | Delivery to the gateway failed; event processing has failed continuously for `fusion_failure_error_ms` (default 1000, range 100–60000; logged as `PSS_FUSION_HEALTH_ERROR`); SAIM has run out of heartbeats (until its slot is cleared, within about 100 ms; the lasting signal is the cause-15 `SW_FAIL`); or the critical lane refused a report (stamp only). |
+| `DEGRADED` | SAIM is in its degraded heartbeat tier. |
+| `NORMAL` | Otherwise. |
+
+When a request reports `ERROR`, the gateway sends every SDM a `SW_FAIL` with cause 12 and every
+SDM latches.
+
+## Audit records
+
+The daemon writes its records to syslog through the Safety Black Box with the tag
+`NVPSB_PSS_DAEMON`; see [Safety Black Box (SBB)](/integration/components/black-box). The record
+formats are in [Causes and records](/reference/causes-and-records).
+
+| Record | Written when |
+| --- | --- |
+| `PSS_SAFETY_MONITOR_LOST`, `PSS_PERCEPTION_MONITOR_LOST`, `PSS_MDX_CLIENT_LOST` | A source is lost or never registered. |
+| `PSS_CLIENT_INPUT_UNUSABLE`, `PSS_CLIENT_REJECT_STREAK`, `PSS_CLIENT_REJECT_STREAK_ENDED` | A rejection streak starts or ends. |
+| `PSS_TO_PSD_DELIVERY_FAILURE`, `PSS_TO_PSD_DELIVERY_RECOVERED` | Delivery to the gateway fails or recovers. |
+| `PSS_FUSION_HEALTH_ERROR`, `PSS_FUSION_HEALTH_RECOVERED` | Event processing fails continuously, or recovers. |
+| `PSS_CRITICAL_LANE_OVERFLOW`, `_READMITTED`, `_RECOVERED`, `_REFUSED_LOST`, `PSD_CRITICAL_LANE_EVICTION` | The critical lane overflows, evicts or recovers. |
+| `PSD_STAGING_QUEUE_OVERFLOW`, `PSD_STAGING_QUEUE_HIGH_WATER`, `PSD_STAGING_BATCH_UNDELIVERABLE`, `PSD_STAGING_DELIVERY_RESUMED` | Staging drops, fills or recovers. |
+| `PSS_TRUST_VERDICTS_REASSERTED` | The set of re-sent `INVALID` verdicts changes. |
+| `ENTRY POINT: Received safety event from <source>` | A report was accepted. |
+
+Diagnostics about the gateway link, such as
+`Timeout receiving matching DecisionResponse from PSD client`, and transport rejections go to
+standard error, not to syslog.

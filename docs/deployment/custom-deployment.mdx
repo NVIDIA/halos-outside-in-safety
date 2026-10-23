@@ -1,0 +1,717 @@
+---
+title: "Custom Deployment"
+description: "Move from the demo to your own cameras and configuration: which file controls what, and short procedures for the common changes."
+---
+Start from a working [Quick Deployment](/deployment/quick-deployment). This page tells you which
+file to change for each kind of change, and what else the change implies. The formats and every
+key are in the Reference: [Sensor files](/reference/sensor-files),
+[SEI Configuration](/reference/sei-configuration),
+[Event Mapping Configuration](/reference/event-mapping-configuration) and
+[Container options](/reference/launcher#container-options).
+
+| Placeholder | Meaning | How to find it |
+| --- | --- | --- |
+| `<release-tag>` | Tag of the Safety Core container image | The image you pulled in [Prerequisites](/deployment/prerequisites#docker-login) |
+| `<gpu-options>` | Docker options that give the container the GPU | `--gpus all` on x86-64; `--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all` on IGX Thor |
+| `<safety-core-host-ip>` | IPv4 address of the host that runs the Safety Core | `hostname -I` on that host |
+| `<port>` | UDP port of a command receiver, or of the VST listener | Your choice of a free port; for VST, its `halo_safety_udp_port` |
+| `<vst-ip>` | IPv4 address of the host that runs VST | `hostname -I` on that host |
+| `<host>:<port>` after `--broker` | Kafka broker of AI Perception | The address and port of the Kafka broker on the perception host |
+
+<a id="site-files"></a>
+
+## Site files
+
+The examples keep the site's files in `~/hoisa-site` and mount each of them into the container.
+Start from the packaged files and the camera file of the Quick Deployment:
+
+```bash
+mkdir -p ~/hoisa-site
+cp /opt/nvidia/psf/bin/nvpss.conf ~/hoisa-site/nvpss.conf
+cp /opt/nvidia/psf/bin/sensor_pipelines_config.conf ~/hoisa-site/sensor_pipelines_config.conf
+cp /opt/nvidia/psf/bin/pcm_monitor.cfg ~/hoisa-site/pcm_monitor.cfg
+cp /opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample ~/hoisa-site/atl_sdm.conf
+cp ~/hoisa-demo/sensor_config.conf ~/hoisa-site/sensor_config.conf
+ls ~/hoisa-site
+```
+
+Expected: `atl_sdm.conf`, `nvpss.conf`, `pcm_monitor.cfg`, `sensor_config.conf` and
+`sensor_pipelines_config.conf`.
+
+## Configuration map
+
+The container reads each file at a fixed path. The [start command](#start-with-your-site-files)
+mounts every site file over that path, so you change a file in `~/hoisa-site` and start the
+container again.
+
+| What you want to change | Site file or container option | Path in the container | Read by | What the change implies |
+| --- | --- | --- | --- | --- |
+| Cameras: streams, names, pipeline IDs | `sensor_config.conf`, and `--sensor-config` | `/opt/nvidia/psf/bin/sensor_config.conf` | SAIM, MDX client and SEI daemon | New camera names need new SAIM and PCM baselines. `maxPipelines` in `nvpss.conf` must cover every pipeline ID. See [Cameras](#cameras). |
+| Which cameras the decision maker treats as safety-relevant | `sensor_pipelines_config.conf` | `/opt/nvidia/psf/bin/sensor_pipelines_config.conf` | The decision makers | The decision maker latches when every listed camera is reported invalid. See [Cameras](#cameras). |
+| Which monitors run | `--saim-mode` and `--pcm-mode`, each `learn`, `active` or `skip` | — | The container | Both are required on every start. See [Required monitors](#required-monitors). |
+| Required monitors, 2D or 3D, fusion and timing | `nvpss.conf` | `/opt/nvidia/psf/bin/nvpss.conf` | SEI daemon, and the container, which checks the required monitors against `--saim-mode` and `--pcm-mode` | The daemon refuses to start on a missing or malformed mandatory key. See [Required monitors](#required-monitors). |
+| SAIM baselines | The host directory `/opt/nvidia/psf/bin/saim_baseline` | `/opt/nvidia/psf/bin/saim_baseline`, writable for `learn`, read-only for `active` | SAIM | Mount the same directory for `learn` and `active`. See [Baselines](#saim-baselines). |
+| PCM baselines | The host directory `/opt/nvidia/psf/bin/pcm_baseline` | `/opt/nvidia/psf/bin/pcm_baseline`, writable for `learn`, read-only for `active` | PCM | Use the same directory, `--app` and `--sdm-config` for `learn` and `active`. See [Baselines](#saim-baselines). |
+| Containers PCM checks, and which PCM checks run | `pcm_monitor.cfg` | `/opt/nvidia/psf/bin/pcm_monitor.cfg` | PCM | A listed container that stops after PCM has seen it makes PCM report the AI pipeline invalid. See [Required monitors](#required-monitors). |
+| Which events each decision maker acts on | `atl_sdm.conf` and the other SDM configurations, and `--sdm-config` | The path you mount each file at | The decision makers and PCM | Codes must match the event mapping, and two decision makers must not share a code. See [Decision maker configuration](#decision-maker-configuration-and-event-mapping). |
+| How Kafka messages become safety events | `--event-mapping`, default chosen by `--app` | The path you mount the file at | MDX client and PCM | `output_event` codes must match the decision maker configuration. |
+| Where commands go | `--cmd_rx_ip`, `--cmd_rx_port` | — | The decision makers | The receiver must listen on that port. See [Command receiver endpoint](#command-receiver-endpoint-and-ports). |
+| Kafka broker | `--broker`, default `localhost:9092` | — | MDX client and PCM | Needed when perception runs on another host. |
+| Logs | `/var/log/psf` on the host | `/var/log/psf` | Every process in the container | Each log file must exist with mode `666` before the container starts. See [Prepare the log files](/deployment/quick-deployment#prepare-the-log-files). |
+
+Configuration is read at start-up. After any change, stop and remove the container as in
+[Stop](/deployment/quick-deployment#stop) and run the start command again. A container started
+again with `docker restart` keeps the options it was created with.
+
+<a id="start-with-your-site-files"></a>
+
+## Start with your site files
+
+These two commands replace the learn and start steps of the Quick Deployment. Every procedure on
+this page uses them.
+
+1. **Learn the baselines.** Point the cameras at the normal, unobstructed scene. The container
+   runs in the foreground and is removed when it exits. `--learn-duration` accepts 1 to 3600
+   seconds and defaults to 300.
+
+   ```bash
+   docker run --rm --name nv-psf-learn --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-site/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-site/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode learn --pcm-mode learn --app atl \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf \
+       --learn-duration 300
+   ```
+
+   Expected: `SAIM completed LEARN successfully`, `PCM completed LEARN successfully`, then
+   `All selected monitors completed LEARN successfully`.
+
+2. **Start the Safety Core.**
+
+   ```bash
+   docker run -d --name nv-psf --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/run/docker.sock:/var/run/docker.sock \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-site/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro" \
+       -v "$HOME/hoisa-site/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-site/sensor_pipelines_config.conf:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro" \
+       -v "$HOME/hoisa-site/pcm_monitor.cfg:/opt/nvidia/psf/bin/pcm_monitor.cfg:ro" \
+       -v "$HOME/hoisa-site/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode active --pcm-mode active --app atl \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf \
+       --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12350
+   sleep 30; docker logs nv-psf 2>&1 | grep -E '^(Required sources|All processes started)'
+   ```
+
+   Expected: `Required sources: safety_monitor=1 perception_monitor=1 (from /opt/nvidia/psf/bin/nvpss.conf)`
+   and `All processes started. Waiting for shutdown signal...`. Then start the command receiver as
+   in [Start the command receiver](/deployment/quick-deployment#start-the-command-receiver) and run
+   [Check that it is working](/deployment/quick-deployment#check-that-it-is-working).
+
+<a id="cameras"></a>
+
+## Your own cameras
+
+These steps are for 2D perception, where each camera reports its own events.
+
+1. **Write the camera file.** One line per camera in `~/hoisa-site/sensor_config.conf`:
+   `pipelineId, sensorName, rtspUrl`. Use pipeline IDs 1 to 8, each once. `sensorName` must be
+   exactly the VST sensor name, which perception puts in each event. `rtspUrl` must be the VST
+   proxy URL of that camera (`rtsp://<host>:<port>/live/<id>`), as listed by
+   `curl -s http://127.0.0.1:30888/vst/api/v1/sensor/streams`.
+
+   ```bash
+   cat ~/hoisa-site/sensor_config.conf
+   ```
+
+   Expected: one line per camera, with no duplicate ID or name. Check every URL with the
+   `ffprobe` loop from [Check that each camera stream plays](/deployment/quick-deployment#check-the-camera-streams).
+
+2. **List the safety-relevant cameras.** The decision makers read this list, the reviewed sensor
+   set, from `~/hoisa-site/sensor_pipelines_config.conf`, with two fields per line:
+   `pipelineId, sensorName`. Edit it so that it lists the cameras the site actually runs, with the
+   same IDs and names as `sensor_config.conf`. A camera listed but never reported can never fail,
+   so the all-cameras-failed safe state can never trigger.
+
+   ```bash
+   cat ~/hoisa-site/sensor_pipelines_config.conf
+   ```
+
+   Expected: one line per safety-relevant camera.
+
+3. **Set the pipeline count.** In `~/hoisa-site/nvpss.conf`, set `maxPipelines` to at least the
+   highest pipeline ID.
+
+   ```bash
+   grep '^maxPipelines' ~/hoisa-site/nvpss.conf
+   ```
+
+   Expected: `maxPipelines=<n>`, where `<n>` is at least your highest pipeline ID.
+
+4. **Learn new baselines.** Follow [Baselines](#saim-baselines).
+
+5. **Match the calibration to the event mapping.** The forklift safety function needs a tripwire
+   and an ROI whose IDs equal the `rule_id` values in the event mapping (`tripwire-id-1` and
+   `roi-id-1` by default), and the ROI must list `Person` in `restrictedObjectTypes`. Check it as
+   in [Prerequisites](/deployment/prerequisites#calibration).
+
+The decision maker logs the reviewed set it loaded:
+`grep 'reviewed sensor set' /var/log/psf/atl_sdm.log` prints the IDs and names. Events from a
+camera that is not in `sensor_config.conf` are dropped, with
+`Dropping event: sensor not in sensor_config, so it has no pipelineID: <name>` in
+`docker logs nv-psf`.
+
+**3D perception.** In 3D, events arrive under the name of a camera group, so `nvpss.conf` needs
+`deploymentMode = 3D`, `enableFusion = false` and `sensorGroupConfig`, and
+`sensor_pipelines_config.conf` names the group instead of the cameras. The container then also
+needs the sensor group file: add a read-only mount of it at the path that `sensorGroupConfig`
+names. The file formats are in [Sensor files](/reference/sensor-files#sensor-group-file). The
+decision maker on the FSI does not support 3D.
+
+<a id="saim-baselines"></a>
+
+## Baselines
+
+Both monitors compare what they see with baselines learned on the normal scene.
+
+- **SAIM** uses, for each camera, `<sensorName>_baseline.cfg` from
+  `/opt/nvidia/psf/bin/saim_baseline`, and falls back to `<sensorName>_baseline.cfg.default`. The
+  package ships `.default` baselines only for the demo cameras (`Camera`, `Camera_01` and
+  `Camera_02`). With neither file, SAIM exits at start-up with
+  `Error: baseline file '<name>_baseline.cfg' (or '<name>_baseline.cfg.default') not found for sensor '<name>'.`
+- **PCM** uses one file, `/opt/nvidia/psf/bin/pcm_baseline/pcm_baseline.cfg`, for all cameras. It
+  also records the event bindings of the decision makers, taken from `--app` and `--sdm-config`.
+  An active run whose bindings differ does not use it, and PCM then runs without its data check.
+  The shipped reference files fit only the demo cameras with `--app atl,pxc`; see
+  [PCM baselines](/reference/launcher#pcm-baselines).
+
+Learn both again after you move, rename, add or remove a camera, or change the scene. Learn PCM
+again after you change `--app`, an SDM configuration, `--event-mapping`, or where the decision
+maker runs (CCPLEX or FSI); for that, use `--saim-mode skip` in the learn command, and leave out
+`--sensor-config` and the GPU options.
+
+1. **Learn.** Run the learn command of [Start with your site files](#start-with-your-site-files),
+   with the same `--app`, `--sdm-config` and `--event-mapping` that the active run will use.
+
+   Expected: `All selected monitors completed LEARN successfully`. One
+   `<sensorName>_baseline.cfg` per camera is in `/opt/nvidia/psf/bin/saim_baseline/`, and
+   `/var/log/psf/pcm.log` has a line ending in
+   `DVM: baseline: published <n> camera(s) in /opt/nvidia/psf/bin/pcm_baseline/pcm_baseline.cfg; bbox/confidence/occupancy are not fault baselines`.
+   To learn one monitor only, set the other to `skip`.
+
+2. **Start the active run** with the same baseline directory mounts. A new PCM baseline replaces
+   the whole camera set, so cameras you no longer run drop out of it.
+
+3. **Check that PCM uses the baseline.**
+
+   ```bash
+   grep 'checks: container_health=' /var/log/psf/pcm.log | tail -n 1
+   ```
+
+   Expected: `data_validation=on (<n> baseline camera(s))`, where `<n>` is your number of
+   cameras. `data_validation=off (no baseline)` means no usable baseline remained: it is missing,
+   unreadable or corrupt, or the learn run used other `--app`, `--sdm-config` or `--event-mapping`
+   values. The warnings logged just before the `checks:` line give the cause. Then confirm that the
+   checks report results, as in
+   [Check that it is working](/deployment/quick-deployment#check-that-it-is-working).
+
+## Required monitors
+
+Every start selects both monitors: `--saim-mode` for SAIM, which reports each camera valid or
+invalid, and `--pcm-mode` for PCM, which reports the AI pipeline valid or invalid. Each takes
+`learn`, `active` or `skip`. Three mandatory keys in `nvpss.conf` declare the safety sources the
+SEI daemon requires, and the container checks two of them against the modes:
+
+| Key | Values | Rule |
+| --- | --- | --- |
+| `required_safety_monitor` | `0` or `1` | `1` with `--saim-mode active`; `0` with `learn` or `skip` |
+| `required_perception_monitor` | `0` or `1` | `1` with `--pcm-mode active`; `0` with `learn` or `skip` |
+| `required_mdx_instances` | `0` to `8` | The container runs one MDX client, as instance 1, so use `1` |
+
+A mismatch stops the container before anything starts, with
+`Error: --pcm-mode skip conflicts with required_perception_monitor = 1 in /opt/nvidia/psf/bin/nvpss.conf.`
+in `docker logs nv-psf`. The container never edits the file. A learn run with no monitor in
+`active` does not read it and starts no decision maker.
+
+What happens at run time:
+
+- A required source that has not registered within the heartbeat budget after the SEI daemon
+  starts (about 4 minutes at the shipped `max_hb_failures = 50`) is reported lost with
+  `reason=never_registered`. Every decision maker then latches its safe state and refuses release
+  until that source is back.
+- A source that registered and is then lost, because it crashed, stopped sending heartbeats or
+  disconnected, latches every decision maker in the same way, whether it is required or not.
+- A missing, repeated or out-of-range key stops both the container and the SEI daemon at start-up.
+
+**Running without a monitor.** Skipping a monitor removes its protection. To run without PCM, set
+`required_perception_monitor = 0` in `~/hoisa-site/nvpss.conf` and use `--pcm-mode skip` in the
+start command. For SAIM, use `required_safety_monitor = 0` and `--saim-mode skip`.
+
+**PCM container checks.** PCM inspects each container listed as `monitor_container = <name>` in
+its configuration, through the host's Docker socket, which the start command mounts into the
+container. The shipped list names the five containers that carry the video and the perception
+output in the VSS Warehouse pipeline. Once PCM has seen a listed container, that container
+stopping (with any exit code), pausing, restarting, turning unhealthy or disappearing makes PCM
+report `AI_PIPELINE_INVALID`. A listed container that never appears is only reported in `pcm.log`,
+and with no valid entry the container check is off. To change the list, edit
+`~/hoisa-site/pcm_monitor.cfg`:
+
+```bash
+grep '^monitor_container' ~/hoisa-site/pcm_monitor.cfg
+```
+
+Expected: five lines, `vss-vios-nvstreamer`, `vss-vios-streamprocessing`, `vss-rtvi-cv`,
+`vss-behavior-analytics` and `kafka`. Edit them to the names on this host.
+
+When perception runs on another host, PCM cannot see its containers: in
+`~/hoisa-site/pcm_monitor.cfg`, set `container_health = false` in the `[monitors]` section, keep
+`data_validation = true`, and add `--broker <host>:<port>` to the container options of the learn
+and start commands. The other keys of the file are on
+[Perception Monitor](/integration/components/perception-monitor).
+
+## Decision maker configuration and event mapping
+
+Each decision maker reads a configuration that names the event codes it acts on. The package
+ships samples; copy one into `~/hoisa-site`, review it, mount it into the container and name its
+container path with `--sdm-config`.
+
+| Sample | Application | Codes |
+| --- | --- | --- |
+| `/opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample` | Forklift safety function, trailer bay 1 | `EVENT_0` to `EVENT_5` |
+| `/opt/nvidia/psf/bin/atl_sdm_zone2.conf.sample` | Forklift safety function, trailer bay 2 | `EVENT_6` to `EVENT_11` |
+| `/opt/nvidia/psf/bin/pxc_sdm_forklift.conf.sample` | Proximity Monitoring, forklift and person | `EVENT_12` to `EVENT_14` |
+| `/opt/nvidia/psf/bin/pxc_sdm_robots.conf.sample` | Proximity Monitoring, robots and person | `EVENT_15` to `EVENT_23` |
+
+An unknown, repeated or missing key stops the decision maker at start-up, with the reason in
+`docker logs nv-psf`, and the container then stops.
+
+The MDX client turns Kafka messages into those codes with an event mapping. The container picks
+`/opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt` for `atl` and `atl,atl`, and
+`/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt` for every `--app` value that
+includes `pxc`. To use your own, mount it read-only and pass its container path with
+`--event-mapping`, in the learn and the start command; its `output_event` values must match the
+decision maker configurations.
+
+## Command receiver endpoint and ports
+
+- `--cmd_rx_ip` is the IPv4 address of the command receiver or PLC, and `--cmd_rx_port` its UDP
+  port, one port per decision maker in `--app` order. The decision maker accepts acknowledgements
+  and release requests only from that address and port.
+- A command receiver on another machine must be told where the decision maker runs:
+  `atl_sdm_cmd_receiver -p <port> --sdm_ip <safety-core-host-ip>`. It drops packets from any other
+  sender with `Dropped packet from unexpected SDM sender`.
+- Keep the receiver's `--max_hb_failures` at its default of `10`. The receiver then stops about
+  55 seconds after the last decision maker heartbeat. A larger value delays that fault.
+- To draw the decision on video, both receivers forward commands to VST with
+  `--vst_ip <vst-ip> --vst_port <port>`; the port must equal VST's `halo_safety_udp_port`.
+- The Proximity Monitoring halo around forklifts is drawn when `proximity_sdm` sends its commands
+  to a VST halo listener too. The container has no option for this; only
+  [`launch_hoisa.sh --halo-ip`](/reference/launcher#launch_hoisa-options) sets it.
+
+<a id="multiple-decision-makers"></a>
+
+## Running more than one decision maker
+
+Pass two applications to `--app`, with one configuration for each, in the same order. Learn the
+baselines with that `--app` and both configurations, then start the active run with one receiver
+port for each decision maker, again in the same order. This example runs the forklift safety
+function and Proximity Monitoring together:
+
+1. **Copy the second configuration and create its log file.**
+
+   ```bash
+   cp /opt/nvidia/psf/bin/pxc_sdm_forklift.conf.sample ~/hoisa-site/pxc_sdm_forklift.conf
+   sudo touch /var/log/psf/pxc_sdm.log && sudo chmod 666 /var/log/psf/pxc_sdm.log
+   ls -l /var/log/psf/pxc_sdm.log
+   ```
+
+   Expected: a line starting with `-rw-rw-rw-`.
+
+2. **Learn with both configurations.** A learning run needs no receiver ports.
+
+   ```bash
+   docker run --rm --name nv-psf-learn --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-site/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-site/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode learn --pcm-mode learn --app atl,pxc \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf,/opt/nvidia/psf/bin/pxc_sdm_forklift.conf
+   ```
+
+   Expected: `All selected monitors completed LEARN successfully`.
+
+3. **Start the Safety Core** with the same `--app` and configurations, and one port for each
+   decision maker.
+
+   ```bash
+   docker run -d --name nv-psf --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/run/docker.sock:/var/run/docker.sock \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-site/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro" \
+       -v "$HOME/hoisa-site/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-site/sensor_pipelines_config.conf:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro" \
+       -v "$HOME/hoisa-site/pcm_monitor.cfg:/opt/nvidia/psf/bin/pcm_monitor.cfg:ro" \
+       -v "$HOME/hoisa-site/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode active --pcm-mode active --app atl,pxc \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf,/opt/nvidia/psf/bin/pxc_sdm_forklift.conf \
+       --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12350,12351
+   sleep 30; docker logs nv-psf 2>&1 | grep -E '^All processes started'
+   ```
+
+   Expected: `All processes started. Waiting for shutdown signal...`.
+
+4. **Start the forklift safety function receiver** in its own terminal, with its own log file.
+   Both receivers write to `/tmp/cmdrx.log` by default, so without `--log-file` their records mix.
+
+   ```bash
+   /opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver -p 12350 --log-file /tmp/cmdrx-atl.log
+   ```
+
+   Expected: `ATL UDP Command Receiver listening on port 12350`.
+
+5. **Start the Proximity Monitoring receiver** in another terminal, with its own log file.
+
+   ```bash
+   /opt/nvidia/psf/apps/proximity/proximity_sdm_cmd_receiver -p 12351 --log-file /tmp/cmdrx-pxc.log
+   ```
+
+   Expected: a line that starts with `Proximity UDP Command Receiver listening on port 12351`.
+
+| Rule | Detail |
+| --- | --- |
+| Forms | `atl,pxc`, `pxc,atl`, `atl,atl` and `pxc,pxc`; at most two decision makers |
+| Ports | Two different ports; the container refuses a duplicate |
+| Event codes | The two configurations must not share a code; the container refuses an overlap |
+| Logs | `/var/log/psf/atl_sdm.log` and `/var/log/psf/pxc_sdm.log`; two of the same type use `_zone1` and `_zone2` names. `--sdm-log-file <file>,<file>` sets other names under `/var/log/psf`. Create each file before the start. Each receiver needs its own `--log-file` |
+| Where | Host CPU or CCPLEX only. `--sdm-on-fsi` with two decision makers is refused |
+| Safe state | Each decision maker latches and is released on its own receiver |
+
+<a id="sdm-on-host"></a>
+
+## Decision maker on the host
+
+The decision maker can run on the host, outside the container, for example to run an SDM you
+built yourself. The SEI daemon, the NvPSD Gateway, the MDX client and the monitors stay in the
+container. The SDM connects to the gateway in the container through the shared socket directory
+`/run/nvpsf`, and the gateway admits it only when it runs with the container user's primary group
+ID (see [Shared process group](/integration#shared-process-group)). These steps run the forklift
+safety function with the files, baselines and command receiver of
+[Quick Deployment](/deployment/quick-deployment), which must have run up to and including
+[Learn the baselines](/deployment/quick-deployment#learn-the-baselines). You need three terminals.
+`launch_hoisa.sh --runtime docker` starts the same layout for you; see
+[Host processes and the container's group](/reference/launcher#host-processes-and-the-container-group).
+
+| Placeholder | Meaning | How to find it |
+| --- | --- | --- |
+| `<container-gid>` | Primary group ID of the container user | Printed by step 3 |
+
+1. **Check the socket directory.** The host directory `/run/nvpsf` is mounted into the container
+   in the next step, so the gateway's socket is visible on the host.
+
+   ```bash
+   ls -ld /run/nvpsf
+   ```
+
+   Expected: a line starting with `drwxrwxrwt`.
+
+2. **Start the Safety Core without the decision maker.** In terminal 1, start the container with
+   `--sdm-external` and the `/run/nvpsf` mount. `--sdm-config` is passed for PCM only, which
+   checks the decision maker's event bindings.
+
+   ```bash
+   docker run -d --name nv-psf --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /run/nvpsf:/run/nvpsf \
+       -v /var/run/docker.sock:/var/run/docker.sock \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-demo/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-demo/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode active --pcm-mode active --app atl --sdm-external \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf
+   sleep 30; docker logs nv-psf 2>&1 | grep -E '^(SDMs run outside this container|All processes started)'
+   ```
+
+   Expected: `SDMs run outside this container; skipping local SDM startup` and
+   `All processes started. Waiting for shutdown signal...`.
+
+3. **Read the container user's group ID.**
+
+   ```bash
+   docker exec nv-psf id -g nvidia
+   ```
+
+   Expected: one number other than `0`. That number is `<container-gid>`.
+
+4. **Start the decision maker.** In terminal 3, start `atl_sdm` as root with the container user's
+   group ID as its primary group. It sends its commands to the command receiver at
+   `127.0.0.1:12350` and writes its log to `/var/log/psf/atl_sdm.log`.
+
+   ```bash
+   sudo setpriv --regid <container-gid> --keep-groups -- /opt/nvidia/psf/apps/atl/atl_sdm \
+       --config "$HOME/hoisa-demo/atl_sdm.conf" \
+       --log_file /var/log/psf/atl_sdm.log \
+       --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12350 \
+       --decision_interval_ms 0
+   ```
+
+   Leave it running.
+
+5. **Start the command receiver** in terminal 2, as in
+   [Start the command receiver](/deployment/quick-deployment#start-the-command-receiver).
+
+6. **Check that the gateway admitted the decision maker.**
+
+   ```bash
+   docker logs nv-psf 2>&1 | grep -c 'does not match the required PSF group'
+   ps -o pid,uid,gid,egid,args -C atl_sdm
+   grep -E 'sent registration' /var/log/psf/atl_sdm.log
+   ```
+
+   Expected: `0`; one `atl_sdm` line with user ID `0` and both group IDs equal to
+   `<container-gid>`; and `SDM: sent registration (7 event types) to gateway`. Then run the checks
+   in [Check that it is working](/deployment/quick-deployment#check-that-it-is-working).
+
+To stop, press `Ctrl-C` in terminal 3, then stop the container and the receiver as in
+[Stop](/deployment/quick-deployment#stop). Started as root without `setpriv`, the decision maker
+runs with group ID `0` and is refused: the container output shows
+`nvpsf_transport: peer GID 0 does not match the required PSF group <container-gid>.`, and the
+decision maker holds its safe state.
+
+<a id="sdm-on-fsi"></a>
+
+## SDM on FSI
+
+On an IGX Thor the decision maker can run on the Functional Safety Island (FSI) instead of the
+CCPLEX. The NvPSD Gateway, SEI daemon, MDX client and monitors stay in the container, and
+`fsicom-agent`, which you start on the host, relays decisions between the gateway, the FSI and the
+command receiver. `fsicom-agent` connects to the gateway in the container through the shared
+socket directory `/run/nvpsf`, and the gateway admits it only when it runs with the container
+user's primary group ID (see [Shared process group](/integration#shared-process-group)). This mode
+runs one decision maker, the forklift safety function or Proximity Monitoring, on 2D perception.
+The FSI firmware has its event codes and its reviewed cameras (`Camera`, `Camera_01` and
+`Camera_02`) built in, so `--sdm-config` and `sensor_pipelines_config.conf` do not apply.
+
+| Placeholder | Meaning | How to find it |
+| --- | --- | --- |
+| `<fsi-resource>` | NGC resource of the `psf-tegra-fsi` package for your release | [Release Notes](/release-notes); the package needs a separate sign-up at the [early-access page](https://developer.nvidia.com/halos-for-outside-in-safety-agents-early-access) |
+| `<app-dir>` | Firmware directory of the application | `atl` for the forklift safety function, `proximity` for Proximity Monitoring |
+| `<app>` | `--app` value of the application | `atl` or `pxc`; it must match the firmware |
+| `<cmd-identifier>` | Packet identifier of the application on the FSI | `0xA2` for `atl`, `0xA5` for `pxc` |
+| `<container-gid>` | Primary group ID of the container user | Printed by step 8 |
+
+1. **Flash the platform.** Flash the IGX Thor BSP and the Safety Extension Package (SEP), as
+   described in the IGX Safety Extension Package documentation.
+
+2. **Install the FSI package on the IGX Thor.** It provides `/opt/nvidia/psf/bin/fsicom-agent` and
+   the firmware `/opt/nvidia/psf/etc/fsi-fw/<app-dir>/fsi-ffw-t264.bin`.
+
+   ```bash
+   mkdir -p ~/hoisa-demo/fsi && cd ~/hoisa-demo/fsi
+   ngc registry resource download-version "<fsi-resource>"
+   sudo apt-get install -y "$(find ~/hoisa-demo/fsi -name 'psf-tegra-fsi.deb' | head -n 1)"
+   ls /opt/nvidia/psf/bin/fsicom-agent /opt/nvidia/psf/etc/fsi-fw/<app-dir>/fsi-ffw-t264.bin
+   ```
+
+   Expected: both paths are listed.
+
+3. **Flash the application firmware.** Copy `fsi-ffw-t264.bin` from `fsi-fw/atl/` or
+   `fsi-fw/proximity/` to the host that flashes the IGX Thor, and flash it in place of the
+   default FSI firmware from the SEP, following the SEP documentation. The firmware must match
+   the `--app` you start.
+
+4. **Reset the board.** The FSI runs the new firmware only after a reset or reboot. Do this before
+   the next step.
+
+5. **Raise the socket buffers.** `fsicom-agent` needs `net.core.rmem_max` and `net.core.wmem_max`
+   of at least `5283840`, more than the VSS kernel settings give.
+
+   ```bash
+   sudo sysctl -w net.core.rmem_max=5283840 net.core.wmem_max=5283840
+   printf 'net.core.rmem_max = 5283840\nnet.core.wmem_max = 5283840\n' | sudo tee /etc/sysctl.d/99-zz-nvpsf-fsi.conf
+   ```
+
+   Expected: both settings printed back. The file name sorts after the VSS settings file, so the
+   higher value also holds after a reboot.
+
+6. **Start the platform `nvFsiCom` daemon.** Nothing in the Safety Core starts it, and
+   `fsicom-agent` cannot reach the FSI without it.
+
+   ```bash
+   sudo /opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom &
+   pgrep -af nvFsiCom
+   ```
+
+   Expected: one `nvFsiCom` process.
+
+7. **Learn the PCM baseline for this mode.** Without an SDM configuration, PCM checks every rule of
+   the application's event mapping, so it needs a baseline learned the same way.
+
+   ```bash
+   docker run --rm --name nv-psf-learn --network=host \
+       -v /var/log/psf:/var/log/psf \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode skip --pcm-mode learn --app <app>
+   ```
+
+   Expected: `PCM completed LEARN successfully`, then
+   `All selected monitors completed LEARN successfully`.
+
+8. **Check the socket directory and read the container user's group ID.** The host directory
+   `/run/nvpsf` is mounted into the container in the next step, so the gateway's socket is visible
+   to `fsicom-agent` on the host.
+
+   ```bash
+   ls -ld /run/nvpsf
+   docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> -g nvidia
+   ```
+
+   Expected: a line starting with `drwxrwxrwt`, then one number. That number is `<container-gid>`.
+
+9. **Start the Safety Core with the decision maker on the FSI.** Use `--sdm-on-fsi`, no
+   `--sdm-config`, and the same `<app>` as the firmware.
+
+   ```bash
+   docker run -d --name nv-psf --network=host --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /run/nvpsf:/run/nvpsf \
+       -v /var/run/docker.sock:/var/run/docker.sock \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-demo/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode active --pcm-mode active --app <app> --sdm-on-fsi \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+   sleep 30; docker logs nv-psf 2>&1 | grep -E '^(SDMs run outside this container|All processes started)'
+   ```
+
+   Expected: `SDMs run outside this container; skipping local SDM startup` and
+   `All processes started. Waiting for shutdown signal...`.
+
+10. **Start `fsicom-agent`** in a third terminal, as root with the container user's group ID as its
+    primary group. It relays to the command receiver at `127.0.0.1:12350`.
+
+    ```bash
+    sudo setpriv --regid <container-gid> --keep-groups -- /opt/nvidia/psf/bin/fsicom-agent \
+        --heartbeat --relay-fsi-resp --ip 127.0.0.1 --port 12350 --cmd-identifier <cmd-identifier>
+    ```
+
+    Expected: `[INIT] ✓ FSI communication initialized`, `[INFO] CMD identifier: <cmd-identifier>`,
+    a line starting `[GW] Connected to gateway`, and `[HB] First keepalive received`. Leave it
+    running; it prints to this terminal only.
+
+11. **Start the command receiver** as in
+    [Start the command receiver](/deployment/quick-deployment#start-the-command-receiver).
+    For Proximity Monitoring use `/opt/nvidia/psf/apps/proximity/proximity_sdm_cmd_receiver`.
+
+12. **Check that the gateway admitted the agent.**
+
+    ```bash
+    docker logs nv-psf 2>&1 | grep -c 'does not match the required PSF group'
+    ```
+
+    Expected: `0`.
+
+To stop, press `Ctrl-C` in the `fsicom-agent` terminal, then stop the container and the receiver
+as in [Stop](/deployment/quick-deployment#stop). In this mode the decision maker on the FSI logs
+to the FSI UART; use `tcu_muxer` to find its device node. The receiver logs
+`UTC epoch: 0.000000` for every command, because the FSI decision maker leaves the packet time
+stamp at zero. The `fsicom-agent` options are listed in
+[`fsicom-agent` options](/reference/launcher#fsicom-agent-options).
+
+## Proximity Monitoring
+
+Run Proximity Monitoring like the forklift safety function, with its own configuration, log file
+and receiver.
+
+1. **Copy the configuration and create its log file.**
+
+   ```bash
+   cp /opt/nvidia/psf/bin/pxc_sdm_forklift.conf.sample ~/hoisa-site/pxc_sdm_forklift.conf
+   sudo touch /var/log/psf/pxc_sdm.log && sudo chmod 666 /var/log/psf/pxc_sdm.log
+   ls -l /var/log/psf/pxc_sdm.log
+   ```
+
+   Expected: a line starting with `-rw-rw-rw-`.
+
+2. **Learn the baselines** with `--app pxc` and this configuration.
+
+   ```bash
+   docker run --rm --name nv-psf-learn --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-site/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode learn --pcm-mode learn --app pxc \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/pxc_sdm_forklift.conf
+   ```
+
+   Expected: `All selected monitors completed LEARN successfully`.
+
+3. **Start the Safety Core.**
+
+   ```bash
+   docker run -d --name nv-psf --network=host <gpu-options> \
+       -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+       -v /var/run/docker.sock:/var/run/docker.sock \
+       -v /var/log/psf:/var/log/psf \
+       -v "$HOME/hoisa-site/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro" \
+       -v "$HOME/hoisa-site/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
+       -v "$HOME/hoisa-site/sensor_pipelines_config.conf:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro" \
+       -v "$HOME/hoisa-site/pcm_monitor.cfg:/opt/nvidia/psf/bin/pcm_monitor.cfg:ro" \
+       -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
+       -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+       -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       --saim-mode active --pcm-mode active --app pxc \
+       --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+       --sdm-config /opt/nvidia/psf/bin/pxc_sdm_forklift.conf \
+       --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12350
+   sleep 30; docker logs nv-psf 2>&1 | grep -E '^All processes started'
+   ```
+
+   Expected: `All processes started. Waiting for shutdown signal...`.
+
+4. **Start the receiver** in its own terminal.
+
+   ```bash
+   /opt/nvidia/psf/apps/proximity/proximity_sdm_cmd_receiver -p 12350
+   ```
+
+   Expected: a line that starts with `Proximity UDP Command Receiver listening on port 12350`.
+
+Its log is `/var/log/psf/pxc_sdm.log`. Perception must report proximity between the configured
+machine and `Person` on `mdx-frames`; see
+[Proximity Monitoring](/deployment/applications#proximity-monitoring).
