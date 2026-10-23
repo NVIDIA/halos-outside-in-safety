@@ -5,7 +5,7 @@ description: ""
 Deploy Halos SIL with 3D perception (Sparse4D multi-view fusion + BEV tracking).
 
 <Note>
-Halos SIL 3D requires **VSS Warehouse 3.3** (GitHub release `v3.3.0rc0`) with the **3D Vision AI Profile** (`MODE=3d`) as its perception backend. Deploy it as in [Deploy AI Perception](/getting-started/inference-pipeline), with the 3D overrides of Step 3, before proceeding with Halos SIL deployment.
+Halos SIL 3D requires **VSS Warehouse 3.3** with the **3D Vision AI Profile** (`MODE=3d`) as its perception backend. Deploy it as in [Deploy AI Perception](/getting-started/inference-pipeline), with the 3D overrides of Step 3, before proceeding with Halos SIL deployment.
 
 For 2D perception (simpler setup), see [SIL — 2D Perception](/testing/sil/sil-2d) instead.
 </Note>
@@ -53,7 +53,7 @@ See [Prerequisites](/getting-started/prerequisites) for hardware and software re
 
 Follow **Step 1** in [SIL — 2D Perception](/testing/sil/sil-2d) to clone the Halos Outside-In Safety repository and download the SIL data. The same repo and SIL data are used for both 2D and 3D.
 
-3D needs no extra download. Perception downloads its Sparse4D model into `<vss_data>/models/sparse4d/` before it builds the TensorRT engine: with `DATASET_TYPE=synthetic` that is RN50 v2.3 (`nvstaging/tao/sparse4d_rn50:deployable_v2.3` on `v3.3.0rc0`, so the NGC key needs `nvstaging` access), with `real` RN50 v3.0.
+3D needs no extra download. Perception downloads its Sparse4D model into `<vss_data>/models/sparse4d/` before it builds the TensorRT engine: with `DATASET_TYPE=synthetic` that is RN50 v2.3, with `real` RN50 v3.0. The download uses `NGC_CLI_API_KEY`, which therefore needs access to the org that hosts the model.
 
 ## Step 2: 3D Calibration Dataset (Custom Scenes Only)
 
@@ -164,7 +164,7 @@ Then set `SAMPLE_VIDEO_DATASET="<name>"` in `overrides.env` (Step 3.1) and put t
 
 ## Step 3: Deploy VSS Warehouse (3D Profile)
 
-Deploy VSS Warehouse 3.3 (`v3.3.0rc0`) as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile, 3D mode). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
+Deploy VSS Warehouse 3.3 as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile, 3D mode). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
 
 ### 3.1 `overrides.env` Overrides
 
@@ -175,7 +175,9 @@ MODE=3d                                                         # selects wareho
 COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL}
 ```
 
-`DATASET_TYPE=synthetic` already ships and picks the Sparse4D bundle for synthetic scenes. `SAMPLE_VIDEO_DATASET` stays `"warehouse-loading-dock-3cams-synthetic"`: the 3D app ships its BEV calibration under the same name.
+`DATASET_TYPE=synthetic` already ships and picks the Sparse4D bundle for synthetic scenes.
+`SAMPLE_VIDEO_DATASET` stays `"warehouse-loading-dock-3cams-synthetic"`: the 3D app ships its BEV
+calibration under the same name.
 
 ### 3.2 DeepStream Config
 
@@ -223,7 +225,8 @@ num_torch_threads: 8     # CPU threads for the Torch post-process stage
 gpu_postprocess: False   # run Sparse4D post-processing on CPU (avoids GPU contention)
 ```
 
-The configurator sets `num_sensors` from `NUM_STREAMS`, and the other two keys ship with these values — nothing to edit here.
+The configurator sets `num_sensors` from `NUM_STREAMS`, and the other two keys ship with these
+values — nothing to edit here.
 
 `gpu_postprocess: False` keeps Sparse4D post-processing on the CPU so it does not contend with inference on the GPU. If raising `num_torch_threads` does not buy you enough post-process throughput, set it to `True` to move that stage onto the GPU instead.
 
@@ -231,14 +234,17 @@ The configurator sets `num_sensors` from `NUM_STREAMS`, and the other two keys s
 
 File: `<wh_ops>/warehouse-3d-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json`
 
-The shipped 3D config pairs only the humanoid robots with `Person`, within 2 m, so a forklift never produces a proximity event and the Halos tiers (REDUCE up to 3.5 m) would be cut off:
+The shipped 3D config pairs only the humanoid robots with `Person`, within 2 m, so a forklift never
+produces a proximity event and the Halos tiers (REDUCE up to 3.5 m) would be cut off:
 
 ```text
 "name": "proximityDetectionThreshold",     "value": "4"
 "name": "proximityDetectionCenterClasses", "value": "[\"Forklift\",\"Fourier_GR1_T2_Humanoid\",\"Agility_Digit_Humanoid\"]"
 ```
 
-- `proximityDetectionThreshold` ships as `2` and must be at least every `distance_threshold_meters` in the proximity mapping (3.5 m): above it mdx-client drops the whole rule group, STOP included, without a log line.
+- `proximityDetectionThreshold` ships as `2` and must be at least every
+  `distance_threshold_meters` in the proximity mapping (3.5 m): above it mdx-client drops the
+  whole rule group, STOP included, without a log line.
 - `proximityDetectionCenterClasses` ships without `Forklift`.
 
 ### 3.5 VST Config
@@ -251,7 +257,8 @@ File: `<wh_ops>/warehouse-3d-app/vst/configs/vst_config.json`
 "bbox_tolerance_ms": 100
 ```
 
-- `rtsp_streaming_over_tcp: true` — ingest Isaac's self-hosted RTSP over TCP. UDP ingest can stall RTP delivery silently (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming)).
+- `rtsp_streaming_over_tcp: true` — ingest Isaac's self-hosted RTSP over TCP. UDP ingest
+  can stall RTP delivery silently (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming)).
 - `use_sensor_ntp_time: false` — pair with `attach-sys-ts-as-ntp=1` so VST and DeepStream agree on wall-clock arrival time.
 - `bbox_tolerance_ms: 100` — widen the metadata-to-frame match window to reduce bbox flicker at the lower 3D frame rate.
 
@@ -297,9 +304,16 @@ PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf
 PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf
 ```
 
-With the 2D `nvpss.conf` on a 3D feed, mdx-client drops every event (`Dropping event: sensor not in sensor_config, so it has no pipelineID: bev-sensor-1`) and no decision is made. With the two lines, the Safety Core runs `deploymentMode = 3D` with fusion off: the BEV app reports the three cameras as one sensor, `bev-sensor-1`, which `configs/sensor_group_config.conf` declares as group 4 of the cameras in `sensor_config.conf`.
+With the 2D `nvpss.conf` on a 3D feed, mdx-client drops every event
+(`Dropping event: sensor not in sensor_config, so it has no pipelineID: bev-sensor-1`) and no
+decision is made. With the two lines, the Safety Core runs `deploymentMode = 3D` with fusion off:
+the BEV app reports the three cameras as one sensor, `bev-sensor-1`, which
+`configs/sensor_group_config.conf` declares as group 4 of the cameras in `sensor_config.conf`.
 
-Set `PSF_IMAGE` to the PSF 1.4 Safety Core image (the 1.3 image `sil.env` pins does not run these configurations); `ISAAC_SIM_IMAGE` is pre-set. Both monitors ship `skip`, as in [SIL — 2D Perception](/testing/sil/sil-2d); to run one `active`, set its `required_*` key to `1` in `nvpss_bev.conf`.
+Set `PSF_IMAGE` to the PSF 1.4 Safety Core image (the 1.3 image `sil.env` pins does not run these
+configurations); `ISAAC_SIM_IMAGE` is pre-set. Both monitors ship `skip`, as in
+[SIL — 2D Perception](/testing/sil/sil-2d); to run one `active`, set its `required_*` key to `1` in
+`nvpss_bev.conf`.
 
 ### 4.1 Safety App (`PSF_APP`)
 
@@ -309,9 +323,12 @@ Set `PSF_IMAGE` to the PSF 1.4 Safety Core image (the 1.3 image `sil.env` pins d
 | `pxc` | Proximity: NORMAL / REDUCE / STOP for a forklift next to a person | capped at `proximity.reduce_speed` on REDUCE, stopped on STOP | green / orange / red |
 | `both` | the two side by side in one container | as `pxc` (ATL does not drive the truck) | red / orange while proximity acts, else green muted / yellow alarm |
 
-- `pxc` and `both` are SIL-only and run on the 3D feed, with the behavior-analytics change of Step 3.4. The proximity mapping `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt` scores `Forklift` × `Person` centre to centre: STOP ≤ 2 m, REDUCE ≤ 3.5 m, as `EVENT_12/13/14` (`EVENT_0..11` are ATL's).
-
-- `both` needs the override file and a port of its own for proximity. Set both next to `PSF_APP` in `sil.env`:
+- `pxc` and `both` are SIL-only and run on the 3D feed, with the behavior-analytics change of
+  Step 3.4. The proximity mapping `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt`
+  scores `Forklift` × `Person` centre to centre: STOP ≤ 2 m, REDUCE ≤ 3.5 m, as
+  `EVENT_12/13/14` (`EVENT_0..11` are ATL's).
+- `both` needs the override file and a port of its own for proximity. Set both next to
+  `PSF_APP` in `sil.env`:
 
   ```bash
   PSF_APP=both
@@ -319,9 +336,13 @@ Set `PSF_IMAGE` to the PSF 1.4 Safety Core image (the 1.3 image `sil.env` pins d
   COMM_UDP_PORT_PXC=12348
   ```
 
-  The Safety Core then runs the image's `--app atl,pxc`: one gateway, one daemon, one mdx_client, and both decision makers, each on its own `--sdm-config`. ATL sends to `COMM_UDP_PORT` and proximity to `COMM_UDP_PORT_PXC`, and the comm-layer listens on both.
-
-- The truck's reaction is the robot's `proximity:` block in `robots.yaml` (`reduce_speed`, `stop_hold_s`, `reduce_hold_s`, `stale_s`). A STOP holds `stop_hold_s` past the last packet asking for one; silence keeps the last level; `stale_s` (10 s) with no message at all stops the truck with fault `psf_link_stale`.
+  The Safety Core then runs the image's `--app atl,pxc`: one gateway, one daemon, one
+  mdx_client, and both decision makers, each on its own `--sdm-config`. ATL sends to
+  `COMM_UDP_PORT` and proximity to `COMM_UDP_PORT_PXC`, and the comm-layer listens on both.
+- The truck's reaction is the robot's `proximity:` block in `robots.yaml` (`reduce_speed`,
+  `stop_hold_s`, `reduce_hold_s`, `stale_s`). A STOP holds `stop_hold_s` past the last packet
+  asking for one; silence keeps the last level; `stale_s` (10 s) with no message at all stops the
+  truck with fault `psf_link_stale`.
 
 ## Step 5: Deploy Halos SIL
 
@@ -404,7 +425,9 @@ Expected output:
 
 **DecisionRequest**: the PSF decision-maker is invoked — it produces the corresponding MUTE/UNMUTE command shown in the OPC log above.
 
-**Proximity** (`pxc` / `both`): `EVENT_12` (no violation), `EVENT_13` (REDUCE tier) and `EVENT_14` (STOP tier) appear in `pss.log`, the comm-layer logs each decision with the pair and its separation, and the forklift-controller logs every change of the level it applies:
+**Proximity** (`pxc` / `both`): `EVENT_12` (no violation), `EVENT_13` (REDUCE tier) and
+`EVENT_14` (STOP tier) appear in `pss.log`, the comm-layer logs each decision with the pair and
+its separation, and the forklift-controller logs every change of the level it applies:
 
 ```text
 INFO:udp_receiver.safety_receiver:Proximity: Seq#2591 | REDUCE (SAFE SPEED OPERATION) | machine[id=40 OBJECT] (7.83, -13.45, 0.00) | person[id=13 PERSON] (9.26, -11.66, 0.00) | sep=2.29m | ts=...
@@ -466,7 +489,9 @@ docker volume prune -f
 ```
 
 <Warning>
-`docker volume prune -f` removes every dangling volume on the host, not only this stack's. With the VSS stack down that includes the VST sensor database. Skip it unless you want that reset, or remove the specific volumes instead.
+`docker volume prune -f` removes every dangling volume on the host, not only this
+stack's. With the VSS stack down that includes the VST sensor database. Skip it unless
+you want that reset, or remove the specific volumes instead.
 </Warning>
 
 <Info>
@@ -491,15 +516,21 @@ For 3D this is **not** healthy — Sparse4D fuses all 3 views (`num_sensors: 3`)
 
 ### No Decisions on the 3D Feed
 
-`pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` means the Safety Core still runs the 2D `nvpss.conf`. Set `PSF_NVPSS_CONFIG_SRC` and `PSF_SENSOR_PIPELINES_CONFIG_SRC` (Step 4) and recreate `safety-core`. This applies to every `PSF_APP`, `atl` included.
+`pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` means the Safety
+Core still runs the 2D `nvpss.conf`. Set `PSF_NVPSS_CONFIG_SRC` and
+`PSF_SENSOR_PIPELINES_CONFIG_SRC` (Step 4) and recreate `safety-core`. This applies to every
+`PSF_APP`, `atl` included.
 
 ### 0 Detections
 
-Check that perception downloaded its model (`<vss_data>/models/sparse4d/`) and that `NGC_CLI_API_KEY` was exported when VSS started: the download needs the key, and its access to the org the model comes from.
+Check that perception downloaded its model (`<vss_data>/models/sparse4d/`) and that
+`NGC_CLI_API_KEY` was exported when VSS started: the download needs the key, and its access to
+the org the model comes from.
 
 ### No Forklift × Person Proximity Events (`pxc` / `both`)
 
-Behavior analytics still ships `proximityDetectionThreshold` `2` without `Forklift` as a center class. Apply Step 3.4 and recreate `vss-behavior-analytics`.
+Behavior analytics still ships `proximityDetectionThreshold` `2` without `Forklift` as a center
+class. Apply Step 3.4 and recreate `vss-behavior-analytics`.
 
 ### 0 ROIs Loaded by Behavior Analytics
 

@@ -34,8 +34,8 @@ A run advances through these stages **per scenario**:
 2. **Scene start** — Isaac Sim loads the warehouse scene with `--srr-gt`, which
    builds the `/gt/*` ground-truth publishers at run time (see [Regression Testing Reporter Ground-Truth Graph (opt-in)](/testing/sil/components/action-graph#regression-testing-reporter-ground-truth-graph-opt-in)).
 3. **Warm-up** — a short settle so the first clip isn't a cold-start outlier.
-4. **Record** — `/srr/record true` starts the 30 Hz capture; ``/srr/record
-   false` stops it. One recording → one `run-*.parquet``.
+4. **Record** — `/srr/record true` starts the 30 Hz capture; `/srr/record false`
+   stops it. One recording → one `run-*.parquet`.
 5. **Split** — `tw_split` cuts the recording into per-clip segments at each
    forklift trailer-tripwire crossing.
 6. **Aggregate** — the aggregator scores each clip (Phase 1 + Phase 2) and

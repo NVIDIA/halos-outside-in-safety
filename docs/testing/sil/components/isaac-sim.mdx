@@ -26,7 +26,8 @@ Located in `/isaac-sim/sil/configs/`:
 
 ## scenarios.yaml
 
-One id describes a run, and Isaac Sim and every forklift controller read the same one, so they cannot be launched against different halves of it. Set it in the profile env file:
+One id describes a run, and Isaac Sim and every forklift controller read the same one, so they cannot
+be launched against different halves of it. Set it in the profile env file:
 
 ```bash
 SCENARIO=warehouse_20x20_1fl
@@ -47,7 +48,9 @@ warehouse_40x20:
   experimental: true                   # no published calibration: watch it, do not score it
 ```
 
-A flag still wins over the scenario (`-c`, `--robots-config`, `--cameras-config`) for a one-off run. A different fleet in the same scene is a different run, so it gets an id of its own; `WAYPOINTS_MAP` is the one override, for a new route set in an existing scene.
+A flag still wins over the scenario (`-c`, `--robots-config`, `--cameras-config`) for a one-off
+run. A different fleet in the same scene is a different run, so it gets an id of its own;
+`WAYPOINTS_MAP` is the one override, for a new route set in an existing scene.
 
 ## default_config_ros.yaml
 

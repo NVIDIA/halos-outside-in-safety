@@ -195,9 +195,14 @@ OnPlaybackTick ─> ROS2Subscriber (/safety/is_muted) ─> Indicator (ScriptNode
 ROS2Context ────────────────────────────────────────┘
 ```
 
-The Script Node polls the subscriber's `outputs:data` each tick rather than through a connection: `ROS2Subscriber` creates that attribute dynamically, and a USD-authored connection to it is not reliably bound by OmniGraph. Each `color_*` key in the block overrides a default.
+The Script Node polls the subscriber's `outputs:data` each tick rather than through a connection:
+`ROS2Subscriber` creates that attribute dynamically, and a USD-authored connection to it is not
+reliably bound by OmniGraph. Each `color_*` key in the block overrides a default.
 
-The mute topic defaults to the per-robot `/<name>/safety/is_muted`, which the comm-layer publishes for every robot in `COMM_ROBOT_IDS`; the shipped 20x20 fleet names the global `/safety/is_muted` explicitly. With two ATL zones (`atl-dual-override.yaml`), the comm-layer publishes each robot's topic from the zone in its `safety_indicator.zone` (default 1).
+The mute topic defaults to the per-robot `/<name>/safety/is_muted`, which the comm-layer publishes
+for every robot in `COMM_ROBOT_IDS`; the shipped 20x20 fleet names the global `/safety/is_muted`
+explicitly. With two ATL zones (`atl-dual-override.yaml`), the comm-layer publishes each robot's
+topic from the zone in its `safety_indicator.zone` (default 1).
 
 Config — the `robots.yaml` `safety_indicator:` block (`source`, `muted_topic`, `zone`, `color_*`, `indicator_prim`; the disk defaults to `<articulation_prim>/<indicator.parent_prim_rel>/safety_indicator` from the model, and `indicator_loader.py` authors it, since no scene carries a baked one).
 
@@ -229,9 +234,11 @@ The graphs control drive and steering only; the forks stay at a fixed height.
 
 Because shape lives in YAML, most changes are config-only:
 
-- **New robot** — add a block to `robots.yaml` (`name`, `model`, `articulation_prim`, `spawn`, and the `control` / `odometry` / `safety_indicator` sub-blocks you need) and a forklift-controller service naming its `ROBOT_ID`. No code change.
+- **New robot** — add a block to `robots.yaml` (`name`, `model`,
+  `articulation_prim`, `spawn`, and the `control` / `odometry` / `safety_indicator` sub-blocks you need) and a forklift-controller service naming its `ROBOT_ID`. No code change.
 - **New camera** — add an entry to `cameras.yaml` with a unique `port`.
-- **Different forklift model** — add a `models:` entry with its `asset_path`, `wheelbase` / `wheel_radius` / `drive_joint` / `swivel_joint`, and point the robot's `model` at it.
+- **Different forklift model** — add a `models:` entry with its `asset_path`, `wheelbase` /
+  `wheel_radius` / `drive_joint` / `swivel_joint`, and point the robot's `model` at it.
 - **Relocated indicator mesh** — set `safety_indicator.indicator_prim`.
 - **Turn a graph off** — set `enabled: false` on that block.
 
@@ -239,5 +246,6 @@ Because shape lives in YAML, most changes are config-only:
 
 - [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — scene, cameras, and motion authoring
 - [Forklift Controller](/testing/sil/components/forklift-controller) — the service that publishes `cmd_vel` and consumes odometry
+- [Extending the Fleet](/testing/sil/extending-the-fleet) — add a truck, a drive type, or a scene
 - [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) — author curved forklift routes
 - [Architecture](/testing/srr/architecture) — how `/gt/*` ground truth is scored
