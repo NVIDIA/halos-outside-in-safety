@@ -1,0 +1,66 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes a Fern staging preview of docs.nvidia.com/halos-outside-in on
+# pushes to main that touch docs or fern/.
+# Requires the DOCS_FERN_TOKEN repo secret.
+
+name: staging-docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - '.github/workflows/staging-docs.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI tool
+        run: npm install -g fern-api@$(jq -r .version fern/fern.config.json)
+
+      - name: Generate staging preview
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: |
+          set -euo pipefail
+          OUTPUT=$(fern generate --docs --preview --id staging 2>&1)
+          echo "$OUTPUT"
+          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          if [ -z "$URL" ]; then
+            echo "::error::Fern did not return a staging URL. Check DOCS_FERN_TOKEN."
+            exit 1
+          fi
+          echo "Staging URL: $URL"
+          echo "🌿 Staging Halos Outside-In docs: $URL" >> "$GITHUB_STEP_SUMMARY"

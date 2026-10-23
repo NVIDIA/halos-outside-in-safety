@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Publishes docs.nvidia.com/halos-outside-in on Halos release tags
+# (v1.3.0, v1.2.1) and optional docs-only tags (docs-v1.3.0-1).
+# Requires the DOCS_FERN_TOKEN repo secret.
+
+name: publish-docs
+
+on:
+  push:
+    tags:
+      # Engineering release tag, e.g. v1.3.0 or v1.2.1
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+.[0-9]+'
+      # Doc-only update after a release, e.g. docs-v1.3.0-1
+      - 'docs-v[0-9]+.[0-9]+.[0-9]+-[0-9]+'
+      - 'docs-v[0-9]+.[0-9]+.[0-9]+.[0-9]+-[0-9]+'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI tool
+        run: npm install -g fern-api@$(jq -r .version fern/fern.config.json)
+
+      - name: Publish Docs
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: fern generate --docs --log-level debug
