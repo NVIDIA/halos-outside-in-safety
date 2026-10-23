@@ -5,7 +5,7 @@ description: ""
 Deploy Halos SIL for Software-in-Loop testing.
 
 <Note>
-Halos SIL requires VSS Warehouse 3.3 (GitHub release `v3.3.0rc0`) as its perception backend. Deploy VSS Warehouse first, as in [Deploy AI Perception](/getting-started/inference-pipeline), with the SIL overrides of Step 2, before proceeding with Halos SIL deployment.
+Halos SIL requires VSS Warehouse 3.3 as its perception backend. Deploy VSS Warehouse first, as in [Deploy AI Perception](/getting-started/inference-pipeline), with the SIL overrides of Step 2, before proceeding with Halos SIL deployment.
 </Note>
 
 ## Prerequisites
@@ -42,7 +42,7 @@ tar -xvf sample-sil-data_v*/halos-outside-in-sil-data.tar.gz \
 
 ## Step 2: Deploy VSS Warehouse
 
-Deploy VSS Warehouse 3.3 (`v3.3.0rc0`) as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
+Deploy VSS Warehouse 3.3 as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
 
 <Note>
 `<wh_ops>` below is the VSS warehouse-operations directory, `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. Edit the override files there in place, but **do not run** `docker compose` **from** `<wh_ops>/` — its `compose.yml` is only an app fragment and pulls in no infrastructure (Kafka, Redis, `sdr-controller`). Deploy from `<vss_repo>/deploy/docker/` with `containers.env`, `industry-profiles/warehouse-operations/.env` and `industry-profiles/warehouse-operations/overrides.env`, in that order.
@@ -50,14 +50,17 @@ Deploy VSS Warehouse 3.3 (`v3.3.0rc0`) as in [Deploy AI Perception](/getting-sta
 
 ### 2.1 `overrides.env` Overrides
 
-Set these in `<wh_ops>/overrides.env`, which Docker Compose reads last. `COMPOSE_PROFILES` is the one that matters most: the shipped list is the agent profile (`bp_wh`), which brings up no Kafka, and the Safety Core then receives no events while every container still looks healthy.
+Set these in `<wh_ops>/overrides.env`, which Docker Compose reads last. `COMPOSE_PROFILES`
+is the one that matters most: the shipped list is the agent profile (`bp_wh`), which brings
+up no Kafka, and the Safety Core then receives no events while every container still looks
+healthy.
 
 ```bash
 HOST_IP='<HOST_IP>'                                             # get with: hostname -I | awk '{print $1}'
 MODE=2d
 BP_PROFILE=bp_wh_kafka                                          # Kafka is required for the Safety Core
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}         # default: the bp_wh agent list, no Kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}        # default: the bp_wh agent list, no Kafka
 SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: warehouse-4cams-20mx20m-synthetic
 NUM_STREAMS=3                                                   # default: 4; matches 3 Isaac Sim cameras
 HARDWARE_PROFILE=L40S                                           # default: H100; the perception GPU
@@ -68,7 +71,8 @@ VSS_APPS_DIR="<vss_repo>/deploy/docker"
 VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
 ```
 
-Export `VSS_CONTAINER_TAG=develop-4c432f24cf39` and `NGC_CLI_API_KEY` in the shell that runs Docker Compose (see [Deploy AI Perception](/getting-started/inference-pipeline), step 3).
+Export `VSS_CONTAINER_TAG` and `NGC_CLI_API_KEY` in the shell that runs Docker Compose; the
+tag for this release is given in [Deploy AI Perception](/getting-started/inference-pipeline), step 3.
 
 ### 2.2 DeepStream Config
 
@@ -111,9 +115,12 @@ Several copies of `vst_config.json` exist in the deploy tree. Edit the one the V
 "bbox_tolerance_ms": 100
 ```
 
-- `rtsp_streaming_over_tcp: true` — ingest Isaac's self-hosted RTSP over TCP. UDP ingest can stall RTP delivery silently (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming)).
-- `use_sensor_ntp_time: false` — pair with `attach-sys-ts-as-ntp=1` above so VST and DeepStream agree on wall-clock arrival time.
-- `bbox_tolerance_ms: 100` — widen the metadata-to-frame match window (default `0`) to reduce bbox flicker on VST.
+- `rtsp_streaming_over_tcp: true` — ingest Isaac's self-hosted RTSP over TCP. UDP ingest
+  can stall RTP delivery silently (see [Isaac Sim Streaming](/known-limitations#isaac-sim-streaming)).
+- `use_sensor_ntp_time: false` — pair with `attach-sys-ts-as-ntp=1` above so VST and
+  DeepStream agree on wall-clock arrival time.
+- `bbox_tolerance_ms: 100` — widen the metadata-to-frame match window (default `0`) to
+  reduce bbox flicker on VST.
 
 This file also carries a `halo_safety_*` block. Leave `halo_safety_udp_port` at its shipped `-1` for the `sil` profile — SIL drives the safety indicator through the comm-layer / ROS 2 path, not the VST overlay. Only the `base` profile sets it to `12345`.
 
@@ -170,14 +177,25 @@ ROS_DOMAIN_ID=0                                          # MUST be unique per ho
 DOCKER_GID=999                                           # run: getent group docker | cut -d: -f3
 ```
 
-Set `PSF_IMAGE` to the PSF 1.4 Safety Core image: the 1.4 configurations do not run on the 1.3 image that `sil.env` pins until PSF 1.4 is published on NGC. `ISAAC_SIM_IMAGE` (`nvcr.io/nvidia/isaac-sim:6.1.0`) is pre-set — leave it.
+Set `PSF_IMAGE` to the PSF 1.4 Safety Core image: the 1.4 configurations do not run on the
+1.3 image that `sil.env` pins until PSF 1.4 is published on NGC. `ISAAC_SIM_IMAGE`
+(`nvcr.io/nvidia/isaac-sim:6.1.0`) is pre-set — leave it.
 
-`PSF_LAUNCH_MODE` (Safety AI Monitor) and `PSF_PCM_MODE` (Perception Monitor) ship `skip`. To run one `active`, also set its key to `1` in `closed-loop-testing/safety-core/configs/nvpss.conf` (`required_safety_monitor` or `required_perception_monitor`). Otherwise the Safety Core stops at start with `Error: --saim-mode active conflicts with required_safety_monitor = 0 in /opt/nvidia/psf/bin/nvpss.conf.` See [Required monitors](/deployment/custom-deployment#required-monitors).
+`PSF_LAUNCH_MODE` (Safety AI Monitor) and `PSF_PCM_MODE` (Perception Monitor) ship `skip`.
+To run one `active`, also set its key to `1` in
+`closed-loop-testing/safety-core/configs/nvpss.conf` (`required_safety_monitor` or
+`required_perception_monitor`). Otherwise the Safety Core stops at start with
+`Error: --saim-mode active conflicts with required_safety_monitor = 0 in /opt/nvidia/psf/bin/nvpss.conf.`
+See [Required monitors](/deployment/custom-deployment#required-monitors).
 
 Two more settings choose the run, and their defaults are the 2D test scenario:
 
-- `SCENARIO=warehouse_20x20_1fl` names the scene, fleet file, cameras config and waypoints together (`closed-loop-testing/isaac-sim/sil/configs/scenarios.yaml`); Isaac and every controller read it.
-- `PSF_APP` (unset = `atl`) picks the decision maker. `pxc` and `both` (proximity) expect the 3D feed; see [SIL — 3D Perception](/testing/sil/sil-3d) and [Proximity Monitoring](/deployment/applications#proximity-monitoring) in the Deployment Guide.
+- `SCENARIO=warehouse_20x20_1fl` names the scene, fleet file, cameras config and waypoints
+  together (`closed-loop-testing/isaac-sim/sil/configs/scenarios.yaml`); Isaac and every
+  controller read it.
+- `PSF_APP` (unset = `atl`) picks the decision maker. `pxc` and `both` (proximity) expect the
+  3D feed; see [SIL — 3D Perception](/testing/sil/sil-3d) and
+  [Proximity Monitoring](/deployment/applications#proximity-monitoring) in the Deployment Guide.
 
 ## Step 4: Deploy Halos SIL
 
@@ -197,7 +215,8 @@ docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
   ./run_sdg.sh --start --headless --enable-vst'
 ```
 
-`SCENARIO` from `sil.env` supplies the IRA config, the fleet file and the cameras config. `-c`, `--robots-config` and `--cameras-config` still win over it for a one-off run.
+`SCENARIO` from `sil.env` supplies the IRA config, the fleet file and the cameras config.
+`-c`, `--robots-config` and `--cameras-config` still win over it for a one-off run.
 
 For script usage details and additional options, see [Execution Script](/testing/sil/components/isaac-sim#execution-script).
 
@@ -313,7 +332,9 @@ docker volume prune -f
 ```
 
 <Warning>
-`docker volume prune -f` removes every dangling volume on the host, not only this stack's. With the VSS stack down that includes the VST sensor database. Skip it unless you want that reset, or remove the specific volumes instead.
+`docker volume prune -f` removes every dangling volume on the host, not only this
+stack's. With the VSS stack down that includes the VST sensor database. Skip it unless
+you want that reset, or remove the specific volumes instead.
 </Warning>
 
 ## Troubleshooting

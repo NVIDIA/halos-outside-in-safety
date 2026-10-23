@@ -1,0 +1,226 @@
+---
+title: "Extending the Fleet"
+description: ""
+---
+
+The shipped closed loop drives one forklift on one route in one warehouse. This page is
+for the next step: a second vehicle, a vehicle that steers differently, a different
+proximity response, or a different building.
+
+Each section answers one question, says which file holds the answer, and names the point
+where configuration stops being enough and code has to be written.
+
+{/* TODO: embed the multi-vehicle GIF here once it is recorded. */}
+
+<Info>
+  This page describes how the capability is built, so you can build it in your own scene.
+  It is not a reproduction guide for any particular demo: a demo is a scene, a fleet file,
+  a calibration and a traffic policy together, and only the first three are configuration.
+</Info>
+
+## What moves a vehicle
+
+Five pieces sit between a route on disk and a wheel turning. Knowing which one owns a
+behaviour is most of the work of changing it.
+
+| Piece | Where it lives | Owns |
+| --- | --- | --- |
+| Fleet file | `closed-loop-testing/isaac-sim/sil/configs/robots*.yaml` | Which vehicles exist, their prims, topics, speeds and proximity response |
+| Scenario entry | `closed-loop-testing/isaac-sim/sil/configs/scenarios.yaml` | Which scene, fleet file, camera config and waypoint directory go together |
+| Controller | `closed-loop-testing/forklift-controller/robot_controller.py` | Route following, safety verbs, proximity limiting; publishes `geometry_msgs/Twist` |
+| Control graph | `closed-loop-testing/isaac-sim/sil/scripts/action_graphs/forklift_control.py` | Turns that `Twist` into joint commands for one kinematic class |
+| Event mapping | `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt` | Which distance between which two object classes is STOP, REDUCE or NORMAL |
+
+The split that matters: the controller speaks a generic `Twist`, so **route following,
+safety commands and proximity handling are vehicle-agnostic**. Only the control graph is
+tied to how a vehicle steers.
+
+Everything above runs on Isaac Sim's OmniGraph for the in-scene graphs, ROS 2 for the
+vehicle links, Kafka for perception metadata, and the Safety Core for the decision. The
+per-component detail is on [Isaac Sim Configuration](/testing/sil/components/isaac-sim),
+[Isaac Sim Action Graphs](/testing/sil/components/action-graph) and
+[Forklift Controller](/testing/sil/components/forklift-controller).
+
+## Add a second vehicle of the same model
+
+Supported, and already exercised: `robots-40x20.yaml` runs two forklifts off one `models:`
+block. The second truck costs one `robots:` entry, because `model: forklift_b` carries the
+joints, geometry and frame conventions.
+
+Four things must name each other, and a mismatch in any one of them is a silent failure:
+
+1. **Fleet file** — add a `robots:` entry. Give it its own `articulation_prim`, its own
+   `cmd_vel_topic` and `odom_topic`, and a `spawn:` block if the vehicle is not baked into
+   the scene. TF frame ids default to `<name>/odom` → `<name>/base_link`, so two vehicles
+   do not write the same edge onto one `/tf`.
+2. **Waypoint file** — `waypoints/<map>/<name>.json`, coordinates in that scene's world
+   metres. Its `origin` must be where the vehicle spawns.
+3. **Controller service** — one container per vehicle, each with its own `ROBOT_ID`. The
+   two-truck run adds `multi-robot` to `COMPOSE_PROFILES`, which starts
+   `forklift-controller-b2`.
+4. **Scenario** — a `scenarios.yaml` entry pointing at that fleet file and waypoint
+   directory, selected with `SCENARIO` in the profile env.
+
+<Tip>
+  Run `deployments/scripts/preflight.py` before Isaac Sim boots. It compares each waypoint
+  file's `origin` against where that vehicle actually stands, and reports a vehicle with
+  control enabled and no controller service — the two mistakes that otherwise surface as a
+  container that reports `Up` forever and publishes nothing.
+</Tip>
+
+Two vehicles also share one `/safety/command` topic, and the Safety Core names no vehicle
+in a proximity decision. Give each vehicle its own `proximity.pair_topic`, or set
+`proximity.enabled: false` on the ones that should ignore it. The controller logs a
+warning when more than one vehicle shares a pair topic.
+
+## Add a vehicle that steers differently
+
+This is where configuration stops. The control graph is selected by kinematic class, and
+only one class ships:
+
+```python
+# closed-loop-testing/isaac-sim/sil/scripts/action_graphs/forklift_common.py
+KNOWN_DRIVE_TYPES = ("swivel",)
+DEFAULT_DRIVE_TYPE = "swivel"
+```
+
+```python
+# closed-loop-testing/isaac-sim/sil/scripts/action_graphs/forklift_control.py
+_CONTROL_BUILDERS = {
+    "swivel": _build_one_swivel_control_graph,
+}
+```
+
+`swivel` drives one steered wheel and one driven wheel. A `drive_type` with no entry in
+`_CONTROL_BUILDERS` is **refused at load**, naming the registered values — it does not fall
+back to a default.
+
+<Warning>
+  A differential-drive vehicle is not a swivel vehicle with different numbers. Rewriting
+  `wheelbase` and `wheel_radius` produces a vehicle whose commanded motion and actual
+  motion disagree, which perception will happily detect at coordinates the vehicle is not
+  at. Write the builder.
+</Warning>
+
+What a new kinematic class costs:
+
+- **New**: one builder function that reads the vehicle's `model:` block and authors the
+  `cmd_vel` → articulation graph for that drive, plus its key in `_CONTROL_BUILDERS` and in
+  `KNOWN_DRIVE_TYPES`.
+- **Reused unchanged**: the odometry graph, the safety-indicator graph, the clock
+  publisher, and the whole controller — route following, the state machine, safety verbs
+  and proximity limiting all act on a generic `Twist`.
+
+So the work is one graph builder, not a second controller.
+
+## Tune the proximity response
+
+Two layers, and conflating them is the usual source of confusion. One decides what a
+distance *means*; the other decides what a vehicle *does* about it.
+
+| Layer | File | Decides |
+| --- | --- | --- |
+| Safety Core | `safety-core/configs/proximity_event_mapping.pb.txt` and `pxc_sdm.conf` | Which distance is STOP, REDUCE or NORMAL |
+| Vehicle | the vehicle's `proximity:` block in the fleet file | What it does with that decision |
+
+The shipped mapping carries one pair — `Forklift` × `Person` — in three tiers, bound to
+three event codes that `pxc_sdm.conf` groups under `pair_groups = forklift_person`:
+
+| Distance | Decision | Event |
+| --- | --- | --- |
+| `> 3.5 m` | NORMAL | `EVENT_12` |
+| `3.5 m ≥ d > 2.0 m` | REDUCE | `EVENT_13` |
+| `d ≤ 2.0 m` | STOP | `EVENT_14` |
+
+**A second class of vehicle needs its own pair group**, not a wider threshold on the
+existing one: three more event codes and three more rules. `EVENT_0` to `EVENT_11` are
+reserved for ATL. The event id is the only channel the decision maker has — it never sees
+the object classes.
+
+<Warning>
+  Every `distance_threshold_meters` must stay at or below the Behavior Analytics
+  `proximityDetectionThreshold` (4 m in the 3D app config). Above it, the MDX client drops
+  the **whole rule group, STOP included, and logs nothing.** Raising a threshold to widen a
+  safety margin can therefore remove the margin entirely.
+</Warning>
+
+<Note>
+  The thresholds are centre to centre between 3D BEV box centres, not surface clearance. A
+  forklift's front is roughly 1.3 m from its centre, so a 2 m threshold leaves about 0.7 m
+  in front of the forks. Read a tier as a physical gap and you will set it short.
+</Note>
+
+On the vehicle side, `proximity.reduce_speed` caps the speed under REDUCE,
+`stop_hold_s` and `reduce_hold_s` decide how long a decision outlives the packet that
+asked for it, and `stale_s` is the silence after which the link counts as dead and the
+vehicle stops. Silence keeps the last level: no person in view means no decision, not
+NORMAL. The full list is on
+[Forklift Controller](/testing/sil/components/forklift-controller).
+
+## Move to another scene
+
+Four artefacts describe the same building and must agree. Three are configuration; the
+fourth has to be produced.
+
+1. **Scene USD**, named inside the IRA config, not repeated in the scenario entry.
+2. **Camera config**, whose `scene:` key is cross-checked against the IRA scene at load —
+   this one fails loudly.
+3. **Waypoints**, in that scene's world metres. Author them with the
+   [Forklift Waypoint Generator](/testing/sil/components/isaac-sim), which also documents
+   the export format.
+4. **VSS calibration** for the new camera rig.
+
+<Warning>
+  Only the camera–scene mismatch is caught. Run a scene whose calibration describes a
+  different building and the loop still works end to end: cameras stream, perception
+  detects, the Safety Core issues verdicts — about the wrong place, with nothing in any log
+  to say so. `scenarios.yaml` marks such an entry `experimental: true`, meaning run it to
+  watch vehicles drive, not to score anything.
+</Warning>
+
+Calibration is therefore a required step, not an optional one, and it can be built locally
+for a new scene rather than waiting for a published set. Re-generate it after **every**
+change to the camera rig: a scene rebuild that moves cameras or changes focal length
+invalidates the pose, and a wrong pose back-projects each view to a different point, so
+fusion stops merging and one object becomes several.
+
+## Change the control strategy
+
+The controller is a stimulus generator: it keeps a vehicle driving so perception always has
+something to detect and the Safety Core always has a decision to make. It follows a fixed
+route with pure pursuit, at one speed per route, and reacts to safety verbs and proximity
+decisions.
+
+It is deliberately not a traffic manager. There is no right-of-way between vehicles, no
+junction admission, no reservation of shared space, and no per-waypoint speed — the
+`velocity` field in a waypoint file is authoring metadata and is not read. Two vehicles
+whose routes cross will cross.
+
+Layering a policy on top — admission control at a junction, a permit before entering a
+shared aisle, a speed that depends on who else is nearby — means a process that watches
+vehicle state and sends it verbs, not an edit to the controller. Each controller already
+publishes `/<robot>/state` at 5 Hz with its pose index and applied proximity level, and
+accepts `proceed`, `stop`, `slow`, `idle`, `pause` and `resume` on `/safety/command`. That
+pair is the integration surface for a policy of your own.
+
+<Note>
+  `/safety/command` is global and carries an optional `robot_id`. A message without one is
+  acted on by every controller in the ROS domain, so name the vehicle in every command once
+  a second one exists.
+</Note>
+
+## Before you run
+
+- Fleet file, waypoint files, controller services and scenario entry all name the same vehicles.
+- Each waypoint file's `origin` matches where its vehicle spawns.
+- Each vehicle has its own `cmd_vel`, `odom` and, if proximity is on, its own `pair_topic`.
+- `PSF_APP` is `pxc` or `both` if you expect proximity decisions at all.
+- Calibration exists for this scene, or the run is explicitly unscored.
+- `deployments/scripts/preflight.py` passes.
+
+## Next steps
+
+- [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — the fleet file's robot block, scenario entries, and the waypoint generator
+- [Isaac Sim Action Graphs](/testing/sil/components/action-graph) — how `cmd_vel` becomes wheel commands
+- [Forklift Controller](/testing/sil/components/forklift-controller) — route following, safety verbs, and every `proximity:` knob
+- [Event Mapping Configuration](/reference/event-mapping-configuration) — the full rule syntax, including proximity-pair rules

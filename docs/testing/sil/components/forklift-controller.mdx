@@ -89,7 +89,7 @@ The node transitions to `MOVING` as soon as it starts, with no command and no ha
 `/safety/command` is the topic the communication layer republishes each safety decision on. The controller subscribes to it and reads three fields out of the JSON payload: `robot_id` (optional; a message naming a different robot is ignored), `command`, and `speed_factor`.
 
 <Note>
-An ATL decision does not change how the forklift drives. The communication layer publishes `command` as a numeric opcode and the controller acts on string verbs only, so the decision is discarded without a log line and the stimulus keeps running under any decision. Observe the decision through the in-scene [safety indicator](/testing/sil/components/action-graph#safety-indicator-graph) and the communication layer log instead. Proximity decisions are different: they arrive on their own topic and do drive the truck (next section).
+  An ATL decision does not change how the forklift drives. The communication layer publishes `command` as a numeric opcode and the controller acts on string verbs only, so the decision is discarded without a log line and the stimulus keeps running under any decision. Observe the decision through the in-scene [safety indicator](/testing/sil/components/action-graph#safety-indicator-graph) and the communication layer log instead. Proximity decisions are different: they arrive on their own topic and do drive the truck (next section).
 </Note>
 
 The string verbs in the state table above are what move it, and the bundled helper sends them. It accepts `proceed`, `stop`, `slow`, `idle`, `go`, `pause`, and `resume`, with `--speed` to override the speed factor and `--robot` to target one controller:
@@ -116,19 +116,33 @@ Expected output:
 
 ## Proximity Decisions
 
-With `PSF_APP=pxc` or `both`, the communication layer republishes each proximity decision of the Safety Core on `/safety/proximity/pair`, and the controller limits the `Twist` it is about to publish:
+With `PSF_APP=pxc` or `both`, the communication layer republishes each proximity decision of the
+Safety Core on `/safety/proximity/pair`, and the controller limits the `Twist` it is about to
+publish:
 
 - **STOP** — zero linear and angular speed.
-- **REDUCE** — linear speed capped at `proximity.reduce_speed`; angular speed is scaled by the same ratio, so a truck slowed mid-corner stays on the corner it was driving.
+- **REDUCE** — linear speed capped at `proximity.reduce_speed`; angular speed is scaled by the same
+  ratio, so a truck slowed mid-corner stays on the corner it was driving.
 - **NORMAL** — the route speed.
 
-A STOP holds `proximity.stop_hold_s` past the last packet asking for one, and a REDUCE `proximity.reduce_hold_s`. Silence keeps the last level: no person in view means no decision, not NORMAL. The link itself is watched: the decision maker heartbeats every 5 s, and `proximity.stale_s` with no message at all stops the truck with fault `psf_link_stale` until the next decision. A safety-critical packet without a level (an SDM fault) also stops the truck.
+A STOP holds `proximity.stop_hold_s` past the last packet asking for one, and a REDUCE
+`proximity.reduce_hold_s`. Silence keeps the last level: no person in view means no decision, not
+NORMAL. The link itself is watched: the decision maker heartbeats every 5 s, and
+`proximity.stale_s` with no message at all stops the truck with fault `psf_link_stale` until the
+next decision. A safety-critical packet without a level (an SDM fault) also stops the truck.
 
-The Safety Core names no robot in a proximity decision, so every truck on one `pair_topic` obeys every decision. The controller logs a WARNING when more than one truck shares the topic; give a second truck its own `proximity.pair_topic` or `enabled: false`.
+The Safety Core names no robot in a proximity decision, so every truck on one `pair_topic` obeys
+every decision. The controller logs a WARNING when more than one truck shares the topic; give a
+second truck its own `proximity.pair_topic` or `enabled: false`.
 
 ## Waypoint File
 
-Each controller reads one route, `/app/waypoints/<map id>/<ROBOT_ID>.json`. The whole `closed-loop-testing/forklift-controller/waypoints/` tree is bind-mounted read-only at `/app/waypoints`, and the map id comes from the scenario's `waypoints:` entry in `scenarios.yaml` (`warehouse_20x20` for `warehouse_20x20_1fl`), or from `WAYPOINTS_MAP` for a single run. Coordinates are metres in that scene's world frame, so the wrong map drives a lane that was never validated in that warehouse. Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) on the [Isaac Sim Configuration](/testing/sil/components/isaac-sim) page, which also documents the export format.
+Each controller reads one route, `/app/waypoints/<map id>/<ROBOT_ID>.json`. The whole
+`closed-loop-testing/forklift-controller/waypoints/` tree is bind-mounted read-only at
+`/app/waypoints`, and the map id comes from the scenario's `waypoints:` entry in
+`scenarios.yaml` (`warehouse_20x20` for `warehouse_20x20_1fl`), or from `WAYPOINTS_MAP` for a
+single run. Coordinates are metres in that scene's world frame, so the wrong map drives a lane that
+was never validated in that warehouse. Author routes with the [Forklift Waypoint Generator](/testing/sil/components/isaac-sim#forklift-waypoint-generator) on the [Isaac Sim Configuration](/testing/sil/components/isaac-sim) page, which also documents the export format.
 
 Three top-level keys are read:
 
@@ -142,7 +156,10 @@ Everything else in the file is authoring metadata and is not read — including 
 
 ## Configuration
 
-How a truck drives lives in the fleet file, not in the environment: one environment variable would set every truck in the fleet at once. Each knob resolves as a launch flag (`launch_controller.sh`, `docker_run.sh`), else the robot's `drive:` block, else its model's `drive:` block, else the built-in default. The controller prints the value and source of each one at startup (`[drive]`).
+How a truck drives lives in the fleet file, not in the environment: one environment variable would set
+every truck in the fleet at once. Each knob resolves as a launch flag (`launch_controller.sh`,
+`docker_run.sh`), else the robot's `drive:` block, else its model's `drive:` block, else the
+built-in default. The controller prints the value and source of each one at startup (`[drive]`).
 
 | `robots.yaml` key | Default | Description |
 | --- | --- | --- |
@@ -159,15 +176,24 @@ How a truck drives lives in the fleet file, not in the environment: one environm
 | `proximity.stop_hold_s` / `reduce_hold_s` | `2.0` / `1.0` | Seconds a STOP / REDUCE outlives the last packet that asked for it |
 | `proximity.stale_s` | `10.0` | Seconds of silence, heartbeats included, before the link counts as dead |
 
-`drive:` refuses unknown keys, so a key indented one level too far is an error, not a silent default.
+`drive:` refuses unknown keys, so a key indented one level too far is an error, not a silent
+default.
 
-The service itself reads four variables: `ROBOT_ID` (set on the compose service, `forklift_b`), and `SCENARIO`, `WAYPOINTS_MAP` and `PSF_APP` from the profile env file.
+The service itself reads four variables: `ROBOT_ID` (set on the compose service, `forklift_b`),
+and `SCENARIO`, `WAYPOINTS_MAP` and `PSF_APP` from the profile env file.
 
 <Info>
-**Removed in 1.4.** `FORKLIFT_WAYPOINTS_DIR` and `--no-namespace` are refused by name, so the controller does not start with them set. `FORKLIFT_USE_NAMESPACE`, `FORKLIFT_ROBOT_ID`, `FORKLIFT_WAYPOINT_FILE` and the drive variables (`FORKLIFT_BASE_SPEED`, `FORKLIFT_HEADING_OFFSET`, `FORKLIFT_LOOP_PATH`, `FORKLIFT_ANGULAR_SPEED`, `FORKLIFT_NO_INVERT`, `FORKLIFT_END_TOLERANCE`, `FORKLIFT_END_POSE_COUNT`, `FORKLIFT_SPIRAL_TIMEOUT`) are no longer read: use the `drive:` block, `ROBOT_ID` on the service, and `SCENARIO` / `WAYPOINTS_MAP`.
+  **Removed in 1.4.** `FORKLIFT_WAYPOINTS_DIR` and `--no-namespace` are refused by name, so the
+  controller does not start with them set. `FORKLIFT_USE_NAMESPACE`, `FORKLIFT_ROBOT_ID`,
+  `FORKLIFT_WAYPOINT_FILE` and the drive variables (`FORKLIFT_BASE_SPEED`,
+  `FORKLIFT_HEADING_OFFSET`, `FORKLIFT_LOOP_PATH`, `FORKLIFT_ANGULAR_SPEED`,
+  `FORKLIFT_NO_INVERT`, `FORKLIFT_END_TOLERANCE`, `FORKLIFT_END_POSE_COUNT`,
+  `FORKLIFT_SPIRAL_TIMEOUT`) are no longer read: use the `drive:` block, `ROBOT_ID` on the
+  service, and `SCENARIO` / `WAYPOINTS_MAP`.
 </Info>
 
-To follow a route of your own in the same warehouse, put one file per truck under a new directory and select it for the run:
+To follow a route of your own in the same warehouse, put one file per truck under a new directory
+and select it for the run:
 
 ```bash
 # closed-loop-testing/forklift-controller/waypoints/my_routes/forklift_b.json
@@ -184,7 +210,7 @@ cd deployments && docker compose --env-file profiles/sil.env up -d --force-recre
 `docker logs forklift-controller` should show `[waypoints] /app/waypoints/my_routes/forklift_b.json` and `Loaded path: <N> poses` with the pose count of your file.
 
 <Info>
-A missing route file is a silent failure — the service logs one `Failed to load path:` line, then reports `Up` forever and publishes no `cmd_vel`. Run `deployments/scripts/preflight.py` before Isaac Sim boots to check the fleet file, the controller services and the waypoint files together.
+  A missing route file is a silent failure — the service logs one `Failed to load path:` line, then reports `Up` forever and publishes no `cmd_vel`. Run `deployments/scripts/preflight.py` before Isaac Sim boots to check the fleet file, the controller services and the waypoint files together.
 </Info>
 
 ## Logs to Watch
@@ -235,5 +261,6 @@ Expected output:
 
 - [Isaac Sim Action Graphs](/testing/sil/components/action-graph) — how `cmd_vel` becomes wheel commands, and the odometry that feeds back
 - [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — the scene, the `robots.yaml` robot block, `scenarios.yaml`, and the waypoint generator
+- [Extending the Fleet](/testing/sil/extending-the-fleet) — add a second truck, a different drive type, or a new scene
 - [SIL Overview](/testing/sil/overview) — MUTE and UNMUTE, the vocabulary the safety decision is reported in
 - [SIL — 2D Perception](/testing/sil/sil-2d) — deploy the stack this service runs in

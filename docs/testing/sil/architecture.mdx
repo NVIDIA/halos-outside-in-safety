@@ -75,13 +75,17 @@ Safety event processing:
 
 **Safety Event Integrator** (SEI):
 
-- Consumes Kafka events on `mdx-events` for ROI and tripwire alerts and `mdx-frames` for per-frame analysis, in both the 2D and the 3D profile
+- Consumes Kafka events on `mdx-events` for ROI and tripwire alerts and
+  `mdx-frames` for per-frame analysis, in both the 2D and the 3D profile
 - 2D (`nvpss.conf`, `deploymentMode = 2D`): multi-camera fusion with `timeWindowSize=6000` ms (the shipped SIL value); ATL events bypass fusion
 - 3D (`nvpss_bev.conf`, `deploymentMode = 3D`): fusion off — perception already fused the views, and events arrive under one BEV sensor, `bev-sensor-1`, declared as a group of the three cameras
 - Event validation
 - Forwards validated events to Decision Maker
 
-**Monitors**: the Safety AI Monitor (`PSF_LAUNCH_MODE`) and the Perception Monitor (`PSF_PCM_MODE`) both ship `skip`, and both `nvpss` files declare them not required (`required_safety_monitor = 0`, `required_perception_monitor = 0`, `required_mdx_instances = 1`). The container refuses to start when a key does not match its mode; see [Required monitors](/deployment/custom-deployment#required-monitors).
+**Monitors**: the Safety AI Monitor (`PSF_LAUNCH_MODE`) and the Perception Monitor
+(`PSF_PCM_MODE`) both ship `skip`, and both `nvpss` files declare them not required
+(`required_safety_monitor = 0`, `required_perception_monitor = 0`, `required_mdx_instances = 1`).
+The container refuses to start when a key does not match its mode; see [Required monitors](/deployment/custom-deployment#required-monitors).
 
 **Safety Decision Maker** (SDM):
 
