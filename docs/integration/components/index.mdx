@@ -1,0 +1,28 @@
+---
+title: "Safety Core Components"
+description: "The components of the Safety Core, what each one does, and the page that describes it."
+---
+The Safety Core is the set of processes and libraries between the perception pipeline and the
+machine controller. Each component page describes the component's role, configuration and
+failure behaviour, and includes its architecture diagram where one applies. How the components
+connect, where each one runs and how they talk to each other is described in the
+[Integration Guide](/integration).
+
+## Components
+
+| Component | Binary | Role | Details |
+| --- | --- | --- | --- |
+| Sensor Input Processing Pipeline (SIPP) | Not part of the Safety Core | The perception stack, for example VSS. It publishes detections and alerts to Kafka. | [SIPP](/integration/components/sensor-input-pipeline) |
+| MDX client | `mdx_client` | Reads perception messages from Kafka, maps them to safety events with an event-mapping file, and reports them to the SEI. | [SIPP](/integration/components/sensor-input-pipeline) |
+| Safety AI Monitor (SAIM) | `safety_monitor` | Watches each camera stream and reports `SENSOR_INVALID` or `SENSOR_VALID` per camera. | [SAIM](/integration/components/ai-monitor) |
+| Perception Container Monitor (PCM) | `nv_perception_monitor` | Watches the perception containers and their output, and reports `AI_PIPELINE_INVALID` or `AI_PIPELINE_VALID`. | [PCM](/integration/components/perception-monitor) |
+| Safety Event Integrator (SEI) | `nvpss_daemon` | Validates every report, applies the trust verdicts, fuses events, supervises its sources, and produces decision requests. | [SEI](/integration/components/event-integrator) |
+| NvPSD Gateway | `nvpsd_gateway` | Admits decision makers, filters each request to what each one subscribed to, numbers the stream, and reports faults on its own link to the SEI. | [NvPSD Gateway](/integration/components/gateway) |
+| Safety Decision Maker (SDM) | `atl_sdm`, `proximity_sdm`, `atl_proximity_sdm`, or your own | Decides what the machine may do, latches a safe state on any fault, and commands the PLC. | [SDM](/integration/components/decision-maker) |
+| FSI bridge | `fsicom-agent` | Connects an SDM running on the Functional Safety Island (FSI) of IGX Thor to the gateway and the PLC. | [Writing a decision maker](/integration/writing-a-decision-maker#sdm-on-the-fsi) |
+| Command receiver | `atl_sdm_cmd_receiver`, `proximity_sdm_cmd_receiver` | Reference stand-in for the PLC. | [Writing a decision maker](/integration/writing-a-decision-maker#the-reference-command-receivers) |
+| Safety Black Box (SBB) | `libnvpsb.so` | The syslog-based record library used by the SEI daemon, the gateway, the MDX client and the SEI client library. The SDMs and the monitors write their own log files. | [SBB](/integration/components/black-box) |
+| Safety User Interface (SUI) | — | Not implemented. | [SUI](/integration/components/user-interface) |
+
+SIPP and the SDM are specific to a use case. SAIM, PCM, the SEI, the gateway and the SBB are the
+same for every use case.

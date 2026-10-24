@@ -1,0 +1,236 @@
+---
+title: "NvPSD Gateway"
+description: "How the NvPSD Gateway takes decision requests from SEI, admits and registers decision makers, and fans each request out to them."
+---
+The NvPSD Gateway (`nvpsd_gateway`) sits between the SEI daemon and the decision makers. It
+receives every `DecisionRequest` that SEI produces, checks that the requests arrive in sequence,
+and forwards to each registered decision maker (SDM) the events that SDM subscribed to. It adds
+fault records of its own when the SEI link misbehaves, and it supervises every SDM with a
+heartbeat.
+
+The gateway runs on the CCPLEX. Under the Docker runtime it runs inside the Safety Core
+container; under `--runtime host` it runs on the host. Both launchers start it with no
+arguments, so the defaults below always apply to a launcher deployment.
+
+![NvPSD Gateway: SEI link listener, request validation, fault synthesis, recovery record, SDM admission, registration, subscription routing, envelope builder, fan-out and heartbeat supervision](/assets/images/safety-core/nvpsd-gateway.svg)
+
+## Links
+
+Every gateway link is an AF_UNIX `SOCK_SEQPACKET` socket under `/run/nvpsf`. The paths are
+compiled in and cannot be changed. The gateway opens no TCP or UDP port.
+
+| Link | Socket | Gateway role |
+| --- | --- | --- |
+| Decision link from SEI | `/run/nvpsf/nvpssd_to_psd` | Client. Receives `DecisionRequest`, answers with a `DecisionResponse`. |
+| SEI client link | `/run/nvpsf/nvpssd` | Client. Registers with SEI as a client and sends it heartbeats. |
+| SDM link | `/run/nvpsf/nvpsd_gateway` | Server. SDMs and `fsicom-agent` connect here. The socket has mode `0660`. |
+
+Both ends of every link check the other's credentials with `SO_PEERCRED`. A connection is
+accepted only when the peer's **primary** GID equals the gateway's own primary GID. A process
+that holds the group only as a supplementary group is refused. Every Safety Core process must
+therefore run with the same primary group; see
+[Shared process group](/integration#shared-process-group).
+
+The SDM link needs large kernel socket buffers. The gateway refuses to start when
+`net.core.rmem_max` or `net.core.wmem_max` is too small; see
+[Kernel socket buffers](/integration/install#kernel-socket-buffers).
+
+## Command line
+
+All options are optional. Each takes its value as a separate argument (`--num_clients 5`);
+the `--num_clients=5` form is rejected as an unknown option.
+
+| Option | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| `--num_clients <N>` | `10` | 1–10 | Maximum number of registered SDMs. |
+| `--max_hb_failures <N>` | `10` | 1–255 | Missed heartbeats before an SDM slot is reclaimed. The same limit applies to the gateway's own heartbeats to SEI. |
+| `--regr_max_per_window <N>` | `4` | 1–64 | Registrations accepted from one peer per rate-limit window. |
+| `--regr_window_ms <MS>` | `10000` | 1000–600000 | Length of the registration rate-limit window. |
+| `-h`, `--help` | — | — | Print usage and exit 0. |
+
+A missing value prints `error: <flag> requires a value`. An out-of-range value prints an error
+that names the accepted range. Any other option, including the retired `--transport`,
+`--sdm_socket`, `--sdm_ip`, `--sdm_port` and `--sdm_allow`, prints
+`error: unknown option (see --help)`. In each case the gateway prints its usage and exits 1.
+
+## Startup
+
+The gateway starts in this order:
+
+1. It connects to the SEI decision link. It tries 60 times, 500 ms apart (about 30 s). If every
+   attempt fails it logs `Failed to connect to nvpss_daemon on the PSS->PSD socket` and exits 1.
+2. It registers for every event type on the decision link. A failure exits 1.
+3. It registers with SEI as a client, again up to 60 times, 500 ms apart. If this fails the
+   gateway keeps running but sends SEI no heartbeats, and logs
+   `NvPSSRegisterPSSClient failed after 60 attempt(s) — gateway will not send heartbeats to PSS`.
+4. It opens the SDM socket. This is the last step, so `/run/nvpsf/nvpsd_gateway` can be absent
+   for up to about a minute after the gateway starts. SDMs retry until it appears.
+
+Opening the SDM socket fails, and the gateway exits 1, when:
+
+- `/run/nvpsf` does not exist (`bind(<path>) failed`). The gateway does not create the
+  directory.
+- Another gateway is already listening on the path
+  (`bind(<path>) refused -- a LIVE server is already listening on this path`). A stale socket
+  file left by a stopped gateway is removed and the bind is retried.
+- The kernel socket buffers are too small (`SO_RCVBUF granted … raise net.core.rmem_max`).
+
+After the decision link is up, a lost link is retried every 500 ms without limit. The log shows
+`PSS->PSD link lost; reconnecting` and then `PSS->PSD link re-established`.
+
+## Requests from SEI
+
+The gateway validates the CRC and fields of every `DecisionRequest` it receives. A request that
+fails validation is dropped without a response, so SEI's retry budget applies.
+
+It then checks the request ID against the previous one:
+
+| Request ID | Gateway action |
+| --- | --- |
+| The first ID, or exactly one more than the last | Forwarded. |
+| The same as the last (duplicate) | Suppressed. Logged as `duplicate PSS DecisionRequest suppressed`. Nothing is forwarded. |
+| Any other valid ID, including a backward jump after an SEI restart (gap) | A `SW_FAIL` with cause 10 is sent to every SDM first, then the request is forwarded. |
+| `0` or `4294967295` (invalid) | Not forwarded. A `SW_FAIL` with cause 11 is sent to every SDM. |
+
+When a request reports SEI in `ERROR` mode, the gateway sends every SDM a `SW_FAIL` with cause
+12 and then forwards the request, filtered by subscription. A gap in an `ERROR` request
+produces the cause-12 record only.
+
+The synthetic `SW_FAIL` records carry `sensorIdentifier` `PSD_GATEWAY`, severity `CRITICAL`
+and status `PASSTHROUGH`. They go to every registered SDM whatever it subscribed to, except an
+SDM in the degraded heartbeat tier. The cause values and their meaning are listed in
+[Causes and records](/reference/causes-and-records).
+
+### Recovery record
+
+A synthetic fault leaves every SDM that was registered at the time owed a recovery record. An
+SDM that registers while any record is owed is owed one too. On the next request that is in
+sequence and not in `ERROR` mode, the gateway sends each owed SDM a `PSS_STATUS_NOOP` with cause
+14, mode `NORMAL`, severity `OPERATIONAL`, before forwarding the request.
+
+- A record is paid only when the transport accepted it for that SDM. An SDM in the degraded
+  heartbeat tier, or one whose send failed, stays owed until a later request.
+- The record clears only the SDM's gateway-communication sub-cause. A latched safe state still
+  needs a manual release; see [Safe-state model](/integration/safe-state-model).
+- When every owed SDM got its record, the log shows
+  `PSS link recovered; recovery record delivered to every client that was owed one`.
+  Otherwise a warning says that some SDMs are still owed one.
+
+### Loss of SEI
+
+The gateway sends SEI a heartbeat every 2 s. After each failed heartbeat it tries to register
+with SEI again; a successful re-registration resets the count and logs
+`PSS re-registered after daemon restart`. After `--max_hb_failures` consecutive failures it logs
+`PSS heartbeat ACK failure limit reached — PSS presumed dead` and sends every SDM outside the
+degraded tier a request with ID `4294967295`, mode `ERROR` and no events. Its SEI heartbeat
+then stops until the gateway restarts.
+
+When the decision link itself drops, the gateway sends the SDMs nothing. The SDMs detect the
+silence through their decision-freshness timeout.
+
+## SDM admission and registration
+
+An SDM connects to `/run/nvpsf/nvpsd_gateway` and then registers. Admission has two stages.
+
+**Stage one: connect.** The transport refuses a connection when:
+
+- the peer's primary GID does not match (`peer credential is not in the allowed group`);
+- all peer slots are taken. There are twice `--num_clients` slots, 20 by default
+  (`all <N> peer slots are occupied`);
+- more than four connections per slot arrive in one second, 80 by default
+  (`endpoint connect rate exceeded`).
+
+A connected peer gets no client slot until it registers. A peer that has not sent a valid
+registration within 5 s is disconnected (`dropped a connection that never registered`).
+
+**Stage two: register.** The SDM sends a `REGR` message: the four bytes `REGR`, a one-byte
+count, then that many event types as 32-bit integers in network byte order.
+
+| Check | Result when it fails | `RGNK` reason |
+| --- | --- | --- |
+| More than `--regr_max_per_window` registrations from this peer in the current window | Refused without being read. Only the first refusal in a window is answered. | `4` `rate_limited` |
+| Message shorter than 5 bytes, count 0 or above 32, or fewer bytes than the count needs | Refused | `1` `malformed` |
+| No requested type can be subscribed to | Refused | `2` `no_valid_event_types` |
+| Every client slot is in use | Refused. The peer stays connected but unregistered, so it is dropped after 5 s. | `3` `table_full` |
+
+A refusal is answered with a 5-byte `RGNK` message: the four bytes `RGNK` and the reason byte.
+The gateway logs `registration refused` with the reason. A successful registration gets no
+reply; the first heartbeat is the confirmation, because heartbeats go only to registered SDMs.
+The gateway logs `registered client <slot> (<n> event types)`.
+
+### Subscriptions
+
+- Requested types from `EVENT_0` up to `SW_FAIL` are kept. Of the types above that range, only
+  `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID` and `AI_PIPELINE_VALID` are kept.
+  Other values are dropped without an error.
+- Once at least one requested type is kept, the gateway adds six mandatory types: `SW_FAIL`,
+  `PSS_STATUS_NOOP`, `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID` and
+  `AI_PIPELINE_VALID`. Every SDM therefore receives the status no-ops, the sensor and AI-pipeline
+  trust reports and every `SW_FAIL`.
+- A new registration from an already registered SDM replaces its subscription set and resets its
+  missed-heartbeat count. It keeps the SDM's epoch and sequence, so no gap appears.
+- The reference SDMs send their registration again every 30 s.
+
+## Fan-out and envelope
+
+For each request, the gateway builds one copy per registered SDM. The copy holds only the
+events that SDM subscribed to, in their original order. A copy with no events is not sent. The
+only request ever sent with no events is the one that reports the loss of SEI.
+
+Each copy is wrapped in an envelope:
+
+| Field | Type | Value |
+| --- | --- | --- |
+| `magic` | 4 bytes | `DRPG` |
+| `version` | `uint16` | `1` |
+| `headerSize` | `uint16` | 20, the offset of the request |
+| `gatewayEpoch` | `uint64` | Per SDM. Neither `0` nor `UINT64_MAX`. A new SDM gets a new epoch. |
+| `gatewayTxSeq` | `uint32` | Per SDM. Starts at 1, wraps from `4294967294` back to 1. |
+| `request` | `DecisionRequest` | The filtered request. Its CRC is recomputed for each SDM. |
+
+The header fields are in host byte order. `requestId` inside the request keeps SEI's ID.
+
+- The sequence number is allocated **before** the send. A send that fails has still spent its
+  number, so the SDM sees a gap and latches. The gap is the SDM's evidence that a request did not
+  arrive.
+- Sends never block. When an SDM's socket buffer is full, the request is dropped and counted,
+  and the gateway logs `DecisionRequest dropped, consumer not keeping up seq=…, drops=…`. There
+  is no retry.
+- An SDM in the degraded heartbeat tier is skipped before a sequence number is allocated, so the
+  requests it misses leave no gap.
+
+How an SDM must check the envelope and sequence is described in
+[Writing a decision maker](/integration/writing-a-decision-maker).
+
+## SDM heartbeat supervision
+
+The gateway sends each registered SDM `HBPG` followed by a 32-bit sequence number in network
+byte order (8 bytes). The SDM must reply `HBPC` with the same sequence number. Only a reply with
+a newer sequence number resets the SDM's missed count.
+
+Each heartbeat cycle waits 2 s, sends, then waits 1.3 s before it checks for replies, so one
+cycle takes about 3.3 s. With `M` = `--max_hb_failures` and `W` = `M / 2` rounded down:
+
+| Missed heartbeats | Tier | Gateway action |
+| --- | --- | --- |
+| 1 to `W` | Warn | Logs `no HB ACK from client <c> … [warn tier]`. |
+| More than `W`, fewer than `M` | Degraded | Stops forwarding requests to the SDM, including `SW_FAIL` and recovery records. Heartbeats continue. |
+| `M` | Reclaim | Frees the slot, resets epoch, sequence and recovery debt, and disconnects the SDM. Logs `client <c> reclaimed (heartbeat exhausted); SDM may REGR again`. |
+
+With the default `M` of 10, the warn tier covers misses 1–5, the degraded tier 6–9, and the slot
+is reclaimed at the tenth miss, about 33 s after the last reply. With `M` = 1 the first miss
+reclaims the slot; with `M` = 2 there is no degraded tier. An SDM that disconnects is reclaimed
+the same way (`reclaimed (peer disconnected)`).
+
+## Logs
+
+The gateway writes to syslog with the tag `nvpsd_gateway` or `NVPSB_PSD_CLIENT`. Transport
+diagnostics, such as a GID mismatch or a socket-buffer shortfall, go to standard error. Where
+both land is described on [Safety Black Box (SBB)](/integration/components/black-box).
+
+| Log line | Meaning |
+| --- | --- |
+| `PSD-Gateway: peer credential allowlist requiredPrimaryGid=<gid>` | The GID every SDM must run with. |
+| `PSD-Gateway: listening for SDM clients` | The SDM socket is open. The line also gives the client limit. |
+| `PSD-Gateway: received DecisionRequest id=<N> with <M> events` | One line per request from SEI. |
+| `nvpsf_transport: peer GID <g> does not match the required PSF group <G>` | A peer was refused for its GID. |

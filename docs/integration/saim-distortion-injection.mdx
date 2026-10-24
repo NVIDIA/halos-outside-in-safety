@@ -1,0 +1,217 @@
+---
+title: "SAIM Distortion Injection"
+description: "Inject camera faults such as blur, fog and occlusion into a running VSS deployment to check that SAIM detects them and the decision makers react."
+---
+The Debian package ships a test suite that injects synthetic camera faults, such as blur, fog,
+occlusion or a colour cast, into the camera streams of a running VSS deployment. Use it to check
+that the [Safety AI Monitor (SAIM)](/integration/components/ai-monitor) reports each fault, that the
+decision makers react, and that everything recovers when the fault ends. It does not change the
+VSS configuration or its stored state.
+
+The suite is installed in `/opt/nvidia/psf/tests/saim_distortion/`.
+
+<Warning>
+Use it only on a test deployment. While it runs, VST, perception and SAIM see the relayed and
+distorted streams instead of the original ones, and both starting and stopping it latch the safe
+state of every decision maker. Never run it on a site where the safety function is in use.
+</Warning>
+
+## How it works
+
+| Part | What it does |
+| --- | --- |
+| `vss_distortion.sh` | The entry point. It starts and stops the other parts and sends the commands below. |
+| `rtsp_distortion_service.py` | Decodes each camera's source `.mp4`, applies the requested effect, and republishes the camera over RTSP through the relay. It also serves the HTTP API and the browser control panel. |
+| Relay | A MediaMTX container, `oisf-mediamtx` (image `bluenviron/mediamtx:1`), on the host network. |
+| Redirect | An `iptables` `REDIRECT` rule, tagged `OISF_VSS_SAME_RTSP`, that sends VST's ingest connections for the NVStreamer ports to the relay. VST, and everything that reads from VST, then receives the relayed streams. |
+| `record_distortion_bbox.py` | Records every injection with the perception boxes drawn on. See [Recordings](#recordings). |
+
+An effect ramps in over the attack time, holds, and ramps out over the release time, because a
+real camera degrades gradually rather than in one step. The defaults are a 10 s effect with 2 s
+ramps.
+
+The suite works only for cameras that NVStreamer serves from video files, such as the VSS
+warehouse demo datasets. It reads the ingest port of each camera from NVStreamer's API and
+redirects only those ports. Live cameras are not affected.
+
+## Requirements
+
+| Item | Requirement |
+| --- | --- |
+| Host | The VSS host itself. The suite changes that host's `iptables` rules and Docker containers. |
+| Privileges | Root, or `sudo` for `iptables` and `ss`. `up` asks for credentials before it changes anything. |
+| Packages | `ffmpeg` (with `ffprobe`), `python3-opencv` and `python3-numpy`. `up` checks them first and stops with `missing: <packages> -- sudo apt-get install -y <packages>` if any is absent. |
+| Relay image | Docker must be able to pull `bluenviron/mediamtx:1`. |
+| Encoder | `h264_nvenc` by default, so the host needs an NVIDIA GPU encoder. `VSS_DISTORTION_ENCODER` selects another `ffmpeg` encoder. |
+| Ports | `8099` (HTTP API and panel) and `8558` (relay) free on the host. The suite also reads NVStreamer's API on `31000`. |
+| Source videos | One `.mp4` per camera, named after the camera's sensor name, in one directory: the files NVStreamer serves. |
+
+## Start
+
+1. **Copy the suite to a working directory.**
+
+   ```bash
+   mkdir -p ~/saim-distortion && cp /opt/nvidia/psf/tests/saim_distortion/* ~/saim-distortion/
+   ```
+
+2. **Start the relay, the distortion service, the recorder and the redirect.** `<video-dir>` is
+   the directory of source videos, for example
+   `~/video-search-and-summarization/vss-warehouse-app-data_v3.2.0/vss-warehouse-app-data/videos/warehouse-loading-dock-3cams-synthetic`.
+
+   ```bash
+   cd ~/saim-distortion && ./vss_distortion.sh up --video-dir <video-dir>
+   ```
+
+   Expected: `UP: <n> cameras distorted`, then the control-panel snippet. Allow 1–2 minutes
+   for VST to switch over. If a camera looks corrupted in the VST browser tab, hard-refresh the
+   page: the viewer freezes until the next keyframe after an ingest switch.
+
+3. **Check the state.**
+
+   ```bash
+   ./vss_distortion.sh status
+   ```
+
+   Expected: `distortion service: running`, `healthy: True`, one line per camera with
+   `connected=True`, and `bbox recorder: running`.
+
+Switching VST to the relay reconnects every camera, which SAIM reports as a stream disconnect,
+and every decision maker latches its safe state. This is expected; release it
+from the command receiver once the cameras are healthy again, as described in
+[Release a latched safe state](/deployment/quick-deployment#release-a-latched-safe-state).
+
+If `up` fails part way, it removes everything it has started.
+
+## Inject a fault
+
+From the command line:
+
+```bash
+./vss_distortion.sh trigger <camera|all> [effect] [seconds]
+```
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `<camera\|all>` | `all` | A camera's sensor name, such as `Camera_01`, or `all`. |
+| `[effect]` | `sequential` | An effect from the table below, `sequential` to step through every effect, or `random`. |
+| `[seconds]` | `10` | Total length of the effect, ramps included. |
+
+Examples:
+
+```bash
+./vss_distortion.sh trigger all fog 15
+./vss_distortion.sh trigger Camera_01 occlusion 20
+./vss_distortion.sh clear
+```
+
+`clear` ends every active effect at once.
+
+From the browser: open VST, open the browser console on the VST page, and paste the snippet
+that `up` printed:
+
+```js
+var s=document.createElement('script');s.src='http://'+location.hostname+':8099/panel.js';document.head.appendChild(s);
+```
+
+The panel lets you pick a camera and an effect, trigger it, clear it, and switch recording on
+or off (`REC`).
+
+| Effect | What the camera shows |
+| --- | --- |
+| `brighten` | Overexposure. |
+| `darken` | Underexposure. |
+| `high_contrast` | Excessive contrast. |
+| `blur` | Loss of focus. |
+| `motion_blur` | Motion blur. |
+| `fog` | Fog or haze. |
+| `condensation` | Condensation on the lens. |
+| `occlusion` | An object covering the top of the lens. |
+| `awb_drift` | White-balance drift: a colour cast. |
+| `ir_cut` | A stuck IR-cut filter: washed-out colour and a brighter image. |
+| `desaturate` | Loss of colour. |
+
+`blur`, `motion_blur`, `fog` and `condensation` are held back below full strength, so the frame
+still looks like a degraded camera rather than a blank one.
+
+## What to expect
+
+- **SAIM.** A strong enough effect lowers the camera's frame score. SAIM reports
+  `SENSOR_INVALID` with cause `SAIM_INPUT_DEGRADED` once its debounce counter fills, after about
+  0.2 to 7.5 s at 30 frames per second depending on how bad the frames are. After the effect
+  ends, it reports `SENSOR_VALID` after a run of good frames. Mild effects, or short ones, can
+  pass without a verdict. An effect on part of the frame only, such as `occlusion`, counts only
+  after the area has stayed changed for about 5 s, so give it 15 s or more. See [Verdicts and timing](/integration/components/ai-monitor#verdicts-and-timing).
+- **Where to see it.** SAIM writes no log line for a frame-score verdict. Each reference SDM
+  logs `safety-sensor health change pipelineID=<id> state=FAILED|RECOVERED cause=<n>` for the
+  cameras in its reviewed set.
+- **Decision makers.** A single degraded camera marks that camera's events as untrusted but does
+  not latch the safe state. When every camera in an SDM's reviewed set is invalid, for example
+  after `trigger all`, the SDM latches. See [Safe-state model](/integration/safe-state-model).
+- **Perception.** Detections can thin out or disappear under a strong effect. That is
+  perception reporting truthfully, not a fault in the suite. The Perception Monitor (PCM) checks
+  the perception output and can report the pipeline invalid as well.
+- **Detection counts.** `./vss_distortion.sh monitor [seconds]` reads the `mdx-raw` topic for 8 s
+  by default and prints, for each camera, the number of detected objects of one class per frame:
+  `Pallet`, or the class set in `VSS_DETECTION_LABEL`.
+
+## Recordings
+
+`up` starts the recorder. Each injection is saved in `~/distortion_recordings` as
+`<camera>_<effect>_<timestamp>.mp4`, with the perception boxes drawn on and 5 s of footage
+before the fault. An injection on several cameras also produces `wall_<effect>_<timestamp>.mp4`,
+with every camera tiled side by side. The oldest injections are deleted whole once the folder
+passes 10 GiB.
+
+```bash
+./vss_distortion.sh record off
+./vss_distortion.sh record on
+./vss_distortion.sh record status
+```
+
+`record off`, or `REC` in the panel, stops saving new injections without stopping the recorder;
+a capture already under way still finishes.
+
+## Stop
+
+```bash
+./vss_distortion.sh down
+```
+
+`down` removes the redirect, stops the recorder and the distortion service, removes the relay
+container, and restarts the NVStreamer container (`vss-vios-nvstreamer`) so that the original
+videos play again. It then waits up to 100 s for VST to reconnect.
+
+Expected: `DOWN: distortion removed, original videos restored`. If it reports that VST has not
+reconnected yet, VST keeps retrying on its own.
+
+The switch back also reconnects every camera, so the decision makers latch again. Release the
+latch once SAIM reports the cameras valid.
+
+## Settings
+
+`./vss_distortion.sh --help` lists every setting and the values in use.
+
+| Option | Meaning |
+| --- | --- |
+| `--video-dir <dir>` | The source videos. Required by `up` only; the other commands read the running service. |
+| `--host-ip <ip>` | The address VST dials for ingest. Default: read from VST's live ingest connections. `up` stops with `could not determine host IP; pass --host-ip` when it cannot find it. |
+| `--cameras <a,b,c>` | The sensor names to distort, when the video directory holds more `.mp4` files than cameras. |
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `VSS_DISTORTION_API_HOST` | `0.0.0.0` | Address of the HTTP API and panel. The default accepts triggers from any host on the network; set `127.0.0.1` to allow the local host only. |
+| `VSS_DISTORTION_API_PORT` | `8099` | Port of the HTTP API and panel. |
+| `VSS_DISTORTION_RELAY_PORT` | `8558` | Port of the relay. |
+| `VSS_NVSTREAMER_API_PORT` | `31000` | Port of NVStreamer's API, read for each camera's ingest port. |
+| `VSS_NVSTREAMER_RTSP_PORTS` | read from NVStreamer | Comma-separated ingest ports to redirect, to override the automatic choice. |
+| `VSS_RELAY_CONTAINER` | `oisf-mediamtx` | Name of the relay container. |
+| `VSS_NVSTREAMER_CONTAINER` | `vss-vios-nvstreamer` | NVStreamer container that `down` restarts. |
+| `VSS_DISTORTION_DURATION` | `10` | Default effect length in seconds. |
+| `VSS_DISTORTION_ATTACK_MS`, `VSS_DISTORTION_RELEASE_MS` | `2000` | Default ramp-in and ramp-out times. |
+| `VSS_DISTORTION_ENCODER` | `h264_nvenc` | `ffmpeg` encoder for the relayed streams. |
+| `VSS_DISTORTION_RECORD` | `1` | `0` never starts the recorder. |
+| `VSS_DISTORTION_RECORD_DIR` | `~/distortion_recordings` | Where recordings are saved. |
+| `VSS_DISTORTION_RECORD_MAX_GB` | `10` | Size cap of the recordings folder. |
+| `VSS_DISTORTION_RECORD_PREROLL` | `5` | Seconds recorded before each injection. |
+| `VSS_DISTORTION_RECORD_MOSAIC` | `also` | Tiled multi-camera file: `also`, `only` (drop the per-camera files) or `off`. |
+| `VSS_DISTORTION_LOG` | `~/live_distortion_service.log` | Log of the distortion service. |

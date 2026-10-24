@@ -1,0 +1,211 @@
+---
+title: "Prerequisites"
+description: "One checklist to complete, in order, before the Quick Deployment, with a check and its expected output for every item."
+---
+Work through this list in order on the host that will run the Safety Core. Each item gives one
+command to check it and the output you should see. Do not start the
+[Quick Deployment](/deployment/quick-deployment) until every check passes.
+
+The Quick Deployment runs the Safety Core on the same host as AI Perception. It reads Kafka at
+`localhost:9092`, VST at `127.0.0.1:30888`, and the perception containers through the local Docker
+socket. For perception on another host, see [Custom Deployment](/deployment/custom-deployment).
+
+## Placeholders
+
+| Placeholder | Meaning | How to find it |
+| --- | --- | --- |
+| `<release-tag>` | Tag of the Safety Core container image | [Release Notes](/release-notes), or the tag list on the [NGC container page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety) |
+| `<wh_ops>` | VSS Warehouse `warehouse-operations` directory | `<vss-repo>/deploy/docker/industry-profiles/warehouse-operations`, where `<vss-repo>` is your clone of the VSS repository |
+
+## Checklist
+
+1. **Supported target and operating system.** The host is an x86-64 server with an NVIDIA GPU, or
+   an NVIDIA IGX Thor. The versions are in [Software](/getting-started/prerequisites#software).
+
+   ```bash
+   uname -m; grep VERSION_ID /etc/os-release
+   ```
+
+   Expected: `x86_64` or `aarch64`, then the release from that table, for example
+   `VERSION_ID="24.04"`.
+
+2. <a id="gpu-driver"></a>**NVIDIA GPU and driver.**
+
+   ```bash
+   nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
+   ```
+
+   Expected: one line per GPU, with the driver version from
+   [Software](/getting-started/prerequisites#software).
+
+3. <a id="docker"></a>
+   **Docker Engine and the NVIDIA Container Toolkit.** Docker 28.3.3 or later and below 29.5.0, with
+   the `nvidia` runtime registered.
+
+   ```bash
+   docker version --format '{{.Server.Version}}'; docker info --format '{{json .Runtimes}}' | grep -o '"nvidia"'
+   ```
+
+   Expected: a version such as `28.3.3`, then `"nvidia"`.
+
+4. **Your user is in the `docker` group.**
+
+   ```bash
+   id -nG | tr ' ' '\n' | grep -x docker
+   ```
+
+   Expected: `docker`. If it is missing, run `sudo usermod -aG docker "$USER"`, then log out and
+   back in.
+
+5. <a id="sudo"></a>
+   **`sudo` access.** Some steps install packages and create the log files under `/var/log/psf`.
+
+   ```bash
+   sudo true && echo ok
+   ```
+
+   Expected: `ok`.
+
+6. **Tools used by the Quick Deployment commands.**
+
+   ```bash
+   for t in git curl python3 ffprobe ngc; do command -v "$t" >/dev/null && echo "$t ok" || echo "$t MISSING"; done
+   ```
+
+   Expected: five lines ending in `ok`. `ffprobe` comes from the `ffmpeg` package
+   (`sudo apt-get install -y ffmpeg`). `ngc` is the NGC CLI, set up in the next item.
+
+7. **NGC account, licence and API key.**
+   1. Sign in at https://ngc.nvidia.com with an NVIDIA account.
+   2. Open the [Halos Outside-In Safety container page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety)
+      and accept the licence when prompted.
+   3. Create a Personal API key with `NGC Catalog` selected, as described in
+      [NGC access](/getting-started/prerequisites#ngc-access).
+   4. Run `ngc config set` and enter the key.
+
+   ```bash
+   ngc config current
+   ```
+
+   Expected: a table whose `apikey` row shows a masked key.
+
+8. <a id="docker-login"></a>
+   **Docker is logged in to `nvcr.io` and the image pulls.** The username is the literal string
+   `$oauthtoken` and the password is your NGC API key. Signing in to the NGC CLI does not log Docker
+   in. A pull without `docker login`, or before the licence is accepted, fails with `401
+   Unauthorized`.
+
+   ```bash
+   docker login nvcr.io --username '$oauthtoken'
+   docker pull nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag>
+   ```
+
+   Expected: `Login Succeeded`, then a last line that starts with `Status: Downloaded newer image`
+   or `Status: Image is up to date`.
+
+9. <a id="ai-perception"></a>
+    **AI Perception is running on this host.** Deploy the VSS Warehouse Blueprint 2D profile as
+    described in [Deploy AI Perception](/getting-started/inference-pipeline), with
+    `BP_PROFILE=bp_wh_kafka`, `SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"` and
+    `NUM_STREAMS=3`. The Perception Monitor (PCM) checks the containers below. Once PCM has seen
+    one of them, that container stopping for any reason is a fault in the perception pipeline.
+
+    ```bash
+    for c in vss-vios-nvstreamer vss-vios-streamprocessing vss-rtvi-cv vss-behavior-analytics kafka; do
+      echo "$c $(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$c" 2>/dev/null || echo MISSING)"
+    done
+    ```
+
+    Expected: 5 lines, each ending in `running 0`. If a container is `MISSING` because your VSS
+    deployment names it differently, change the list as described in
+    [Required monitors](/deployment/custom-deployment#required-monitors).
+
+10. <a id="calibration"></a>
+    **The calibration restricts people from the ROI.** The forklift safety function reacts to a
+    person in the region of interest only if the ROI lists `Person` in `restrictedObjectTypes`. The
+    shipped demo calibration does.
+
+    ```bash
+    python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print([(r.get("id"), r.get("restrictedObjectTypes")) for r in c.get("rois", [])])' \
+        <wh_ops>/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+    ```
+
+    Expected: every ROI is listed with a list that contains `'Person'`, for example
+    `[('roi-id-1', ['Person'])]`.
+
+11. <a id="kafka"></a>
+    **Perception is publishing on Kafka.** The Safety Core reads the `mdx-events` and `mdx-frames`
+    topics from the broker at `localhost:9092`.
+
+    ```bash
+    for t in mdx-events mdx-frames; do
+      docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 \
+          --topic "$t" --max-messages 1 --timeout-ms 60000 2>&1 >/dev/null | tail -1
+    done
+    ```
+
+    Expected: `Processed a total of 1 messages` twice. `mdx-events` carries tripwire and ROI events,
+    so it can stay empty for a while; repeat the check if it reports 0 messages.
+
+12. <a id="vst-cameras"></a>**The three demo cameras are online in VST.**
+
+    ```bash
+    curl -sf http://127.0.0.1:30888/vst/api/v1/sensor/list | \
+        python3 -c 'import json,sys; d=json.load(sys.stdin); d=d if isinstance(d,list) else d.get("sensors",[]); print(sorted(s.get("name") for s in d if s.get("state")=="online"))'
+    ```
+
+    Expected: `['Camera', 'Camera_01', 'Camera_02']`. Each name must appear exactly once.
+
+13. <a id="socket-buffers"></a>
+    **Kernel socket buffers.** The NvPSD Gateway and the decision makers refuse to use their socket
+    unless `net.core.rmem_max` and `net.core.wmem_max` are at least `836436`. The VSS kernel
+    settings already set both higher.
+
+    ```bash
+    sysctl -n net.core.rmem_max net.core.wmem_max
+    ```
+
+    Expected: two numbers, each `836436` or more. If either is lower, run:
+
+    ```bash
+    sudo sysctl -w net.core.rmem_max=836436 net.core.wmem_max=836436
+    printf 'net.core.rmem_max = 836436\nnet.core.wmem_max = 836436\n' | sudo tee /etc/sysctl.d/60-nvpsf.conf
+    ```
+
+    Expected: both settings printed back. The file name sorts before the VSS settings file, so a
+    larger VSS value still wins after a reboot. The decision maker on the Functional Safety Island
+    needs more; see [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi). Why the limit exists is
+    explained in [Kernel socket buffers](/integration/install#kernel-socket-buffers).
+
+14. <a id="vst-overlay"></a>
+    **The VST safety overlay is on.** VST draws the forklift safety state on the video when it
+    receives the decision packets on `halo_safety_udp_port`. The setting ships as `-1` (off). The
+    Quick Deployment's command receiver forwards every decision to port `12345`. Skip this item if
+    you do not need the decision on the video.
+
+    ```bash
+    sed -i 's/"halo_safety_udp_port": *-1/"halo_safety_udp_port": 12345/' \
+        <wh_ops>/warehouse-2d-app/vst/configs/vst_config.json
+    docker restart vss-vios-streamprocessing
+    grep -o '"halo_safety_udp_port": *[-0-9]*' <wh_ops>/warehouse-2d-app/vst/configs/vst_config.json
+    ```
+
+    Expected: `"halo_safety_udp_port": 12345`. Several copies of `vst_config.json` exist in the VSS
+    tree; edit the one under `warehouse-2d-app`, which VST mounts.
+
+## What the container prepares for you
+
+You do not create these. The container creates or adjusts them every time it starts:
+
+- inside the container, the socket directory `/run/nvpsf`, with mode `1777`, before it starts
+  the SEI daemon;
+- in a learning run, the ownership of the mounted SAIM and PCM baseline directories,
+  `/opt/nvidia/psf/bin/saim_baseline` and `/opt/nvidia/psf/bin/pcm_baseline`, which it gives to
+  the container user `nvidia` so that the monitors can write their baselines.
+
+The Debian package installs both baseline directories, with the reference baselines. You create
+the log files yourself, in
+[Prepare the log files](/deployment/quick-deployment#prepare-the-log-files).
+
+Next: [Applications](/deployment/applications), then
+[Quick Deployment](/deployment/quick-deployment).

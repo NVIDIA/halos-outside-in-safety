@@ -8,6 +8,10 @@ Bring the Halos Hardware-in-the-Loop (HIL) closed loop up across two machines: N
 This is a two-host profile. The x86 commands run on the stimulus host, the IGX Thor commands over ssh from the same seat, and both hosts need their own clone of the repository. Every command block below opens with a comment naming the host it belongs to.
 </Note>
 
+<Info>
+**Versions in this release.** The x86 stimulus host runs Isaac Sim 6.1 like the single-host harness, but the IGX Thor safety host stays on **VSS Warehouse 3.2.1** and the **Safety Core 1.3** Thor package pinned in `hil-thor.env`: the HIL profile has not been run on VSS 3.3, and the Thor profiles move to 1.4 once an aarch64 host package of the 1.4 build is published. The Safety Core on the Thor runs ATL only (`--app atl`).
+</Info>
+
 ## Prerequisites
 
 See [Prerequisites](/getting-started/prerequisites) for hardware and software requirements.
@@ -27,7 +31,7 @@ Run both commands on both hosts. The IGX Thor needs its own clone: the Safety Co
 docker login nvcr.io -u '$oauthtoken' -p "$NGC_CLI_API_KEY"
 
 # Both hosts — clone the Halos Outside-In Safety repo
-git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.4.0
 cd halos-outside-in-safety
 ```
 
@@ -60,7 +64,7 @@ ngc registry resource download-version "$PSF_TEGRA_RESOURCE"
 sudo dpkg -i */psf-tegra.deb
 ```
 
-`ls /opt/nvidia/psf/bin/` lists `atl_sdm`, `launch_hoisa.sh`, and `safety_monitor`. The launch script in Step 9 exits immediately if `launch_hoisa.sh` is not there.
+`ls /opt/nvidia/psf/bin/` lists `launch_hoisa.sh` and `safety_monitor`, and `ls /opt/nvidia/psf/apps/atl/` lists `atl_sdm`. The launch script in Step 9 exits immediately if `launch_hoisa.sh` is not there.
 
 ## Step 3: Configure Both Hosts
 
@@ -137,10 +141,9 @@ docker compose --env-file profiles/hil.env up -d
 
 ```bash
 # x86 stimulus host — no --enable-vst: the IGX Thor owns sensor registration
+# SCENARIO from hil.env supplies the IRA, robots and cameras configs
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+  ./run_sdg.sh --start --headless'
 ```
 
 Poll the forklift controller until the scene is live:
@@ -214,7 +217,7 @@ Wait for a `SEGMENT TRANSITION` line reading `FORWARD→REVERSE`, which is the f
 <Info>
 Starting the Safety Core mid-scenario, with the forklift already in the trailer, leaves the ATL scenario state stuck: commands keep flowing but `MUTE` never fires again. Stop it and start it again on a clear scene.
 
-This is not the fail-safe latch. The Safety Decision Maker latches a *safe state* when it detects a fault, re-asserts the fail-safe command, and clears only through the `release` handshake described in [Clearing a Latched Safe State](/deployment#safe-release). The condition here needs no handshake — the scenario simply started from a state ATL cannot resolve, and a relaunch on a clear scene is the whole fix.
+This is not the fail-safe latch. The Safety Decision Maker latches a *safe state* when it detects a fault, re-asserts the fail-safe command, and clears only through the `release` handshake described in [Release a latched safe state](/deployment/quick-deployment#release-a-latched-safe-state). The condition here needs no handshake — the scenario simply started from a state ATL cannot resolve, and a relaunch on a clear scene is the whole fix.
 </Info>
 
 ```bash
@@ -241,7 +244,7 @@ docker ps --filter name=nv-psf
 pgrep -x atl_sdm
 ```
 
-`nv-psf` is `Up`, and `atl_sdm` prints a PID. The profile ships `SDM_TARGET=ccplex` and this guide covers that path only. Running the decision maker on the Functional Safety Island instead is a separate setup with its own gated-access packages and a firmware flash, described in [Option C: SDM on FSI](/deployment#sdm-on-fsi).
+`nv-psf` is `Up`, and `atl_sdm` prints a PID. The profile ships `SDM_TARGET=ccplex` and this guide covers that path only. Running the decision maker on the Functional Safety Island instead is a separate setup with its own gated-access packages and a firmware flash, described in [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi).
 
 ## Step 10: Verify the Closed Loop
 
@@ -291,8 +294,8 @@ The command returns a value instead of blocking. The loop is closed when the MUT
 
 To run the loop against the 3D (BEV) perception profile, keep every step above as it is — the stimulus host runs the same three services, the same environment file, and the same scenario command. The differences are all on the safety host:
 
-- **Model artifacts**: the Sparse4D R101 deployable and trainable resources are pinned in `hil-thor.env` and are pulled onto the IGX Thor, where perception runs. Both must be the same version.
-- **Calibration**: the 3D profile needs the camera calibration and `camera_info.json` machinery. Follow [SIL — 3D Perception](/testing/sil/sil-3d) for it and for the rest of the VSS-side configuration.
+- **Model and calibration**: 3D HIL has not been run in this release. [SIL — 3D Perception](/testing/sil/sil-3d) now describes VSS 3.3, which ships the Sparse4D model and the BEV calibration; the IGX Thor stays on VSS 3.2.1, where the model and the 3D calibration dataset are installed as the [VSS 3.2.1 3D profile documentation](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html) describes. The DeepStream, VST and `camera_info.json` settings of [SIL — 3D Perception](/testing/sil/sil-3d) still apply.
+- **Safety Core**: a 3D feed needs the 3D Safety Core configuration — with the 1.3 Thor package, the 3D notes of the 1.3 deployment guide.
 - **Frame rate**: the `IGX-THOR` platform profile ships `interval: 1`, which halves the 3D inference rate — a default tuned for real 30 fps cameras. A simulated source already renders below that rate, so set `interval: 0` in the configurator's `blueprint_config.yml` for HIL runs only. Leave the Thor default in place for real-camera deployments.
 
 ## Restart the Scenario
@@ -359,7 +362,7 @@ ROS 2 discovery: the three x86 containers cannot see each other. [HIL Architectu
 ```bash
 # x86 stimulus host
 docker exec forklift-controller bash -lc \
-  "source /opt/ros/jazzy/setup.bash && ros2 topic info -v /odom"
+  "source /opt/ros/jazzy/setup.bash && ros2 topic info -v /forklift_b/odom"
 ```
 
 Should show a publisher. If it shows none, confirm `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` in `hil.env` and recreate all three containers together — from `deployments/`, `docker compose --env-file profiles/hil.env up -d --force-recreate`. A plain restart does not pick up the change.
@@ -368,7 +371,7 @@ A `State: IDLE → MOVING` line is not evidence: the controller prints it uncond
 
 ### Decisions Flow but MUTE Never Fires
 
-Either the forklift is not crossing the trailer tripwire, or the ATL scenario state is stuck from a mid-scenario start. Neither is the fail-safe latch of [Clearing a Latched Safe State](/deployment#safe-release), which announces itself in the command receiver console and does not clear on a restart.
+Either the forklift is not crossing the trailer tripwire, or the ATL scenario state is stuck from a mid-scenario start. Neither is the fail-safe latch described in [Release a latched safe state](/deployment/quick-deployment#release-a-latched-safe-state), which announces itself in the command receiver console and does not clear on a restart.
 
 Confirm the forklift is moving on the VST streams first. If it is, and events keep flowing while only `MUTE` has stopped, stop the Safety Core and relaunch it at a [clear-scene moment](/testing/hil/quickstart#step-9-start-the-safety-core-on-a-clear-scene).
 
@@ -390,7 +393,7 @@ Run it inside `tmux` as in Step 9, and stop it only with `closed-loop-testing/sc
 
 Check the `comm-layer` health state and its log directory: an unwritable log directory or a blocked port 4840 both keep the check failing. `setup.sh hil` in Step 4 creates that directory with the right ownership.
 
-For the Safety Core itself, see [Deployment Guide](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment). For IGX Thor container runtime and image pull workarounds, see [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor).
+For the Safety Core itself, see [Troubleshooting](/deployment/troubleshooting) in the Deployment Guide. For IGX Thor container runtime and image pull workarounds, see [Annex A](/getting-started/inference-pipeline#annex-a-vss-warehouse-blueprint-deployment-workarounds-for-safety-flashed-igx-thor).
 
 ## Next Steps
 

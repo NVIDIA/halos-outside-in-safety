@@ -1,0 +1,99 @@
+---
+title: "Applications"
+description: "The reference applications a runner can deploy: what each protects, what it sends, what the command receiver shows, and where its decision maker can run."
+---
+A Safety Core deployment runs one or two reference applications. Each application is a decision
+maker (SDM) that turns trusted perception events into commands for a machine, sent as 64-byte UDP
+packets to a command receiver. In production the receiver is the machine's controller (PLC). For
+testing, the Debian package ships a reference command receiver for each application.
+
+| Application | `--app` | SDM | Command receiver |
+| --- | --- | --- | --- |
+| [Forklift safety function](#forklift-safety-function) | `atl` | `atl_sdm` | `/opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver` |
+| [Proximity Monitoring](#proximity-monitoring) (Preview) | `pxc` | `proximity_sdm` | `/opt/nvidia/psf/apps/proximity/proximity_sdm_cmd_receiver` |
+| [Two decision makers](#two-decision-makers) | `atl,pxc`, `pxc,atl`, `atl,atl` or `pxc,pxc` | One SDM per entry | One receiver per SDM, each on its own port |
+
+The decision logic, the packet layout and the full command set are in
+[Decision Maker](/integration/components/decision-maker).
+
+## Forklift safety function
+
+![Forklift safety function scenario](/assets/images/ATL-Scenario-Diag.png)
+
+**What it protects.** A forklift loads and unloads pallets into a trailer. Its safety function
+is switched off (muted) only while the forklift is inside the trailer, no person is inside the
+trailer, and no person is in the restricted region of interest (ROI) at the trailer door. In
+every other case the safety function stays on (unmuted).
+
+**What it sends.**
+
+| Command | Code | Meaning for the machine |
+| --- | --- | --- |
+| `MUTE` | `0x02` | Allow operation: the safety function may be switched off for loading |
+| `UNMUTE` | `0x07` | Prevent operation: the safety function stays on |
+| `SW_ERROR` | `0x03` | Fault safe state. Sent after `UNMUTE` while the SDM holds a latched safe state |
+| `HEARTBEAT` | `0x00` | Liveness, every 5 seconds |
+
+When the SDM detects a fault it sends `UNMUTE` followed by `SW_ERROR`, and keeps doing so until
+an operator releases it. See
+[Release a latched safe state](/deployment/quick-deployment#release-a-latched-safe-state).
+
+**What the command receiver shows.** The console shows the latch, clear and release events. Each
+command received goes to the receiver's log file, `/tmp/cmdrx.log` by default, as a line such as
+`Received ATL command: 0x02 - MUTE (ALLOW OPERATION)`. With the VST overlay turned on, the
+receiver also forwards each command to VST, which draws the state on the video.
+
+**Perception it needs.** A 2D VSS Warehouse profile with a tripwire `tripwire-id-1` and an ROI
+`roi-id-1` that restricts `Person`. The demo dataset of the
+[Quick Deployment](/deployment/quick-deployment) has both.
+
+**Where the SDM runs.** On the host CPU of an x86-64 server or the CCPLEX of an IGX Thor, or on
+the Functional Safety Island of an IGX Thor. See
+[SDM on FSI](/deployment/custom-deployment#sdm-on-fsi).
+
+## Proximity Monitoring
+
+Proximity Monitoring is a preview.
+
+**What it protects.** People working near machines. The SDM watches the distance between each
+person and each tracked machine, and slows or stops the machine as the distance shrinks. The
+shipped configurations cover these pairs:
+
+| SDM configuration | Pairs |
+| --- | --- |
+| `/opt/nvidia/psf/bin/pxc_sdm_forklift.conf.sample` | Forklift and person |
+| `/opt/nvidia/psf/bin/pxc_sdm_robots.conf.sample` | Agility Digit humanoid, Transporter and Fourier GR1 humanoid, each with a person |
+
+**What it sends.** The most severe pair decides the command.
+
+| Command | Code | Sent when |
+| --- | --- | --- |
+| `NORMAL` | `0x07` | No person is within 2 m of a machine |
+| `REDUCE` | `0x05` | A person is within 2 m of a machine |
+| `STOP` | `0x02` | A person is within 1 m of a machine |
+| `SW_ERROR` | `0x03` | Fault safe state. Sent after `STOP` while the SDM holds a latched safe state |
+| `HEARTBEAT` | `0x00` | Liveness, every 5 seconds |
+
+When the SDM detects a fault it sends `STOP` followed by `SW_ERROR`, and keeps doing so until an
+operator releases it.
+
+**What the command receiver shows.** The receiver collects commands in 100 ms windows. For each
+window that received commands, it applies the most severe one and prints a line such as
+`[EVAL] Action: SLOW DOWN  |  window: 3 cmd(s) [STOP=0 REDUCE=3 NORMAL=0]`. A change of action is
+marked `*** STATE CHANGE ***`.
+
+**Perception it needs.** A VSS Warehouse profile whose behavior analytics reports proximity
+between the selected machine class and `Person` on the `mdx-frames` topic, with a detection range
+of at least 2 m. Robot pairs need a scene that contains those robots.
+
+**Where the SDM runs.** On the host CPU of an x86-64 server or the CCPLEX of an IGX Thor, or on
+the Functional Safety Island of an IGX Thor.
+
+## Two decision makers
+
+One Safety Core can run two SDMs against the same perception feed, for example the forklift
+safety function and Proximity Monitoring together (`--app atl,pxc`), or two trailer bays
+(`--app atl,atl`). Each SDM has its own configuration, log and command receiver port, and latches
+and is released on its own. Two SDMs run only on the host CPU or CCPLEX, not on the Functional
+Safety Island. See
+[Running more than one decision maker](/deployment/custom-deployment#multiple-decision-makers).

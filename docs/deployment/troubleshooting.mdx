@@ -1,0 +1,201 @@
+---
+title: "Troubleshooting"
+description: "Find a Safety Core failure by its symptom or message, learn its cause and fix it, and know which log to read."
+---
+Find the message or symptom in the tables below. Each table names the place the message appears;
+[Logs](#logs) lists every log and the commands to read it. After any fix, stop the Safety Core and
+start it again, as in [Stop](/deployment/quick-deployment#stop).
+
+## The container stops at start-up
+
+The container checks its options and files before it starts anything. On a problem it prints one
+of these messages and stops with status 1. For a learning run the message appears in the terminal.
+For a container started with `docker run -d`, `docker ps -a --filter name=nv-psf --format '{{.Status}}'`
+shows `Exited (1)`, and `docker logs nv-psf` shows the message. Remove the stopped container with
+`docker rm nv-psf` before you start it again.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `docker run` reports that the container name `nv-psf` is already in use | A container from an earlier start still exists | Stop and remove it as in [Stop](/deployment/quick-deployment#stop) |
+| `Error: --saim-mode is required and must be learn, active, or skip` or the same for `--pcm-mode` | A monitor mode is missing or misspelt | Pass both `--saim-mode` and `--pcm-mode` after the image name; see [Required monitors](/deployment/custom-deployment#required-monitors) |
+| `Error: Unknown option '<option>'` | The container does not take that option. Its receiver options are `--cmd_rx_ip` and `--cmd_rx_port`, with underscores, and it has no `--mode` | Use the options listed in [Container options](/reference/launcher#container-options) |
+| `Error: --saim-mode <mode> conflicts with required_safety_monitor = <n> in /opt/nvidia/psf/bin/nvpss.conf.` or the same for `--pcm-mode` and `required_perception_monitor` | The monitor modes and `nvpss.conf` disagree: a monitor in `active` must have its key at `1`, one in `learn` or `skip` at `0` | Use the modes that match the file, or edit your copy of `nvpss.conf` and mount it; see [Required monitors](/deployment/custom-deployment#required-monitors) |
+| `Error: --skip-pcm conflicts with --pcm-mode <mode>` | The old option and its replacement disagree | Leave out `--skip-pcm` |
+| `Error: <key> is missing from /opt/nvidia/psf/bin/nvpss.conf.`, `... is defined more than once ...` or `... is not 0 or 1.` | A required-monitor key in the mounted `nvpss.conf` is missing, repeated or invalid | Keep exactly one `required_safety_monitor` and one `required_perception_monitor` line, each `0` or `1` |
+| `Error: deploymentMode is missing from /opt/nvidia/psf/bin/nvpss.conf.` | `nvpss.conf` does not state 2D or 3D | Add `deploymentMode = 2D` |
+| `Error: --app parameter is required` | No application given in a run that starts the SEI daemon | Add `--app atl` (or your application) |
+| `Error: unsupported app '<app>'` | `--app` value not supported | Use `atl`, `pxc`, `atl,pxc`, `pxc,atl`, `atl,atl` or `pxc,pxc` |
+| `Error: sensor config file '<file>' not found or not readable` | The camera file is not mounted at the container path given with `--sensor-config` | Mount the file written in [Write the camera file](/deployment/quick-deployment#write-the-camera-file) at `/opt/nvidia/psf/bin/sensor_config.conf` |
+| `Error: --sdm-config must contain 1 non-empty comma-separated value(s)` | No decision maker configuration given | Add `--sdm-config <container path>`, one file per application in `--app` |
+| `Error: SDM 1 config '<file>' is not a readable file` | The configuration is not mounted at the container path given with `--sdm-config` | Mount it there, read-only |
+| `Error: command receiver ports must contain 2 non-empty comma-separated value(s)` or `Error: each SDM needs a different command receiver port` | Two decision makers need two different `--cmd_rx_port` values | Pass `--cmd_rx_port <port>,<port>` |
+| `Error: SDM configs overlap on EVENT_<n>; use distinct application event codes` | Two decision maker configurations bind the same code | Use configurations with different codes; see [Decision maker configuration](/deployment/custom-deployment#decision-maker-configuration-and-event-mapping) |
+| `Error: multi-SDM combinations support CCPLEX only, not --sdm-on-fsi` | Two decision makers with `--sdm-on-fsi` | Run one decision maker on the FSI |
+| `Error: SDM configs must be supplied to the launcher that starts the SDMs` | `--sdm-config` given with `--sdm-on-fsi` | Leave out `--sdm-config`; the FSI firmware has its bindings built in |
+| `Error: monitor log is not writable: /var/log/psf/<saim\|pcm>.log` or `Error: cannot create SDM log '<file>'` | The log file does not exist in the mounted `/var/log/psf`, or is not writable by the container user | Create it with mode `666`, as in [Prepare the log files](/deployment/quick-deployment#prepare-the-log-files) |
+| `Error: SAIM baseline folder '<dir>' does not exist (bind-mount it or pass --baseline-dir)` or `Error: PCM baseline folder '<dir>' is not readable (bind-mount it or pass --pcm-baseline-dir)` | The baseline directory is not mounted | Mount `/opt/nvidia/psf/bin/saim_baseline` and `/opt/nvidia/psf/bin/pcm_baseline` as in the [Quick Deployment](/deployment/quick-deployment#start-the-safety-core) |
+| `Error: no SAIM baselines (*_baseline.cfg or *_baseline.cfg.default) found in '<dir>'` | The mounted SAIM baseline directory is empty | Mount the directory the Debian package installed, or learn into it; see [Baselines](/deployment/custom-deployment#saim-baselines) |
+| `Error: SAIM baseline folder '<dir>' is not writable for LEARN` or `Error: PCM baseline folder '<dir>' is not writable for LEARN` | A learning run got a read-only baseline mount | Mount the baseline directories without `:ro` for learning |
+| `Error: PCM config '<file>' not found or not readable` | The PCM configuration is not mounted where the container reads it | Mount your copy at `/opt/nvidia/psf/bin/pcm_monitor.cfg`, or leave the mount out to use the image's copy |
+| `Error: /run/nvpsf is a symlink; refusing to use it ...` | The mounted `/run/nvpsf` is a link (SDM on FSI only) | `sudo rm /run/nvpsf && sudo mkdir -m 1777 /run/nvpsf`, then start again |
+| `Error: /run/nvpsf is not writable by nvidia (mode <mode>, ...` | The mounted `/run/nvpsf` has the wrong mode (SDM on FSI only) | `sudo chmod 1777 /run/nvpsf` |
+| `Error: Failed to start <binary>` | A process exited during start-up, for example the decision maker on a bad configuration | Read the lines just before it in `docker logs nv-psf` and the tables below |
+| `Process <pid> has exited unexpectedly` | A process in the container stopped while running; the container then stops everything | Read `docker logs nv-psf`, `/var/log/psf/saim.log` and `/var/log/psf/pcm.log` |
+| `Error: SAIM exited (status <n>)` or `Error: PCM exited (status <n>)` | A monitor stopped, or could not learn its baseline | Read its log, `/var/log/psf/saim.log` or `/var/log/psf/pcm.log`; see the [Perception Monitor](#perception-monitor) table |
+
+## SEI daemon and container
+
+These messages appear in `docker logs nv-psf`. Messages from the SEI daemon, NvPSD Gateway and MDX
+client also appear in `/var/log/psf/psf.log`.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `Retired configuration key present; refusing to start` with `key=PSSDToPSDComBackend` | The key is no longer supported | Delete the line from `nvpss.conf` |
+| `Required configuration keys are missing; refusing to start`, after `Error: Required config key missing: <key>` lines | `nvpss.conf` lacks a mandatory key | Add each named key; compare with the demo `nvpss.conf` |
+| `deploymentMode is required but missing; refusing to start` or `enableFusion is required but missing; refusing to start` | Mandatory key missing | Add `deploymentMode = 2D` and `enableFusion = true` |
+| `<key> is not a plain decimal integer; refusing to start` or `<key> is out of range; refusing to start` | A `required_*` key has a bad value | Use `0` or `1` for the monitors and `0` to `8` for `required_mdx_instances` |
+| `Failed to load sensor config from <path>: <reason>` | The camera file is malformed. `<reason>` is one of `malformed line ...`, `duplicate pipelineId`, `duplicate sensorName`, `pipelineId out of range [1..8]`, `too many entries (max 8)`, `empty rtspUrl` | Fix the named problem in the file passed with `--sensor-config` |
+| `nvpsf_transport: SO_RCVBUF granted <n> bytes but <m> are required ...; raise net.core.rmem_max` (or `SO_SNDBUF` and `wmem_max`) | Kernel socket buffers too small | Raise both to at least `836436`; see [Kernel socket buffers](/deployment/prerequisites#socket-buffers) |
+| `nvpsf_transport: peer GID <g> does not match the required PSF group <G>.` | A process on the host with another primary group ID tried to connect to the container, so its connection is refused, for example `fsicom-agent` or an SDM started without the container user's group. A decision maker refused this way holds its safe state | Start the process with the container user's group ID, as in [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi), or start the decision makers in the container, as in [Quick Deployment](/deployment/quick-deployment#start-the-safety-core). See [Shared process group](/integration#shared-process-group) |
+| `nvpsf_transport: bind(/run/nvpsf/<socket>) failed: Permission denied` | `/run/nvpsf` mode is wrong | `sudo chmod 1777 /run/nvpsf` |
+| `nvpsf_transport: bind(<path>) refused -- a LIVE server is already listening on this path.` | Another Safety Core is already running and shares the socket directory | Stop it: `docker ps` lists a running Safety Core container; stop it as in [Stop](/deployment/quick-deployment#stop) |
+| `Error: baseline file '<name>_baseline.cfg' (or '<name>_baseline.cfg.default') not found for sensor '<name>'.` | No baseline for that camera name | Learn baselines for your cameras |
+| `[Config] BaselineValues: <file> was learned on a 0x0 tile grid but this build uses 15x15. Re-run LEARN to regenerate this baseline.` | The baseline was learned by an earlier release, or the package on the host is older than the image, so the mounted templates are old | Learn the camera again; install the Debian package of the same release as the image |
+| `[<camera>] Baseline validation failed` or `<file> is incomplete. Re-run LEARN to regenerate it.` | The learned baseline is unusable, usually from too few frames | Learn again with a steady stream and the default `--learn-duration` |
+| In a learning run, `[QA] <w>x<h> is not compatible with the 15x15 analysis grid` (`[QA-PVA]` on IGX Thor) or another `[QA] <w>x<h> ...` size error, then `FATAL: frame quality analyzer cannot start` | The camera's frame size is not 1920×1080 or 3840×2160. SAIM learns no baseline for that camera | Stream the camera at 1920×1080 or 3840×2160 and learn its baseline at that size |
+| `[<camera>] profile was learned at <w>x<h> but the stream is <w>x<h>; re-run LEARN for this camera` | The camera's frame size differs from its baseline's, for example because it changed or is not 1920×1080 or 3840×2160. SAIM reports the camera invalid and stops watching it | Stream the camera at 1920×1080 or 3840×2160 and learn it again at that size |
+| `[<camera>] LEARN: tiles: <n> series too short for a band; run LEARN longer` | The learning run was too short for some tile checks. The baseline is saved, but those checks can never alert for that camera | Learn again with a longer `--learn-duration` |
+| `Error: failed to initialize CUDA`, `Error: no CUDA GPUs found`, `[<camera>] CUDA initialization failed` or `[<camera>] Decoder capability query failed` | SAIM cannot use the GPU or its video decoder | Check the [driver](/deployment/prerequisites#gpu-driver) and the [NVIDIA Container Toolkit](/deployment/prerequisites#docker), and that the `docker run` command has `<gpu-options>` and `-e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video` |
+| `[<camera>] RTSP connection failed, retrying every 5s` | In active mode SAIM cannot open that camera. It keeps retrying; a camera that was never trusted stays at its start-up state and is not counted as failed | Check the URL with `ffprobe`, and rewrite the camera file if VSS was redeployed. SAIM picks the camera up when it streams |
+| `[<camera>] RTSP: exceeded 5 connection retries (<reason>), giving up` | `init failed`: the URL in the camera file is malformed; SAIM stops watching that camera, and a learning run stops every camera. `connection failed` or `stream interrupted`: a learning run could not open or keep a camera, and stops every camera | Fix the URL, or check the stream with `ffprobe`, then start again |
+| `[<camera>] analyzer permanent fault; shutting down this thread` | Repeated frame-analysis failures on one camera. SAIM reports it invalid until SAIM restarts | Check that stream and GPU load, then start the Safety Core again |
+| `Dropping event: sensor not in sensor_config, so it has no pipelineID: <name>` | Perception reports a camera name that is not in the camera file | Make `sensorName` equal the VST sensor name |
+| `Event from unregistered sensor: <id>`, `Rejecting event: pipelineID <id> not in sensor_config`, `Rejecting event: sensorIdentifier '<name>' does not match sensor_config entry ...` or `Rejecting event: empty sensorIdentifier for pipelineID <id> ...` | An event's pipeline ID is above `maxPipelines`, does not match the camera file, or carries no sensor name. The SEI daemon drops the event | Make `maxPipelines` in `nvpss.conf` cover every pipeline ID, use one camera file for every component, and set `sensorIdentifier` to the configured name |
+| `PSS_SAFETY_MONITOR_LOST`, `PSS_PERCEPTION_MONITOR_LOST` or `PSS_MDX_CLIENT_LOST` with `reason=never_registered` | A required source did not register within about 4 minutes of start-up | Read that source's log (`saim.log`, `pcm.log`, or the container output for the MDX client); fix it, then [release the safe state](/deployment/quick-deployment#release-a-latched-safe-state) |
+| The same lines with another `reason=`, such as `heartbeat_budget_exhausted` or `connection_dropped` | A source stopped after it registered | Same as above |
+
+## Decision maker
+
+These messages appear in `/var/log/psf/atl_sdm.log` (or `pxc_sdm.log`). Messages printed before
+the log opens are in `docker logs nv-psf`.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `error: --config <file>: <reason>`, for example `line N: unknown key 'k'` | The decision maker configuration is invalid | Fix the named line; compare with the shipped sample |
+| `ATL: cannot load the reviewed sensor set; refusing to start: <reason>: <path>` | `sensor_pipelines_config.conf` is missing or malformed | Fix the mounted `sensor_pipelines_config.conf`, or leave the mount out to use the image's copy |
+| `SDM: psdGateway transport not available at launch (UNIX_SOCKET); waiting for the gateway`, repeated | The decision maker cannot connect to the NvPSD Gateway | Check `docker logs nv-psf` for the gateway, the socket buffers and the group ID messages above |
+| `SDM: the gateway refused this SDM's registration; reason=<reason>` | The gateway is full, rate-limited the registration or found it malformed | Stop extra decision makers; start the Safety Core again |
+| `ATL: DecisionRequest freshness timeout; entering safe hold` | No decision request for 7 seconds | Check that the container is running and the SEI daemon is up |
+| `HB-PSD: gateway HB fault latched (tier 3) — local fail-safe, no PSS connection` | Gateway heartbeats lost for about 55 seconds | Same as above |
+| `ATL: Gateway DecisionRequest sequence gap; entering safe hold` | A decision request was lost on the way | Look for `DecisionRequest dropped, consumer not keeping up` in `docker logs nv-psf`; release once recovered |
+| `ATL: SW_FAIL received — triggering safe hold; cause=<n> (...)` | The SEI daemon reported a fault. The note in brackets names a lost source when there is one | Fix the named source, then release |
+| `ATL: AI pipeline reported INVALID; entering safe hold` | PCM no longer trusts perception | See the PCM row below |
+| `ATL: All safety-relevant sensors failed; entering safe hold` | SAIM reports every reviewed camera invalid | Check the cameras and `saim.log`; release when they recover |
+| `WARNING: No acknowledgment received for command: <command> (SeqNo: <n>) after 3 seconds` | No command receiver answers on `--cmd_rx_port` | Start the receiver on that port |
+| `SDM: dropping PLC packet with unsupported command`, right after a release | The reference receiver acknowledges the release response | No action needed |
+
+## Perception Monitor
+
+These messages appear in `/var/log/psf/pcm.log`, after the `[<date> <time>] [PCM][<level>]`
+prefix.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `-> AI_PIPELINE_INVALID  active=[health]` | A container in PCM's list stopped, paused, restarted, turned unhealthy or disappeared after PCM had seen it | Start the container again; then [release the safe state](/deployment/quick-deployment#release-a-latched-safe-state). If the list does not match this host, see [Required monitors](/deployment/custom-deployment#required-monitors) |
+| `-> AI_PIPELINE_INVALID  active=[dvm]` | The data check found a fault on `mdx-frames`: a camera that stopped sending, a camera not in the baseline, stale frames, unusable ROI or proximity data, or messages that cannot be decoded | Check perception. If the cameras or the decision maker configuration changed, [learn again](/deployment/custom-deployment#saim-baselines) |
+| `checks: container_health=... data_validation=off (no baseline)` | No usable PCM baseline remains: none is installed, or it is unreadable or corrupt (`invalid or unreadable baseline camera set`, `malformed or conflicting baseline`), or it was learned for other decision makers (`decision mapping changed for <camera>`). PCM checks only the containers | Read the warnings logged just before it. Reinstall the package for the reference files, or [learn the baselines](/deployment/custom-deployment#saim-baselines) again with the same `--app` and `--sdm-config` as this run |
+| `DVM: decision mapping changed for <camera>; baseline not used, re-run LEARN` | The baseline was learned with other `--app`, `--sdm-config` or `--event-mapping` values | Same as above |
+| `nothing is being checked (causes above); PCM stays registered with PSS but sends no VALID/INVALID` | Both checks are off, for example no baseline and no container in the list is found | Fix the causes logged just before it |
+| `not checking <n> listed container(s) that are not present: <names> (checked once they appear)` | Containers in PCM's list do not run on this host | Correct the list; see [Required monitors](/deployment/custom-deployment#required-monitors) |
+| `Docker socket unreachable; container health is NOT checked until Docker answers again` | PCM cannot reach `/var/run/docker.sock` | Check that Docker is running on this host |
+| `Failed to register with PSS daemon after 6 attempts. Exiting.` | The SEI daemon was not reachable. The container then stops | Read `/var/log/psf/psf.log`, then start again |
+| `cannot read PCM monitor config` or `[fault_aggregator] requires bad_ticks_to_invalid and good_ticks_to_valid` | The mounted `pcm_monitor.cfg` is unreadable, or is a copy from an earlier release that lacks the `[fault_aggregator]` section. PCM exits and the container stops | Start again from `/opt/nvidia/psf/bin/pcm_monitor.cfg` and repeat your edits |
+| `DVM: baseline write skipped: ...` | A learn run could not record a usable baseline, for example because no frames arrived on `mdx-frames` or a camera's frame rate was unstable. The previous baseline is kept | Run the [Kafka check](/deployment/prerequisites#kafka), then learn again |
+
+## Command receiver
+
+These messages appear in the receiver's terminal.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `Error binding socket: Address already in use` | Another process, such as VST's overlay listener, uses the port | Give the receiver a free port with `-p`, and the same port to `--cmd_rx_port` |
+| `cmd_rx: upstream CMD_HEARTBEAT fault latched (tier 3) — local fail-safe, no PSS — stopping` | No heartbeat from the decision maker for about 55 seconds | Check that the Safety Core runs and that `--cmd_rx_port` equals the receiver's `-p`, then start the receiver again |
+| `Dropped packet from unexpected SDM sender` | The decision maker runs on another machine | Start the receiver with `--sdm_ip <safety-core-host-ip>` |
+| `Invalid packet identifier: 0x<nn>` | The receiver does not match the application | Use `atl_sdm_cmd_receiver` for the forklift safety function and `proximity_sdm_cmd_receiver` for Proximity Monitoring |
+| `Ignoring safe-release input until SDM reports a release-ready safe state.` | No safe state is held | No action needed |
+| `safe-release DENIED (SeqNo <n>) — latch cause still active.` | A fault is still active | See [Release a latched safe state](/deployment/quick-deployment#release-a-latched-safe-state) |
+
+## Perception and cameras
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Commands never change and `atl_sdm.log` has no `ATL: Forklift entered trailer` lines | No tripwire or ROI events reach the Safety Core | Run the [calibration](/deployment/prerequisites#calibration) and [Kafka](/deployment/prerequisites#kafka) checks. Check that the tripwire and ROI IDs in the calibration equal the `rule_id` values in the event mapping |
+| VST lists a camera as online but `ffprobe` fails on its URL | The proxy stream is stale | Refresh or re-add the camera in VST, then [write the camera file](/deployment/quick-deployment#write-the-camera-file) again |
+| Adding a VST camera fails because the name exists | A camera with that name is left from an earlier run | Remove the old camera in VST, or use a new name and update the camera file |
+| SAIM reports cameras invalid after VSS was redeployed or the host rebooted | VST issued new stream URLs | Write the camera file again and start the Safety Core again |
+| `sudo` is needed to delete baseline files | The container user or root wrote them | Delete them with `sudo rm` |
+
+## Decision maker on the FSI
+
+These messages appear in the terminal that runs `fsicom-agent`.
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| Stops at `[INIT] Initializing FSI communication...`, or `[ERROR] FSI COM initialization failed` | `nvFsiCom` is not running, or the FSI firmware is not loaded | Start `nvFsiCom` before `fsicom-agent`; flash the firmware and reset the board; see [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi) |
+| `[ERROR] Reading channel configuration failed` | The device tree lacks the FSI communication channel | Flash the BSP and SEP again |
+| `[GW] Awaiting NvPSDGateway (UNIX_SOCKET)...` and never `[GW] Connected to gateway` | The gateway is not up, the container was started without `-v /run/nvpsf:/run/nvpsf`, or the socket buffers are below `5283840` | Check `docker logs nv-psf` and the start command; raise the buffers as in [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi) |
+| `nvpsf_transport: peer GID <g> does not match the required PSF group <G>.`, then `nvpsf_transport: server credential rejected; refusing to treat the connection as trusted` | `fsicom-agent` runs with another primary group ID than the gateway in the container | Stop it and start it again with `sudo setpriv --regid <container-gid> --keep-groups --`, as in [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi) |
+| `[GW] The gateway refused this agent's registration; reason=<reason>` | The gateway refused the registration | Stop other decision makers, then start again |
+| The receiver logs `UTC epoch: 0.000000` for every command | The FSI decision maker leaves the time stamp at zero | No action needed |
+
+<a id="launcher"></a>
+
+## `launch_hoisa.sh` with the Docker runtime
+
+These come from a control-plane run of `launch_hoisa.sh --runtime docker`, which starts the SDMs or
+`fsicom-agent` on the host with the container user's group. See
+[Host processes and the container's group](/reference/launcher#host-processes-and-the-container-group).
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `Error: 'sudo -n setpriv' is not available; install util-linux and allow setpriv for passwordless sudo, ...` | `setpriv` is missing, or `sudo` asks for a password for it | Install `util-linux` and run the launcher as root, or allow `setpriv` for passwordless `sudo` |
+| `Error: Docker user-namespace remapping/rootless mode is not supported: ...` | Docker runs with `userns-remap` or in rootless mode, so no host process can share the container's group ID | Run the launcher against a Docker daemon without user-namespace remapping, start the container directly as in [Quick Deployment](/deployment/quick-deployment), or use `--runtime host` |
+| `Error: cannot read the Docker security options (docker info)` | Docker answered, but `docker info` could not report its security options, for example on an old Docker release | Use a current Docker Engine |
+| `Error: cannot read the GID of user nvidia in container <name>`, or `Error: container <name> runs PSF processes with GID '<gid>', which cannot be used for host peers` | The container stopped right after it started, or the image's `nvidia` user is missing or has an unusable group ID. The launcher removes the container and starts no SDM | Check the image with `docker run --rm --entrypoint id <image> nvidia`; use a Safety Core image from this release |
+| `Warning: GID <gid> of the Safety Core container is also used on this host ...` or `Warning: UID <uid> of the Safety Core container belongs to <j> host account(s).` | Host accounts share the container user's group or user ID and can reach the Safety Core sockets. The launcher continues | Run the `getent` commands in the warning; see [Host accounts with the container's group](/integration#host-accounts-with-the-container-group) |
+
+## Logs
+
+| Log | Written by | Read it with |
+| --- | --- | --- |
+| Container output | Everything in the `nv-psf` container: SEI daemon, NvPSD Gateway, MDX client, decision makers, SAIM and PCM, including their error output. Gone once the container is removed | `docker logs nv-psf 2>&1 \| less` |
+| `/var/log/psf/psf.log` | The system log of the container processes (SEI daemon, NvPSD Gateway, MDX client) | `tail -f /var/log/psf/psf.log` |
+| `/var/log/psf/atl_sdm.log`, `/var/log/psf/pxc_sdm.log` | The decision makers in the container | `tail -f /var/log/psf/atl_sdm.log` |
+| `/var/log/psf/saim.log` | SAIM | `tail -f /var/log/psf/saim.log` |
+| `/var/log/psf/pcm.log` | PCM, in the container. Each line starts with `[<date> <time>] [PCM][INFO]`, `[PCM][WARNING]` or `[PCM][ERR]` | `tail -f /var/log/psf/pcm.log` |
+| Receiver console | The command receiver: latch, clear and release events, and errors | The receiver's terminal |
+| `/tmp/cmdrx.log` | The command receiver: every packet received and acknowledged | `tail -f /tmp/cmdrx.log` |
+| `fsicom-agent` terminal | `fsicom-agent`, when the decision maker runs on the FSI | The terminal that runs it |
+| FSI UART | The decision maker on the FSI | `tcu_muxer` gives the device node |
+
+Error messages from the socket layer (`nvpsf_transport: ...`) of processes in the container
+appear only in the container output, not in `psf.log`. The log files are appended to across runs;
+check the time stamps.
+
+The searches that answer most questions:
+
+```bash
+# Faults that latched the safe state, and their recovery
+grep -E 'safe hold|fault latched|latch awaits PLC release|safe-release' /var/log/psf/atl_sdm.log | tail -n 20
+
+# Sources lost, refused connections and configuration errors in the container
+docker logs nv-psf 2>&1 | grep -E '_LOST|does not match the required PSF group|refusing to start|nvpsf_transport' | tail -n 20
+
+# Perception Monitor verdicts
+grep -E 'AI_PIPELINE_(VALID|INVALID)' /var/log/psf/pcm.log | tail -n 5
+
+# Commands the receiver got
+grep 'Received ATL command' /tmp/cmdrx.log | tail -n 5
+```
+
+For a browser view of these logs, see [Log Viewer](/reference/log-viewer).

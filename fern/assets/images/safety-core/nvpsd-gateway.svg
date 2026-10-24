@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1330" width="2000" height="1330" font-family="'JetBrains Mono','Fira Code','DejaVu Sans Mono','Liberation Mono',monospace" role="img" aria-label="NvPSD Gateway (nvpsd_gateway): SEI link, request validation and fault synthesis, SDM admission and the fixed AF_UNIX fan-out">
+<title>NvPSD Gateway (nvpsd_gateway): SEI link, request validation and fault synthesis, SDM admission and the fixed AF_UNIX fan-out</title>
+<defs>
+<pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#14212d"/></pattern>
+<marker id="arrow-data" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#53d6b6"/></marker>
+<marker id="arrow-safety" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#f2859f"/></marker>
+<marker id="arrow-plain" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#7f9aad"/></marker>
+<marker id="arrow-config" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#a996f5"/></marker>
+</defs>
+<rect width="2000" height="1330" fill="#0a1520"/>
+<rect width="2000" height="1330" fill="url(#grid)"/>
+<rect x="30" y="20" width="1940" height="1100" rx="16" fill="none" fill-opacity="0.55" stroke="#f2859f" stroke-width="2" stroke-dasharray="10 7"/>
+<rect x="38" y="29" width="551.6" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="45" y="49" fill="#f2859f" font-size="16" font-weight="700">NvPSD Gateway process: admission and continuity boundary</text>
+<rect x="60" y="80" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="100" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="150.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Daemon</text>
+<text x="245.0" y="180.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">DecisionRequest producer</text>
+<rect x="550" y="80" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="570" cy="100" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="144.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Link Listener</text>
+<text x="735.0" y="174.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">register, heartbeat, receive</text>
+<text x="735.0" y="214" text-anchor="middle" fill="#f2859f" font-size="13.5">AF_UNIX SOCK_SEQPACKET</text>
+<rect x="1040" y="80" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="100" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="139.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Request Validator</text>
+<text x="1225.0" y="169.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">schema, request ID</text>
+<text x="1225.0" y="192.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">and continuity</text>
+<rect x="1530" y="80" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="1550" cy="100" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="139.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Subscription Router</text>
+<text x="1715.0" y="169.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">per-SDM event-type</text>
+<text x="1715.0" y="192.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">filtering and fan-out</text>
+<rect x="550" y="340" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="570" cy="360" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="393.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Recovery Record</text>
+<text x="735.0" y="423.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">all-client record (cause 14)</text>
+<text x="735.0" y="446.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">once the SEI link recovers</text>
+<text x="735.0" y="474" text-anchor="middle" fill="#f2859f" font-size="13.5">owed per client until sent</text>
+<rect x="1040" y="340" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="360" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="399.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Fault Synthesizer</text>
+<text x="1225.0" y="429.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">SW_FAIL on request-ID gap or</text>
+<text x="1225.0" y="452.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">invalid ID (10, 11), SEI ERROR (12)</text>
+<rect x="1530" y="340" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1550" cy="360" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="404.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Envelope Builder</text>
+<text x="1715.0" y="434.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">CRC, epoch, tx sequence</text>
+<text x="1715.0" y="474" text-anchor="middle" fill="#f2859f" font-size="13.5">sequence spent even if the send fails</text>
+<rect x="60" y="600" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="80" cy="620" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="659.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Accepted Peer Pool</text>
+<text x="245.0" y="689.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">SO_PEERCRED group check,</text>
+<text x="245.0" y="712.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">admission-timeout reaper</text>
+<rect x="550" y="600" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="570" cy="620" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="653.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Registration</text>
+<text x="735.0" y="683.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">REGR validation,</text>
+<text x="735.0" y="706.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">per-peer rate limit</text>
+<text x="735.0" y="734" text-anchor="middle" fill="#f2859f" font-size="13.5">refusal answered with RGNK + reason</text>
+<rect x="1040" y="600" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="1060" cy="620" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="670.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Registered SDM Table</text>
+<text x="1225.0" y="700.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">identity and subscriptions</text>
+<rect x="1530" y="600" width="370" height="150" rx="10" fill="#262a30" stroke="#f3a65a" stroke-width="2.5"/>
+<circle cx="1550" cy="620" r="5" fill="none" stroke="#f3a65a" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="664.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Nonblocking Fan-out</text>
+<text x="1715.0" y="694.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">drop and count on backpressure</text>
+<text x="1715.0" y="734" text-anchor="middle" fill="#f3a65a" font-size="13.5">AF_UNIX SOCK_SEQPACKET, fixed</text>
+<rect x="1040" y="880" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="900" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="939.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SDM Heartbeat Monitor</text>
+<text x="1225.0" y="969.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">tiered health: degraded,</text>
+<text x="1225.0" y="992.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">then slot reclaimed</text>
+<rect x="1530" y="880" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="1550" cy="900" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="933.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Registered SDM Clients</text>
+<text x="1715.0" y="963.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">ATL, PXC, ATL+PXC,</text>
+<text x="1715.0" y="986.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">fsicom-agent (FSI SDMs)</text>
+<text x="1715.0" y="1014" text-anchor="middle" fill="#8db4c8" font-size="13.5">/run/nvpsf/nvpsd_gateway</text>
+<path d="M 430.0 155.0 L 550.0 155.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 920.0 155.0 L 1040.0 155.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 1410.0 155.0 L 1530.0 155.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1225.0 230.0 L 1225.0 340.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 1410.0 415.0 L 1530.0 415.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 735.0 230.0 L 735.0 340.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<rect x="645.6" y="280" width="188.8" height="21" rx="4" fill="#0a1520"/>
+<text x="740.0" y="295" text-anchor="middle" fill="#f2859f" font-size="13.5">SEI link restored</text>
+<path d="M 735.0 490.0 L 740.0 545.0 L 1640.0 545.0 L 1635.0 490.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 1715.0 230.0 L 1715.0 340.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1715.0 490.0 L 1715.0 600.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1715.0 750.0 L 1715.0 880.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 430.0 675.0 L 550.0 675.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<path d="M 920.0 675.0 L 1040.0 675.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 1410.0 675.0 L 1530.0 675.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 1225.0 750.0 L 1225.0 880.0" fill="none" stroke="#7f9aad" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-plain)"/>
+<path d="M 1410.0 955.0 L 1530.0 955.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<rect x="1458.6" y="925" width="32.8" height="21" rx="4" fill="#0a1520"/>
+<text x="1475" y="940" text-anchor="middle" fill="#f2859f" font-size="13.5">HB</text>
+<path d="M 1715.0 1030.0 L 1720.0 1075.0 L 250.0 1075.0 L 245.0 750.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<rect x="703.4" y="1052" width="563.2" height="21" rx="4" fill="#0a1520"/>
+<text x="985.0" y="1067" text-anchor="middle" fill="#f2859f" font-size="13.5">connect and REGR (launch, reconnect, then every 30 s)</text>
+<text x="70" y="1260" fill="#e9eef3" font-size="20" font-weight="700">Legend</text>
+<rect x="70" y="1278" width="30" height="20" rx="4" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2"/>
+<text x="110" y="1294" fill="#9fb4c5" font-size="16">External</text>
+<rect x="220" y="1278" width="30" height="20" rx="4" fill="#24222f" stroke="#f2859f" stroke-width="2"/>
+<text x="260" y="1294" fill="#9fb4c5" font-size="16">Safety check</text>
+<rect x="410" y="1278" width="30" height="20" rx="4" fill="#11313a" stroke="#53d6b6" stroke-width="2"/>
+<text x="450" y="1294" fill="#9fb4c5" font-size="16">Backend</text>
+<rect x="550" y="1278" width="30" height="20" rx="4" fill="#1d2550" stroke="#a996f5" stroke-width="2"/>
+<text x="590" y="1294" fill="#9fb4c5" font-size="16">Configuration / state</text>
+<rect x="830" y="1278" width="30" height="20" rx="4" fill="#262a30" stroke="#f3a65a" stroke-width="2"/>
+<text x="870" y="1294" fill="#9fb4c5" font-size="16">Transport</text>
+<line x1="990" y1="1288" x2="1030" y2="1288" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-safety)"/>
+<text x="1042" y="1294" fill="#9fb4c5" font-size="16">validated / safety handoff</text>
+<line x1="1330" y1="1288" x2="1370" y2="1288" stroke="#53d6b6" stroke-width="2.6" marker-end="url(#arrow-data)"/>
+<text x="1382" y="1294" fill="#9fb4c5" font-size="16">data flow</text>
+<line x1="1500" y1="1288" x2="1540" y2="1288" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-config)"/>
+<text x="1552" y="1294" fill="#9fb4c5" font-size="16">reads configuration</text>
+<line x1="1770" y1="1288" x2="1810" y2="1288" stroke="#7f9aad" stroke-width="2.6" marker-end="url(#arrow-plain)"/>
+<text x="1822" y="1294" fill="#9fb4c5" font-size="16">dependency</text>
+</svg>

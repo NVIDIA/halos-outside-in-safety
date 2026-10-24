@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Doxygen configuration for the Safety Core C API reference pages.
+# Run through tools/c-api/generate_pages.sh, which sets DOXY_SRC and DOXY_OUT. Doxygen writes XML
+# only; doxyxml_to_mdx.py turns it into the Fern pages in docs/c-api/.
+# Settings not listed here keep their Doxygen defaults.
+
+PROJECT_NAME           = "NVIDIA Halos Outside-In Safety Blueprint"
+OUTPUT_DIRECTORY       = $(DOXY_OUT)
+
+# generate_pages.sh copies the headers into one directory, as the development package installs
+# them in /opt/nvidia/psf/include, so the output names headers only.
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = $(DOXY_SRC)
+INPUT                  = $(DOXY_SRC)
+FILE_PATTERNS          = *.h *.hpp
+RECURSIVE              = NO
+
+# Several headers declare constants and functions without Doxygen comments; list them anyway.
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_PROGRAMLISTING     = NO
+HAVE_DOT               = NO
+
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_LOGFILE           = $(DOXY_OUT)/warnings.log

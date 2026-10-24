@@ -1,350 +1,370 @@
 ---
-title: "SEI Configuration"
-description: ""
+title: "SEI Configuration (nvpss.conf)"
+description: "Every key the SEI daemon reads from nvpss.conf, with its type, range, default, effect, and the startup failure for a missing or invalid value."
 ---
-## 1. Overview
+The SEI daemon, `nvpss_daemon`, reads `nvpss.conf` once at startup. It never re-reads the file,
+so every change needs a daemon restart. This page lists every key the daemon accepts, which keys
+are mandatory, and exactly what happens when a value is missing or invalid.
 
-The SEI (Safety Event Integrator Daemon) reads `nvpss.conf` at startup
-to control safety event fusion, bypass routing, inter-process transport,
-and heartbeat fail-safe behavior. This section documents all available
-parameters, their defaults, valid ranges, and the validation/fallback
-rules the daemon applies.
+When they start the control plane, the launchers read three of the same keys. `deploymentMode`
+selects the identity file of the MDX client. `required_safety_monitor` and
+`required_perception_monitor` are checked against the launcher's `--saim-mode` and `--pcm-mode`.
+The launchers never change the file. See
+[Monitor modes](/reference/launcher#monitor-modes).
 
-**Configuration File Location:**
+## File location
 
-The daemon unconditionally reads from a fixed host path:
+| How the daemon is started | File it reads |
+| --- | --- |
+| `nvpss_daemon` with no arguments | `/opt/nvidia/psf/bin/nvpss.conf` |
+| `nvpss_daemon --conf <path>` | `<path>` |
+| `launch_hoisa.sh --runtime docker` (default) | The host file named by `--nvpss-conf` (default `/opt/nvidia/psf/bin/nvpss.conf`), bind-mounted read-only over `/opt/nvidia/psf/bin/nvpss.conf` in the container |
+| `launch_hoisa.sh --runtime host` | The host file named by `--nvpss-conf`, passed to the daemon as `--conf` |
+| A plain `docker run` of the Safety Core image | `/opt/nvidia/psf/bin/nvpss.conf` inside the container: the image's copy, unless you bind-mount your own file over it |
 
-```bash
-/opt/nvidia/psf/bin/nvpss.conf
-```
+The Debian package installs the shipped file at `/opt/nvidia/psf/bin/nvpss.conf`.
 
-If the file is missing or unreadable, the daemon logs an error. Startup then
-fails because the mandatory `sensorConfig` setting is unavailable. In Docker
-deployments, `launch_hoisa.sh` bind-mounts the host file read-only over this
-path inside the container, so an operator edit to
-`/opt/nvidia/psf/bin/nvpss.conf` on the host is authoritative without
-rebuilding the image. Use `--nvpss-conf <file>` on the launcher to
-retarget the bind-mount source to a per-site variant.
+`nvpss_daemon` accepts only `--conf <path>` and `-h`/`--help`. Any other argument prints
+`error: unexpected argument (see --help)`, and the daemon exits with status 1.
 
-Ensure the file is readable by the SEI daemon process; a permission
-error is reported as "Failed to load config file".
+## File format
 
-## 2. Configuration File Format
+- One `key = value` per line. Whitespace around the key, the `=` and the value is ignored.
+- A line whose first non-blank character is `#` is a comment. Blank lines are ignored.
+- A `#` after a value starts a comment, and the daemon ignores it. The launchers do not: they read
+  `deploymentMode` with any trailing comment and then refuse it as unrecognised. Keep the
+  `deploymentMode` line free of comments.
+- Keys are case-sensitive. `deploymentMode` and `enableFusion` accept their values in either case.
+- The daemon does not report unknown keys. A misspelt optional key is ignored, and its default
+  applies.
+- A non-comment line without `=`, or with an empty key, makes the whole file unreadable. The
+  daemon prints `Warning: Invalid config line (missing '='): <line>` and
+  `Error parsing line <n>: <line>`, then refuses to start.
+- If a key appears more than once, the last line wins. The exceptions are `deploymentMode`,
+  `enableFusion`, `required_safety_monitor`, `required_perception_monitor` and
+  `required_mdx_instances`: for these five keys a repeat is fatal.
 
-The configuration file uses `key = value` format. Whitespace around
-`=` is optional. Lines starting with `#` are comments.
+## Key reference
 
-<Warning>
-Inline `#` comments after a value are stripped only for
-`max_hb_failures`, `pss_to_psd_retry_budget`,
-`pss_to_psd_response_timeout_ms`, `status_noop_interval_ms`, and
-`sensorConfig`. For every other key the comment becomes part of the
-value: `PSSDToPSDComBackend = POSIX_SOCKET # debug` fails the enum
-comparison and silently falls back to `POSIX_MSG_QUE`, and the same
-pattern on `bypassFusionEvents` turns the token into an unknown name
-that resolves to `EVENT_0`. Put comments on their own line.
-</Warning>
+The tables give the value in the shipped file and, for optional keys, the value the daemon uses
+when the key is absent ("Code default"). A mandatory key has no default: the daemon refuses to
+start without it.
 
-## 3. Configurable Parameters
+### Mandatory in every deployment
 
-The following table describes all SEI configuration parameters. The
-**Default** column reflects the shipped `nvpss.conf` values. Missing keys and
-invalid values are handled as described in Section 4.8.
-
-| Parameter | Type | Default | Valid Range | Description |
+| Key | Type and accepted values | Shipped | Effect | Missing or invalid value |
 | --- | --- | --- | --- | --- |
-| **timeWindowSize** | Integer (ms) | 1000 | > 0, ≤ ~1.8×10¹³ | Duration of the sliding correlation window. Events whose timestamp is older than `now - timeWindowSize` are marked `STALE` and are ineligible for fusion. |
-| **fusionThreshold** | Float | 0.4 | 0.0 – 1.0 | Minimum overall similarity for two events to fuse. Higher values require more similarity before fusion is applied. |
-| **alpha** | Float | 0.4 | 0.0 – 1.0 | Weight for **temporal** similarity. `alpha + beta + gamma` must sum to ~1.0 (±0.01). |
-| **beta** | Float | 0.4 | 0.0 – 1.0 | Weight for **spatial** similarity. |
-| **gamma** | Float | 0.20 | 0.0 – 1.0 | Weight for **attribute** similarity. |
-| **temporalTolerance** | Integer (ms) | 10 | 0 – 60000 | Sigma for the Gaussian temporal-similarity kernel. Larger values relax time matching. |
-| **trajectoryCount** | Integer | 4 | 0 – 10 (preferably even) | Number of trajectory points used for spatial correlation between events. |
-| **maxPipelines** | Integer | 3 | 1 – 8 | Maximum number of sensor pipelines the daemon manages simultaneously. Must match (or exceed) the count of pipelines produced by the event-ingestion sources. |
-| **bypassFusionEvents** | Comma-separated list | `SW_FAIL` | `EVENT_0` .. `EVENT_10`, `ROI_ENTRY`, `ROI_EXIT`, `TW_CROSSING_ENTRY`, `TW_CROSSING_EXIT`, `SW_FAIL`, `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID`, `AI_PIPELINE_VALID` | Event types that skip the fusion path and are routed directly to the decision layer. The trust-report set (`SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID`, `AI_PIPELINE_VALID`) is **always** added implicitly in addition to whatever is listed here. |
-| **PSSDToPSDComBackend** | Enum | `POSIX_MSG_QUE` | `POSIX_MSG_QUE` or `POSIX_SOCKET` | Transport between SEI daemon and the PSD gateway. POSIX message queue is the default; POSIX socket is available for debugging and interop with external gateways. |
-| **sensorConfig** | Path | (required) | Absolute path | Unified sensor configuration file (CSV: `pipelineId, sensorName, rtspUrl`). The daemon validates incoming `SafetyEvent.fusionMetadata.pipelineID` and `sensorIdentifier` against this file. Missing or unparsable ⇒ daemon fails to start. |
-| **max_hb_failures** | Integer | 50 | 1 – 255 | Consecutive heartbeat misses before the daemon declares a client dead, emits a `SW_FAIL` safety event, and disconnects. The compiled-in fallback, used when the key is absent or malformed, is 10. A "warning" tier is emitted at `max_hb_failures / 2` misses (integer division). Values outside `[1, 255]` are clamped with a warning log. |
-| **pss_to_psd_retry_budget** | Integer | 3 | 1 – 10 | Number of delivery attempts for a decision request. Its product with `pss_to_psd_response_timeout_ms` must not exceed 6000 ms. |
-| **pss_to_psd_response_timeout_ms** | Integer (ms) | 2000 | 100 – 30000 | Maximum wait for the PSD decision response on each delivery attempt. Its product with `pss_to_psd_retry_budget` must not exceed 6000 ms. |
-| **status_noop_interval_ms** | Integer (ms) | 5000 | 100 – 600000 | Interval between fixed status/no-op `DecisionRequest` messages. |
-
-<Info>
-Nine keys are **required**: `timeWindowSize`, `fusionThreshold`,
-`alpha`, `beta`, `gamma`, `temporalTolerance`, `maxPipelines`,
-`PSSDToPSDComBackend`, and `sensorConfig`. The remaining six
-(`trajectoryCount`, `bypassFusionEvents`, `max_hb_failures`,
-`pss_to_psd_retry_budget`, `pss_to_psd_response_timeout_ms`, and
-`status_noop_interval_ms`) are optional.
-
-Fallback is not per-key. If **any** required key is absent, the daemon
-logs `Some required keys are missing; using defaults for missing
-values.` and then discards the entire file, including every optional
-key it did contain. Deleting one line can therefore silently revert a
-fully tuned deployment to compiled-in defaults, so always keep all nine
-required keys present.
-</Info>
-
-## 4. Parameter Details
-
-### 4.1 Fusion Weights (alpha, beta, gamma)
-
-These three parameters control similarity-metric importance in fusion:
-
-- **alpha**: Temporal proximity. Higher alpha prioritizes events that
-  occur close in time.
-- **beta**: Spatial correlation. Higher beta prioritizes events from
-  similar spatial locations.
-- **gamma**: Attribute similarity. Higher gamma prioritizes events with
-  similar object types, speeds, and other attributes.
-
-<Info>
-`alpha + beta + gamma` must equal approximately 1.0 (±0.01
-tolerance). The daemon validates this on startup and, if the
-constraint is violated, sets all three weights to `0.33`.
-</Info>
-
-### 4.2 Time-Related Parameters
-
-- **timeWindowSize**: Correlation window in milliseconds. Events arriving
-  more than `timeWindowSize` apart (relative to `CLOCK_MONOTONIC`)
-  will not be considered for fusion and are marked
-  `SafetyEventStatus = STALE`.
-- **temporalTolerance**: Gaussian sigma for the temporal-similarity
-  function. Smaller values mean events must occur very close in time to
-  achieve high similarity scores.
-
-<Note>
-`timeWindowSize` also governs **bypass**-routed events: an event
-whose timestamp is older than the window is marked `STALE` and
-will be dropped downstream by the SDM. Widen `timeWindowSize` (for
-example to 1000–5000 ms) when the event source introduces variable
-ingestion latency.
-</Note>
-
-### 4.3 Spatial Configuration
-
-- **trajectoryCount**: Number of coordinate points (up to 10) used for
-  spatial trajectory comparison between pipeline events. Preferably
-  even values (e.g. 4, 6, 8) for symmetric alignment.
-
-### 4.4 Bypass Fusion Events
-
-`bypassFusionEvents` is a **comma-separated** list of `EventType`
-names that should skip multi-pipeline fusion entirely and be routed
-directly to the decision layer. The daemon:
-
-1. Parses each token, matching against the known `EventType` enumeration.
-   Unknown names are logged as ``Unknown event type '`<name>`', using
-   EVENT_0` and fall back to `EVENT_0`` — double-check spelling.
-2. Always **implicitly adds** the trust-report set:
-   `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID`,
-   `AI_PIPELINE_VALID`. You do not need to list these, and listing them
-   is harmless.
-3. Forwards each bypassed event with status `UNKNOWN` (or `STALE` when
-   it is already older than the staleness threshold derived from
-   `timeWindowSize`). Routing severity is assigned by the daemon, not
-   taken from the client: bypassed events are `OPERATIONAL` unless the
-   event type requires critical delivery or the daemon is in `ERROR`
-   mode.
-4. Applies sensor and AI-pipeline trust gating before the bypass, so an
-   event from an invalid source is still routed as invalid-source
-   evidence rather than bypassed.
-
-Example:
-
-```bash
-# Bypass fusion for SW_FAIL and ROI events only; trust reports are
-# added implicitly.
-bypassFusionEvents = SW_FAIL, ROI_ENTRY, ROI_EXIT
-```
-
-### 4.5 Inter-Process Transport (PSSDToPSDComBackend)
-
-- **POSIX_MSG_QUE** (default): POSIX message queue transport between
-  the SEI daemon and the PSD gateway.
-- **POSIX_SOCKET**: AF_UNIX stream socket transport. Available as an
-  alternative when the message-queue transport is not suitable for the
-  deployment.
-
-When the SEI daemon runs inside the Safety Core container,
-`launch_hoisa.sh` applies the Docker runtime options required by the
-selected transport automatically.
-
-### 4.6 Heartbeat Fail-Safe (max_hb_failures)
-
-The SEI daemon expects each registered client to send a heartbeat
-periodically. After `max_hb_failures` consecutive misses it:
-
-1. Emits a `SW_FAIL` event for the missing client.
-2. Tears down the client's registration, releasing its pipeline slot.
-
-Tune based on the heartbeat period and the desired time-to-detect. The
-nominal period is 5 s (`HB_INTERVAL_MS`), and a client is not counted
-stale until 6.5 s have passed (`HB_INTERVAL_MS` plus a 1.5 s grace):
-
-- `max_hb_failures = 10` ⇒ roughly 50 s to declare a client dead.
-- The shipped value of 50 ⇒ roughly 250 s. Lower it if your deployment
-  needs faster fault detection.
-- Lower values (e.g. 3–5) reduce latency but are more sensitive to
-  transient host load / network jitter.
-- Higher values (up to 255) tolerate brief stalls, at the cost of
-  slower fault detection.
-
-A value outside `[1, 255]` is clamped to the nearest bound and a
-warning is logged.
-
-### 4.7 Validation Rules
-
-The system validates parameters on startup:
-
-1. **Range validation**: Float parameters (`fusionThreshold`,
-   `alpha`, `beta`, `gamma`) must be in `[0.0, 1.0]`.
-2. **Weight-sum validation**: `alpha + beta + gamma` must sum to ~1.0
-   (±0.01).
-3. **Count validation**: `trajectoryCount` ≤ 10; `maxPipelines`
-   within `[1, 8]`.
-4. **Positive-value validation**: `timeWindowSize` > 0;
-   `temporalTolerance` ≥ 0 and ≤ 60 000.
-5. **Heartbeat validation**: `max_hb_failures` must parse as an
-   integer in `[1, 255]`. Out-of-range values are clamped; malformed
-   values fall back to the implementation default.
-6. **Enum validation**: `PSSDToPSDComBackend` must be
-   `POSIX_MSG_QUE` or `POSIX_SOCKET`.
-7. **Path validation**: `sensorConfig` must resolve to a readable
-   file. Failure here is **fatal**; the daemon exits.
-
-### 4.8 Error Handling
-
-If non-fatal validation fails:
-
-- The daemon logs a warning naming the parameter that was overridden.
-- The affected parameter is reset to the compiled-in fallback below, which
-  is not always the value shipped in `nvpss.conf`.
-- Initialization continues with the fallback value.
-
-| Parameter | Fallback | Applied when |
-| --- | --- | --- |
-| `fusionThreshold` | `0.7` | Outside `[0.0, 1.0]` |
-| `alpha` / `beta` / `gamma` | `0.33` each | Any weight outside `[0.0, 1.0]`, or the three do not sum to ~1.0 |
-| `timeWindowSize` | `5` ms | Value ≤ 0 |
-| `temporalTolerance` | `5` ms | Negative value (values above 60 000 ms are clamped to 60 000) |
-| `trajectoryCount` | `4` | Value > 10 |
-| `maxPipelines` | `2` | Value 0 or > 8 |
-
-An invalid or unreadable `sensorConfig` is fatal and aborts startup. No
-other single parameter aborts startup on its own. Consult
-`/var/log/psf/psf.log` for the specific failure or correction.
+| `deploymentMode` | `2D` or `3D`, in either case | `2D` | Selects how sensor identity is interpreted. `2D`: each camera reports its own events. `3D`: cameras are calibrated into one BEV group, and events arrive under the group. See [Sensor files](/reference/sensor-files). | Fatal. Missing: `deploymentMode is required but missing`. Any other value: `deploymentMode has an unrecognised value`. Repeated: `deploymentMode is defined more than once`. |
+| `enableFusion` | `true` or `false`, in either case | `true` | `true`: detections of the same object from several cameras are correlated into one event before an SDM sees them. `false`: each camera's event is delivered separately. | Fatal. Missing: `enableFusion is required but missing`. Any other value: `enableFusion has an unrecognised value`. Repeated: `enableFusion is defined more than once`. |
+| `timeWindowSize` | Integer, milliseconds | `400` | The staleness threshold, in both fusion modes. An event older than this, or more than this far in the future, is marked `STALE`, and the SDMs drop `STALE` events. With fusion on, it is also the correlation window. | Missing: fatal. Zero or negative: the warning `timeWindowSize must be positive; falling back to default 5 ms`, and 5 ms is used. Not a number: `Error: Invalid milliseconds value for key 'timeWindowSize'`, and 200 ms is used. |
+| `maxPipelines` | Integer, 1–8 | `3` | The highest `pipelineId` the daemon accepts. An event with a higher `pipelineId` is rejected with `Event from unregistered sensor: <id>`. | Missing: fatal. 0 or above 8: the warning `maxPipelines out of range; falling back to default 2`, and 2 is used. |
+| `sensorConfig` | Absolute path | `/opt/nvidia/psf/bin/sensor_config.conf` | The camera list. The daemon accepts an event only if its `pipelineId` and sensor name match a row of this file. See [`sensor_config.conf`](/reference/sensor-files#sensor_config). | Fatal. Missing key: reported as a missing required key. Empty value: `sensorConfig is required in nvpss.conf but is missing or empty`. Unreadable or malformed file: `Failed to load sensor config from <path>: <reason>`. |
+| `required_safety_monitor` | `0` or `1` | `1` | `1`: the Safety AI Monitor (SAIM) is required. The launchers then accept only `--saim-mode active`; with `0`, only `learn` or `skip`. | Fatal. See [Required safety sources](#required-safety-sources). |
+| `required_perception_monitor` | `0` or `1` | `1` | `1`: the Perception Monitor (PCM) is required. The launchers then accept only `--pcm-mode active`; with `0`, only `learn` or `skip`. | Fatal. See [Required safety sources](#required-safety-sources). |
+| `required_mdx_instances` | Integer, 0–8 | `1` | MDX client instances 1 to N are required. The launchers run exactly one MDX client, as instance 1. Set `0` only for a deployment with no MDX client. | Fatal. See [Required safety sources](#required-safety-sources). |
 
 <Warning>
-Because out-of-range fusion weights fall back silently to equal weighting,
-a tuned configuration whose weights do not sum to ~1.0 is discarded without
-the deployment failing. After editing weights, confirm in
-`/var/log/psf/psf.log` that no weight-sum warning was logged.
+`maxPipelines` must be at least the highest `pipelineId` in `sensor_config.conf`, and in 3D at
+least the group `pipelineId`. The daemon checks the group at startup, but not the cameras: a
+camera whose `pipelineId` is above `maxPipelines` loads without error, and every event from it
+is then rejected.
 </Warning>
 
-### 4.9 Configuration Loading
+### Mandatory when `enableFusion = true`
 
-Configuration loads during daemon initialization in the following
-sequence:
+With `enableFusion = false` these keys are neither required nor read. If any of them is present,
+the daemon logs `enableFusion=false: fusion-only keys present and ignored` with the key names.
 
-1. The system attempts to load parameters from
-   `/opt/nvidia/psf/bin/nvpss.conf`.
-2. Missing parameters use implementation defaults where the setting is
-   optional; `sensorConfig` remains mandatory.
-3. All parameters undergo validation (Section 4.7).
-4. Invalid non-fatal parameters are corrected with error logging.
-5. Trust-report event types are implicitly added to
-   `bypassFusionEvents`.
-6. The SafetyEventFusion module is constructed with the final
-   (validated) parameters.
-7. Daemon begins listening for client registrations and heartbeats.
+| Key | Type and range | Shipped | Effect | Out-of-range value |
+| --- | --- | --- | --- | --- |
+| `fusionThreshold` | Float, 0.0–1.0 | `0.4` | Minimum overall similarity for two events to fuse. | The warning `fusionThreshold out of range; falling back to default 0.7`, and 0.7 is used. |
+| `alpha` | Float, 0.0–1.0 | `0.4` | Weight of temporal similarity. | The warning `alpha out of range; falling back to default 0.33`, and 0.33 is used. |
+| `beta` | Float, 0.0–1.0 | `0.4` | Weight of spatial similarity. | As for `alpha`, naming `beta`. |
+| `gamma` | Float, 0.0–1.0 | `0.2` | Weight of attribute similarity. | As for `alpha`, naming `gamma`. |
+| `temporalTolerance` | Integer, milliseconds, 0–60000 | `10` | Sigma of the Gaussian temporal-similarity kernel. Larger values relax time matching. | Negative: 5 ms is used. Above 60000: clamped to 60000. Both are logged as warnings. |
 
-### 4.10 Configuration Examples
+`alpha + beta + gamma` must be within 0.01 of 1.0. If it is not, the daemon logs
+`Weight sum (alpha + beta + gamma = <sum>) should be close to 1.0; changing to default value` and
+sets all three weights to 0.33. The daemon still starts, so check the log after you edit weights.
 
-Practical configuration examples for common scenarios.
+A fusion key whose value is not a number at all falls back to its code default
+(`fusionThreshold` 0.5, `alpha` 0.35, `beta` 0.45, `gamma` 0.20, `temporalTolerance` 5 ms), and
+the daemon prints `Error: Invalid float value for key '<key>'` or
+`Error: Invalid milliseconds value for key '<key>'`. For a value that starts with a number, the
+daemon reads the leading number and ignores the rest.
 
-**Example 1: High-precision configuration (strict fusion, low false-positive)**
+If fusion cannot be initialised with the final values, the daemon refuses to start with
+`enableFusion=true but the fusion pipeline failed to initialise; refusing to start`.
 
-```bash
-# nvpss.conf - High precision mode
-timeWindowSize = 200
-fusionThreshold = 0.75
-alpha = 0.35
-beta  = 0.45
-gamma = 0.20
+### Optional fusion keys
+
+These are read only when `enableFusion = true`.
+
+| Key | Type and range | Shipped | Code default | Effect | Invalid value |
+| --- | --- | --- | --- | --- | --- |
+| `trajectoryCount` | Integer, 0–10 | `4` | `4` | Number of trajectory points used for spatial correlation. | Above 10: the warning `trajectoryCount out of range; falling back to default 4`. |
+| `bypassFusionEvents` | Comma-separated event names | `SW_FAIL` | `SW_FAIL` | Event types that skip fusion and go straight to the decision path. Accepted names: `EVENT_0` to `EVENT_23`, `SW_FAIL`, `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID`, `AI_PIPELINE_VALID`. `SW_FAIL` and the four trust-report types are always bypassed, listed or not. | An unknown name is logged as `Unknown event type '<name>' in bypassFusionEvents; entry ignored` and skipped. No other event is substituted. |
+
+<a id="mandatory-in-3d"></a>
+
+### Mandatory when `deploymentMode = 3D`
+
+| Key | Type | Shipped | Effect | Missing or invalid value |
+| --- | --- | --- | --- | --- |
+| `sensorGroupConfig` | Absolute path | Not set. A commented example names `/opt/nvidia/psf/bin/sensor_group_config.conf`. | The BEV group file: the group's `pipelineId`, its name and its member cameras. See [the sensor group file](/reference/sensor-files#sensor-group-file). | In 3D, fatal. Missing or empty: `sensorGroupConfig is required when deploymentMode=3D`. Unreadable or malformed file: `Failed to load sensor group config; refusing to start`, and stderr names the file and the parse error. In 2D the key is not read, and the daemon logs `deploymentMode=2D: sensorGroupConfig present and ignored`. |
+
+In 3D the daemon also refuses to start when any of these holds:
+
+| Condition | Message |
+| --- | --- |
+| `enableFusion = true` | `deploymentMode=3D requires enableFusion=false; refusing to start` |
+| The group `pipelineId` is also a camera's `pipelineId` in `sensor_config.conf` | `Sensor group pipelineId collides with a camera; refusing to start` |
+| A group member is not a `pipelineId` in `sensor_config.conf` | `Sensor group member is not in sensor_config; refusing to start` |
+| The group `pipelineId` is above `maxPipelines` | `Sensor group pipelineId exceeds maxPipelines; refusing to start` |
+
+The shipped file has `maxPipelines = 3`, and the shipped camera list uses `pipelineId` 1 to 3. A 3D
+group therefore needs a fourth `pipelineId`, and `maxPipelines` must be raised to at least that
+value.
+
+### Optional, bounded
+
+For these keys an empty value means "use the code default". A value that is not a whole number
+is replaced by the code default, with the warning
+`Invalid <key> value (expected integer <min>..<max>); using default <default>`. A value outside
+the range is clamped to the nearest bound, with the warning `<key> value <v> clamped to <bound>`.
+
+| Key | Range | Code default | Shipped | Effect |
+| --- | --- | --- | --- | --- |
+| `max_hb_failures` | 1–255 | `10` | `50` | Consecutive missed client heartbeats before the daemon declares a client lost. See [Heartbeat fail-safe](#heartbeat-fail-safe). Its invalid-value warning reads `Invalid max_hb_failures value (expected integer 1..255); using default 10`. |
+| `pss_to_psd_retry_budget` | 1–10 | `3` | `3` | Delivery attempts for each `DecisionRequest` sent to the NvPSD Gateway. |
+| `pss_to_psd_response_timeout_ms` | 100–30000 | `2000` | `2000` | Wait for the `DecisionResponse` on each attempt. |
+| `status_noop_interval_ms` | 100–600000 | `5000` | `5000` | Interval of the periodic status `DecisionRequest`. See [Status interval](#status-interval). |
+| `psd_operational_queue_depth` | 8–512 | `32` | `32` | Depth of the queue that stages ordinary events for delivery to the gateway. |
+| `psd_critical_queue_depth` | 8–512 | `32` | `32` | Depth of the queue that stages fault reports, trust reports and events from distrusted sources. |
+| `fusion_failure_error_ms` | 100–60000 | `1000` | `1000` | How long an event-processing stage must fail without interruption before the daemon reports `ERROR`. |
+| `client_reject_error_threshold` | 3–10000 | `50` | `50` | Consecutive rejected reports from one required source before the daemon reports that source unusable. |
+
+`pss_to_psd_retry_budget × pss_to_psd_response_timeout_ms` must not exceed 6000 ms. If it does,
+the daemon logs
+`PSS-to-PSD retry window out of range; falling back to default retry budget and timeout` and uses
+3 attempts and 2000 ms.
+
+### Retired keys
+
+| Key | Behaviour | Remedy |
+| --- | --- | --- |
+| `PSSDToPSDComBackend` | Fatal, whatever its value. The SEI log records `Retired configuration key present; refusing to start`, and stderr says `PSSDToPSDComBackend is a retired configuration key and is no longer selectable`. | Delete the line. The link from the SEI daemon to the NvPSD Gateway is always an AF_UNIX socket and cannot be configured. |
+
+## Behaviour of the main settings
+
+### Required safety sources
+
+`required_safety_monitor`, `required_perception_monitor` and `required_mdx_instances` declare which
+safety sources the deployment runs.
+
+- **Parsing.** The value must be plain decimal digits (at most three) within the range. Anything
+  else is fatal: `<key> is defined more than once`, `<key> is not a plain decimal integer` or
+  `<key> is out of range`. stderr also shows the value and the accepted range.
+- **What the launchers do with them.** The monitors are started by their launcher modes,
+  `--saim-mode` and `--pcm-mode`, not by these keys. When `launch_hoisa.sh` or the container
+  entrypoint starts the control plane, it reads `required_safety_monitor` and
+  `required_perception_monitor` as strictly as the daemon does, and stops before starting anything
+  unless each is `1` for a monitor in `active` and `0` for a monitor in `learn` or `skip`:
+  `Error: --<saim|pcm>-mode <mode> conflicts with <key> = <n> in <file>.` A learning run, with no
+  monitor in `active` and not both skipped, starts no daemon and does not read the file. The
+  launchers never change the file.
+- **Tracking.** The daemon tracks every monitor and every numbered MDX client instance that
+  registers, required or not. If one stops (hang, crash, orderly exit or heartbeat loss), every
+  SDM latches, and no release is accepted until that source is registered and heartbeating again.
+- **Never registered.** A required source that has not registered within
+  6.5 s + (`max_hb_failures` − 1) × 5 s of daemon start is reported lost with
+  `reason=never_registered`, and every SDM latches. With the shipped `max_hb_failures = 50`, that
+  is about 4 minutes 12 seconds.
+
+At startup the daemon logs a record containing `PSS required sources`, followed by the three
+values.
+
+### Heartbeat fail-safe
+
+The daemon checks client heartbeats every 5 s. A client counts as stale once 6.5 s have passed
+since its last heartbeat, and each check while it is still stale adds one miss. Let M be
+`max_hb_failures`.
+
+| Misses | What the daemon does |
+| --- | --- |
+| 1 | Logs `PSS RPC client <id> heartbeat stale: miss_count=1/<M> (warn tier) elapsed_ms=<ms>` |
+| M/2 + 1 (integer division) | Logs the same record with `(degraded tier)`. If the client is SAIM, the daemon's reported mode becomes `DEGRADED`. |
+| M | Logs the same record with `(failure tier)`, disconnects the client and raises a `SW_FAIL`. If the client is SAIM, the reported mode becomes `ERROR`. |
+
+The `SW_FAIL` names the lost source: cause 15 for SAIM, 17 for PCM, 18 for an MDX client
+instance, and cause 8 for any other client. See [Causes and records](/reference/causes-and-records).
+Detection takes about 5 × M seconds after the last heartbeat: about 50 s at M = 10, and about
+4 minutes at the shipped M = 50.
+
+`max_hb_failures` also sets how long the daemon waits for a required source at startup (see
+above). The NvPSD Gateway has its own `--max_hb_failures` option for the SDM link, and does not
+read `nvpss.conf`.
+
+### Delivery to the NvPSD Gateway
+
+The daemon sends each `DecisionRequest` up to `pss_to_psd_retry_budget` times and waits up to
+`pss_to_psd_response_timeout_ms` for each response. When every attempt fails, it logs
+`PSS_TO_PSD_DELIVERY_FAILURE` and marks the following requests `ERROR`. The gateway turns `ERROR`
+into a `SW_FAIL` with cause 12 for every SDM. The daemon returns to `NORMAL` only after an
+`ERROR`-marked request has been acknowledged, and then logs `PSS_TO_PSD_DELIVERY_RECOVERED`.
+
+### Status interval
+
+Every `status_noop_interval_ms` the daemon sends a status `DecisionRequest` (`PSS_STATUS_NOOP`).
+It carries the source-presence report and re-sends every standing `SENSOR_INVALID` and
+`AI_PIPELINE_INVALID` verdict, so an SDM that restarts latches again within one interval. Each
+accepted request also refreshes the SDM's decision-freshness timer, which defaults to 7000 ms.
+Keep the interval below that timeout, or every SDM latches whenever no events flow.
+
+### Staging queues
+
+`psd_operational_queue_depth` and `psd_critical_queue_depth` size the queues in which events wait
+for delivery. Size them against the number of events one camera frame can produce, not against
+the event rate, because perception reports a burst of events for each frame. Each new high-water
+mark is logged as `PSD_STAGING_QUEUE_HIGH_WATER`. A `DecisionRequest` still carries at most 8
+events, so these keys change only the daemon's memory use, at about 261 bytes per slot.
+
+When the critical queue is full, a fault or trust report displaces an event from a distrusted
+source. If there is nothing to displace, the daemon reports `ERROR` until the queue has drained to
+half its depth. The records it writes are listed in
+[Causes and records](/reference/causes-and-records).
+
+### Processing health and rejected reports
+
+- **`fusion_failure_error_ms`.** A processing stage that fails once is only logged. A stage that
+  fails without interruption for this long makes the daemon report `ERROR`, which the gateway
+  forwards to every SDM as a `SW_FAIL` with cause 12.
+- **`client_reject_error_threshold`.** A report is rejected for a bad CRC or schema, a client id
+  that does not match the connection, a confidence below threshold, an unresolved sensor, or an
+  unauthorised client type. After this many consecutive rejections from one required source, the
+  daemon raises a `SW_FAIL` with cause 13 that names the source. An accepted report resets the
+  count.
+
+## Startup failures
+
+The daemon checks the file in this order and exits with status 1 at the first failure. Each
+failure is written to the SEI log and to stderr.
+
+| Order | Check | Record written to the SEI log |
+| --- | --- | --- |
+| 1 | `PSSDToPSDComBackend` present | `Retired configuration key present; refusing to start` |
+| 2 | File missing, unreadable, or containing a line without `=` | `Cannot read configuration file; refusing to start` |
+| 3 | `deploymentMode` repeated, missing or invalid | `deploymentMode defined more than once; refusing to start`, `deploymentMode is required but missing; refusing to start` or `deploymentMode has an unrecognised value; refusing to start` |
+| 4 | `enableFusion` repeated, missing or invalid | The same three forms, naming `enableFusion` |
+| 5 | 3D with `enableFusion = true` | `deploymentMode=3D requires enableFusion=false; refusing to start` |
+| 6 | 3D without `sensorGroupConfig` | `sensorGroupConfig is required when deploymentMode=3D; refusing to start` |
+| 7 | A mandatory key missing | `Required configuration keys are missing; refusing to start`. stderr lists each key as `Error: Required config key missing: <key>`. |
+| 8 | A required-source key invalid | `<key> is defined more than once; refusing to start`, `<key> is not a plain decimal integer; refusing to start` or `<key> is out of range; refusing to start` |
+| 9 | `sensorConfig` empty, or the camera file fails to load | `sensorConfig is required in nvpss.conf but is missing or empty`, or `Failed to load sensor config from <path>: <reason>` |
+| 10 | 3D group file fails to load or fails a cross-check | See [Mandatory when `deploymentMode = 3D`](#mandatory-in-3d) |
+| 11 | Fusion cannot be initialised | `enableFusion=true but the fusion pipeline failed to initialise; refusing to start` |
+
+Other invalid values do not stop the daemon. It replaces them as described above and logs
+`One or more configuration parameters were invalid; default or bounded values were applied (see prior messages).`
+
+When the daemon does not start, no client can register. The container entrypoint then stops with
+`Error: Failed to start /opt/nvidia/psf/bin/nvpss_daemon`, and `launch_hoisa.sh --runtime host`
+stops with `Error: failed to start nvpss_daemon`.
+
+### Where the messages appear
+
+| Deployment | SEI log (startup records and warnings) | stderr (`error: …` lines) |
+| --- | --- | --- |
+| `launch_hoisa.sh --runtime docker`, or a plain `docker run` | `/var/log/psf/psf.log`, and `docker logs <container>` | `docker logs <container>` |
+| `launch_hoisa.sh --runtime host` | `/var/log/psf/pss.log`, when the package's rsyslog rule is installed | `/var/log/psf/psf.log` |
+
+### Startup records to check
+
+After a change, confirm these records in the SEI log:
+
+| Record text | Shows |
+| --- | --- |
+| `PSS required sources` | The three required-source values |
+| `PSS->PSD transport selected` | `transport=UNIX_SOCKET (not configurable)` |
+| `PSS-to-PSD delivery fail-safe config` | The retry budget, response timeout, status interval and queue depths |
+| `Loaded sensor config with <n> sensors from <path>` | The camera count, and `deploymentMode=2D` or `3D` |
+| `deploymentMode=3D: BEV sensor group loaded` | The group name, its `pipelineId` and its members (3D only) |
+| `Event pipeline selected` | `enableFusion=true (multi-camera fusion)` or `enableFusion=false (per-camera passthrough)` |
+
+## Examples
+
+### 2D, as shipped
+
+Comments are omitted.
+
+```ini
+max_hb_failures = 50
+pss_to_psd_retry_budget = 3
+pss_to_psd_response_timeout_ms = 2000
+status_noop_interval_ms = 5000
+psd_operational_queue_depth = 32
+psd_critical_queue_depth = 32
+fusion_failure_error_ms = 1000
+client_reject_error_threshold = 50
+
+required_safety_monitor = 1
+required_perception_monitor = 1
+required_mdx_instances = 1
+
+deploymentMode = 2D
+enableFusion = true
+timeWindowSize = 400
+
+fusionThreshold = 0.4
+alpha = 0.4
+beta = 0.4
+gamma = 0.2
 temporalTolerance = 10
 trajectoryCount = 4
+
 maxPipelines = 3
-
 bypassFusionEvents = SW_FAIL
-PSSDToPSDComBackend = POSIX_MSG_QUE
 sensorConfig = /opt/nvidia/psf/bin/sensor_config.conf
-max_hb_failures = 5
 ```
 
-**Example 2: Balanced configuration**
+### 3D (BEV)
 
-```bash
-# nvpss.conf - Balanced mode
-timeWindowSize = 300
-fusionThreshold = 0.5
-alpha = 0.40
-beta  = 0.40
-gamma = 0.20
-temporalTolerance = 20
-trajectoryCount = 4
+Three cameras (`pipelineId` 1 to 3) form one group with `pipelineId` 4. Only the lines that differ
+from the 2D file are shown. The fusion keys can stay in the file: the daemon ignores them and names
+them in the log.
+
+```ini
+deploymentMode = 3D
+enableFusion = false
+sensorGroupConfig = /opt/nvidia/psf/bin/sensor_group_config.conf
 maxPipelines = 4
-
-bypassFusionEvents = SW_FAIL
-PSSDToPSDComBackend = POSIX_MSG_QUE
-sensorConfig = /opt/nvidia/psf/bin/sensor_config.conf
-max_hb_failures = 10
 ```
 
-**Example 3: Permissive configuration (favor detection over precision)**
+### A site without the Perception Monitor
 
-```bash
-# nvpss.conf - Permissive mode
-timeWindowSize = 1000
-fusionThreshold = 0.35
-alpha = 0.45
-beta  = 0.35
-gamma = 0.20
-temporalTolerance = 25
-trajectoryCount = 6
-maxPipelines = 4
-
-# Route ROI events around fusion so they are forwarded directly to
-# the decision layer even under high event-ingestion latency.
-bypassFusionEvents = SW_FAIL, ROI_ENTRY, ROI_EXIT
-PSSDToPSDComBackend = POSIX_MSG_QUE
-sensorConfig = /opt/nvidia/psf/bin/sensor_config.conf
-max_hb_failures = 50
+```ini
+required_perception_monitor = 0
 ```
 
-### 4.11 Tuning Guidelines
+Start the launcher with `--pcm-mode skip`; with this value it refuses `--pcm-mode active`. The
+daemon does not expect PCM. A PCM that registers anyway is still tracked: if it later stops, every
+SDM latches.
 
-Guidelines for parameter tuning based on deployment scenarios:
+## Tuning guidelines
 
-- Reduce `timeWindowSize` (200–250 ms) to minimize end-to-end latency.
-- Increase `timeWindowSize` (1000–5000 ms) when events originate from
-  an external ingestion source that introduces variable delays.
-- Increase `temporalTolerance` (10–25 ms) to account for faster object
-  movement or slightly unsynchronized cameras.
-- Increase `trajectoryCount` (6–8) for better spatial tracking when
-  objects follow long, curved paths.
-- Increase `fusionThreshold` (0.70–0.80) to reduce false positives in
-  well-calibrated multi-camera setups.
-- Decrease `fusionThreshold` (0.35–0.45) to maintain sensitivity at
-  the cost of more fused events.
-- Increase `beta` (0.50–0.55) to prioritize spatial correlation, and
-  reduce `alpha` by the same amount so the three weights still sum to
-  1.0 (±0.01). Otherwise all three are reset to 0.33 and the tuning is
-  lost.
-- Increase `gamma` (0.25–0.30) to leverage object-type information,
-  again compensating in `alpha` to preserve the weight sum.
-- For high-rate / low-jitter systems: `max_hb_failures = 3–5` gives
-  fast fault detection (roughly 15–25 s at the 5 s heartbeat period).
-- For noisy networks or high-load hosts: `max_hb_failures = 30–100`
-  tolerates transient stalls, at 2.5–8 minutes to fault detection.
+These apply with `enableFusion = true`, except where noted.
+
+- **Latency.** A smaller `timeWindowSize` (200–250 ms) shortens the correlation window. It also
+  marks events stale sooner, in either fusion mode.
+- **Variable ingestion delay.** A larger `timeWindowSize` (1000–5000 ms) stops events from a
+  delayed source from being marked stale and dropped by the SDMs. This applies in either fusion
+  mode.
+- **Fast objects or unsynchronised cameras.** Raise `temporalTolerance` to 10–25 ms.
+- **Long, curved paths.** Raise `trajectoryCount` to 6–8.
+- **Fewer false fusions** in a well-calibrated multi-camera site: raise `fusionThreshold` to
+  0.70–0.80. Lower it to 0.35–0.45 to keep sensitivity, at the cost of more fused events.
+- **Weights.** When you raise one of `alpha`, `beta` or `gamma`, lower another by the same amount,
+  so that the sum stays within 0.01 of 1.0. Otherwise all three are reset to 0.33.
+- **Fault-detection time**, in either fusion mode. A `max_hb_failures` of 3–5 detects a lost client
+  in about 15–25 s, but is more sensitive to host load. A value of 30–100 tolerates stalls, but
+  takes 2.5–8 minutes, and delays the never-registered check by the same amount.
