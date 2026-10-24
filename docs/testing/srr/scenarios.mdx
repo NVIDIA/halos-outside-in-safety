@@ -51,7 +51,7 @@ The scene's baked navmesh already covers the three character zones the scenarios
 
 ## How the scenarios are built
 
-Each pedestrian is an IRA 1.6 behavior tree (Isaac Sim 6.0 dropped the legacy text command files). The three trees for a scenario are named `srr_<name>_char{0,1,2}.bt.json` and live under `regression-reporter/scenarios/behavior-trees/` (canonical). Selecting a scenario copies its three trees onto the fixed active names (`srr_char{0,1,2}.bt.json`) that Isaac reads, then restarts Isaac. The runner and skill automate this per scenario.
+Each pedestrian is an IRA 1.7 behavior tree (Isaac Sim 6.0 dropped the legacy text command files; Isaac Sim 6.1 needs IRA config 1.7.0). The three trees for a scenario are named `srr_<name>_char{0,1,2}.bt.json` and live under `regression-reporter/scenarios/behavior-trees/` (canonical). Selecting a scenario copies its three trees onto the fixed active names (`srr_char{0,1,2}.bt.json`) that Isaac reads, then restarts Isaac. The runner and skill automate this per scenario.
 
 The five randomized scenarios were generated with `randomize_paths.py` using different biases:
 

@@ -115,6 +115,9 @@ navigation:
       - page: Forklift Controller
         path: ../docs/testing/sil/components/forklift-controller.mdx
         slug: testing/sil/components/forklift-controller
+      - page: Extending the Fleet
+        path: ../docs/testing/sil/extending-the-fleet.mdx
+        slug: testing/sil/extending-the-fleet
       - page: Hardware-in-the-Loop Testing
         path: ../docs/testing/hil/index.mdx
         slug: testing/hil

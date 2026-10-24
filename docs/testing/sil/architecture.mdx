@@ -16,15 +16,15 @@ System architecture for SIL testing environment.
 
 Isaac Sim provides the **simulation environment** for SIL testing: 20×20m warehouse with loading dock, trailer, racking, and pallet storage. Materials and lighting match real-world conditions for camera feeds.
 
-**Forklift**: Swivel-wheel kinematics — `back_wheel_drive` (velocity), `back_wheel_swivel` (steering). Safety indicator mesh at `/World/forklift_b/body/body/safety_indicator` changes color by safety state. Physics handles steering, friction, weight distribution, and collision detection.
+**Forklift**: Spawned from the fleet file (`robots.yaml` `spawn:`) into a generated layer over the scene. Swivel-wheel kinematics — `back_wheel_drive` (velocity), `back_wheel_swivel` (steering). Safety indicator disc at `/World/forklift_b/body/body/safety_indicator` changes color by safety state (the mute decision, or the proximity level under `PSF_APP=pxc`). Physics handles steering, friction, weight distribution, and collision detection.
 
 **Digital humans**: IRA (Isaac Replicator Agent) for autonomous navigation. Path planning, obstacle avoidance, and animation blending. Agent count and behavior configurable in `default_config_ros.yaml`.
 
-**Cameras**: 3 cameras (overhead, side, loading dock). 1920×1080 RGB. Isaac Sim 6.0 self-hosts RTSP in-process — one server per camera on ports 8554/8555/8556. With `--enable-vst`, cameras auto-register via `cameras.yaml`.
+**Cameras**: 3 cameras (overhead, side, loading dock). 1920×1080 RGB. Isaac Sim 6.1 self-hosts RTSP in-process — one server per camera on ports 8554/8555/8556. With `--enable-vst`, cameras auto-register via `cameras.yaml`.
 
 Cameras stream at **15 FPS** in both 2D and 3D mode. 3D additionally requires a unique timestamp per frame for Sparse4D temporal fusion, which the system (wall-clock) timestamps provide.
 
-**ROS2**: Action Graph subscribes to `/safety/is_muted` from Communication Layer; publishes to `/clock` for ROS2 time synchronization. Uses jazzy, rmw_cyclonedds_cpp, domain ID 0.
+**ROS2**: The control graph subscribes to `/forklift_b/cmd_vel` and the odometry graph publishes `/forklift_b/odom` (names from the fleet file); the indicator graph subscribes to `/safety/is_muted` from the Communication Layer, or to `/forklift_b/proximity/state` from the forklift-controller under `pxc`; `/clock` carries sim time. Uses jazzy, rmw_cyclonedds_cpp, domain ID 0.
 
 ### 2. VSS Warehouse Blueprint
 
@@ -32,7 +32,7 @@ Perception pipeline consuming camera streams and generating safety events.
 
 **2D profile**: DeepStream with RT-DETR model for object detection and NvDCF for per-camera tracking. Publishes events to Kafka `mdx-events` topic.
 
-**3D profile**: DeepStream with Sparse4D model for 3D multi-view BEV detection and MTMC (Multi-Target Multi-Camera) tracking. Detections and tracks go to the Kafka `mdx-bev` topic; behavior analytics reads them and publishes the ROI and tripwire events to `mdx-events`, which is the seam the Safety Core reads in both profiles. See [3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html) and [Sparse4D documentation](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html) for details.
+**3D profile**: DeepStream with Sparse4D model for 3D multi-view BEV detection and MTMC (Multi-Target Multi-Camera) tracking. Detections and tracks go to the Kafka `mdx-bev` topic; behavior analytics reads them and publishes the ROI, tripwire and proximity events to `mdx-events`, which is the seam the Safety Core reads in both profiles. See [3D Vision AI Profile](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html) and [Sparse4D documentation](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html) for details.
 
 The pipeline monitors ROI and Tripwire zones, publishing events to Kafka.
 
@@ -77,24 +77,31 @@ Safety event processing:
 
 - Consumes Kafka events on `mdx-events` for ROI and tripwire alerts and
   `mdx-frames` for per-frame analysis, in both the 2D and the 3D profile
-- Multi-camera fusion with `timeWindowSize=6000` ms (the shipped SIL value)
+- 2D (`nvpss.conf`, `deploymentMode = 2D`): multi-camera fusion with `timeWindowSize=6000` ms (the shipped SIL value); ATL events bypass fusion
+- 3D (`nvpss_bev.conf`, `deploymentMode = 3D`): fusion off — perception already fused the views, and events arrive under one BEV sensor, `bev-sensor-1`, declared as a group of the three cameras
 - Event validation
 - Forwards validated events to Decision Maker
 
+**Monitors**: the Safety AI Monitor (`PSF_LAUNCH_MODE`) and the Perception Monitor
+(`PSF_PCM_MODE`) both ship `skip`, and both `nvpss` files declare them not required
+(`required_safety_monitor = 0`, `required_perception_monitor = 0`, `required_mdx_instances = 1`).
+The container refuses to start when a key does not match its mode.
+
 **Safety Decision Maker** (SDM):
 
-- ATL (Automated Trailer Loading) decision logic
-- Tracks forklift and human presence in ROI
-- Generates commands: MUTE (0x02) or UNMUTE (0x07)
-- Sends UDP packets (64 bytes) to Communication Layer on port 12346
+`PSF_APP` picks the decision maker; each one reads its event binding from `configs/<app>_sdm.conf`.
+
+- `atl` (default) — Automated Trailer Loading: tracks forklift and human presence in the ROI and generates MUTE (0x02) or UNMUTE (0x07), sent as UDP packets (64 bytes) to the Communication Layer on port 12346. With two bays (`atl-dual-override.yaml`) zone 2 sends to `COMM_UDP_PORT_ZONE2` (12347).
+- `pxc` — Proximity: scores `Forklift` × `Person` separation (`EVENT_12/13/14`) and generates NORMAL (0x07), REDUCE (0x05) or STOP (0x02).
+- `both` — the two in one container (`--app atl,pxc`); proximity sends to `COMM_UDP_PORT_PXC` (12348).
 
 ### 4. Communication Layer
 
 **Protocol bridge** between Safety Core and Isaac Sim:
 
-- **UDP Receiver** (port 12346): Receives Safety Core commands
-- **OPC UA Server** (port 4840): Industrial protocol interface
-- **ROS2 Bridge**: Publishes to `/safety/is_muted` (Bool)
+- **UDP Receiver** (port 12346, plus 12347 / 12348 when zone 2 / proximity send on their own): Receives Safety Core commands
+- **OPC UA Server** (port 4840): Industrial protocol interface; zone 2 has its own nodes (`Zone2IsMuted`), and a proximity safe-release request is a write of `True` to `Safety.ProximitySafeReleaseRequest`
+- **ROS2 Bridge**: Publishes the mute to `/safety/is_muted` (Bool) and to `/<robot>/safety/is_muted` for each robot in `COMM_ROBOT_IDS`, and proximity decisions to `/safety/proximity/pair` (JSON) and `/safety/proximity/mode`. Proximity never touches `/safety/is_muted`: its opcodes 0x02 and 0x07 mean the opposite of ATL's
 
 ROS2 configuration:
 
@@ -135,18 +142,19 @@ Isaac Sim Cameras (3 cams, 15 FPS)
      ↓ RTSP streams (unique timestamps)
 AI Perception (VSS Warehouse Blueprint)
      ├─ Sparse4D 3D multi-view BEV detection + tracking
-     └─ BEV ROI/Tripwire analytics
-     ↓ Kafka events (mdx-events topic, sensor id = BEV group)
-Safety Core (PSF)
+     └─ BEV ROI/Tripwire/proximity analytics
+     ↓ Kafka events (mdx-events topic, sensor id = bev-sensor-1)
+Safety Core (PSF, deploymentMode = 3D)
      ├─ SEI: Event validation + passthrough (fusion done at perception)
-     └─ SDM: ATL decision logic (MUTE/UNMUTE)
-     ↓ UDP packet (64 bytes, port 12346)
+     └─ SDM: ATL (MUTE/UNMUTE) and/or proximity (NORMAL/REDUCE/STOP), per PSF_APP
+     ↓ UDP packets (ATL port 12346; proximity 12348 under both)
 Communication Layer
      ├─ OPC UA update
-     └─ ROS2 publish (/safety/is_muted)
-     ↓ ROS2 topic
-Isaac Sim Action Graph
-     └─ Update safety indicator (GREEN/ORANGE)
+     └─ ROS2 publish (/safety/is_muted; /safety/proximity/pair)
+     ↓ ROS2 topics
+Isaac Sim Action Graph + forklift-controller
+     ├─ Update safety indicator (mute, or proximity level)
+     └─ Slow / stop the forklift on REDUCE / STOP (pxc, both)
 ```
 
 ## Differences from Production
