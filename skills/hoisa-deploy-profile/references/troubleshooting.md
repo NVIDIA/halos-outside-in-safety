@@ -417,7 +417,7 @@ AMC-generated calibration** (VSS side, not shipped in this repo), most commonly 
 with no `restrictedObjectTypes` and prints the ids to cross-check against the event map. Add
 the missing field per the ROI schema in `calibration_3d.md`. The AMC / Calibration Toolkit
 does not expose restricted / confined object types as a dedicated field, so set them via its
-**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/latest/autocalib-workflow-steps.html#export-calibration-data)
+**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/system-components/calibration/auto-calibration/workflow-steps#export-calibration-data)
 (advanced) or by editing the exported `calibration.json` directly. Then regenerate / re-mount
 the calibration and **recreate** (not restart) the VSS perception + safety-core containers so
 the new `calibration.json` and event mapping are picked up.

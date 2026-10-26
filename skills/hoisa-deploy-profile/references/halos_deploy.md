@@ -22,7 +22,7 @@ it too — so with the **default sample scene there is nothing to change** here.
 
 > This requirement is stated in the [Deployment Guide — Safety Core Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html#safety-core-prerequisites)
 > (the calibration *"includes `restrictedObjectTypes:["Person"]` for the ROIs, where relevant"*); the
-> field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/latest/calibration-schema.html).
+> field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/system-components/calibration/calibration-schema).
 
 This check matters only when you bring your **own calibration** (a custom scene / your own
 AMC-generated `calibration.json`, e.g. a partner site). That calibration lives on the VSS side,

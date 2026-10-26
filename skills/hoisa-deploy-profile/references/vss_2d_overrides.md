@@ -63,6 +63,12 @@ Also needed before the skill's `config` step:
   Redis restarts in a loop on `Can't open the log file: Permission denied`.
 - **`NGC_CLI_API_KEY`** exported: perception downloads its models with it at start, and the
   skill's `validate_resolved_yml.py` rejects a build where it resolved empty.
+- **Docker logged in to `nvcr.io`** with that key: the `nvcr.io/nvidia/vss-core` images need
+  it, and a pull without it stops at `unauthorized: authentication required`.
+
+  ```bash
+  echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+  ```
 
 **A dataset of your own** (e.g. `warehouse-40x20-two-docks-3cams-synthetic`, built per
 `test_scenario.md`): put its calibration directory under

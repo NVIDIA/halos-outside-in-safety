@@ -68,7 +68,7 @@ For detailed instructions and additional information about this blueprint, pleas
 
 ## Prerequisites
 
-- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys).
+- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys). Log Docker in to `nvcr.io` with it (`docker login nvcr.io`, username `$oauthtoken`): the VSS 3.3.0 images in `nvcr.io/nvidia/vss-core` do not pull anonymously either.
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
 
 Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html).
@@ -77,7 +77,7 @@ Full hardware, software, NGC-access, and calibration requirements for every prof
 
 Requirements depend on the profile:
 
-- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/latest/warehouse-docs/Prerequisites.html).
+- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites).
 - **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html#closed-loop-host).
 
 ## Quickstart Guide
