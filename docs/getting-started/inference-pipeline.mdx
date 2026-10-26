@@ -30,7 +30,7 @@ The system supports three primary event types:
 - Tripwire events: Triggered when objects cross virtual lines placed at doors, dock edges, or aisle boundaries, enabling directional counting and presence inference in partially occluded or blind areas.
 - Proximity events: Triggered when people and equipment come within unsafe distances, supporting pedestrian–vehicle collision avoidance and automatic slow‑down or stop behaviors.
 
-Learn more about AI Perception component: [VSS Warehouse Blueprint - 2D Vision AI](https://docs.nvidia.com/vss/latest/warehouse-docs/Quickstart-Guide.html) and [Perception Microservices Documentation](https://docs.nvidia.com/vss/latest/warehouse-docs/2D-single-camera-detection-and-tracking-RTDETR.html).
+Learn more about AI Perception component: [VSS Warehouse Blueprint - 2D Vision AI](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart) and [Perception Microservices Documentation](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2-d-single-camera-detection-and-tracking-rt-detr).
 
 ## Deploying Halos Outside-In
 
@@ -58,9 +58,9 @@ Camera model choice and configuration settings significantly impact detection la
 
 - **Connection Method Matters**: Ensure that all cameras connect to the compute platform using the same interface and topology to avoid introducing variable delays.
 
-Optimal camera placement is crucial and should be tailored to your specific use case. Camera positioning significantly affects both accuracy and latency of safety event detection. For detailed guidance on camera positioning for best results, refer to the [camera placement guide](https://docs.nvidia.com/vss/latest/Calibration-Camera-Positioning-Guide.html).
+Optimal camera placement is crucial and should be tailored to your specific use case. Camera positioning significantly affects both accuracy and latency of safety event detection. For detailed guidance on camera positioning for best results, refer to the [camera placement guide](https://docs.nvidia.com/vss/system-components/calibration/camera-positioning-guide).
 
-Once you place your camera, calibrate it by referring to the [camera calibration guidelines](https://docs.nvidia.com/vss/latest/calibration.html).
+Once you place your camera, calibrate it by referring to the [camera calibration guidelines](https://docs.nvidia.com/vss/system-components/calibration).
 
 Configuring Safety Zones and Tripwires is part of the camera calibration process and definitions of tripwires and zones are included in the calibration file.
 
@@ -92,18 +92,18 @@ The minimum system requirements are:
 - 1 × 1 Gbps network interface
 - 1 or 2 supported GPUs
 
-For more details in hardware and software prerequisites please refer to [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/latest/warehouse-docs/Prerequisites.html).
+For more details in hardware and software prerequisites please refer to [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites).
 
 #### Installation Steps
 
 **1. Clone the VSS Warehouse repository**
 
-Halos Outside-In 1.4 runs on VSS Warehouse 3.3, GitHub release `v3.3.0rc0`. Its container images are the public `ghcr.io` build of that commit; you need an NGC API key for the sample data and for the models perception downloads at start. If you don't have the NGC CLI installed, refer to the NGC CLI installation guide: https://org.ngc.nvidia.com/setup
+Halos Outside-In 1.4 runs on VSS Warehouse 3.3.0, GitHub release `v3.3.0`. Its container images are the release images in `nvcr.io/nvidia/vss-core`, tag `3.3.0`; you need an NGC API key to pull them, for the sample data and for the models perception downloads at start. If you don't have the NGC CLI installed, refer to the NGC CLI installation guide: https://org.ngc.nvidia.com/setup
 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout v3.3.0rc0
+git checkout v3.3.0
 ```
 
 The warehouse-operations profile, including the sample calibration data, lives under `deploy/docker/industry-profiles/warehouse-operations/`.
@@ -114,15 +114,26 @@ Download the sample app data (videos and playback for the `warehouse-loading-doc
 
 ```bash
 ngc registry resource download-version \
-  "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026" \
-  --org nvstaging --team vss-warehouse
-tar -xzf vss-warehouse-app-data_vv3.3.0-09152026/vss-warehouse-app-data.tar.gz -C /path/to
-mkdir -p /path/to/vss-warehouse-app-data/models
-chmod -R a+rwX /path/to/vss-warehouse-app-data
+  "nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0" \
+  --org nvidia --team vss-warehouse
+tar -xzf vss-warehouse-app-data_v3.3.0/vss-warehouse-app-data.tar.gz -C /path/to
 ```
 
-- Without `--org`, the NGC CLI stops at `Missing org - If Authenticated, org is also required.`
-- The archive extracts with mode `750`. Kafka runs as a non-root user in its container and then exits with `cluster_id: Permission denied`, so open the data directory before the first deployment.
+Then prepare the data directories, the data-directory step of the VSS repository's `vss-build-vision-ai` skill:
+
+```bash
+DATA=/path/to/vss-warehouse-app-data   # VSS_DATA_DIR
+for d in analytics_cache calibration_toolkit elastic/data elastic/logs kafka redis/data redis/log \
+         vss_video_analytics_api vst/clip_storage nvstreamer/vst_data; do
+  mkdir -p "$DATA/data_log/$d"
+done
+mkdir -p "$DATA/agent_eval/dataset" "$DATA/agent_eval/results" "$DATA/models"
+chmod -R a+rwx "$DATA/data_log" "$DATA/agent_eval" "$DATA/models" "$DATA/videos"
+```
+
+- Without `--org nvidia --team vss-warehouse`, the NGC CLI stops at `Missing org - If Authenticated, org is also required.`
+- The archive extracts with mode `750`, and the containers run as different non-root users: without this step Kafka exits with `cluster_id: Permission denied` and Redis restarts in a loop on `Can't open the log file: Permission denied`. A directory still missing at `up` is created by Docker as `root`, which those users cannot write.
+- The archive carries no models; perception downloads them into `models/` at its first start.
 
 **3. Environment Settings**
 
@@ -136,9 +147,9 @@ SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: wareh
 NUM_STREAMS=3                                                   # default: 4
 # Match your GPU: run `nvidia-smi -L` to identify it. Valid values are in the table above.
 HARDWARE_PROFILE=L40S                                           # default: H100
-LLM_MODE=none                                                   # default: local
+LLM_MODE=none
 VLM_MODE=none
-LLM_NAME_SLUG=none
+LLM_NAME_SLUG=none                                              # default: nemotron-3.5-lightning-30b-a3b
 # Minimal service list: perception, behavior analytics, VST, Kafka and Redis.
 COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}         # default: the extended 2D Kafka list
 VSS_APPS_DIR="/path/to/video-search-and-summarization/deploy/docker"
@@ -149,7 +160,7 @@ HOST_IP='<HOST IP>'
 Export two values in the shell that runs Docker Compose. `containers.env` expands the image tag before any env file is read, and perception reads the NGC key from the environment; never write the key into a file:
 
 ```bash
-export VSS_CONTAINER_TAG=develop-4c432f24cf39   # the ghcr build of the v3.3.0rc0 commit
+export VSS_CONTAINER_TAG=3.3.0   # the release images in nvcr.io/nvidia/vss-core
 export NGC_CLI_API_KEY=<your NGC API key>
 ```
 
@@ -166,13 +177,17 @@ running the deployment commands below.
 </Warning>
 
 <Info>
-The VSS 3.3 images come from `ghcr.io` and pull without a login. Docker registry authentication to `nvcr.io` is still mandatory for the Safety Core image; NGC CLI authentication only covers NGC resources, not Docker image pulls.
+The VSS 3.3.0 images are in `nvcr.io/nvidia/vss-core` and do not pull anonymously: log Docker in to `nvcr.io` with your NGC API key, the same login the Safety Core image needs. NGC CLI authentication only covers NGC resources, not Docker image pulls.
+
+```bash
+echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+```
 
 Validate the required VSS image pulls before starting Docker Compose:
 
 ```bash
 for img in vss-rt-cv vss-behavior-analytics vss-vios-sensor vss-vios-streamprocessing vss-vios-ingress; do
-  docker pull ghcr.io/nvidia-ai-blueprints/vss/$img:develop-4c432f24cf39
+  docker pull nvcr.io/nvidia/vss-core/$img:3.3.0
 done
 ```
 
@@ -277,7 +292,7 @@ The models and the TensorRT engine stay under `VSS_DATA_DIR/models/`, so the nex
 It is supported to customize the VSS Warehouse Blueprint for user specific use cases, including adding new cameras,
 configuring different safety zones and tripwires, fine-tuning the AI perception models, etc.
 
-For details please refer to the [VSS Warehouse 2D Blueprint Customization Guide](https://docs.nvidia.com/vss/latest/warehouse-docs/2D-profile.html#customization).
+For details please refer to the [VSS Warehouse 2D Blueprint Customization Guide](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2-d-vision-ai-profile#customization).
 
 ### Installation of Safety Event Integrator and Decision Maker
 

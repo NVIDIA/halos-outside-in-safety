@@ -46,7 +46,7 @@ profile:
 | IGX-THOR | 7 | 1 |
 | DGX-SPARK | 7 | 1 |
 
-For the full list, see [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/latest/warehouse-docs/Prerequisites.html) and the [Warehouse Quickstart](https://docs.nvidia.com/vss/latest/warehouse-docs/Quickstart-Guide.html).
+For the full list, see [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) and the [Warehouse Quickstart](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart).
 
 ### Closed-loop host
 
@@ -145,7 +145,7 @@ succeeds, so the failure surfaces only at the pull. Pin to 28.3.3 if needed.
 
 ## Runtime environment settings
 
-The VSS Blueprint expects a set of host settings that are not defaults. Follow [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/latest/warehouse-docs/Prerequisites.html) for the commands; the checklist below is only so you can confirm nothing was skipped.
+The VSS Blueprint expects a set of host settings that are not defaults. Follow [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for the commands; the checklist below is only so you can confirm nothing was skipped.
 
 | Setting | Applies to | VSS section |
 | --- | --- | --- |
@@ -213,10 +213,10 @@ starting a deployment:
 ```bash
 export NGC_CLI_API_KEY='<NGC API key>'
 
-# The VSS 3.3 sample data (its container images come from ghcr.io, no NGC needed)
+# The VSS 3.3.0 sample data
 ngc registry resource info \
-  "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026" \
-  --org nvstaging --team vss-warehouse
+  "nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0" \
+  --org nvidia --team vss-warehouse
 ```
 
 <Note>
@@ -228,7 +228,8 @@ was generated against. Regenerate the key with the intended org selected.
 ### Docker authentication
 
 Docker must be authenticated to `nvcr.io` or protected image pulls fail with
-`401 Unauthorized`. NGC CLI authentication alone is not enough.
+`401 Unauthorized`. NGC CLI authentication alone is not enough. The login covers
+the Safety Core image and the VSS 3.3.0 images in `nvcr.io/nvidia/vss-core`.
 
 ```bash
 docker login nvcr.io --username '$oauthtoken'
@@ -263,8 +264,8 @@ at [AI Perception is running](/deployment/prerequisites#ai-perception) in the De
 
 [SIL — 3D Perception](/testing/sil/sil-3d) assumes familiarity with:
 
-- [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html)
-- [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html)
+- [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile)
+- [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d)
 
 ### Agentic deployment
 
