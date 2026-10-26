@@ -42,7 +42,38 @@ tar -xvf sample-sil-data_v*/halos-outside-in-sil-data.tar.gz \
 
 ## Step 2: Deploy VSS Warehouse
 
-Deploy VSS Warehouse 3.3 as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
+Deploy VSS Warehouse 3.3.0, the GitHub release `v3.3.0` of the [VSS repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization), as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
+
+Before the first `up`:
+
+- **Log Docker in to `nvcr.io`** with your NGC API key. The release images, `nvcr.io/nvidia/vss-core/*:3.3.0`, do not pull anonymously; without the login a pull stops at `unauthorized: authentication required`.
+
+  ```bash
+  echo "$NGC_CLI_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+  ```
+
+- **Download the app data**, `nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0`, one 2.1 GB archive. Without `--org nvidia --team vss-warehouse` the download stops at `Missing org - If Authenticated, org is also required.`
+
+  ```bash
+  ngc registry resource download-version \
+    "nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0" --org nvidia --team vss-warehouse
+  tar -xzf vss-warehouse-app-data_v3.3.0/vss-warehouse-app-data.tar.gz \
+    --directory=/path/to # change me
+  ```
+
+  `VSS_DATA_DIR` is the extracted `vss-warehouse-app-data/` directory. It carries no models: perception downloads them into `<vss_data>/models/` at its first start.
+
+- **Prepare the data directories** on a fresh extract. The containers run as different users, so their data directories must exist and be writable by all of them; otherwise Redis restarts in a loop on `Can't open the log file: Permission denied`. This is the data-directory step of the `vss-build-vision-ai` skill:
+
+  ```bash
+  DATA=/path/to/vss-warehouse-app-data   # VSS_DATA_DIR
+  for d in analytics_cache calibration_toolkit elastic/data elastic/logs kafka redis/data redis/log \
+           vss_video_analytics_api vst/clip_storage nvstreamer/vst_data; do
+    mkdir -p "$DATA/data_log/$d"
+  done
+  mkdir -p "$DATA/agent_eval/dataset" "$DATA/agent_eval/results" "$DATA/models"
+  chmod -R a+rwx "$DATA/data_log" "$DATA/agent_eval" "$DATA/models" "$DATA/videos"
+  ```
 
 <Note>
 `<wh_ops>` below is the VSS warehouse-operations directory, `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`. Edit the override files there in place, but **do not run** `docker compose` **from** `<wh_ops>/` — its `compose.yml` is only an app fragment and pulls in no infrastructure (Kafka, Redis, `sdr-controller`). Deploy from `<vss_repo>/deploy/docker/` with `containers.env`, `industry-profiles/warehouse-operations/.env` and `industry-profiles/warehouse-operations/overrides.env`, in that order.
@@ -50,29 +81,26 @@ Deploy VSS Warehouse 3.3 as in [Deploy AI Perception](/getting-started/inference
 
 ### 2.1 `overrides.env` Overrides
 
-Set these in `<wh_ops>/overrides.env`, which Docker Compose reads last. `COMPOSE_PROFILES`
-is the one that matters most: the shipped list is the agent profile (`bp_wh`), which brings
-up no Kafka, and the Safety Core then receives no events while every container still looks
-healthy.
+Set these in `<wh_ops>/overrides.env`, which Docker Compose reads last:
 
 ```bash
 HOST_IP='<HOST_IP>'                                             # get with: hostname -I | awk '{print $1}'
-MODE=2d
-BP_PROFILE=bp_wh_kafka                                          # Kafka is required for the Safety Core
-STREAM_TYPE=kafka
-COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}        # default: the bp_wh agent list, no Kafka
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}        # default: …_WH_KAFKA_2D, which adds Elasticsearch and monitoring
 SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: warehouse-4cams-20mx20m-synthetic
 NUM_STREAMS=3                                                   # default: 4; matches 3 Isaac Sim cameras
 HARDWARE_PROFILE=L40S                                           # default: H100; the perception GPU
-LLM_MODE=none                                                   # default: local; not needed for SIL
-VLM_MODE=none
-LLM_NAME_SLUG=none
+LLM_NAME_SLUG=none                                              # default: nemotron-3.5-lightning-30b-a3b; no LLM for SIL
 VSS_APPS_DIR="<vss_repo>/deploy/docker"
 VSS_DATA_DIR="/path/to/vss-warehouse-app-data"
 ```
 
-Export `VSS_CONTAINER_TAG` and `NGC_CLI_API_KEY` in the shell that runs Docker Compose; the
-tag for this release is given in [Deploy AI Perception](/getting-started/inference-pipeline), step 3.
+`MODE=2d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka`, `LLM_MODE=none` and `VLM_MODE=none`
+already ship; keep them. The Safety Core reads its events from Kafka: with `bp_wh`, or a
+profile list without Kafka, it receives none while every container still looks healthy.
+
+Export `NGC_CLI_API_KEY` in the shell that runs Docker Compose: perception downloads its
+models with it at start. `containers.env` pins the images to `nvcr.io/nvidia/vss-core`, tag
+`3.3.0` (`VSS_CONTAINER_TAG`); leave it.
 
 ### 2.2 DeepStream Config
 
