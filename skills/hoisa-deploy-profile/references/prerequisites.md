@@ -47,7 +47,7 @@ Suitable: RTX PRO 6000, RTX A6000 Ada, RTX A6000, L40S, L40.
 
 **Fail** (`nvidia-smi` missing or not loaded): the agent does **not** auto-install GPU drivers.
 - Installed but not loaded → load the module, no reboot: `sudo modprobe nvidia && sudo modprobe nvidia_uvm`
-- Missing → the user installs it (cloud / Brev images already ship the driver). Per-platform pinned versions are in the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/latest/warehouse-docs/Prerequisites.html) (x86 Ubuntu 24.04 → `580.105.08`, IGX-THOR → `580.00`); download: https://www.nvidia.com/en-us/drivers/
+- Missing → the user installs it (cloud / Brev images already ship the driver). Per-platform pinned versions are in the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) (x86 Ubuntu 24.04 → `580.105.08`, IGX-THOR → `580.00`); download: https://www.nvidia.com/en-us/drivers/
 
 ---
 
