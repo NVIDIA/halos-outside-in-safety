@@ -32,7 +32,7 @@ Perception pipeline consuming camera streams and generating safety events.
 
 **2D profile**: DeepStream with RT-DETR model for object detection and NvDCF for per-camera tracking. Publishes events to Kafka `mdx-events` topic.
 
-**3D profile**: DeepStream with Sparse4D model for 3D multi-view BEV detection and MTMC (Multi-Target Multi-Camera) tracking. Detections and tracks go to the Kafka `mdx-bev` topic; behavior analytics reads them and publishes the ROI, tripwire and proximity events to `mdx-events`, which is the seam the Safety Core reads in both profiles. See [3D Vision AI Profile](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html) and [Sparse4D documentation](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html) for details.
+**3D profile**: DeepStream with Sparse4D model for 3D multi-view BEV detection and MTMC (Multi-Target Multi-Camera) tracking. Detections and tracks go to the Kafka `mdx-bev` topic; behavior analytics reads them and publishes the ROI, tripwire and proximity events to `mdx-events`, which is the seam the Safety Core reads in both profiles. See [3D Vision AI Profile](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile) and [Sparse4D documentation](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d) for details.
 
 The pipeline monitors ROI and Tripwire zones, publishing events to Kafka.
 

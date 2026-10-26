@@ -287,7 +287,7 @@ What the headline metrics mean:
 
 | Metric | Meaning | Healthy |
 | --- | --- | --- |
-| **match%** | Frame-by-frame agreement (expected mute == actual mute) at 30 Hz | mean ≥ 90%, median ≥ 95% |
+| **match%** | Frame-by-frame agreement (expected mute == actual mute) at 30 Hz. Not scored: frames whose expected state rests only on a person within 0.5 m of the ROI edge, and the first 1.0 s after each expected-state change | mean ≥ 90%, median ≥ 95% |
 | **Mute correct%** | Of frames GT said to mute, fraction the system muted | ≥ 90% |
 | **Unmute correct%** | Of frames GT said not to mute, fraction the system unmuted | ≥ 95% (safety-critical) |
 | **BA ROI / TW IN / TW OUT** | Per-event detection rate for person-in-ROI / forklift trailer crossings | ≥ 95% ROI, 100% TW |

@@ -46,14 +46,14 @@ See [Prerequisites](/getting-started/prerequisites) for hardware and software re
 
 **Additional 3D requirements**:
 
-- Familiarity with the [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html)
-- Understanding of [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html)
+- Familiarity with the [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile)
+- Understanding of [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d)
 
 ## Step 1: Download Packages
 
 Follow **Step 1** in [SIL — 2D Perception](/testing/sil/sil-2d) to clone the Halos Outside-In Safety repository and download the SIL data. The same repo and SIL data are used for both 2D and 3D.
 
-3D needs no extra download. Perception downloads its Sparse4D model into `<vss_data>/models/sparse4d/` before it builds the TensorRT engine: with `DATASET_TYPE=synthetic` that is RN50 v2.3, with `real` RN50 v3.0. The download uses `NGC_CLI_API_KEY`, which therefore needs access to the org that hosts the model.
+3D needs no extra download. Perception downloads its Sparse4D model into `<vss_data>/models/sparse4d/` before it builds the TensorRT engine: with `DATASET_TYPE=synthetic` that is RN50 v2.3 (`nvidia/tao/sparse4d_rn50:deployable_v2.3`), with `real` RN50 v3.0, both public in the `nvidia` org. The download uses `NGC_CLI_API_KEY`.
 
 ## Step 2: 3D Calibration Dataset (Custom Scenes Only)
 
@@ -130,7 +130,7 @@ ROIs and tripwires are defined in **world coordinates**, which are shared betwee
 ```
 
 <Info>
-The `id`s (`roi-id-1`, `tripwire-id-1`) must match the `rule_id`s in the ATL event mapping (`event_mapping_atl.pb.txt`, packaged in the PSF image), or the Safety Core cannot map the events (`EVENT_0`…`EVENT_5`) and no MUTE/UNMUTE is produced. For the calibration schema, see the [VSS calibration documentation](https://docs.nvidia.com/vss/latest/calibration-schema.html).
+The `id`s (`roi-id-1`, `tripwire-id-1`) must match the `rule_id`s in the ATL event mapping (`event_mapping_atl.pb.txt`, packaged in the PSF image), or the Safety Core cannot map the events (`EVENT_0`…`EVENT_5`) and no MUTE/UNMUTE is produced. For the calibration schema, see the [VSS calibration documentation](https://docs.nvidia.com/vss/system-components/calibration/calibration-schema).
 </Info>
 
 ### 2.4 Copy the BEV Floorplan Image
@@ -164,7 +164,7 @@ Then set `SAMPLE_VIDEO_DATASET="<name>"` in `overrides.env` (Step 3.1) and put t
 
 ## Step 3: Deploy VSS Warehouse (3D Profile)
 
-Deploy VSS Warehouse 3.3 as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile, 3D mode). Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
+Deploy VSS Warehouse 3.3 as in [Deploy AI Perception](/getting-started/inference-pipeline), or with the VSS repository's `vss-build-vision-ai` skill (warehouse profile, 3D mode). The release, the `nvcr.io` login, the app data and the data directories are those of [SIL — 2D Perception](/testing/sil/sil-2d#step-2-deploy-vss-warehouse), Step 2. Apply the overrides below **before** `docker compose up` — if perception builds its TensorRT engine with the wrong config, it has to build it again.
 
 ### 3.1 `overrides.env` Overrides
 
@@ -451,7 +451,7 @@ Navigate to **Video Wall**, enable overlay, and check **Include Floor Plan** in 
 
 ![VST Video Wall with Floor Plan and 3D BEV detections](/assets/images/sil/topdown-view-3D.png)
 
-For details on configuring the Video Wall overlay and Floor Plan, see [Playback overlay on Video Wall](https://docs.nvidia.com/vss/latest/vios-microservices.html#playback-overlay-on-video-wall).
+For details on configuring the Video Wall overlay and Floor Plan, see [Playback overlay on Video Wall](https://docs.nvidia.com/vss/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall).
 
 ## Cleanup and Restart
 
@@ -524,8 +524,7 @@ Core still runs the 2D `nvpss.conf`. Set `PSF_NVPSS_CONFIG_SRC` and
 ### 0 Detections
 
 Check that perception downloaded its model (`<vss_data>/models/sparse4d/`) and that
-`NGC_CLI_API_KEY` was exported when VSS started: the download needs the key, and its access to
-the org the model comes from.
+`NGC_CLI_API_KEY` was exported when VSS started: the download needs the key.
 
 ### No Forklift × Person Proximity Events (`pxc` / `both`)
 
@@ -572,6 +571,6 @@ Upstream Isaac Sim and VST issues affect the stream path; their status on Isaac 
 - [SIL Architecture](/testing/sil/architecture) — System architecture and data flow
 - [Isaac Sim Configuration](/testing/sil/components/isaac-sim) — Isaac Sim configuration
 - [Isaac Sim Action Graphs](/testing/sil/components/action-graph) — Forklift control details
-- [VSS Warehouse 3D Profile Customization](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-profile.html) — Adding cameras, custom scenes
-- [Sparse4D Configuration](https://docs.nvidia.com/vss/latest/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html) — Tuning 3D perception
-- [VSS Configurator](https://docs.nvidia.com/vss/latest/vss-configurator.html) — Sensor source configuration
+- [VSS Warehouse 3D Profile Customization](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile) — Adding cameras, custom scenes
+- [Sparse4D Configuration](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d) — Tuning 3D perception
+- [VSS Configurator](https://docs.nvidia.com/vss/system-components/configuration/vss-configurator) — Sensor source configuration
