@@ -12,7 +12,8 @@ A web-based tool to visually create waypoints for forklift navigation on the war
 - **Pan/Zoom** navigation (Alt+Drag or Middle Mouse to pan, Scroll to zoom)
 - **Origin pose selection** for odom frame reference — position and start heading
 - **Heading control** via Shift+Scroll or slider, for waypoints and the origin alike
-- **Drag-and-drop** waypoint reordering
+- **Waypoint reordering** by dragging an item of the sidebar list onto another, or with its
+  Move up / Move down buttons
 - **Export** to JSON (waypoints plus interpolated poses for curve following)
 - **Import** existing waypoint files (JSON or YAML)
 - **Path Management System** - Save, open, delete, and rename paths with Redux store 
@@ -40,7 +41,7 @@ npm run dev
 
 2. **Add Waypoints**: Switch to "Add Waypoint" mode, then click on the map to add waypoints. Use Shift+Scroll to adjust heading before clicking.
 
-3. **Edit Waypoints**: Click on waypoints to select, drag to move, or use the sidebar to edit coordinates directly.
+3. **Edit Waypoints**: Click on waypoints to select, drag to move, or use the sidebar to edit coordinates directly. To change their order, drag an item of the sidebar list onto another (it takes that item's place) or use its Move up / Move down buttons; dragging a point on the map moves it and keeps the order.
 
 4. **Save Path**: Click the 💾 **Save** button in the header to save your path for later use.
 
@@ -152,7 +153,8 @@ The JSON export (including `poses`) is the input format of the SIL forklift cont
 | Set origin | Left Click (in Set Origin mode) |
 | Adjust heading | Shift+Scroll (in Add or Set Origin mode) |
 | Select waypoint | Click on waypoint |
-| Move waypoint | Drag waypoint |
+| Move waypoint | Drag waypoint on the map |
+| Reorder waypoints | Drag a sidebar list item onto another, or Move up / Move down |
 
 ## Maps
 

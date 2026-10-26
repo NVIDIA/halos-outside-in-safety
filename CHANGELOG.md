@@ -270,6 +270,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
 - A rename or delete in the waypoint generator's Path Manager lasted only until the page reloaded: only Save wrote the saved paths to localStorage, so the old name came back and a deleted path reappeared. The store now writes the list whenever it changes, whichever action changed it. `npm test` covers save, re-save, rename and delete across a reload.
+- The waypoint generator README advertised drag-and-drop reordering, but the sidebar list only had Move up / Move down. Dragging a list item onto another now moves the waypoint to that item's place, renumbering the list and the drawn path and changing the exported order; the buttons stay. Dragging a point on the map still moves it without reordering.
 - `robots*.yaml` declared `wheel_radius: 0.15`, which matches no dimension of the
   ForkliftB asset: PhysX rolls the drive wheel on a 0.16 m collider. The control
   graph commands `cmd_vel / wheel_radius` to the wheel joint, so the truck drove
