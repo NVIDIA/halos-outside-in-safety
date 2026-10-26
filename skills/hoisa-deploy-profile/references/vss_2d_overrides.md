@@ -2,12 +2,12 @@
 
 Deploy VSS Warehouse 3.3 with the VSS repository's `vss-build-vision-ai` skill, warehouse
 profile (`skills/vss-build-vision-ai/references/profiles/warehouse.md`), from the GitHub
-release `v3.3.0rc0`. That skill owns the deploy flow — its `_builds/<name>/`
+release `v3.3.0`. That skill owns the deploy flow — its `_builds/<name>/`
 build, the env layers, the data-directory gate, readiness and teardown. This file specifies
 only what must be **different** for SIL: the answers to give it, and the config files to edit
 **before** its `docker compose up`.
 
-> `<vss_repo>` = the VSS checkout at `v3.3.0rc0`; `<vss_data>` = the extracted
+> `<vss_repo>` = the VSS checkout at `v3.3.0`; `<vss_data>` = the extracted
 > `vss-warehouse-app-data`; `<wh_ops>` = `<vss_repo>/deploy/docker/industry-profiles/warehouse-operations/`,
 > where the config files below live (the DeepStream config, the VST config).
 >
@@ -25,20 +25,20 @@ keeps decisions flowing.
 ## Env Overrides
 
 Answer the skill's warehouse questions with mode `2d`, variant `bp_wh_kafka`, size **Minimal**
-and dataset `warehouse-loading-dock-3cams-synthetic`, and pick the container image tag
-`develop-4c432f24cf39`, the ghcr build of the `v3.3.0rc0` commit. The skill writes them into `_builds/<name>/override.env`, the last env
+and dataset `warehouse-loading-dock-3cams-synthetic`, and keep the container image tag
+`3.3.0`, the release images in `nvcr.io/nvidia/vss-core`. The skill writes them into `_builds/<name>/override.env`, the last env
 layer. Against the shipped `overrides.env` that changes:
 
 ```bash
-VSS_CONTAINER_TAG=develop-4c432f24cf39                          # default: develop-latest — the build of the v3.3.0rc0 commit
-FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL         # default: …_WH_2D (with the agent) — the skill expands it into COMPOSE_PROFILES
+VSS_CONTAINER_TAG=3.3.0                                         # default: 3.3.0 — stated so the skill's validator checks every image against it
+FOUNDATION_VARIANT=COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL         # default: …_WH_KAFKA_2D (with Elasticsearch and monitoring) — the skill expands it into COMPOSE_PROFILES
 SAMPLE_VIDEO_DATASET="warehouse-loading-dock-3cams-synthetic"   # default: warehouse-4cams-20mx20m-synthetic — SIL synthetic dataset (3 cams)
 NUM_STREAMS=3                                                   # default: 4 — matches 3 Isaac Sim cameras
 HARDWARE_PROFILE=L40S                                           # default: H100 — the host's GPU
-LLM_MODE=none                                                   # default: local — not needed for SIL
 ```
 
-`MODE=2d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka` and `VLM_MODE=none` already ship.
+`MODE=2d`, `BP_PROFILE=bp_wh_kafka`, `STREAM_TYPE=kafka`, `LLM_MODE=none` and `VLM_MODE=none`
+already ship. `develop-*` and `nightly-*` tags are pre-release builds; do not use them for SIL.
 
 **Why**:
 - `bp_wh_kafka` (not `bp_wh`): PSF consumes events from Kafka — without Kafka, no safety decisions
@@ -53,10 +53,14 @@ LLM_MODE=none                                                   # default: local
   (`ISAAC_GPU_DEVICE`)
 
 Also needed before the skill's `config` step:
-- **App data** — the skill's NGC source `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`.
-  `ngc registry resource download-version` needs `--org nvstaging --team vss-warehouse`, or it
-  stops at `Missing org - If Authenticated, org is also required.` `VSS_DATA_DIR` is the inner
-  `vss-warehouse-app-data` directory.
+- **App data** — the skill's NGC source `nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0`, one
+  `vss-warehouse-app-data.tar.gz` (2.1 GB) to extract. `ngc registry resource download-version`
+  needs `--org nvidia --team vss-warehouse`, or it stops at `Missing org - If Authenticated, org
+  is also required.` `VSS_DATA_DIR` is the inner `vss-warehouse-app-data` directory. It carries
+  no models: perception downloads them into `<vss_data>/models/` at its first start. Run the
+  skill's data-directory step (`references/data-directory.md`) on a fresh extract before the
+  first `up`: it creates the `data_log` tree and opens it to the containers' users. Without it
+  Redis restarts in a loop on `Can't open the log file: Permission denied`.
 - **`NGC_CLI_API_KEY`** exported: perception downloads its models with it at start, and the
   skill's `validate_resolved_yml.py` rejects a build where it resolved empty.
 

@@ -30,7 +30,7 @@ This skill assumes the SIL + SRR stacks are already deployed and healthy on the 
 
 ## Phase 0 — Required reading (ONE-TIME, before any compose work)
 
-SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** skill and the VSS repo's **`vss-build-vision-ai`** skill (warehouse profile) — NOT this skill. SRR has been run on VSS 3.3 (`v3.3.0rc0`, 3D app) with one `in-roi` scenario. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
+SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** skill and the VSS repo's **`vss-build-vision-ai`** skill (warehouse profile) — NOT this skill. SRR has been run on VSS 3.3: `v3.3.0`, 2D app, with `psf-edge`, and `v3.3.0rc0`, 3D app, with one `in-roi` scenario. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
 
 **Read these BEFORE running any compose command:**
 

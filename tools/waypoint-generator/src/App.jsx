@@ -485,6 +485,7 @@ function App() {
             <ul>
               <li><b>Click</b>: Add waypoint / Select</li>
               <li><b>Drag</b>: Move waypoint</li>
+              <li><b>Drag list item</b>: Reorder waypoints</li>
               <li><b>Alt+Drag / Middle</b>: Pan view</li>
               <li><b>Scroll</b>: Zoom</li>
               <li><b>Shift+Scroll</b>: Adjust heading</li>

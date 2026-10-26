@@ -4,7 +4,7 @@
 
 ### VSS Warehouse 3.3
 
-- `hoisa-deploy-profile` targets VSS 3.3 (GitHub release `v3.3.0rc0`), deployed with the VSS repo's `vss-build-vision-ai` skill (warehouse profile). `vss_2d_overrides.md` and `vss_3d_overrides.md` give its answers and what SIL needs on top: the ghcr build of the `v3.3.0rc0` commit (`develop-4c432f24cf39`), the Minimal `bp_wh_kafka` variant with the 3-camera dataset in the build's `override.env`, the `--org` the app-data download needs, and a dataset of your own. The skill's resolve and validators accept these values, and its `resolved.yml` matches the stack the tests ran on.
+- `hoisa-deploy-profile` targets VSS 3.3.0, the GitHub release `v3.3.0`, deployed with the VSS repo's `vss-build-vision-ai` skill (warehouse profile). `vss_2d_overrides.md` and `vss_3d_overrides.md` give its answers and what SIL needs on top: the release images `nvcr.io/nvidia/vss-core/*:3.3.0`, the Minimal `bp_wh_kafka` variant with the 3-camera dataset in the build's `override.env`, the app data `nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0` and the `--org` its download needs, the skill's data-directory step, and a dataset of your own. The skill's resolve and validators accept these values, and its `resolved.yml` matches the stack the tests ran on. Against `v3.3.0rc0`, the release keeps the loading-dock calibrations and every setting the SIL overrides change; it moves the images from ghcr `develop-*` builds to `nvcr.io/nvidia/vss-core` and the Sparse4D models to the public `nvidia` org, and ships `LLM_MODE=none`.
 - VSS 3.3 ships the Sparse4D model and the loading-dock BEV calibration: `model_r101.md` and the R101 profile variables are removed, and `calibration_3d.md` covers only a scene of your own.
 - The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
 - `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
@@ -18,7 +18,7 @@
   - The VST workaround registers the cameras again after restarting VST, which could land on Isaac's own registration and leave VST with no sensors.
   - Perception re-provisioning is the full round (`FLUSHALL`, `sdr-controller`, DeepStream, one registration), as in `restart_isaac.sh`.
   - The image pins numpy to the base image's own version; pip otherwise tried to replace the Debian numpy and the build failed.
-- Run on 3.3 with `sil`: ATL, `pxc`, `both` (3D app) and `atl-dual` on `warehouse_40x20` (2D app).
+- Run with `sil`: on `v3.3.0`, ATL with the 2D app (SRR `psf-edge`, 5 min: 12 clips, 9 PASS, 3 NEAR, perception 14.6 fps on each camera); on `v3.3.0rc0`, ATL, `pxc`, `both` (3D app) and `atl-dual` on `warehouse_40x20` (2D app).
 
 ### Breaking — PSF image with configured SDMs
 
@@ -121,6 +121,10 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Changed
 
+- `troubleshooting.md` (ATL zone latched in FAULT): with the 2D app the lockout also comes
+  later in a run, from a person crossing out of the trailer that behavior analytics reports
+  when a camera starts a new track near the tripwire. Restarting safety-core after the
+  stream handoff does not prevent it.
 - **The 20x20 scene describes the warehouse and nothing else.** `forklift_b` and
   its safety disc are declared in `robots.yaml` — a `spawn:` block at
   `(1, -13.39)` facing 180°, and the `indicator:` size the baked disc used to
@@ -270,6 +274,7 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 - `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
 - The waypoint generator opened the uncalibrated 40x20 map by default.
 - A rename or delete in the waypoint generator's Path Manager lasted only until the page reloaded: only Save wrote the saved paths to localStorage, so the old name came back and a deleted path reappeared. The store now writes the list whenever it changes, whichever action changed it. `npm test` covers save, re-save, rename and delete across a reload.
+- The waypoint generator README advertised drag-and-drop reordering, but the sidebar list only had Move up / Move down. Dragging a list item onto another now moves the waypoint to that item's place, renumbering the list and the drawn path and changing the exported order; the buttons stay. Dragging a point on the map still moves it without reordering.
 - `robots*.yaml` declared `wheel_radius: 0.15`, which matches no dimension of the
   ForkliftB asset: PhysX rolls the drive wheel on a 0.16 m collider. The control
   graph commands `cmd_vel / wheel_radius` to the wheel joint, so the truck drove

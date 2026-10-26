@@ -376,6 +376,18 @@ body {
   background: rgba(255, 107, 107, 0.1);
 }
 
+.waypoint-item.dragging {
+  opacity: 0.4;
+}
+
+.waypoint-item.drop-before {
+  box-shadow: 0 -3px 0 var(--accent);
+}
+
+.waypoint-item.drop-after {
+  box-shadow: 0 3px 0 var(--accent);
+}
+
 .waypoint-header {
   display: flex;
   justify-content: space-between;
