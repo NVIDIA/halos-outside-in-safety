@@ -105,7 +105,8 @@ class SafetyOpcUaServer:
         config: Optional[OpcUaConfig] = None,
         proximity_queue: Optional[Queue] = None,
         safe_release_handler: Optional[Callable[[], bool]] = None,
-        zone2_queue: Optional[Queue] = None
+        zone2_queue: Optional[Queue] = None,
+        atl_safe_release_handlers: Optional[dict] = None
     ):
         """
         Initialize OPC UA server
@@ -123,6 +124,8 @@ class SafetyOpcUaServer:
                 common/proximity_commands.py.
             zone2_queue: SafetyCommand objects from the second ATL zone's SDM
                 (atl_dual), written to the Zone2* nodes only.
+            atl_safe_release_handlers: {zone: callable} sending that zone's ATL
+                safe-release request; each zone given gets a writable node.
         """
         if not HAS_OPCUA:
             raise ImportError("asyncua library not installed. Install with: pip install asyncua")
@@ -147,6 +150,10 @@ class SafetyOpcUaServer:
         # off unless COMM_PXC_STARTUP_RELEASE=1, and then only for a latch the
         # SDM has reported.
         self.safe_release_handler = safe_release_handler
+        # The ATL SDM latches the same way (fault safe-hold, e.g. a person exit
+        # at count 0) and holds it until this side asks; there is no automatic
+        # path, as an accepted release resets its forklift flag and person count.
+        self.atl_safe_release_handlers = atl_safe_release_handlers or {}
         
         self._server: Optional[Server] = None
         self._running = False
@@ -458,6 +465,16 @@ class SafetyOpcUaServer:
             self._nodes['zone2_state_json'] = safety_folder.add_variable(
                 idx, "Zone2StateJson", "", ua.VariantType.String
             )
+        # Write True to ask that zone's ATL SDM to leave its latched safe state;
+        # reset to False once the request is issued, as for proximity below.
+        if 1 in self.atl_safe_release_handlers:
+            self._nodes['atl_safe_release_request'] = safety_folder.add_variable(
+                idx, "AtlSafeReleaseRequest", False, ua.VariantType.Boolean
+            )
+        if self.zone2_queue is not None and 2 in self.atl_safe_release_handlers:
+            self._nodes['zone2_atl_safe_release_request'] = safety_folder.add_variable(
+                idx, "Zone2AtlSafeReleaseRequest", False, ua.VariantType.Boolean
+            )
 
         # --- Proximity (0xA5) ------------------------------------------------
         # Flat under Safety, like the ATL nodes: the ROS bridge finds its nodes by
@@ -502,10 +519,10 @@ class SafetyOpcUaServer:
         
         logger.info(f"OPC UA nodes created under namespace {idx}")
     
-    def _poll_safe_release_request(self) -> bool:
+    def _poll_release_node(self, key: str, handler: Optional[Callable[[], bool]], name: str) -> bool:
         """Issue a safe-release if the node was written True. Returns True if it was."""
-        node = self._nodes.get('proximity_safe_release_request')
-        if node is None or self.safe_release_handler is None:
+        node = self._nodes.get(key)
+        if node is None or handler is None:
             return False
         try:
             if not node.read_value():
@@ -514,15 +531,30 @@ class SafetyOpcUaServer:
             # cannot leave the node armed and re-fire on every loop pass.
             node.write_value(False, ua.VariantType.Boolean)
         except Exception as e:
-            logger.error(f"Safe-release node poll failed: {e}")
+            logger.error(f"{name} node poll failed: {e}")
             return False
 
-        logger.info("ProximitySafeReleaseRequest written; requesting safe release")
+        logger.info(f"{name} written; requesting safe release")
         try:
-            self.safe_release_handler()
+            handler()
         except Exception as e:
-            logger.error(f"Safe-release handler failed: {e}")
+            logger.error(f"{name} handler failed: {e}")
         return True
+
+    def _poll_safe_release_request(self) -> bool:
+        return self._poll_release_node(
+            'proximity_safe_release_request', self.safe_release_handler,
+            "ProximitySafeReleaseRequest")
+
+    def _poll_atl_safe_release_requests(self) -> bool:
+        polled = self._poll_release_node(
+            'atl_safe_release_request', self.atl_safe_release_handlers.get(1),
+            "AtlSafeReleaseRequest")
+        if self._poll_release_node(
+                'zone2_atl_safe_release_request', self.atl_safe_release_handlers.get(2),
+                "Zone2AtlSafeReleaseRequest"):
+            polled = True
+        return polled
 
     def _run_loop(self):
         """Main server loop"""
@@ -569,6 +601,9 @@ class SafetyOpcUaServer:
                         pass
                     except Exception as e:
                         logger.error(f"Error processing proximity packet: {e}")
+
+                if self._poll_atl_safe_release_requests():
+                    idle = False
 
                 if self._pxc_seen:
                     if self._pxc_hold.tick():
@@ -642,7 +677,8 @@ def main():
 
     zone2_receiver = None
     if args.zone2_port:
-        zone2_receiver = SafetyReceiver(port=args.zone2_port)
+        zone2_receiver = SafetyReceiver(
+            port=args.zone2_port, atl_release_node="Safety.Zone2AtlSafeReleaseRequest")
         zone2_receiver.start()
         print(f"UDP Receiver (ATL zone 2) listening on port {args.zone2_port}")
 
@@ -663,7 +699,11 @@ def main():
         endpoint=args.endpoint,
         proximity_queue=proximity_queue,
         safe_release_handler=(pxc_receiver or receiver).request_safe_release,
-        zone2_queue=zone2_receiver._queue if zone2_receiver else None
+        zone2_queue=zone2_receiver._queue if zone2_receiver else None,
+        atl_safe_release_handlers={
+            1: receiver.request_atl_safe_release,
+            **({2: zone2_receiver.request_atl_safe_release} if zone2_receiver else {}),
+        },
     )
     
     try:

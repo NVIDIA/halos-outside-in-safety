@@ -53,12 +53,18 @@ class CommandCode(IntEnum):
       CMD_MUTE      = 0x02  (Allow operation — safety muted)
       CMD_SW_ERROR  = 0x03
       CMD_UNMUTE    = 0x07  (Prevent operation — safety active + alarm)
+      CMD_SAFE_RELEASE_REQUEST = 0x08  (PLC -> SDM: leave the latched safe state)
+      CMD_SAFE_RELEASE_ACK     = 0x09  (SDM: release accepted, state reset)
+      CMD_SAFE_RELEASE_DENIED  = 0x0A  (SDM: a latch cause is still active)
     """
     HEARTBEAT = 0x00
     HW_ERROR  = 0x01
     MUTE      = 0x02
     SW_ERROR  = 0x03
     UNMUTE    = 0x07
+    SAFE_RELEASE_REQUEST = 0x08
+    SAFE_RELEASE_ACK     = 0x09
+    SAFE_RELEASE_DENIED  = 0x0A
 
     @property
     def description(self) -> str:
@@ -68,6 +74,9 @@ class CommandCode(IntEnum):
             CommandCode.MUTE:      "MUTE (ALLOW OPERATION)",
             CommandCode.SW_ERROR:  "SOFTWARE ERROR",
             CommandCode.UNMUTE:    "UNMUTE (PREVENT OPERATION)",
+            CommandCode.SAFE_RELEASE_REQUEST: "SAFE RELEASE REQUEST",
+            CommandCode.SAFE_RELEASE_ACK:     "SAFE RELEASE ACK",
+            CommandCode.SAFE_RELEASE_DENIED:  "SAFE RELEASE DENIED",
         }.get(self, f"UNKNOWN ({int(self)})")
 
     @property

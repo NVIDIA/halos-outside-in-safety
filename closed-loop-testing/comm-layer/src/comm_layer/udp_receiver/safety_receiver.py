@@ -85,6 +85,17 @@ _UNLATCH_OPCODES = frozenset((
     ProximityCommandCode.REDUCE,
 ))
 
+# The same for the ATL SDM: its safe hold is UNMUTE followed by SW_ERROR, and it
+# only sends MUTE when no latch is set. UNMUTE alone says nothing either way.
+_ATL_LATCH_OPCODES = frozenset((
+    CommandCode.SW_ERROR,
+    CommandCode.SAFE_RELEASE_DENIED,
+))
+_ATL_UNLATCH_OPCODES = frozenset((
+    CommandCode.SAFE_RELEASE_ACK,
+    CommandCode.MUTE,
+))
+
 
 @dataclass
 class ReceiverStats:
@@ -113,6 +124,11 @@ class ReceiverStats:
     safe_release_acked: int = 0
     safe_release_denied: int = 0
     safe_state_latched: bool = False
+    # The same handshake with an ATL SDM on this port.
+    atl_safe_release_sent: int = 0
+    atl_safe_release_acked: int = 0
+    atl_safe_release_denied: int = 0
+    atl_safe_state_latched: bool = False
 
 
 class SafetyReceiver:
@@ -153,6 +169,7 @@ class SafetyReceiver:
         config: Optional[UdpReceiverConfig] = None,
         proximity_callback: Optional[Callable[["ProximityCmdPacket"], None]] = None,
         startup_safe_release: bool = False,
+        atl_release_node: str = "Safety.AtlSafeReleaseRequest",
     ):
         if config:
             self.host = config.host
@@ -193,6 +210,15 @@ class SafetyReceiver:
         self._startup_release_done = False
         self._release_ready = False
         self._release_seq = 0
+        # ATL keeps its own peer and latch apart from proximity's: a release must
+        # reach the SDM that latched, in the packet type it reads. There is no
+        # automatic ATL release: an accepted one resets the SDM's forklift flag
+        # and person count, so it is an operator's call, made through the OPC UA
+        # node named here.
+        self.atl_release_node = atl_release_node
+        self._atl_sdm_addr: Optional[tuple] = None
+        self._atl_release_ready = False
+        self._atl_release_seq = 0
 
     # ---------------- lifecycle ----------------
 
@@ -296,6 +322,7 @@ class SafetyReceiver:
 
     def _process_command(self, command: SafetyCommand, addr: tuple, pkt: CmdPacket) -> None:
         with self._lock:
+            self._atl_sdm_addr = addr
             self._stats.packets_received += 1
             self._stats.packets_processed += 1
             self._stats.last_sequence = command.sequence_number
@@ -303,6 +330,8 @@ class SafetyReceiver:
 
         if self.send_ack:
             self._send_ack(pkt, addr)
+
+        self._track_atl_safe_state(pkt)
 
         try:
             self._queue.put_nowait(command)
@@ -482,6 +511,70 @@ class SafetyReceiver:
     def safe_state_latched(self) -> bool:
         with self._lock:
             return self._release_ready
+
+    # ---------------- ATL safe-state latch ----------------
+
+    def _track_atl_safe_state(self, pkt: CmdPacket) -> None:
+        """Follow the ATL SDM's latch from its opcodes; log each edge once."""
+        if pkt.command in _ATL_LATCH_OPCODES:
+            with self._lock:
+                if pkt.command == CommandCode.SAFE_RELEASE_DENIED:
+                    self._stats.atl_safe_release_denied += 1
+                first = not self._atl_release_ready
+                self._atl_release_ready = True
+                self._stats.atl_safe_state_latched = True
+            if pkt.command == CommandCode.SAFE_RELEASE_DENIED:
+                logger.warning(f"ATL safe-release DENIED (Seq#{pkt.seq}) — latch cause still active")
+            if first:
+                logger.warning(
+                    f"ATL SAFE-STATE LATCHED ({pkt.command.description}, Seq#{pkt.seq}) — "
+                    f"once the area is confirmed safe, write True to the OPC UA node "
+                    f"{self.atl_release_node}")
+        elif pkt.command in _ATL_UNLATCH_OPCODES:
+            with self._lock:
+                if pkt.command == CommandCode.SAFE_RELEASE_ACK:
+                    self._stats.atl_safe_release_acked += 1
+                was = self._atl_release_ready
+                self._atl_release_ready = False
+                self._stats.atl_safe_state_latched = False
+            if was:
+                logger.info(f"ATL safe-state CLEARED ({pkt.command.description}, Seq#{pkt.seq})")
+
+    def request_atl_safe_release(self, force: bool = False) -> bool:
+        """Ask the ATL SDM to leave its latched safe state.
+
+        Refused unless the SDM has reported a latch (force overrides): the SDM
+        answers a request even when it is not latched, and resets its forklift
+        flag and person count either way. It still denies while a cause is live.
+        """
+        with self._lock:
+            addr = self._atl_sdm_addr
+            ready = self._atl_release_ready
+            seq = self._atl_release_seq
+            self._atl_release_seq = (self._atl_release_seq + 1) & 0xFFFF
+        if addr is None:
+            logger.warning("No ATL SDM peer seen yet; cannot send safe-release request")
+            return False
+        if not force and not ready:
+            logger.warning(
+                "ATL safe-release request not sent; SDM has not reported a latched safe state")
+            return False
+
+        pkt = CmdPacket.now(seq=seq, command=CommandCode.SAFE_RELEASE_REQUEST)
+        try:
+            self._socket.sendto(pkt.pack(), addr)
+        except Exception as e:
+            logger.error(f"ATL safe-release send error: {e}")
+            return False
+        with self._lock:
+            self._stats.atl_safe_release_sent += 1
+        logger.info(f"Sent ATL SAFE RELEASE REQUEST Seq#{seq} to {addr[0]}:{addr[1]}")
+        return True
+
+    @property
+    def atl_safe_state_latched(self) -> bool:
+        with self._lock:
+            return self._atl_release_ready
 
     def _send_ack(self, received: CmdPacket, addr: tuple) -> None:
         """ACK echoes original seq+command with fresh timestamp + recomputed CRC."""

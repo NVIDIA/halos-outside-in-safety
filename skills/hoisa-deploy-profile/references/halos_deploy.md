@@ -108,7 +108,7 @@ Limits:
 
 - **One truck per decision stream.** PSF names no robot, so every truck on `/safety/proximity/pair` obeys every decision; the controller logs a WARNING when more than one does. A second truck needs its own `proximity.pair_topic` or `enabled: false`.
 - **SRR scores ATL only.** It subscribes to `/safety/command` and `/safety/is_muted`; on a `pxc` run it prints `PSF_FEED_DEAD` and scores every frame as UNMUTED.
-- **Startup safe-latch.** If the SDM comes up latched (SW_ERROR), comm-layer logs it and waits; `COMM_PXC_STARTUP_RELEASE=1` sends one automatic release request instead. A manual release is a write of `True` to the OPC UA node `Safety.ProximitySafeReleaseRequest`.
+- **Startup safe-latch.** If the SDM comes up latched (SW_ERROR), comm-layer logs it and waits; `COMM_PXC_STARTUP_RELEASE=1` sends one automatic release request instead. A manual release is a write of `True` to the OPC UA node `Safety.ProximitySafeReleaseRequest`; for a latched ATL zone, `Safety.AtlSafeReleaseRequest` or `Safety.Zone2AtlSafeReleaseRequest` (`troubleshooting.md`).
 
 ### GPU selection (`sil` / `hil`)
 

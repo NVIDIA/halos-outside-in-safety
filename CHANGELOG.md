@@ -235,6 +235,13 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Added
 
+- comm-layer can release a latched ATL zone. The OPC UA nodes `AtlSafeReleaseRequest` and,
+  with a zone 2 port, `Zone2AtlSafeReleaseRequest` are writable: writing `True` sends that
+  zone's SDM `SAFE RELEASE REQUEST` (0x08), once the SDM has reported the latch (SW_ERROR or
+  DENIED). The SDM answers `SAFE RELEASE ACK` (0x09) and resets its forklift flag and person
+  count, or `SAFE RELEASE DENIED` (0x0A). Before, the only way out of a fault-safe lockout,
+  such as a person exit at count 0, was restarting safety-core. There is no automatic ATL
+  release. `troubleshooting.md` gives the procedure.
 - `robots*.yaml` gained a `drive:` block: `speed` and `loop` per truck, and
   `heading_offset` / `no_invert` / `angular_speed` per model, folded into each
   robot the same way `control:` and `odometry:` already are. Adding a truck is a

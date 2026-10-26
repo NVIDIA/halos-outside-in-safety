@@ -539,6 +539,20 @@ Isaac live: an SDM starts counting people in its trailer at 0, so a person alrea
 when it started produces the same impossible exit. Another `docker restart safety-core`
 cleared it.
 
+With the 2D app it also comes later in a run, with nobody crossing the trailer line: when a
+camera starts a new track near the tripwire, the person's position can sit 1–2 m on the
+trailer side for its first frames, and behavior analytics reports a crossing out of the
+trailer. Person tripwire events reach the SDM per camera, so one camera is enough. A restart
+after the stream handoff does not prevent this one.
+
+**Release instead of restart**: write `True` to the OPC UA node `Safety.AtlSafeReleaseRequest`
+(zone 1) or `Safety.Zone2AtlSafeReleaseRequest` (zone 2, `atl_dual`). comm-layer sends the
+SDM a safe-release request, but only after that SDM has reported the latch (`ATL SAFE-STATE
+LATCHED` in the comm-layer log). The SDM answers `SAFE RELEASE ACK` and resets its forklift
+flag, person count and ROI flag, or `SAFE RELEASE DENIED` while a fault source is still
+active. Release only once the area is confirmed clear: a release during a measured run (SRR,
+the stability test) hides the fault the run is meant to catch.
+
 ---
 
 ## Kafka Exits With `cluster_id: Permission denied`
