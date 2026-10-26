@@ -539,6 +539,12 @@ Isaac live: an SDM starts counting people in its trailer at 0, so a person alrea
 when it started produces the same impossible exit. Another `docker restart safety-core`
 cleared it.
 
+With the 2D app it also comes later in a run, with nobody crossing the trailer line: when a
+camera starts a new track near the tripwire, the person's position can sit 1–2 m on the
+trailer side for its first frames, and behavior analytics reports a crossing out of the
+trailer. Person tripwire events reach the SDM per camera, so one camera is enough. A restart
+after the stream handoff does not prevent this one; the fix belongs to behavior analytics.
+
 ---
 
 ## Kafka Exits With `cluster_id: Permission denied`

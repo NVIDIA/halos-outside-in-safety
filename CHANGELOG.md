@@ -121,6 +121,10 @@ waypoint set for an existing scene is genuinely the same run driven differently.
 
 ### Changed
 
+- `troubleshooting.md` (ATL zone latched in FAULT): with the 2D app the lockout also comes
+  later in a run, from a person crossing out of the trailer that behavior analytics reports
+  when a camera starts a new track near the tripwire. Restarting safety-core after the
+  stream handoff does not prevent it.
 - **The 20x20 scene describes the warehouse and nothing else.** `forklift_b` and
   its safety disc are declared in `robots.yaml` — a `spawn:` block at
   `(1, -13.39)` facing 180°, and the `indicator:` size the baked disc used to
