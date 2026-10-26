@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
+
+navigation:
+  - page: Overview
+    path: ../docs/index.mdx
+
+  - page: Release Notes
+    path: ../docs/release-notes.mdx
+
+  - folder: ../docs/getting-started
+    title: Getting Started
+    title-source: frontmatter
+
+  - folder: ../docs/deployment
+    title: Deployment Guide
+    title-source: frontmatter
+
+  - folder: ../docs/integration
+    title: Integration Guide
+    title-source: frontmatter
+
+  - folder: ../docs/testing
+    title: Closed-Loop Testing
+    title-source: frontmatter
+
+  - folder: ../docs/reference
+    title: Reference
+    title-source: frontmatter
+
+  - page: Known Limitations
+    path: ../docs/known-limitations.mdx
+
+  - page: End-User License Agreement
+    path: ../docs/eula.mdx

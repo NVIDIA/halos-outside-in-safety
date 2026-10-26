@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Publishes a Fern staging preview of docs.nvidia.com/halos-outside-in on
-# pushes to main that touch docs or fern/.
+# Publishes staging to
+# https://nvidia-halos.docs.buildwithfern.com/halos/outside-in-safety
+# so NVIDIA's docs pipeline can pick it up for production.
 # Requires the DOCS_FERN_TOKEN repo secret.
+# Do not use --preview: that publishes to nvidia-preview-staging, not this URL.
 
 name: staging-docs
 
@@ -50,14 +52,14 @@ jobs:
       - name: Install Fern CLI tool
         run: npm install -g fern-api@$(jq -r .version fern/fern.config.json)
 
-      - name: Generate staging preview
+      - name: Publish staging docs
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |
           set -euo pipefail
-          OUTPUT=$(fern generate --docs --preview --id staging 2>&1)
+          OUTPUT=$(fern generate --docs --instance nvidia-halos.docs.buildwithfern.com/halos/outside-in-safety --no-prompt --force 2>&1)
           echo "$OUTPUT"
-          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()' | tail -1)
           if [ -z "$URL" ]; then
             echo "::error::Fern did not return a staging URL. Check DOCS_FERN_TOKEN."
             exit 1
