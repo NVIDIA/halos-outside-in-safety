@@ -20,7 +20,7 @@ files, profiles, configs, and this skill all live in the repo. When active,
 **ALWAYS read the relevant reference document before running commands.**
 Deployment has two stacks that must come up in order — do NOT skip or reorder.
 
-> Targets **VSS Warehouse 3.3** (GitHub release `v3.3.0rc0`). The Thor profiles still run 3.2.1 (`references/halos_thor.md`).
+> Targets **VSS Warehouse 3.3** (GitHub release `v3.3.0`). The Thor profiles still run 3.2.1 (`references/halos_thor.md`).
 
 ---
 
@@ -171,7 +171,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 | Tag | Rule | Details in |
 |-----|------|-----------|
 | `VSS_DEPLOY` | Deploy VSS Warehouse 3.3 with the VSS repo's `vss-build-vision-ai` skill (warehouse profile); apply SIL overrides before its `docker compose up` | `vss_2d_overrides.md` |
-| `VSS_IMAGE_TAG` | Pick the container tag `develop-4c432f24cf39` (the ghcr build of the `v3.3.0rc0` commit) and export `VSS_CONTAINER_TAG` before the skill's `config` step; the default `develop-latest` follows VSS `develop`, not the tag | `vss_2d_overrides.md` |
+| `VSS_IMAGE_TAG` | Use the release images, tag `3.3.0` in `nvcr.io/nvidia/vss-core` (the `v3.3.0` default), and export `VSS_CONTAINER_TAG=3.3.0` before the skill's `config` step; `develop-*` / `nightly-*` tags are pre-release builds | `vss_2d_overrides.md` |
 | `VSS_SIL_ENV` | The SIL answers go in the build's `_builds/<name>/override.env`: `bp_wh_kafka`, size Minimal, the 3-camera loading-dock dataset with `NUM_STREAMS=3` | `vss_2d_overrides.md`, `vss_3d_overrides.md` |
 | `PSF_3D_FEED` | On a 3D feed set `PSF_NVPSS_CONFIG_SRC` + `PSF_SENSOR_PIPELINES_CONFIG_SRC` for **every** `PSF_APP`, `atl` included — the 2D config drops every event | `halos_deploy.md` |
 | `BA_PROXIMITY` | **`pxc` / `both`:** set behavior analytics `proximityDetectionThreshold` to `4` and add `Forklift` to `proximityDetectionCenterClasses` — shipped values give no forklift proximity | `vss_3d_overrides.md` |
@@ -197,7 +197,7 @@ It also compares each waypoint file's `origin` against where its truck stands, w
 
 | Stack | Services | Source |
 |-------|----------|--------|
-| VSS Warehouse 3.3 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | VSS repo at `v3.3.0rc0`, `vss-build-vision-ai` skill (warehouse profile) |
+| VSS Warehouse 3.3 | vss-vios-*, vss-rtvi-cv, vss-behavior-analytics, vss-configurator, kafka, redis, … | VSS repo at `v3.3.0`, `vss-build-vision-ai` skill (warehouse profile) |
 | Halos (profile) | safety-core, comm-layer, isaac-sim, forklift-controller | this OSS repo (`deployments/compose.yaml`) + `PSF_IMAGE` from NGC |
 
 ---
