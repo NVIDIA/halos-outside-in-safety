@@ -30,11 +30,28 @@ permissions:
   contents: read
   pull-requests: write
 
+# A newer push to the same PR supersedes an in-flight preview.
+concurrency:
+  group: preview-docs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   run:
+    # Fork PRs get no secrets and a read-only GITHUB_TOKEN, so they cannot
+    # publish or comment. check-docs still validates them.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require Fern token
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        run: |
+          if [ -z "$FERN_TOKEN" ]; then
+            echo "::error::DOCS_FERN_TOKEN is not available to this run (for example, a Dependabot PR)."
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -50,17 +67,24 @@ jobs:
 
       - name: Generate preview URL
         id: generate-docs
+        shell: bash
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |
-          set -euo pipefail
-          OUTPUT=$(fern generate --docs --preview --id "pr-${{ github.event.pull_request.number }}" 2>&1)
-          echo "$OUTPUT"
-          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          # bash -eo pipefail keeps Fern failures fatal while tee shows the logs.
+          # The ID is repo-qualified because the nvidia-halos instance is multi-source.
+          fern generate --docs --preview --id "halos-outside-in-pr-${{ github.event.pull_request.number }}" 2>&1 | tee fern-output.txt
+          URL=$(sed -nE 's/.*Published docs to (https:\/\/[^[:space:]]+).*/\1/p' fern-output.txt | head -n 1)
           if [ -z "$URL" ]; then
-            echo "::error::Fern did not return a preview URL. Check DOCS_FERN_TOKEN."
+            echo "::error::Fern did not return a preview URL. Check the logs above and DOCS_FERN_TOKEN."
             exit 1
           fi
+          # The URL is posted on the PR, so only accept https Fern hosts without userinfo.
+          node -e "
+            const u = new URL(process.argv[1]);
+            const ok = u.protocol === 'https:' && !u.username && !u.password && u.hostname.endsWith('.buildwithfern.com');
+            process.exit(ok ? 0 : 1);
+          " "$URL" || { echo "::error::Unexpected preview URL host: $URL"; exit 1; }
           echo "Preview URL: $URL"
           echo "🌿 Preview Halos Outside-In docs: $URL" > preview_url.txt
 

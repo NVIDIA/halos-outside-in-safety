@@ -40,6 +40,11 @@ on:
       - '.github/workflows/staging-docs.yml'
       - '.github/workflows/publish-docs.yml'
   workflow_dispatch: {}
+  # Called by publish-docs so tagged revisions pass the same checks.
+  workflow_call:
+    secrets:
+      DOCS_FERN_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -80,4 +85,5 @@ jobs:
         run: fern docs md check
 
       - name: Check broken links
-        run: fern docs broken-links
+        # Without --strict the command reports broken links but exits 0.
+        run: fern docs broken-links --strict

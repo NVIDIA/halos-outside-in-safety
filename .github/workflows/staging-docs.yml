@@ -32,6 +32,12 @@ on:
 permissions:
   contents: read
 
+# Runs never overlap. Without cancel-in-progress, GitHub keeps only the newest
+# pending run, so the latest push to main always publishes last.
+concurrency:
+  group: staging-docs
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -51,16 +57,23 @@ jobs:
         run: npm install -g fern-api@$(jq -r .version fern/fern.config.json)
 
       - name: Generate staging preview
+        shell: bash
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |
-          set -euo pipefail
-          OUTPUT=$(fern generate --docs --preview --id staging 2>&1)
-          echo "$OUTPUT"
-          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          # bash -eo pipefail keeps Fern failures fatal while tee shows the logs.
+          # The ID is repo-qualified because the nvidia-halos instance is multi-source.
+          fern generate --docs --preview --id halos-outside-in-staging 2>&1 | tee fern-output.txt
+          URL=$(sed -nE 's/.*Published docs to (https:\/\/[^[:space:]]+).*/\1/p' fern-output.txt | head -n 1)
           if [ -z "$URL" ]; then
-            echo "::error::Fern did not return a staging URL. Check DOCS_FERN_TOKEN."
+            echo "::error::Fern did not return a staging URL. Check the logs above and DOCS_FERN_TOKEN."
             exit 1
           fi
+          # The URL is written to the run summary, so only accept https Fern hosts without userinfo.
+          node -e "
+            const u = new URL(process.argv[1]);
+            const ok = u.protocol === 'https:' && !u.username && !u.password && u.hostname.endsWith('.buildwithfern.com');
+            process.exit(ok ? 0 : 1);
+          " "$URL" || { echo "::error::Unexpected staging URL host: $URL"; exit 1; }
           echo "Staging URL: $URL"
           echo "🌿 Staging Halos Outside-In docs: $URL" >> "$GITHUB_STEP_SUMMARY"
