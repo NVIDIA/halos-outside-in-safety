@@ -14,7 +14,8 @@
 # limitations under the License.
 
 # Publishes docs.nvidia.com/halos-outside-in on Halos release tags
-# (v1.3.0, v1.2.1) and optional docs-only tags (docs-v1.3.0-1).
+# (v1.3.0, v1.2.1) and optional docs-only tags (docs-v1.3.0-1). Runs the
+# check-docs workflow first and publishes only if it passes.
 # Requires the DOCS_FERN_TOKEN repo secret.
 
 name: publish-docs
@@ -33,10 +34,28 @@ on:
 permissions:
   contents: read
 
+# Whole runs (checks and publish) are serialized in trigger order. GitHub keeps
+# only the newest pending run, so the most recently triggered run publishes
+# last. This orders by trigger time, not by version number.
+concurrency:
+  group: publish-docs
+  cancel-in-progress: false
+
 jobs:
+  check:
+    # Manual runs may only publish from main or a tag; anything else is skipped.
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/check-docs.yml
+    secrets:
+      DOCS_FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+
   run:
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Create this environment in repo settings and add required reviewers or
+    # tag/branch rules to gate production publishes.
+    environment: production
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
