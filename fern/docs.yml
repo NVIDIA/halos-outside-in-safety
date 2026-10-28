@@ -4,9 +4,7 @@
 
 instances:
   - url: nvidia-halos.docs.buildwithfern.com/halos/outside-in-safety
-    # Do not set custom-domain here. Fern requires the instance path and
-    # custom-domain path to match; docs.nvidia.com/halos-outside-in does not.
-    # NVIDIA's publish pipeline picks this Fern URL up for production.
+    custom-domain: docs.nvidia.com/halos/outside-in-safety
     multi-source: true
 
 title: NVIDIA Halos Outside-In Safety Blueprint
@@ -22,8 +20,10 @@ logo:
   right-text: Halos Outside-In Safety
 
 versions:
-  - display-name: Latest
-    path: ./navigation.yml
-    slug: ""
+  - display-name: 1.3.0 (Latest)
+    path: ../docs/index.yml
+    slug: 1.3.0
+  - display-name: Archives
+    path: ./versions/archives.yml
 
 redirects: ./redirects.yml
