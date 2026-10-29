@@ -5,6 +5,7 @@ set(_safety_core_package_dependencies)
 foreach(_safety_core_target IN ITEMS
     safety_monitor
     saim_gpu
+    nv_perception_monitor
     nvpsb
     nvpssd_interface
     pss_daemon

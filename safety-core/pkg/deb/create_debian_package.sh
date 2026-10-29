@@ -58,6 +58,7 @@ mkdir -p "$OUTPUT_DIR"
 mkdir -p \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/bin" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/saim_baseline" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/pcm_baseline" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/configs" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/lib" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl" \
@@ -102,6 +103,7 @@ while IFS= read -r lib; do
 done < <(find "$BUILD_DIR" -type f \( -name "*.so" -o -name "*.so.*" \) | sort)
 
 copy_required "$BUILD_DIR/components/ai-monitor/safety_monitor" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
+copy_required "$BUILD_DIR/components/perception-monitor/nv_perception_monitor" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 copy_required "$BUILD_DIR/components/pss_daemon" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/nvpss_daemon"
 copy_required "$BUILD_DIR/components/protocols/decision-maker-gateway/nvpsd_gateway" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 
@@ -122,6 +124,7 @@ copy_required "$SAFETY_CORE_CONFIG_DIR/thresholds.cfg" "$RUNTIME_ROOT${INSTALL_P
 copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/configs/"
 copy_required "$SAFETY_CORE_CONFIG_DIR/thresholds.cfg" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
+copy_required "$SOURCE_DIR/components/perception-monitor/config/pcm_monitor.cfg" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 # sensor_pipelines_config.conf ships live: in a 3D deployment it names the BEV
 # group Kafka reports under, and the launcher reads it from bin/.
 copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_pipelines_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/configs/"
@@ -152,6 +155,11 @@ chmod 0755 "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/common/safety_latch_manager/safe
 # when no learned <sensor>_baseline.cfg is present in the baseline directory.
 for baseline_default in "$SOURCE_DIR"/components/ai-monitor/default_baseline/*_baseline.cfg.default; do
     copy_optional "$baseline_default" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/saim_baseline/"
+done
+# nv_perception_monitor reads these reference profiles only while no learned
+# pcm_baseline.cfg bundle exists in its baseline directory.
+for baseline_default in "$SOURCE_DIR"/components/perception-monitor/default_baseline/pcm_*_baseline.cfg.default; do
+    copy_optional "$baseline_default" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/pcm_baseline/"
 done
 
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl/event_mapping_atl.pb.txt" \

@@ -153,15 +153,20 @@ for name in nvpss sensor_config sensor_pipelines_config atl_sdm_zone1 pxc_sdm_fo
 done
 PSF_RUNTIME_ARGS=(
   --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
-  --saim-mode skip --broker localhost:9092 --cmd_rx_ip 127.0.0.1
+  --saim-mode skip --pcm-mode skip --broker localhost:9092 --cmd_rx_ip 127.0.0.1
 )
 ```
 
-`skip` is for these bench examples: it disables the sensor-integrity monitor
-and does not exercise real sensor-health reporting, and it requires
-`required_safety_monitor = 0` in the mounted `nvpss.conf`. For
-`--saim-mode active`, add `--runtime=nvidia`, set `required_safety_monitor = 1`
-and mount the SAIM baselines at `/opt/nvidia/psf/bin/saim_baseline`.
+`skip` is for these bench examples: it disables both AI monitors and does not
+exercise real sensor-health or AI-pipeline reporting, and it requires
+`required_safety_monitor = 0` and `required_perception_monitor = 0` in the
+mounted `nvpss.conf`. For `--saim-mode active`, add `--runtime=nvidia`, set
+`required_safety_monitor = 1` and mount the SAIM baselines at
+`/opt/nvidia/psf/bin/saim_baseline`. For `--pcm-mode active`, set
+`required_perception_monitor = 1`, mount the PCM baselines at
+`/opt/nvidia/psf/bin/pcm_baseline` and, for its container health check, the
+Docker socket at `/var/run/docker.sock`; see the
+[perception monitor guide](../../components/perception-monitor/README.md).
 
 ### PXC
 
@@ -205,7 +210,7 @@ natively. It reads `nvpss.conf`, `sensor_pipelines_config.conf` and
 in place; SDM config, sensor config and log paths are host paths:
 
 ```bash
-sudo /opt/nvidia/psf/bin/launch_psf.sh --saim-mode skip \
+sudo /opt/nvidia/psf/bin/launch_psf.sh --saim-mode skip --pcm-mode skip \
   --app atl,pxc \
   --sensor-config /etc/psf/sensor_config.conf \
   --sdm-config /etc/psf/atl_sdm_zone1.conf,/etc/psf/pxc_sdm_forklift.conf \

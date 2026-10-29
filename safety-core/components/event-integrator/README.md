@@ -428,7 +428,8 @@ ordinary daemon-originated trust report:
 - **VALID is never re-sent**, because a restarted SDM starts with nothing failed.
 - Re-assertion changes no trust state at PSS.
 - `PSS_TRUST_VERDICTS_REASSERTED` records what is being re-sent, once each time that set changes.
-- A PSS that restarts forgets every verdict. The monitors' own re-sends rebuild them within 30 s.
+- A PSS that restarts forgets every verdict. The monitors' own re-sends rebuild them within 30 s:
+  SAIM, and the Perception Monitor ([perception-monitor](../perception-monitor/README.md)).
 
 ## The critical lane does not drop a fault report silently
 
@@ -634,10 +635,9 @@ fallback of 0 would silently switch off the detection the key exists for. The
 daemon logs what it will enforce at startup (`PSS required sources`).
 
 **One required-source policy.** For control-plane launches, `launch_psf.sh`
-checks `required_safety_monitor` against `--saim-mode` (`1` for ACTIVE, `0` for
-skip) and requires `required_perception_monitor = 0`, since it starts no
-Perception Monitor. A mismatch fails before services start; the launcher never
-rewrites the configuration.
+checks the monitor keys against the independent `--saim-mode` and `--pcm-mode`
+selections: `1` for ACTIVE, `0` for LEARN or skip. A mismatch fails before
+services start; the launcher never rewrites the configuration.
 Learning-only jobs do not start PSS and do not require these keys.
 
 **What "required" adds.** Every registered monitor and every numbered MDX instance

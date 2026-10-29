@@ -151,6 +151,7 @@ The default build produces these executable targets:
 
 ```text
 safety_monitor
+nv_perception_monitor
 pss_daemon
 nvpsd_gateway
 mdx_client
@@ -200,6 +201,7 @@ The runtime Debian package stages the main executables under `/opt/nvidia/psf`:
 
 ```text
 /opt/nvidia/psf/bin/safety_monitor
+/opt/nvidia/psf/bin/nv_perception_monitor
 /opt/nvidia/psf/bin/nvpss_daemon
 /opt/nvidia/psf/bin/nvpsd_gateway
 /opt/nvidia/psf/bin/launch_psf.sh
@@ -218,17 +220,19 @@ The runtime Debian package stages the main executables under `/opt/nvidia/psf`:
 
 `launch_psf.sh` is also the Docker image entrypoint. It selects the decision
 makers with `--app` (`atl`, `pxc`, `atl,atl`/`atl_dual`, `atl,pxc`, `pxc,atl`,
-`pxc,pxc`, `cjs` or `atl_proximity`) and the Safety AI Monitor with
-`--saim-mode active|learn|skip`; run it with `--help` for the full option list.
+`pxc,pxc`, `cjs` or `atl_proximity`), and the Safety AI Monitor and Perception
+Monitor with `--saim-mode` and `--pcm-mode` (`active`, `learn` or `skip`); run
+it with `--help` for the full option list.
 The ATL and proximity guides (`decision-makers/atl/README.md`,
 `decision-makers/proximity/README.md`) describe the config-driven selections,
 and `decision-makers/atl_proximity/README.md` the combined app.
 
 The launcher reads its control-plane configs from `/opt/nvidia/psf/bin`:
-`nvpss.conf`, `sensor_pipelines_config.conf`, `thresholds.cfg` and the SAIM
-baselines in `saim_baseline/`. SDM instance configs ship only as templates
+`nvpss.conf`, `sensor_pipelines_config.conf`, `thresholds.cfg`,
+`pcm_monitor.cfg`, and the SAIM and PCM baselines in `saim_baseline/` and
+`pcm_baseline/`. SDM instance configs ship only as templates
 (`atl_sdm_zone{1,2}.conf.sample`, `pxc_sdm_forklift.conf.sample`,
 `pxc_sdm_robots.conf.sample`) and are passed explicitly with `--sdm-config`.
 
-Runtime libraries are staged in `/opt/nvidia/psf/lib`, and default configs are staged in `/opt/nvidia/psf/configs`. Component logs are written under `/var/log/psf`: `psf.log` for the syslog stream, plus one file per SDM and `saim.log`.
+Runtime libraries are staged in `/opt/nvidia/psf/lib`, and default configs are staged in `/opt/nvidia/psf/configs`. Component logs are written under `/var/log/psf`: `psf.log` for the syslog stream, plus one file per SDM, `saim.log` and `pcm.log`.
 

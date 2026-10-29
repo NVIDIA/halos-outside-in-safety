@@ -42,6 +42,8 @@ option(SAFETY_CORE_BUILD_DECISION_MAKERS_CROSSING_JUNCTION_CMD_RECEIVER "Build c
 option(SAFETY_CORE_BUILD_EVENT_INTEGRATOR "Build the event-integrator component" ON)
 option(SAFETY_CORE_BUILD_EVENT_INTEGRATOR_PSS_DAEMON "Build event-integrator pss_daemon" ON)
 option(SAFETY_CORE_BUILD_EVENT_INTEGRATOR_INTERFACE "Build event-integrator nvpssd_interface library" ON)
+option(SAFETY_CORE_BUILD_PERCEPTION_MONITOR "Build the perception-monitor component" ON)
+option(SAFETY_CORE_BUILD_PERCEPTION_MONITOR_NV_PERCEPTION_MONITOR "Build perception-monitor nv_perception_monitor" ON)
 option(SAFETY_CORE_BUILD_PROTOCOLS "Build the protocols component" ON)
 option(SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY "Build the protocols/decision-maker-gateway component" ON)
 option(SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY_NVPSD "Build protocols/decision-maker-gateway libnvpsd.so" ON)

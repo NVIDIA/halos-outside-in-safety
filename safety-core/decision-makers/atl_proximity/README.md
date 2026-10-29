@@ -151,7 +151,7 @@ the container image.
 ```bash
 cp /opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample ~/atl_sdm_zone1.conf   # review it
 /opt/nvidia/psf/bin/launch_psf.sh \
-  --saim-mode skip \
+  --saim-mode skip --pcm-mode skip \
   --app atl_proximity \
   --atl-zone1-conf ~/atl_sdm_zone1.conf \
   --sensor-config /opt/nvidia/psf/configs/sensor_config.conf \
@@ -164,7 +164,8 @@ order. Options that apply to this app:
 
 | Option | Effect |
 |---|---|
-| `--saim-mode active\|skip\|learn` | `active` also runs the Safety AI Monitor; `learn` only captures SAIM baselines and exits. `required_safety_monitor` in `nvpss.conf` must be `1` for `active` and `0` for `skip` |
+| `--saim-mode active\|skip\|learn` | `active` also runs the Safety AI Monitor; `learn` only captures SAIM baselines and exits. `required_safety_monitor` in `nvpss.conf` must be `1` for `active` and `0` otherwise |
+| `--pcm-mode active\|skip\|learn` | The same for the Perception Monitor and `required_perception_monitor` |
 | `--atl-zone1-conf PATH` | Required active ATL event-binding config |
 | `--cmd_rx_port PORT` | PLC port for `atl_sdm` |
 | `--proximity_cmd_rx_port PORT` | PLC port for `atl_proximity_sdm`; must differ from the above |
@@ -177,10 +178,12 @@ order. Options that apply to this app:
 `--event-mapping` and `--sdm-external` options are for the config-driven ATL/PXC
 selections, not this app.
 
-The shipped `nvpss.conf` sets `required_safety_monitor = 1`, which matches
-`--saim-mode active`. To run without the Safety AI Monitor, set
-`required_safety_monitor = 0` and pass `--saim-mode skip`; that removes the
-sensor-integrity monitor, so the sensor-health safe-hold path is not exercised.
+The shipped `nvpss.conf` sets `required_safety_monitor = 1` and
+`required_perception_monitor = 1`, which match `--saim-mode active --pcm-mode active`.
+The examples here skip both monitors, so set both keys to `0`; that removes the
+sensor-integrity and AI-pipeline checks, so their safe-hold paths are not
+exercised. The [perception monitor guide](../../components/perception-monitor/README.md)
+covers running PCM.
 See the "Required safety sources" section of the
 [event integrator guide](../../components/event-integrator/README.md).
 
@@ -200,7 +203,7 @@ docker run -d --name nv-psf --network host \
   -v /path/to/sensor_pipelines_config.conf:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro \
   -v /path/to/atl_sdm_zone1.conf:/opt/nvidia/psf/bin/atl_sdm_zone1.conf:ro \
   psf-desktop:latest \
-  --saim-mode skip \
+  --saim-mode skip --pcm-mode skip \
   --app atl_proximity \
   --atl-zone1-conf /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
   --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12349 --proximity_cmd_rx_port 12350 \
@@ -208,10 +211,14 @@ docker run -d --name nv-psf --network host \
   --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
 ```
 
-Use `psf-tegra:latest` on Tegra. With `--saim-mode skip` the mounted
-`nvpss.conf` must set `required_safety_monitor = 0`. For `--saim-mode active`,
-add `--runtime=nvidia` (the Safety AI Monitor uses the GPU) and mount the SAIM
-baseline directory at `/opt/nvidia/psf/bin/saim_baseline`.
+Use `psf-tegra:latest` on Tegra. With both monitors skipped the mounted
+`nvpss.conf` must set `required_safety_monitor = 0` and
+`required_perception_monitor = 0`. For `--saim-mode active`, add
+`--runtime=nvidia` (the Safety AI Monitor uses the GPU) and mount the SAIM
+baseline directory at `/opt/nvidia/psf/bin/saim_baseline`. For
+`--pcm-mode active`, mount the PCM baselines at
+`/opt/nvidia/psf/bin/pcm_baseline` and the Docker socket at
+`/var/run/docker.sock`.
 
 ### Logs
 

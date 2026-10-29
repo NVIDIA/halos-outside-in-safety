@@ -28,3 +28,7 @@ endif()
 if(SAFETY_CORE_BUILD_AI_MONITOR)
   add_subdirectory(ai-monitor)
 endif()
+
+if(SAFETY_CORE_BUILD_PERCEPTION_MONITOR)
+  add_subdirectory(perception-monitor)
+endif()

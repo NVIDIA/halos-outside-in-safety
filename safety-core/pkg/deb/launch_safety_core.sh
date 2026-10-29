@@ -2,21 +2,27 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Learning-only SAIM jobs run without the control plane. The control plane runs
-# when SAIM is ACTIVE or explicitly skipped.
+# SAIM and PCM use the same launch/log supervision in this launcher.
 psf_resolve_monitor_modes() {
-    case "$SAIM_MODE" in
-        learn|active|skip) ;;
-        *) echo "Error: --saim-mode is required and must be learn, active, or skip" >&2; return 1 ;;
-    esac
+    local name mode
+    for name in SAIM PCM; do
+        if [[ "$name" == SAIM ]]; then mode="$SAIM_MODE"; else mode="$PCM_MODE"; fi
+        case "$mode" in
+            learn|active|skip) ;;
+            *) echo "Error: --${name,,}-mode is required and must be learn, active, or skip" >&2; return 1 ;;
+        esac
+    done
+    # A learner never becomes ACTIVE implicitly. Run the control plane when
+    # either monitor is ACTIVE, or when both monitors are explicitly skipped.
     CONTROL_PLANE=0
-    if [[ "$SAIM_MODE" == active || "$SAIM_MODE" == skip ]]; then
+    if [[ "$SAIM_MODE" == active || "$PCM_MODE" == active ||
+          ( "$SAIM_MODE" == skip && "$PCM_MODE" == skip ) ]]; then
         CONTROL_PLANE=1
     fi
 }
 
-# PSS owns required-source liveness policy. The selected SAIM mode must agree
-# with that policy whenever this launcher starts the control plane. A LEARN
+# PSS owns required-source liveness policy. Independent monitor modes must
+# agree with that policy whenever this launcher starts the control plane. A LEARN
 # monitor does not supply ACTIVE verdicts; it must not be required by a
 # concurrently running PSS daemon. Pure LEARN jobs do not start PSS.
 nvpss_required_flag() { # $1=key; echoes 0 or 1, or explains and returns 1
@@ -48,18 +54,21 @@ psf_validate_required_monitors() {
     if [[ "$CONTROL_PLANE" == 0 ]]; then return 0; fi
     REQUIRED_SAFETY_MONITOR="$(nvpss_required_flag required_safety_monitor)" || return 1
     REQUIRED_PERCEPTION_MONITOR="$(nvpss_required_flag required_perception_monitor)" || return 1
-    local active=0
-    if [[ "$SAIM_MODE" == active ]]; then active=1; fi
-    if [[ "$REQUIRED_SAFETY_MONITOR" != "$active" ]]; then
-        echo "Error: --saim-mode ${SAIM_MODE} conflicts with required_safety_monitor = ${REQUIRED_SAFETY_MONITOR} in ${NVPSS_CONF}." >&2
-        echo "       Set required_safety_monitor = ${active} for this mode, or select the mode matching the deployment's required sources." >&2
-        return 1
-    fi
-    if [[ "$REQUIRED_PERCEPTION_MONITOR" != 0 ]]; then
-        echo "Error: required_perception_monitor = ${REQUIRED_PERCEPTION_MONITOR} in ${NVPSS_CONF}, but this launcher" >&2
-        echo "       does not start a Perception Monitor. Set required_perception_monitor = 0." >&2
-        return 1
-    fi
+    local label mode key required active
+    for label in SAIM PCM; do
+        if [[ "$label" == SAIM ]]; then
+            mode="$SAIM_MODE"; key=required_safety_monitor; required="$REQUIRED_SAFETY_MONITOR"
+        else
+            mode="$PCM_MODE"; key=required_perception_monitor; required="$REQUIRED_PERCEPTION_MONITOR"
+        fi
+        active=0
+        if [[ "$mode" == active ]]; then active=1; fi
+        if [[ "$required" != "$active" ]]; then
+            echo "Error: --${label,,}-mode ${mode} conflicts with ${key} = ${required} in ${NVPSS_CONF}." >&2
+            echo "       Set ${key} = ${active} for this mode, or select the mode matching the deployment's required sources." >&2
+            return 1
+        fi
+    done
     echo "Required sources: safety_monitor=${REQUIRED_SAFETY_MONITOR}" \
          "perception_monitor=${REQUIRED_PERCEPTION_MONITOR} (from ${NVPSS_CONF})"
 }
@@ -274,9 +283,12 @@ SENSOR_CONFIG=""
 HB_STALE_MS=5000
 HB_PERIOD_MS=5500
 SAIM_MODE=""              # required: skip | active | learn
+PCM_MODE=""               # required: skip | active | learn, independent of SAIM
 GPU_ID=""                 # optional GPU pin, exported as CUDA_VISIBLE_DEVICES
 LEARN_DURATION=300        # learn capture window in seconds; range [1, 3600]
 BASELINE_DIR="${PSF_BIN}/saim_baseline" # Per-sensor baselines. Bind-mounted from the host under Docker.
+PCM_BASELINE_DIR="$(dirname -- "${PCM_BASELINE_CONFIG:-${PSF_BIN}/pcm_baseline/pcm_baseline.cfg}")"
+PCM_CONFIG="${PCM_MONITOR_CONFIG:-${PSF_BIN}/pcm_monitor.cfg}"
 THRESHOLD_CONFIG="${PSF_BIN}/thresholds.cfg"
 # Operator-selected SDM configs, like --sensor-config. The package ships only
 # bin/atl_sdm_zone{1,2}.conf.sample templates, never an active default. Under
@@ -294,6 +306,7 @@ ATL_SDM_BUILTIN_CMD_RX_PORT=12345
 ATL_PROXIMITY_SDM_BUILTIN_CMD_RX_PORT=12346
 LOG_DIR="/var/log/psf"
 SAIM_LOG_FILE="${LOG_DIR}/saim.log"
+PCM_LOG_FILE="${LOG_DIR}/pcm.log"
 
 require_arg() {
     if [ "$#" -lt 2 ] || [[ -z "$2" || "$2" == --* ]]; then
@@ -303,11 +316,11 @@ require_arg() {
 }
 
 usage() {
-    echo "Usage: $0 --saim-mode <skip|active|learn> [options]"
-    echo "  LEARN exits after saving baselines; it never becomes ACTIVE."
-    echo "  The control plane runs when SAIM is ACTIVE or skipped. In control-plane runs,"
-    echo "  nvpss.conf required_safety_monitor must be 1 for active and 0 for skip,"
-    echo "  and required_perception_monitor must be 0."
+    echo "Usage: $0 --saim-mode <skip|active|learn> --pcm-mode <skip|active|learn> [options]"
+    echo "  Select each monitor independently. LEARN exits after saving baselines; it never becomes ACTIVE."
+    echo "  The control plane runs when either monitor is ACTIVE or both are skipped."
+    echo "  In control-plane runs, nvpss.conf required_safety_monitor / required_perception_monitor"
+    echo "  must match the selected modes: 1 for active, 0 for learn/skip."
     echo "  --app <atl|pxc|atl,atl|atl,pxc|pxc,atl|pxc,pxc|atl_dual|cjs|atl_proximity> (control plane only)"
     echo "  --sensor-config FILE          Required for SAIM or the control plane"
     echo "  --sdm-config <file[,file]>     Required ATL/PXC configs, in --app order"
@@ -319,6 +332,8 @@ usage() {
     echo "  --cmd_rx_ip IP --broker ADDR --hb_stale_ms MS --hb_period_ms MS"
     echo "  --proximity_cmd_rx_port PORT --pair_ttl_ms MS (atl_proximity only)"
     echo "  --gpu ID --learn-duration SEC --baseline-dir DIR"
+    echo "  --pcm-baseline-dir DIR        PCM baselines (default /opt/nvidia/psf/bin/pcm_baseline)"
+    echo "  --pcm-config FILE             ACTIVE PCM config (default /opt/nvidia/psf/bin/pcm_monitor.cfg)"
 }
 
 resolve_atl_config() {
@@ -373,6 +388,12 @@ while [[ $# -gt 0 ]]; do
             require_arg "$@"; HB_PERIOD_MS="$2"; shift 2 ;;
         --saim-mode)
             require_arg "$@"; SAIM_MODE="$2"; shift 2 ;;
+        --pcm-mode)
+            require_arg "$@"; PCM_MODE="$2"; shift 2 ;;
+        --pcm-baseline-dir)
+            require_arg "$@"; PCM_BASELINE_DIR="$2"; shift 2 ;;
+        --pcm-config)
+            require_arg "$@"; PCM_CONFIG="$2"; shift 2 ;;
         --gpu)
             require_arg "$@"; GPU_ID="$2"; shift 2 ;;
         --learn-duration)
@@ -439,6 +460,10 @@ if [[ "$CONTROL_PLANE" == 1 ]]; then
         CMD_RX_PORT="$PSF_SDM_PORT_LIST"
         NEED_SDM_CONFIGS=1
         if [[ "$SDM_EXTERNAL" == 1 ]]; then NEED_SDM_CONFIGS=0; fi
+        # External SDMs still supply their read-only subscription bindings to PCM.
+        if [[ "$SDM_EXTERNAL" == 1 && "$PCM_MODE" != skip && -n "$SDM_CONFIG_LIST" ]]; then
+            NEED_SDM_CONFIGS=1
+        fi
         psf_sdm_prepare "$APP" "$SDM_CONFIG_LIST" "$CMD_RX_PORT" "$SDM_LOG_LIST" \
             "$LOG_DIR" "$NEED_SDM_CONFIGS" || exit 1
         if [[ -z "$EVENT_MAPPING" ]]; then
@@ -458,6 +483,42 @@ if [[ "$CONTROL_PLANE" == 1 ]]; then
             ATL_ZONE1_CONF="$(resolve_atl_config --atl-zone1-conf "$ATL_ZONE1_CONF")" || exit 1
         fi
     fi
+fi
+
+# A learning-only PCM may inspect the selected consumers without starting them.
+# An app-free learner remains supported and records only camera/timing data.
+if [[ "$CONTROL_PLANE" == 0 && "$PCM_MODE" != skip ]]; then
+    # Match ACTIVE's binding selection before learning the contract. Receiver
+    # ports are unused by a learning-only job.
+    psf_sdm_legacy_args "$APP" "$SDM_CONFIG_LIST" "" \
+        "$ATL_ZONE1_CONF" "$ATL_ZONE2_CONF" "" || exit 1
+    SDM_CONFIG_LIST="$PSF_SDM_CONFIG_LIST"
+    case "$APP" in
+        atl|atl_dual|atl,atl|pxc|atl,pxc|pxc,atl|pxc,pxc)
+            if [[ -z "$EVENT_MAPPING" ]]; then
+                EVENT_MAPPING="$(psf_sdm_default_mapping "$APP" "$PSF_APPS")" || exit 1
+            fi ;;
+    esac
+    if [[ -n "$SDM_CONFIG_LIST" ]]; then
+        if [[ "$SDM_CONFIG_LIST" == ,* || "$SDM_CONFIG_LIST" == *, || "$SDM_CONFIG_LIST" == *,,* ]]; then
+            echo "Error: --sdm-config requires non-empty comma-separated paths" >&2; exit 1
+        fi
+        IFS=, read -r -a SDM_CONFIGS <<< "$SDM_CONFIG_LIST"
+    fi
+    if [[ -n "$EVENT_MAPPING" ]]; then
+        if [[ ! -f "$EVENT_MAPPING" || ! -r "$EVENT_MAPPING" ]]; then
+            echo "Error: PCM event mapping '$EVENT_MAPPING' is not readable" >&2; exit 1
+        fi
+        EVENT_MAPPING="$(readlink -f -- "$EVENT_MAPPING")" || exit 1
+    elif [[ ${#SDM_CONFIGS[@]} -gt 0 ]]; then
+        echo "Error: PCM SDM configs require --app or --event-mapping" >&2; exit 1
+    fi
+    for ((PCM_CONFIG_INDEX=0; PCM_CONFIG_INDEX<${#SDM_CONFIGS[@]}; ++PCM_CONFIG_INDEX)); do
+        if [[ ! -f "${SDM_CONFIGS[$PCM_CONFIG_INDEX]}" || ! -r "${SDM_CONFIGS[$PCM_CONFIG_INDEX]}" ]]; then
+            echo "Error: PCM SDM config '${SDM_CONFIGS[$PCM_CONFIG_INDEX]}' is not readable" >&2; exit 1
+        fi
+        SDM_CONFIGS[$PCM_CONFIG_INDEX]="$(readlink -f -- "${SDM_CONFIGS[$PCM_CONFIG_INDEX]}")" || exit 1
+    done
 fi
 
 if [[ "$CONTROL_PLANE" == 1 || "$SAIM_MODE" != skip ]]; then
@@ -562,7 +623,26 @@ mdx_identity_args() {
     printf '%s\n' --instance-id "$MDX_PSS_INSTANCE_ID"
 }
 
-if [[ "$SAIM_MODE" == learn ]]; then
+if [[ "$PCM_MODE" != skip ]]; then
+    if [[ ! -x "${PSF_BIN}/nv_perception_monitor" ]]; then
+        echo "Error: nv_perception_monitor is missing or not executable" >&2
+        exit 1
+    fi
+    if [[ ! -d "$PCM_BASELINE_DIR" || ! -r "$PCM_BASELINE_DIR" || ! -x "$PCM_BASELINE_DIR" ]]; then
+        echo "Error: PCM baseline folder '${PCM_BASELINE_DIR}' is not readable (bind-mount it or pass --pcm-baseline-dir)" >&2
+        exit 1
+    fi
+    PCM_BASELINE_DIR="$(readlink -f -- "$PCM_BASELINE_DIR")" || exit 1
+    if [[ "$PCM_MODE" == active ]]; then
+        if [[ ! -f "$PCM_CONFIG" || ! -r "$PCM_CONFIG" ]]; then
+            echo "Error: PCM config '${PCM_CONFIG}' not found or not readable" >&2
+            exit 1
+        fi
+        PCM_CONFIG="$(readlink -f -- "$PCM_CONFIG")" || exit 1
+    fi
+fi
+
+if [[ "$SAIM_MODE" == learn || "$PCM_MODE" == learn ]]; then
     if ! [[ "$LEARN_DURATION" =~ ^[0-9]+$ ]] || [[ "$LEARN_DURATION" -lt 1 || "$LEARN_DURATION" -gt 3600 ]]; then
         echo "Error: --learn-duration must be an integer in [1, 3600]" >&2
         exit 1
@@ -596,6 +676,9 @@ if [[ "$SAIM_MODE" != skip ]]; then
     fi
     psf_prepare_monitor_log "$SAIM_LOG_FILE" || exit 1
 fi
+if [[ "$PCM_MODE" != skip ]]; then
+    psf_prepare_monitor_log "$PCM_LOG_FILE" || exit 1
+fi
 
 if ! [[ "$HB_STALE_MS" =~ ^[0-9]+$ ]] || [[ "$HB_STALE_MS" -lt 100 || "$HB_STALE_MS" -gt 600000 ]]; then
     echo "Error: --hb_stale_ms must be an integer in [100, 600000]" >&2
@@ -609,7 +692,7 @@ fi
 
 if [[ "$CONFIGURED_SDMS" == 1 ]]; then
     psf_sdm_check_log_inputs "$SENSOR_CONFIG" "$SENSOR_PIPELINES_CONFIG" \
-        "$NVPSS_CONF" "$EVENT_MAPPING" "$THRESHOLD_CONFIG" || exit 1
+        "$NVPSS_CONF" "$EVENT_MAPPING" "$THRESHOLD_CONFIG" "$PCM_CONFIG" || exit 1
 fi
 # Inside the container systemctl is a no-op shim; the entrypoint has already
 # started rsyslogd.
@@ -673,9 +756,41 @@ if [[ "$SAIM_MODE" != skip && "$(uname -m)" == "aarch64" ]]; then
     fi
 fi
 
+PCM_LAUNCH=(env "PCM_MONITOR_CONFIG=${PCM_CONFIG}" "${PSF_BIN}/nv_perception_monitor")
+PCM_ARGS=(--baseline-config "${PCM_BASELINE_DIR}/pcm_baseline.cfg")
+if [[ -n "$KAFKA_BROKER" ]]; then PCM_ARGS+=(--kafka-broker "$KAFKA_BROKER"); fi
+if [[ -n "$EVENT_MAPPING" && ( "$CONFIGURED_SDMS" == 1 || "$CONTROL_PLANE" == 0 ) ]]; then
+    PCM_ARGS+=(--event-mapping "$EVENT_MAPPING")
+    for PCM_SDM_CONFIG in "${SDM_CONFIGS[@]}"; do PCM_ARGS+=(--sdm-config "$PCM_SDM_CONFIG"); done
+fi
+# The container entrypoint's runuser drops docker's supplemental groups. Keep
+# the current identity and re-attach the mounted Docker socket's group so the
+# PCM container health check can query it.
+if [[ "$PCM_MODE" == active && -S /var/run/docker.sock \
+      && ( ! -r /var/run/docker.sock || ! -w /var/run/docker.sock ) ]]; then
+    PCM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)" || exit 1
+    PCM_GROUP_IDS="$(id -G | tr ' ' ',')"
+    PCM_LAUNCH=(sudo -n setpriv --reuid="$(id -u)" --regid="$(id -g)"
+                --groups "${PCM_GROUP_IDS},${PCM_DOCKER_GID}" -- "${PCM_LAUNCH[@]}")
+fi
+
 # A failed monitor startup must also stop the control plane already started
 # by this invocation. Preserve the failing exit status through cleanup.
 trap 'shutdown "$?"' EXIT
+
+if [[ "$PCM_MODE" == learn ]]; then
+    # Only a dedicated baseline directory may have ownership adjusted.
+    if [[ ! -w "$PCM_BASELINE_DIR" && "$PCM_BASELINE_DIR" != / \
+          && "$PCM_BASELINE_DIR" != /opt && "$PCM_BASELINE_DIR" != /opt/nvidia \
+          && "$PCM_BASELINE_DIR" != "$PSF_PREFIX" \
+          && "$PCM_BASELINE_DIR" != "$PSF_BIN" ]]; then
+        sudo -n chown "$(id -u):$(id -g)" "$PCM_BASELINE_DIR" 2>/dev/null || true
+    fi
+    if [[ ! -w "$PCM_BASELINE_DIR" ]]; then
+        echo "Error: PCM baseline folder '${PCM_BASELINE_DIR}' is not writable for LEARN" >&2
+        exit 1
+    fi
+fi
 
 # Resolve SAIM's directory before the control plane changes the working directory.
 if [[ "$SAIM_MODE" != skip ]]; then
@@ -687,7 +802,7 @@ fi
 
 start_selected_monitors() {
     local original_dir="$PWD"
-    local -a saim_args
+    local -a saim_args pcm_args
     if [[ "$SAIM_MODE" != skip ]]; then
         saim_args=(--mode "${SAIM_MODE^^}" --sensor-config "$SENSOR_CONFIG")
         if [[ "$SAIM_MODE" == learn ]]; then
@@ -706,12 +821,20 @@ start_selected_monitors() {
     else
         echo "Skipping SAIM (--saim-mode skip)"
     fi
+    if [[ "$PCM_MODE" != skip ]]; then
+        pcm_args=(--mode "${PCM_MODE^^}" "${PCM_ARGS[@]}")
+        if [[ "$PCM_MODE" == learn ]]; then pcm_args+=(--learn-duration "$LEARN_DURATION"); fi
+        psf_start_monitor PCM "$PCM_MODE" "$PCM_LOG_FILE" 0 \
+            "${PCM_LAUNCH[@]}" "${pcm_args[@]}" || return 1
+    else
+        echo "Skipping PCM (--pcm-mode skip)"
+    fi
 }
 
 if [[ "$CONTROL_PLANE" == 0 ]]; then
     start_selected_monitors || exit 1
     psf_wait_for_learners || exit 1
-    echo "SAIM completed LEARN successfully"
+    echo "All selected monitors completed LEARN successfully"
     exit 0
 fi
 

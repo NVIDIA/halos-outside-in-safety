@@ -164,7 +164,7 @@ psf_sdm_prepare() {
             echo "Error: SDM log path is not a regular file: ${SDM_LOGS[$i]}" >&2
             return 1
         fi
-        for other in "$log_dir/psf.log" "$log_dir/saim.log"; do
+        for other in "$log_dir/psf.log" "$log_dir/saim.log" "$log_dir/pcm.log"; do
             if [[ "${SDM_LOGS[$i]}" == "$(readlink -m -- "$other")" || "${SDM_LOGS[$i]}" -ef "$other" ]]; then
                 echo "Error: an SDM needs its own log, not a shared control-plane/monitor log" >&2
                 return 1

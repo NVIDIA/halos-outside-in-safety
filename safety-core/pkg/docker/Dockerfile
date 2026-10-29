@@ -46,11 +46,11 @@ RUN apt-get update && \
 
 # Every component log lives under /var/log/psf: rsyslog-routed processes in
 # psf.log, which the entrypoint also mirrors to the container's stdout, and the
-# SDMs and SAIM in their own files.
+# SDMs and the AI monitors in their own files.
 RUN sed -i 's/^module(load="imklog")/#module(load="imklog")/' /etc/rsyslog.conf && \
     sed -i 's/^\$ModLoad imklog/#\$ModLoad imklog/' /etc/rsyslog.conf && \
     install -d -o nvidia -g nvidia -m 0755 /var/log/psf && \
-    for log in psf saim atl_sdm atl_proximity_sdm pxc_sdm; do \
+    for log in psf saim pcm atl_sdm atl_proximity_sdm pxc_sdm; do \
         install -o nvidia -g nvidia -m 0666 /dev/null "/var/log/psf/${log}.log"; \
     done && \
     printf '*.* action(type="omfile" file="/var/log/psf/psf.log")\n& stop\n' \
