@@ -104,9 +104,10 @@ jobs:
           } > "$COMMENT_FILE"
 
           # Read every page and only update comments posted by GitHub Actions.
-          COMMENT_ID=$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}/comments" \
-            --paginate --slurp \
-            --jq 'flatten | map(select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- preview-docs -->")))) | first | .id // empty')
+          COMMENT_IDS=$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- preview-docs -->"))) | .id')
+          COMMENT_ID="${COMMENT_IDS%%$'\n'*}"
 
           if [ -n "$COMMENT_ID" ]; then
             gh api "repos/${GH_REPO}/issues/comments/${COMMENT_ID}" \
