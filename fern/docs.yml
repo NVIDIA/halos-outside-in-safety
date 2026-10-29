@@ -20,9 +20,9 @@ logo:
   right-text: Halos Outside-In Safety
 
 versions:
-  - display-name: 1.3.0 (Latest)
+  - display-name: 1.4.0 (Latest)
     path: ../docs/index.yml
-    slug: 1.3.0
+    slug: 1.4.0
   - display-name: Archives
     path: ./versions/archives.yml
 
