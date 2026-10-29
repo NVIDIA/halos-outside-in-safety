@@ -88,8 +88,31 @@ jobs:
           echo "Preview URL: $URL"
           echo "🌿 Preview Halos Outside-In docs: $URL" > preview_url.txt
 
-      - name: Comment URL in PR
-        uses: thollander/actions-comment-pull-request@1d3973dc4b8e1399c0620d3f2b1aa5e795465308 # v2.4.3
-        with:
-          filePath: preview_url.txt
-          comment_tag: fern-docs-preview
+      - name: Post or update preview comment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          MARKER='<!-- preview-docs -->'
+          COMMENT_FILE="$RUNNER_TEMP/fern-preview-comment.md"
+          {
+            cat preview_url.txt
+            printf '\n%s\n' "$MARKER"
+          } > "$COMMENT_FILE"
+
+          # Read every page and only update comments posted by GitHub Actions.
+          COMMENT_IDS=$(gh api "repos/${GH_REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- preview-docs -->"))) | .id')
+          COMMENT_ID="${COMMENT_IDS%%$'\n'*}"
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${GH_REPO}/issues/comments/${COMMENT_ID}" \
+              --method PATCH -F "body=@${COMMENT_FILE}"
+          else
+            gh api "repos/${GH_REPO}/issues/${PR_NUMBER}/comments" \
+              --method POST -F "body=@${COMMENT_FILE}"
+          fi
