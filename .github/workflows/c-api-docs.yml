@@ -72,7 +72,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Fern CLI
         run: npm install -g fern-api@$(jq -r .version fern/fern.config.json)
@@ -81,7 +81,7 @@ jobs:
         run: fern docs md check
 
       - name: Check broken links
-        run: fern docs broken-links
+        run: fern docs broken-links --strict
 
       - name: Report page changes
         run: |
@@ -113,7 +113,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Fern CLI
         run: npm install -g fern-api@$(jq -r .version fern/fern.config.json)
@@ -122,7 +122,7 @@ jobs:
         run: fern docs md check
 
       - name: Check broken links
-        run: fern docs broken-links
+        run: fern docs broken-links --strict
 
       - name: Open or update the pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
@@ -136,5 +136,6 @@ jobs:
             The headers in `safety-core/` changed on `main`, so `tools/c-api/generate_pages.sh`
             regenerated the C API reference pages in `docs/c-api/`.
 
-            The pages passed `fern docs md check` and `fern docs broken-links` in the workflow run
-            that opened this pull request. Review the diff and merge to publish them with the docs.
+            The pages passed `fern docs md check` and `fern docs broken-links --strict` in the
+            workflow run that opened this pull request. Review the diff and merge to publish them
+            with the docs.
