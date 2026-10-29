@@ -64,22 +64,17 @@ typedef struct NvPSDCtx* NvPSDCtx_t ;
 NvPSDCtx* NvPSDCreateContext();
 
 
-/**
- * @brief Initializes NvPSD with message queue communication.
+/*
+ * NvPSDInitialize() and NvPSDExit() have been removed. They were the
+ * POSIX_MSG_QUE entry points; the four channel-name parameters described
+ * message queues that no longer carry PSF traffic.
  *
- * This function initializes the PSD-PSS communication using the specified write and read channels.
+ * Replacement: NvPSDSocketInitialize(ctx, endpoint) / NvPSDSocketExit(ctx).
+ * The channel names have no successor -- the endpoint role is the only
+ * parameter the AF_UNIX SOCK_SEQPACKET link needs.
  *
- * @param[in] ctx Pointer to the NvPSD context.
- * @param[in] writeChannel Name of the channel used for writing data.
- * @param[in] readChannel Name of the channel used for reading data.
- * @param[in] criticalWriteChannel Name of the channel used for writing CRITICAL severtity data.
- * @param[in] criticalReadChannel Name of the channel used for reading CRITICAL severity data.
- * @param[in] endpoint Param indicating whether endpoint is PSS or Client
- * @return NvPSDErr Returns an error code indicating the success or failure of the initialization.
+ * This is a BREAKING API change for any out-of-tree consumer.
  */
-NvPSDErr NvPSDInitialize(NvPSDCtx* ctx, const char* writeChannel, const char* readChannel,
-                        const char* criticalWriteChannel, const char* criticalReadChannel,
-                        NvPSDEndpoint endpoint);
 
 /**
  * @brief Initializes NvPSD with socket communication.
@@ -164,14 +159,6 @@ NvPSDErr NvPSDProcessDecisionRequest(NvPSDCtx* ctx, const DecisionRequest* reque
  */
 NvPSDErr NvPSDStop(NvPSDCtx* ctx);
 
-/**
- * @brief Exits NvPSD when created with Message Queue communication type with PSS Daemon.
- *
- * @param[in] ctx Pointer to the NvPSD context.
- *
- * @return NvPSDErr Returns an error code indicating the success or failure of the operation.
- */
-NvPSDErr NvPSDExit(NvPSDCtx* ctx);
 
 /**
  * @brief Exits NvPSD when created with Socket communication type with PSS Daemon.

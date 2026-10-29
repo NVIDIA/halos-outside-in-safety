@@ -16,6 +16,10 @@ function(safety_core_add_event_integrator_pss_daemon)
     message(FATAL_ERROR "pss_daemon requires the nvpssd_interface target")
   endif()
 
+  if(NOT TARGET nvpsf_transport)
+    message(FATAL_ERROR "pss_daemon requires nvpsf_transport. Enable SAFETY_CORE_BUILD_SAFECOMM_TRANSPORT.")
+  endif()
+
   if(NOT TARGET nvpsd)
     message(FATAL_ERROR
       "pss_daemon requires nvpsd. Enable SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY and SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY_NVPSD."
@@ -51,6 +55,7 @@ function(safety_core_add_event_integrator_pss_daemon)
     "${_safety_core_safecomm_dir}/posix_msg_que/include"
     "${_safety_core_protocols_gateway_dir}/include"
     "${_safety_core_sensor_config_dir}/inc"
+    "${_safety_core_safecomm_dir}/transport/include"
   )
 
   target_compile_definitions(pss_daemon PRIVATE
@@ -60,6 +65,7 @@ function(safety_core_add_event_integrator_pss_daemon)
   target_link_libraries(pss_daemon PRIVATE
     nvpsd
     nvpssd_interface
+    nvpsf_transport
     Threads::Threads
     rt
   )

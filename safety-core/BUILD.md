@@ -99,7 +99,7 @@ safety-core/build-aarch64/packages/psf-tegra.tar.gz
 safety-core/build-aarch64/packages/psf-tegra-dev.tar.gz
 ```
 
-The runtime package installs under `/opt/nvidia/psf` and includes runtime binaries, shared libraries, default configs, launch scripts, event mappings, rsyslog config, and tmpfiles config. The dev package includes public headers and the ATL, proximity, and combined ATL + proximity example sources.
+The runtime package installs under `/opt/nvidia/psf` and includes runtime binaries, shared libraries, default configs, launch scripts, event mappings, rsyslog config, and tmpfiles config. The dev package includes public headers and the ATL, proximity, combined ATL + proximity, and crossing-junction safety monitor example sources.
 
 ## Build Docker Image Archive
 
@@ -160,6 +160,8 @@ proximity_sdm
 proximity_sdm_cmd_receiver
 atl_proximity_sdm
 atl_proximity_sdm_cmd_receiver
+crossing_junction_safety_monitor_sdm
+crossing_junction_safety_monitor_sdm_cmd_receiver
 ```
 
 The default build produces these shared libraries:
@@ -170,6 +172,7 @@ libnvpssd_interface.so
 libnvpsd.so
 libnvpss_msg_que.so
 libnvpss_socket_comms.so
+libnvpsf_transport.so
 libnvpsf_msgbus.so
 libnvpsf_msgcodec.so
 ```
@@ -200,18 +203,32 @@ The runtime Debian package stages the main executables under `/opt/nvidia/psf`:
 /opt/nvidia/psf/bin/nvpss_daemon
 /opt/nvidia/psf/bin/nvpsd_gateway
 /opt/nvidia/psf/bin/launch_psf.sh
+/opt/nvidia/psf/bin/sdm_launch_common.sh
 /opt/nvidia/psf/apps/atl/atl_sdm
 /opt/nvidia/psf/apps/atl/atl_sdm_cmd_receiver
 /opt/nvidia/psf/apps/proximity/proximity_sdm
 /opt/nvidia/psf/apps/proximity/proximity_sdm_cmd_receiver
 /opt/nvidia/psf/apps/atl_proximity/atl_proximity_sdm
 /opt/nvidia/psf/apps/atl_proximity/atl_proximity_sdm_cmd_receiver
+/opt/nvidia/psf/apps/crossing-junction-safety-monitor/crossing_junction_safety_monitor_sdm
+/opt/nvidia/psf/apps/crossing-junction-safety-monitor/crossing_junction_safety_monitor_sdm_cmd_receiver
+/opt/nvidia/psf/apps/common/safety_latch_manager/safety_latch_manager.py
 /opt/nvidia/psf/apps/mdx-client/mdx_client
 ```
 
-The combined ATL + forklift/person proximity app runs two decision makers over
-one gateway; see `decision-makers/atl_proximity/README.md`, which also documents
-the `fs.mqueue.msgsize_max` setting its `DecisionRequest` size requires.
+`launch_psf.sh` is also the Docker image entrypoint. It selects the decision
+makers with `--app` (`atl`, `pxc`, `atl,atl`/`atl_dual`, `atl,pxc`, `pxc,atl`,
+`pxc,pxc`, `cjs` or `atl_proximity`) and the Safety AI Monitor with
+`--saim-mode active|learn|skip`; run it with `--help` for the full option list.
+The ATL and proximity guides (`decision-makers/atl/README.md`,
+`decision-makers/proximity/README.md`) describe the config-driven selections,
+and `decision-makers/atl_proximity/README.md` the combined app.
 
-Runtime libraries are staged in `/opt/nvidia/psf/lib`, and default configs are staged in `/opt/nvidia/psf/configs`.
+The launcher reads its control-plane configs from `/opt/nvidia/psf/bin`:
+`nvpss.conf`, `sensor_pipelines_config.conf`, `thresholds.cfg` and the SAIM
+baselines in `saim_baseline/`. SDM instance configs ship only as templates
+(`atl_sdm_zone{1,2}.conf.sample`, `pxc_sdm_forklift.conf.sample`,
+`pxc_sdm_robots.conf.sample`) and are passed explicitly with `--sdm-config`.
+
+Runtime libraries are staged in `/opt/nvidia/psf/lib`, and default configs are staged in `/opt/nvidia/psf/configs`. Component logs are written under `/var/log/psf`: `psf.log` for the syslog stream, plus one file per SDM and `saim.log`.
 

@@ -48,6 +48,14 @@ static std::mutex g_pssRpcSocketMapMutex;
  */
 static std::unordered_map<uint32_t, std::shared_ptr<std::mutex>> clientIdToStreamIoMutexMap;
 
+/*
+ * "Stream" in these names is now historical: the RPC socket is
+ * AF_UNIX SOCK_SEQPACKET, not a byte stream. The names are left alone
+ * deliberately -- renaming them and the ~47 related identifiers would be a
+ * large mechanical diff across a safety path for no behavioural gain, and the change
+ * is already the highest-regression-risk change in the programme. Read
+ * "stream" here as "the RPC connection".
+ */
 #if defined(MSG_NOSIGNAL)
 constexpr int kClientStreamSendFlags = MSG_NOSIGNAL;
 #else
@@ -62,10 +70,9 @@ constexpr int kClientStreamSendFlags = 0;
 static bool sendAll(int fd, const void* buf, size_t len, int flags, int deadlineMs)
 {
     const auto* p = static_cast<const uint8_t*>(buf);
-    size_t off = 0;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(deadlineMs);
 
-    while (off < len)
+    for (;;)
     {
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline)
@@ -78,13 +85,16 @@ static bool sendAll(int fd, const void* buf, size_t len, int flags, int deadline
         if (waitMs < 1)
             waitMs = 1;
 
-        const ssize_t n = send(fd, p + off, len - off, flags | MSG_DONTWAIT);
-        if (n > 0)
+        /* One send, one whole message. SOCK_SEQPACKET is all-or-nothing, so a
+         * short write has no remainder to resume -- see the note above the
+         * socket() call. The deadline and EAGAIN handling stay: a daemon that
+         * is not reading still applies backpressure. */
+        const ssize_t n = send(fd, p, len, flags | MSG_DONTWAIT);
+        if (n == static_cast<ssize_t>(len))
         {
-            off += static_cast<size_t>(n);
-            continue;
+            return true;
         }
-        if (n == 0)
+        if (n >= 0)
         {
             errno = EIO;
             return false;
@@ -129,10 +139,9 @@ static bool sendAll(int fd, const void* buf, size_t len, int flags, int deadline
 static ssize_t recvAll(int fd, void* buf, size_t len, int deadlineMs)
 {
     auto* p = static_cast<uint8_t*>(buf);
-    size_t off = 0;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(deadlineMs);
 
-    while (off < len)
+    for (;;)
     {
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline)
@@ -160,25 +169,90 @@ static ssize_t recvAll(int fd, void* buf, size_t len, int deadlineMs)
             errno = ETIMEDOUT;
             return -1;
         }
-        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
+        /*
+         * DRAIN BEFORE REPORTING A HANGUP.
+         *
+         * POLLHUP together with POLLIN means the peer closed AND data is still
+         * queued for us; the data does not vanish because the writer went away.
+         * This used to test the hangup bits first and return -1, throwing away a
+         * response that was already sitting in the socket buffer.
+         *
+         * It broke TERMINATE_CLIENT every time, not intermittently: the daemon
+         * answers the terminate and then disconnects the client immediately, so
+         * the reply and the hangup always arrive in the same poll. The caller
+         * reported "Failed to terminate PSS client" while the daemon had done
+         * exactly what it was asked. Reproduced from two directions --
+         * pss_rpc_seqpacket_driver's "client terminates cleanly" and the x86
+         * stack's cleanup step.
+         *
+         * A hangup treated as "nothing to read" is the same defect shape.
+         */
+        if ((pfd.revents & POLLIN) == 0 &&
+            (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
         {
             errno = (pfd.revents & POLLNVAL) ? EINVAL : EIO;
             return -1;
         }
 
-        const ssize_t n = recv(fd, p + off, len - off, 0);
-        if (n > 0)
+        /*
+         * One recvmsg, one whole message.
+         *
+         * RECVMSG RATHER THAN RECV, because only recvmsg reports MSG_TRUNC. On
+         * SOCK_SEQPACKET an oversized message is copied up to `len` and the
+         * remainder is DISCARDED, so recv() returns exactly `len` and the
+         * `n == len` test below could not tell a truncated message from a
+         * correct one -- the caller would then read a partial NvPSSDRPCMsgResp
+         * as though it were whole. Measured: 512 bytes sent, 64 requested,
+         * recv() returns 64 and reports nothing; recvmsg() returns 64 with
+         * MSG_TRUNC set.
+         *
+         * The realistic trigger is version skew, not attack. Six of the seven
+         * RPC clients ship inside the PSF package and cannot skew;
+         * `mdx-client` deploys with the metropolis application, so it is the
+         * one binary that can
+         * meet a daemon whose response struct has grown -- and it would have
+         * misread the reply silently.
+         *
+         * A short return still means the daemon sent something that is not an
+         * NvPSSDRPCMsgResp; the kernel has already discarded the rest of that
+         * message, so accumulating towards `len` would splice two different
+         * messages together. NvPSFTransport's recvOnFd() makes the same two
+         * checks; this is the client half of the same link.
+         */
+        struct iovec  iov = {};
+        struct msghdr msg = {};
+        iov.iov_base   = p;
+        iov.iov_len    = len;
+        msg.msg_iov    = &iov;
+        msg.msg_iovlen = 1;
+
+        const ssize_t n = recvmsg(fd, &msg, 0);
+        if (n > 0 && (msg.msg_flags & MSG_TRUNC) != 0)
         {
-            off += static_cast<size_t>(n);
-            continue;
+            /* Oversized for this buffer. The excess is already gone and cannot
+             * be re-read, so this is a protocol error, not a retry. */
+            errno = EPROTO;
+            return -1;
+        }
+        if (n == static_cast<ssize_t>(len))
+        {
+            return static_cast<ssize_t>(len);
         }
         if (n == 0)
-            return 0;
+        {
+            return 0;                 /* daemon closed the connection */
+        }
+        if (n > 0)
+        {
+            errno = EPROTO;
+            return -1;
+        }
         if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+        {
             continue;
+        }
         return -1;
     }
-    return static_cast<ssize_t>(len);
 }
 
 /**
@@ -193,8 +267,7 @@ const NvPSSDRPCBackend rpcBackend = SOCKET;
  * UNIX domain socket path on which the
  * PSS daemon listens for client connections
  */
-/* Must match the server path in NvPSSDaemon.cpp. Keep these two strings in sync. */
-const std::string socketPath = "/run/nvpsf/nvpssd";
+const std::string socketPath = PSS_DAEMON_RPC_SOCKET_PATH;
 
 /**
  * Client to socket mapping
@@ -206,7 +279,7 @@ std::unordered_map<uint32_t,int>clientIdToSocketMap;
 /**
  * Forward declarations of internal functions
  */
-NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType);
+NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType, uint8_t instanceId);
 NvPSSDErr NvPSSTerminatePSSClient_Socket(const uint32_t clientId);
 NvPSSDErr NvPSSReportSafetyEvent_Socket(const uint32_t clientId, const SafetyEvent* event);
 
@@ -225,16 +298,30 @@ NvPSSDErr NvPSSReportSafetyEvent_Socket(const uint32_t clientId, const SafetyEve
  */
 NvPSSDErr NvPSSRegisterPSSClient(uint32_t* clientId, uint8_t clientType)
 {
+    return NvPSSRegisterPSSClientInstance(clientId, clientType, 0U);
+}
+
+NvPSSDErr NvPSSRegisterPSSClientInstance(uint32_t* clientId, uint8_t clientType, uint8_t instanceId)
+{
     NvPSSDErr err = NVPSSD_SUCCESS;
 
     switch(rpcBackend)
     {
         case SOCKET:
-          err = NvPSSRegisterPSSClient_Socket(clientId, clientType);
+          err = NvPSSRegisterPSSClient_Socket(clientId, clientType, instanceId);
           break;
 
+        /* NVSCI is enumerated explicitly, not swept into `default:` (repo enum-audit rule). With every enumerator named, -Wswitch turns a
+         * future backend into a COMPILE error at all four of these sites --
+         * which is the only reliable way to be told about a dispatch site that
+         * needs a new arm. A bare `default:` would silently accept it and fail
+         * at run time on a safety path instead. */
+        case NVSCI:
         default:
-            NvPSBWriteData(NVPSB_LOG_INFO, "Only Socket based communication with PSS daemon is supported", "");
+            NvPSBWriteData(NVPSB_LOG_ERR,
+                           "Unsupported PSS RPC backend; only AF_UNIX SOCK_SEQPACKET "
+                           "socket transport is implemented",
+                           "backend: " + std::to_string(static_cast<int>(rpcBackend)));
             err = NVPSSD_FAIL;
             break;
     }
@@ -242,7 +329,7 @@ NvPSSDErr NvPSSRegisterPSSClient(uint32_t* clientId, uint8_t clientType)
     return err;
 }
 
-NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
+NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType, uint8_t instanceId)
 {
     NvPSSDErr err = NVPSSD_SUCCESS;
     if (clientId == nullptr)
@@ -260,6 +347,15 @@ NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
                        "clientType: " + std::to_string(clientType));
         return NVPSSD_FAIL;
     }
+    if (instanceId > PSS_MDX_INSTANCE_MAX || (instanceId != 0U && clientType != CLIENT_MDX))
+    {
+        NvPSBWriteData(NVPSB_LOG_ERR,
+                       "NvPSSRegisterPSSClient_Socket: invalid instance id (MDX only, 1.." +
+                           std::to_string(PSS_MDX_INSTANCE_MAX) + ")",
+                       "clientType: " + std::to_string(clientType) +
+                           ", instanceId: " + std::to_string(instanceId));
+        return NVPSSD_FAIL;
+    }
     struct sockaddr_un addr = {};
     NvPSSDRPCMsgResp msgResp = {};
     NvPSSDRPCMsgReq msgReq = {};
@@ -267,7 +363,10 @@ NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
     int previousSocket = -1;
     ssize_t recvResult = -1;
 
-    clientSocket = socket(AF_UNIX, SOCK_STREAM, 0);
+    /* SOCK_SEQPACKET, matching the daemon. See the note on the
+     * connect() failure path below: this is not interchangeable with the old
+     * SOCK_STREAM, and the mismatch has a dedicated diagnostic. */
+    clientSocket = socket(AF_UNIX, SOCK_SEQPACKET, 0);
     if(clientSocket == -1)
     {
         #ifdef NVPSF_DBG
@@ -282,9 +381,34 @@ NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
     strncpy(addr.sun_path, socketPath.c_str(), sizeof(addr.sun_path) - 1);
     if(connect(clientSocket, (struct sockaddr*)&addr, sizeof(addr))!=0)
     {
-
+        /*
+         * EPROTOTYPE gets its own diagnostic, and it is NOT debug-only.
+         *
+         * The PSS RPC uses SOCK_SEQPACKET, not SOCK_STREAM, and
+         * there is no wire compatibility: a client built before that change
+         * cannot connect to a daemon built after it, or vice versa. The kernel
+         * reports that as EPROTOTYPE, which as a bare "connection failed" is
+         * indistinguishable from "the daemon is not running" -- and the two
+         * have completely different fixes. Naming it, and naming the version
+         * constraint, is the difference between a five-minute packaging fix and
+         * an afternoon spent looking at the wrong process.
+         */
+        if (errno == EPROTOTYPE)
+        {
+            NvPSBWriteData(NVPSB_LOG_ERR,
+                           "PSS RPC socket type mismatch: this client uses "
+                           "AF_UNIX SOCK_SEQPACKET but the daemon is listening "
+                           "on SOCK_STREAM. Client and nvpss_daemon must come "
+                           "from the same PSF package: the RPC socket type "
+                           "changed and the two types cannot interoperate.",
+                           "socket: " + socketPath);
+        }
 #ifdef NVPSF_DBG
-        NvPSBWriteData(NVPSB_LOG_INFO, "Connection to PSS failed while registering new client", "");
+        else
+        {
+            NvPSBWriteData(NVPSB_LOG_INFO, "Connection to PSS failed while registering new client",
+                           "errno: " + std::to_string(errno));
+        }
 #endif
         err = NVPSSD_FAIL;
         goto exit;
@@ -296,9 +420,12 @@ NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
 
     msgReq.msg = REGISTER_CLIENT;
     msgReq.reqSeqNo = msgCounter.fetch_add(1U, std::memory_order_relaxed);
-    msgReq.size = 1;
+    /* Instance 0 sends exactly what every client sent before instance ids
+     * existed, so an anonymous registration is byte-identical on the wire. */
+    msgReq.size = static_cast<uint16_t>((instanceId != 0U) ? 2U : 1U);
     memset(&msgReq.reqPayload, 0, sizeof(msgReq.reqPayload));
     msgReq.reqPayload[0] = clientType;
+    msgReq.reqPayload[1] = instanceId;
     if (!sendAll(clientSocket, &msgReq, sizeof(msgReq), kClientStreamSendFlags, RPC_RECV_DEADLINE_MS))
     {
         const int savedErr = errno;
@@ -338,6 +465,7 @@ NvPSSDErr NvPSSRegisterPSSClient_Socket(uint32_t* clientId, uint8_t clientType)
             NvPSBWriteData(NVPSB_LOG_ERR,
                 "PSS registration rejected",
                 "clientType: " + std::to_string(clientType) +
+                    ", instanceId: " + std::to_string(instanceId) +
                     ", status: " + std::to_string(regStatus));
             err = NVPSSD_FAIL;
             goto exit;
@@ -399,8 +527,17 @@ NvPSSDErr NvPSSTerminatePSSClient(const uint32_t clientId)
           err = NvPSSTerminatePSSClient_Socket(clientId);
           break;
 
+        /* NVSCI is enumerated explicitly, not swept into `default:` (repo enum-audit rule). With every enumerator named, -Wswitch turns a
+         * future backend into a COMPILE error at all four of these sites --
+         * which is the only reliable way to be told about a dispatch site that
+         * needs a new arm. A bare `default:` would silently accept it and fail
+         * at run time on a safety path instead. */
+        case NVSCI:
         default:
-            NvPSBWriteData(NVPSB_LOG_INFO, "Only Socket based communication with PSS daemon is supported", "");
+            NvPSBWriteData(NVPSB_LOG_ERR,
+                           "Unsupported PSS RPC backend; only AF_UNIX SOCK_SEQPACKET "
+                           "socket transport is implemented",
+                           "backend: " + std::to_string(static_cast<int>(rpcBackend)));
             err = NVPSSD_FAIL;
             break;
     }
@@ -447,9 +584,13 @@ NvPSSDErr NvPSSTerminatePSSClient_Socket(const uint32_t clientId)
 
     if (storedSocket < 0)
     {
-#ifdef NVPSF_DBG
-        NvPSBWriteData(NVPSB_LOG_ERR, "Invalid socket descriptor for client", "");
-#endif
+        /* Reported unconditionally, not under NVPSF_DBG: a broken descriptor for a
+           client that IS registered is library-internal state corruption. Callers log
+           only that the call failed, so without this record a release build gives the
+           operator no way to tell it from a daemon-side refusal. */
+        NvPSBWriteData(NVPSB_LOG_ERR, "TerminatePSSClient: invalid socket descriptor for client",
+                       " clientId: " + std::to_string(clientId) +
+                       " fd: " + std::to_string(storedSocket));
         err = NVPSSD_FAIL;
         goto exit;
     }
@@ -460,10 +601,14 @@ NvPSSDErr NvPSSTerminatePSSClient_Socket(const uint32_t clientId)
 
         if (!(streamFd >= 0 && streamFd < FD_SETSIZE))
         {
-#ifdef NVPSF_DBG
-            NvPSBWriteData(NVPSB_LOG_ERR, "Invalid socket fd for select (must be in [0, FD_SETSIZE))",
-                           "fd: " + std::to_string(streamFd));
-#endif
+            /* Reported unconditionally, not under NVPSF_DBG: an fd outside
+               [0, FD_SETSIZE) means this process is out of descriptors, not that the
+               daemon is unwell. The two demand opposite responses and the caller's
+               NVPSSD_FAIL does not distinguish them. */
+            NvPSBWriteData(NVPSB_LOG_ERR, "TerminatePSSClient: socket fd outside [0, FD_SETSIZE) for select",
+                           " clientId: " + std::to_string(clientId) +
+                           " fd: " + std::to_string(streamFd) +
+                           " FD_SETSIZE: " + std::to_string(static_cast<int>(FD_SETSIZE)));
             err = NVPSSD_FAIL;
             goto exit;
         }
@@ -599,8 +744,17 @@ NvPSSDErr NvPSSReportSafetyEvent(const uint32_t clientId, const SafetyEvent* eve
           err = NvPSSReportSafetyEvent_Socket(clientId, event);
           break;
 
+        /* NVSCI is enumerated explicitly, not swept into `default:` (repo enum-audit rule). With every enumerator named, -Wswitch turns a
+         * future backend into a COMPILE error at all four of these sites --
+         * which is the only reliable way to be told about a dispatch site that
+         * needs a new arm. A bare `default:` would silently accept it and fail
+         * at run time on a safety path instead. */
+        case NVSCI:
         default:
-            NvPSBWriteData(NVPSB_LOG_INFO, "Only Socket based communication with PSS daemon is supported", "");
+            NvPSBWriteData(NVPSB_LOG_ERR,
+                           "Unsupported PSS RPC backend; only AF_UNIX SOCK_SEQPACKET "
+                           "socket transport is implemented",
+                           "backend: " + std::to_string(static_cast<int>(rpcBackend)));
             err = NVPSSD_FAIL;
             break;
     }
@@ -650,9 +804,13 @@ NvPSSDErr NvPSSReportSafetyEvent_Socket(const uint32_t clientId, const SafetyEve
 
     if (storedSocket < 0)
     {
-#ifdef NVPSF_DBG
-        NvPSBWriteData(NVPSB_LOG_ERR, "Invalid socket descriptor for client", "");
-#endif
+        /* Reported unconditionally, not under NVPSF_DBG: a broken descriptor for a
+           client that IS registered is library-internal state corruption. Callers log
+           only that the call failed, so without this record a release build gives the
+           operator no way to tell it from a daemon-side refusal. */
+        NvPSBWriteData(NVPSB_LOG_ERR, "ReportSafetyEvent: invalid socket descriptor for client",
+                       " clientId: " + std::to_string(clientId) +
+                       " fd: " + std::to_string(storedSocket));
         err = NVPSSD_FAIL;
         goto exit;
     }
@@ -663,10 +821,14 @@ NvPSSDErr NvPSSReportSafetyEvent_Socket(const uint32_t clientId, const SafetyEve
 
         if (!(streamFd >= 0 && streamFd < FD_SETSIZE))
         {
-#ifdef NVPSF_DBG
-            NvPSBWriteData(NVPSB_LOG_ERR, "Invalid socket fd for select (must be in [0, FD_SETSIZE))",
-                           "fd: " + std::to_string(streamFd));
-#endif
+            /* Reported unconditionally, not under NVPSF_DBG: an fd outside
+               [0, FD_SETSIZE) means this process is out of descriptors, not that the
+               daemon is unwell. The two demand opposite responses and the caller's
+               NVPSSD_FAIL does not distinguish them. */
+            NvPSBWriteData(NVPSB_LOG_ERR, "ReportSafetyEvent: socket fd outside [0, FD_SETSIZE) for select",
+                           " clientId: " + std::to_string(clientId) +
+                           " fd: " + std::to_string(streamFd) +
+                           " FD_SETSIZE: " + std::to_string(static_cast<int>(FD_SETSIZE)));
             err = NVPSSD_FAIL;
             goto exit;
         }
@@ -773,8 +935,17 @@ NvPSSDErr NvPSSSendHeartbeat(const uint32_t clientId, const uint8_t clientType)
             err = NvPSSSendHeartbeat_Socket(clientId, clientType);
             break;
 
+        /* NVSCI is enumerated explicitly, not swept into `default:` (repo enum-audit rule). With every enumerator named, -Wswitch turns a
+         * future backend into a COMPILE error at all four of these sites --
+         * which is the only reliable way to be told about a dispatch site that
+         * needs a new arm. A bare `default:` would silently accept it and fail
+         * at run time on a safety path instead. */
+        case NVSCI:
         default:
-            NvPSBWriteData(NVPSB_LOG_INFO, "Only Socket based communication with PSS daemon is supported", "");
+            NvPSBWriteData(NVPSB_LOG_ERR,
+                           "Unsupported PSS RPC backend; only AF_UNIX SOCK_SEQPACKET "
+                           "socket transport is implemented",
+                           "backend: " + std::to_string(static_cast<int>(rpcBackend)));
             err = NVPSSD_FAIL;
             break;
     }
@@ -815,9 +986,13 @@ static NvPSSDErr NvPSSSendHeartbeat_Socket(const uint32_t clientId, const uint8_
 
     if (storedSocket < 0)
     {
-#ifdef NVPSF_DBG
-        NvPSBWriteData(NVPSB_LOG_ERR, "Invalid socket descriptor for client", "");
-#endif
+        /* Reported unconditionally, not under NVPSF_DBG: a broken descriptor for a
+           client that IS registered is library-internal state corruption. Callers log
+           only that the call failed, so without this record a release build gives the
+           operator no way to tell it from a daemon-side refusal. */
+        NvPSBWriteData(NVPSB_LOG_ERR, "SendHeartbeat: invalid socket descriptor for client",
+                       " clientId: " + std::to_string(clientId) +
+                       " fd: " + std::to_string(storedSocket));
         err = NVPSSD_FAIL;
         goto exit;
     }

@@ -7,12 +7,16 @@
 #define NVDEC_DECODER_H
 
 #include <cuda.h>
+#include <cstdint>
 #include <memory>
+#include <string>
 #include "nvcuvid.h"
 #include "cuviddec.h"
 #include "sai_common.h"
 #include "i_frame_quality_analyzer.h"
 #include "pss_daemon.h"
+#include "learn_filter.h"
+#include "tile_scorer.h"
 
 class NalQueue;
 class SafetyEventReporter;
@@ -32,7 +36,7 @@ public:
     // driver API, and creates a context on the assigned GPU. On a false return,
     // analyzer_ may be null, so no other method except cleanup() is safe to call.
     bool initialize();
-    // Queries H.264/NV12 decode capabilities (max resolution, histogram support).
+    // Queries H.264/NV12 decode capabilities (max resolution).
     bool queryDecoderCaps();
     // Creates (or re-creates) the NVDEC video parser with the three decode callbacks.
     bool createParser();
@@ -66,6 +70,18 @@ public:
     std::atomic<bool>& sensorInvalidFlag() { return sensorInvalid_; }
     const std::atomic<bool>& sensorInvalidFlag() const { return sensorInvalid_; }
 
+    // Bounds how long the IDR gate may stay shut, and in ACTIVE how long the
+    // sensor may sit on its CAUSE_SAIM_INIT seed. Called per NAL with the gate
+    // state; false means nothing left to watch, so stop ticking.
+    bool noteStreamGateState(bool gateOpen);
+
+    // Called once per RTSP session, before its first NAL. LEARN re-arms the
+    // keyframe watchdog: it ends on a frame count, so a gate that never opens
+    // would hang the run (the owner's interruption bound caps the retries).
+    // ACTIVE must not re-arm - its budget bounds the one-time SAIM_INIT seed,
+    // which a reconnecting source would otherwise reset forever.
+    void onStreamSessionStart();
+
     /* Set by the analyzer once its bounded reinit budget is exhausted (or by
      * HandleVideoSequence on a non-recoverable analyzer.init() failure).
      * Polled by decodeStream() and runStreamPipeline() so this camera's
@@ -74,13 +90,14 @@ public:
     std::atomic<bool>& analyzerPermanentFaultFlag()       { return analyzerPermanentFault_; }
     const std::atomic<bool>& analyzerPermanentFaultFlag() const { return analyzerPermanentFault_; }
 
-    // Loads threshold tuning parameters (weights, k*sigma knobs, alert thresholds) from a config file.
+    // Applies threshold tuning (weights, k*sigma knobs, alert thresholds) from a config
+    // file. A missing or invalid file falls back to the built-in ThresholdConfig
+    // defaults with a warning; returns false only if those defaults fail validation.
     bool loadThresholdConfig(const std::string& path);
-    // Validates the loaded threshold config (range checks, weight sum, etc.).
-    bool validateThresholdConfig() const;
-    // Retrieves averaged learn-mode stats from the GPU and writes them to a file.
+    // Finalizes the LEARN filter into a baseline and writes it to a file.
     bool saveBaseline(const std::string& path);
-    // Loads a previously saved baseline from file for use in ACTIVE mode scoring.
+    // Loads a previously saved baseline from file for use in ACTIVE mode scoring,
+    // and configures the tile scorer from it and the threshold config.
     bool loadBaseline(const std::string& path);
     // Validates the loaded baseline values (mu and sigma finite & non-negative,
     // total_frames >= MIN_LEARN_FRAMES_FOR_SIGMA).
@@ -98,6 +115,7 @@ private:
     // updates the saturating counter for SENSOR_INVALID/VALID transitions.
     static int CUDAAPI HandlePictureDisplay(void* pUserData,
                                             CUVIDPARSERDISPINFO* pDispInfo);
+    bool reportInitSeedFault(uint64_t now, bool noKeyframe);
 
     CUdevice        cuDevice_ = 0;
     CUcontext       cuContext;
@@ -108,7 +126,6 @@ private:
     int  displayWidth, displayHeight;  // Cropped display resolution (may differ from coded).
     uint64_t  frameCount;
     static std::atomic<uint32_t> s_nextEventId_;  // Globally unique event ID counter across all decoder instances.
-    bool histogramEnabled;             // True if the GPU supports NVDEC per-frame histograms.
 
     CUVIDDECODECAPS decodeCaps{};
 
@@ -118,9 +135,17 @@ private:
     std::unique_ptr<IFrameQualityAnalyzer> analyzer_;
     RunMode mode_ = RunMode::ACTIVE;
     int learn_duration_sec_ = DEFAULT_LEARN_DURATION_SEC; // LEARN-mode duration in seconds; converted to a frame target on first sequence.
-    uint64_t learn_target_frames_ = 0; // ceil(learn_duration_sec_ * learn_target_fps_); recomputed on first sequence and whenever the new sequence's FPS differs.
-    double   learn_target_fps_    = 0.0;
+    uint64_t learn_target_frames_ = 0; // ceil(learn_duration_sec_ * streamFps_); recomputed on first sequence and whenever the new sequence's FPS differs.
+
+    // The frame rate learn_target_frames_ is derived from. Written in LEARN only;
+    // ACTIVE hands the rate to tileScorer_ instead, and this remains at 0.
+    // Fallback values may be substituted and clamped; in LEARN it is either 0
+    // (before the first sequence header) or in the range (0, LEARN_FPS_MAX].
+    double   streamFps_           = 0.0;
+
     BaselineValues baseline_;
+    // ACTIVE decision score. Decode thread only; kept across reconnects.
+    sai::TileScorer tileScorer_;
     std::string sensorName_ = "unknown_sensor";
     uint8_t pipelineId_ = 1;
     int gpuIndex_ = 0;
@@ -131,9 +156,23 @@ private:
     std::atomic<bool> sensorInvalid_{true};
     std::atomic<bool> learnComplete_{false};
     std::atomic<bool> analyzerPermanentFault_{false};
+    // Gate watchdog deadlines in ns, decoder-owned so ACTIVE's budget spans
+    // reconnects. initSeedDeadlineNs_ is ACTIVE-only.
+    uint64_t idrWaitDeadlineNs_  = 0;
+    uint64_t initSeedDeadlineNs_ = 0;
+    // Nothing left to watch: gate opened (LEARN), seed cleared (ACTIVE), or
+    // faulted. Set on every terminal path so the deadlines go unreachable
+    // rather than cleared - clearing would let a reconnect re-arm them.
+    // Lowered only by onStreamSessionStart(), and only in LEARN.
+    bool     gateWatchdogDone_   = false;
     // Saturating counter: counter_max == fully INVALID, 0 == fully VALID.
     // createParser() seeds to counter_max (fail-safe).
     std::atomic<int> alertCounter_{0};
+    // Sole source of the saved means and sigmas; the backends only count frames.
+    // Driven only from the decode thread that owns this decoder, so it needs no
+    // synchronisation.
+    sai::LearnFilter       learnFilter_;
+    sai::TileLearn         tileLearn_;   // the tile checks' LEARN; same thread and frames
     // Non-owning; null in LEARN. Outlives the decoder via main's teardown order.
     SafetyEventReporter* eventReporter_ = nullptr;
 };

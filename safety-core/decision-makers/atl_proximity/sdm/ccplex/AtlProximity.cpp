@@ -40,6 +40,7 @@
 #include "AtlProximityControl.h"
 #include "atl_proximity_pair_fusion.h"
 #include "sdm_decision_freshness.hpp"
+#include "sdm_reviewed_sensor_set.hpp"
 
 /* Default PLC command-receiver port for this SDM.
  *
@@ -81,6 +82,11 @@ static void printUsage(const char* prog)
               << "                               toward the worst case after its last sighting, "
               << ATLPXC_PAIR_TTL_MS_MIN << "-" << ATLPXC_PAIR_TTL_MS_MAX
               << "\n                               (default: " << ATLPXC_PAIR_TTL_MS_DEFAULT << ").\n"
+              << "  --sensor_pipelines_config <PATH>\n"
+              << "                                Reviewed sensor set behind the\n"
+              << "                                all-safety-relevant-sensors-failed latch\n"
+              << "                                (default: " << SDM_SENSOR_PIPELINES_CONFIG_DEFAULT << ").\n"
+              << "                                Missing or malformed is fatal.\n"
               << "  -h, --help                   Show this help message.\n";
 }
 
@@ -139,6 +145,7 @@ int main(int argc, char* argv[])
     std::uint32_t decisionFreshnessTimeoutMs = SDM_DECISION_FRESHNESS_TIMEOUT_MS_DEFAULT;
     std::uint32_t pairTtlMs = ATLPXC_PAIR_TTL_MS_DEFAULT;
 
+    std::string   sensorPipelinesConfigPath = SDM_SENSOR_PIPELINES_CONFIG_DEFAULT;
     for (int i = 1; i < argc; ++i)
     {
         const char*   arg = argv[i];
@@ -221,6 +228,18 @@ int main(int argc, char* argv[])
                 return 1;
             pairTtlMs = static_cast<std::uint32_t>(parsed);
         }
+        else if (std::strcmp(arg, "--sensor_pipelines_config") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--sensor_pipelines_config", argv[0]))
+                return 1;
+            sensorPipelinesConfigPath = argv[++i];
+            if (sensorPipelinesConfigPath.empty())
+            {
+                std::cerr << "error: --sensor_pipelines_config: empty path\n";
+                printUsage(argv[0]);
+                return 1;
+            }
+        }
         else if (std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0)
         {
             printUsage(argv[0]);
@@ -235,8 +254,14 @@ int main(int argc, char* argv[])
     }
 
     /* Blocks until shutdown; non-zero if initialization or validation failed. */
+    /* gatewayTransport / gatewaySocketPath are stated explicitly rather than
+     * defaulted: sensorPipelinesConfigPath follows them in the signature, so a
+     * positional default would not reach it. */
     return launchAtlProximityControlAlgo(gatewayIP, gatewayPort, plcIP, plcPort,
                                          maxHbFailures, decisionIntervalMs,
                                          hbStaleMs, hbPeriodMs,
-                                         decisionFreshnessTimeoutMs, pairTtlMs);
+                                         decisionFreshnessTimeoutMs, pairTtlMs,
+                                         NVPSF_TRANSPORT_UNIX_SOCKET,
+                                         NVPSF_SOCKET_PATH_PSD_GATEWAY,
+                                         sensorPipelinesConfigPath);
 }

@@ -47,7 +47,17 @@ PROTOBUF_CONSTEXPR EventMappingRule::EventMappingRule(
   , /*decltype(_impl_.distance_threshold_meters_)*/0
   , /*decltype(_impl_.rule_id_prefix_match_)*/false
   , /*decltype(_impl_.proximity_violation_)*/false
-  , /*decltype(_impl_.scale_factor_)*/0} {}
+  , /*decltype(_impl_.scale_factor_)*/0
+  , /*decltype(_impl_.comovement_max_distance_meters_)*/0
+  , /*decltype(_impl_.comovement_max_offset_sd_meters_)*/0
+  , /*decltype(_impl_.comovement_window_ms_)*/0
+  , /*decltype(_impl_.comovement_min_samples_)*/0
+  , /*decltype(_impl_.comovement_min_forklift_travel_meters_)*/0
+  , /*decltype(_impl_.comovement_min_box_containment_)*/0
+  , /*decltype(_impl_.comovement_enter_frames_)*/0
+  , /*decltype(_impl_.comovement_exit_frames_)*/0
+  , /*decltype(_impl_.comovement_latch_ms_)*/0
+  , /*decltype(_impl_.comovement_min_span_ms_)*/0} {}
 struct EventMappingRuleDefaultTypeInternal {
   PROTOBUF_CONSTEXPR EventMappingRuleDefaultTypeInternal()
       : _instance(::_pbi::ConstantInitialized{}) {}
@@ -100,6 +110,16 @@ const uint32_t TableStruct_event_5fmapping_2eproto::offsets[] PROTOBUF_SECTION_V
   PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.object_type_primary_),
   PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.scale_factor_),
   PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.proximity_violation_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_max_distance_meters_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_max_offset_sd_meters_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_window_ms_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_min_samples_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_min_span_ms_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_min_forklift_travel_meters_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_min_box_containment_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_enter_frames_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_exit_frames_),
+  PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingRule, _impl_.comovement_latch_ms_),
   ~0u,
   ~0u,
   ~0u,
@@ -116,6 +136,16 @@ const uint32_t TableStruct_event_5fmapping_2eproto::offsets[] PROTOBUF_SECTION_V
   ~0u,
   ~0u,
   1,
+  2,
+  3,
+  4,
+  5,
+  11,
+  6,
+  7,
+  8,
+  9,
+  10,
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingConfig, _internal_metadata_),
   ~0u,  // no _extensions_
@@ -125,8 +155,8 @@ const uint32_t TableStruct_event_5fmapping_2eproto::offsets[] PROTOBUF_SECTION_V
   PROTOBUF_FIELD_OFFSET(::mdx::client::config::EventMappingConfig, _impl_.rules_),
 };
 static const ::_pbi::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
-  { 0, 22, -1, sizeof(::mdx::client::config::EventMappingRule)},
-  { 38, -1, -1, sizeof(::mdx::client::config::EventMappingConfig)},
+  { 0, 32, -1, sizeof(::mdx::client::config::EventMappingRule)},
+  { 58, -1, -1, sizeof(::mdx::client::config::EventMappingConfig)},
 };
 
 static const ::_pb::Message* const file_default_instances[] = {
@@ -136,7 +166,7 @@ static const ::_pb::Message* const file_default_instances[] = {
 
 const char descriptor_table_protodef_event_5fmapping_2eproto[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) =
   "\n\023event_mapping.proto\022\021mdx.client.config"
-  "\"\205\004\n\020EventMappingRule\022\014\n\004name\030\001 \001(\t\022\026\n\016m"
+  "\"\315\t\n\020EventMappingRule\022\014\n\004name\030\001 \001(\t\022\026\n\016m"
   "essage_source\030\002 \001(\t\022\022\n\nalert_type\030\003 \001(\t\022"
   "\022\n\nevent_type\030\004 \001(\t\022\023\n\013object_type\030\005 \001(\t"
   "\022\017\n\007rule_id\030\006 \001(\t\022\034\n\024rule_id_prefix_matc"
@@ -147,15 +177,32 @@ const char descriptor_table_protodef_event_5fmapping_2eproto[] PROTOBUF_SECTION_
   "ers\030\r \001(\001H\000\210\001\001\022\035\n\025object_type_secondary\030"
   "\016 \001(\t\022\033\n\023object_type_primary\030\017 \001(\t\022\024\n\014sc"
   "ale_factor\030\020 \001(\005\022 \n\023proximity_violation\030"
-  "\021 \001(\010H\001\210\001\001B\034\n\032_distance_threshold_meters"
-  "B\026\n\024_proximity_violationJ\004\010\014\020\rR\010severity"
-  "\"H\n\022EventMappingConfig\0222\n\005rules\030\001 \003(\0132#."
-  "mdx.client.config.EventMappingRuleB\003\200\001\000b"
-  "\006proto3"
+  "\021 \001(\010H\001\210\001\001\022+\n\036comovement_max_distance_me"
+  "ters\030\022 \001(\001H\002\210\001\001\022,\n\037comovement_max_offset"
+  "_sd_meters\030\023 \001(\001H\003\210\001\001\022!\n\024comovement_wind"
+  "ow_ms\030\024 \001(\005H\004\210\001\001\022#\n\026comovement_min_sampl"
+  "es\030\025 \001(\005H\005\210\001\001\022#\n\026comovement_min_span_ms\030"
+  "\033 \001(\005H\006\210\001\001\0222\n%comovement_min_forklift_tr"
+  "avel_meters\030\026 \001(\001H\007\210\001\001\022+\n\036comovement_min"
+  "_box_containment\030\027 \001(\001H\010\210\001\001\022$\n\027comovemen"
+  "t_enter_frames\030\030 \001(\005H\t\210\001\001\022#\n\026comovement_"
+  "exit_frames\030\031 \001(\005H\n\210\001\001\022 \n\023comovement_lat"
+  "ch_ms\030\032 \001(\005H\013\210\001\001B\034\n\032_distance_threshold_"
+  "metersB\026\n\024_proximity_violationB!\n\037_comov"
+  "ement_max_distance_metersB\"\n _comovement"
+  "_max_offset_sd_metersB\027\n\025_comovement_win"
+  "dow_msB\031\n\027_comovement_min_samplesB\031\n\027_co"
+  "movement_min_span_msB(\n&_comovement_min_"
+  "forklift_travel_metersB!\n\037_comovement_mi"
+  "n_box_containmentB\032\n\030_comovement_enter_f"
+  "ramesB\031\n\027_comovement_exit_framesB\026\n\024_com"
+  "ovement_latch_msJ\004\010\014\020\rR\010severity\"H\n\022Even"
+  "tMappingConfig\0222\n\005rules\030\001 \003(\0132#.mdx.clie"
+  "nt.config.EventMappingRuleB\003\200\001\000b\006proto3"
   ;
 static ::_pbi::once_flag descriptor_table_event_5fmapping_2eproto_once;
 const ::_pbi::DescriptorTable descriptor_table_event_5fmapping_2eproto = {
-    false, false, 647, descriptor_table_protodef_event_5fmapping_2eproto,
+    false, false, 1359, descriptor_table_protodef_event_5fmapping_2eproto,
     "event_mapping.proto",
     &descriptor_table_event_5fmapping_2eproto_once, nullptr, 0, 2,
     schemas, file_default_instances, TableStruct_event_5fmapping_2eproto::offsets,
@@ -182,6 +229,36 @@ class EventMappingRule::_Internal {
   }
   static void set_has_proximity_violation(HasBits* has_bits) {
     (*has_bits)[0] |= 2u;
+  }
+  static void set_has_comovement_max_distance_meters(HasBits* has_bits) {
+    (*has_bits)[0] |= 4u;
+  }
+  static void set_has_comovement_max_offset_sd_meters(HasBits* has_bits) {
+    (*has_bits)[0] |= 8u;
+  }
+  static void set_has_comovement_window_ms(HasBits* has_bits) {
+    (*has_bits)[0] |= 16u;
+  }
+  static void set_has_comovement_min_samples(HasBits* has_bits) {
+    (*has_bits)[0] |= 32u;
+  }
+  static void set_has_comovement_min_span_ms(HasBits* has_bits) {
+    (*has_bits)[0] |= 2048u;
+  }
+  static void set_has_comovement_min_forklift_travel_meters(HasBits* has_bits) {
+    (*has_bits)[0] |= 64u;
+  }
+  static void set_has_comovement_min_box_containment(HasBits* has_bits) {
+    (*has_bits)[0] |= 128u;
+  }
+  static void set_has_comovement_enter_frames(HasBits* has_bits) {
+    (*has_bits)[0] |= 256u;
+  }
+  static void set_has_comovement_exit_frames(HasBits* has_bits) {
+    (*has_bits)[0] |= 512u;
+  }
+  static void set_has_comovement_latch_ms(HasBits* has_bits) {
+    (*has_bits)[0] |= 1024u;
   }
 };
 
@@ -212,7 +289,17 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     , decltype(_impl_.distance_threshold_meters_){}
     , decltype(_impl_.rule_id_prefix_match_){}
     , decltype(_impl_.proximity_violation_){}
-    , decltype(_impl_.scale_factor_){}};
+    , decltype(_impl_.scale_factor_){}
+    , decltype(_impl_.comovement_max_distance_meters_){}
+    , decltype(_impl_.comovement_max_offset_sd_meters_){}
+    , decltype(_impl_.comovement_window_ms_){}
+    , decltype(_impl_.comovement_min_samples_){}
+    , decltype(_impl_.comovement_min_forklift_travel_meters_){}
+    , decltype(_impl_.comovement_min_box_containment_){}
+    , decltype(_impl_.comovement_enter_frames_){}
+    , decltype(_impl_.comovement_exit_frames_){}
+    , decltype(_impl_.comovement_latch_ms_){}
+    , decltype(_impl_.comovement_min_span_ms_){}};
 
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   _impl_.name_.InitDefault();
@@ -220,7 +307,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.name_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_name().empty()) {
-    _this->_impl_.name_.Set(from._internal_name(),
+    _this->_impl_.name_.Set(from._internal_name(), 
       _this->GetArenaForAllocation());
   }
   _impl_.message_source_.InitDefault();
@@ -228,7 +315,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.message_source_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_message_source().empty()) {
-    _this->_impl_.message_source_.Set(from._internal_message_source(),
+    _this->_impl_.message_source_.Set(from._internal_message_source(), 
       _this->GetArenaForAllocation());
   }
   _impl_.alert_type_.InitDefault();
@@ -236,7 +323,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.alert_type_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_alert_type().empty()) {
-    _this->_impl_.alert_type_.Set(from._internal_alert_type(),
+    _this->_impl_.alert_type_.Set(from._internal_alert_type(), 
       _this->GetArenaForAllocation());
   }
   _impl_.event_type_.InitDefault();
@@ -244,7 +331,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.event_type_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_event_type().empty()) {
-    _this->_impl_.event_type_.Set(from._internal_event_type(),
+    _this->_impl_.event_type_.Set(from._internal_event_type(), 
       _this->GetArenaForAllocation());
   }
   _impl_.object_type_.InitDefault();
@@ -252,7 +339,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.object_type_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_object_type().empty()) {
-    _this->_impl_.object_type_.Set(from._internal_object_type(),
+    _this->_impl_.object_type_.Set(from._internal_object_type(), 
       _this->GetArenaForAllocation());
   }
   _impl_.rule_id_.InitDefault();
@@ -260,7 +347,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.rule_id_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_rule_id().empty()) {
-    _this->_impl_.rule_id_.Set(from._internal_rule_id(),
+    _this->_impl_.rule_id_.Set(from._internal_rule_id(), 
       _this->GetArenaForAllocation());
   }
   _impl_.restricted_area_violation_.InitDefault();
@@ -268,7 +355,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.restricted_area_violation_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_restricted_area_violation().empty()) {
-    _this->_impl_.restricted_area_violation_.Set(from._internal_restricted_area_violation(),
+    _this->_impl_.restricted_area_violation_.Set(from._internal_restricted_area_violation(), 
       _this->GetArenaForAllocation());
   }
   _impl_.confined_area_violation_.InitDefault();
@@ -276,7 +363,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.confined_area_violation_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_confined_area_violation().empty()) {
-    _this->_impl_.confined_area_violation_.Set(from._internal_confined_area_violation(),
+    _this->_impl_.confined_area_violation_.Set(from._internal_confined_area_violation(), 
       _this->GetArenaForAllocation());
   }
   _impl_.social_distancing_violation_.InitDefault();
@@ -284,7 +371,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.social_distancing_violation_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_social_distancing_violation().empty()) {
-    _this->_impl_.social_distancing_violation_.Set(from._internal_social_distancing_violation(),
+    _this->_impl_.social_distancing_violation_.Set(from._internal_social_distancing_violation(), 
       _this->GetArenaForAllocation());
   }
   _impl_.output_event_.InitDefault();
@@ -292,7 +379,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.output_event_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_output_event().empty()) {
-    _this->_impl_.output_event_.Set(from._internal_output_event(),
+    _this->_impl_.output_event_.Set(from._internal_output_event(), 
       _this->GetArenaForAllocation());
   }
   _impl_.object_type_secondary_.InitDefault();
@@ -300,7 +387,7 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.object_type_secondary_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_object_type_secondary().empty()) {
-    _this->_impl_.object_type_secondary_.Set(from._internal_object_type_secondary(),
+    _this->_impl_.object_type_secondary_.Set(from._internal_object_type_secondary(), 
       _this->GetArenaForAllocation());
   }
   _impl_.object_type_primary_.InitDefault();
@@ -308,12 +395,12 @@ EventMappingRule::EventMappingRule(const EventMappingRule& from)
     _impl_.object_type_primary_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
   if (!from._internal_object_type_primary().empty()) {
-    _this->_impl_.object_type_primary_.Set(from._internal_object_type_primary(),
+    _this->_impl_.object_type_primary_.Set(from._internal_object_type_primary(), 
       _this->GetArenaForAllocation());
   }
   ::memcpy(&_impl_.distance_threshold_meters_, &from._impl_.distance_threshold_meters_,
-    static_cast<size_t>(reinterpret_cast<char*>(&_impl_.scale_factor_) -
-    reinterpret_cast<char*>(&_impl_.distance_threshold_meters_)) + sizeof(_impl_.scale_factor_));
+    static_cast<size_t>(reinterpret_cast<char*>(&_impl_.comovement_min_span_ms_) -
+    reinterpret_cast<char*>(&_impl_.distance_threshold_meters_)) + sizeof(_impl_.comovement_min_span_ms_));
   // @@protoc_insertion_point(copy_constructor:mdx.client.config.EventMappingRule)
 }
 
@@ -340,6 +427,16 @@ inline void EventMappingRule::SharedCtor(
     , decltype(_impl_.rule_id_prefix_match_){false}
     , decltype(_impl_.proximity_violation_){false}
     , decltype(_impl_.scale_factor_){0}
+    , decltype(_impl_.comovement_max_distance_meters_){0}
+    , decltype(_impl_.comovement_max_offset_sd_meters_){0}
+    , decltype(_impl_.comovement_window_ms_){0}
+    , decltype(_impl_.comovement_min_samples_){0}
+    , decltype(_impl_.comovement_min_forklift_travel_meters_){0}
+    , decltype(_impl_.comovement_min_box_containment_){0}
+    , decltype(_impl_.comovement_enter_frames_){0}
+    , decltype(_impl_.comovement_exit_frames_){0}
+    , decltype(_impl_.comovement_latch_ms_){0}
+    , decltype(_impl_.comovement_min_span_ms_){0}
   };
   _impl_.name_.InitDefault();
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -442,6 +539,17 @@ void EventMappingRule::Clear() {
   _impl_.rule_id_prefix_match_ = false;
   _impl_.proximity_violation_ = false;
   _impl_.scale_factor_ = 0;
+  cached_has_bits = _impl_._has_bits_[0];
+  if (cached_has_bits & 0x000000fcu) {
+    ::memset(&_impl_.comovement_max_distance_meters_, 0, static_cast<size_t>(
+        reinterpret_cast<char*>(&_impl_.comovement_min_box_containment_) -
+        reinterpret_cast<char*>(&_impl_.comovement_max_distance_meters_)) + sizeof(_impl_.comovement_min_box_containment_));
+  }
+  if (cached_has_bits & 0x00000f00u) {
+    ::memset(&_impl_.comovement_enter_frames_, 0, static_cast<size_t>(
+        reinterpret_cast<char*>(&_impl_.comovement_min_span_ms_) -
+        reinterpret_cast<char*>(&_impl_.comovement_enter_frames_)) + sizeof(_impl_.comovement_min_span_ms_));
+  }
   _impl_._has_bits_.Clear();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
@@ -603,6 +711,96 @@ const char* EventMappingRule::_InternalParse(const char* ptr, ::_pbi::ParseConte
         if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 136)) {
           _Internal::set_has_proximity_violation(&has_bits);
           _impl_.proximity_violation_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint64(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional double comovement_max_distance_meters = 18;
+      case 18:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 145)) {
+          _Internal::set_has_comovement_max_distance_meters(&has_bits);
+          _impl_.comovement_max_distance_meters_ = ::PROTOBUF_NAMESPACE_ID::internal::UnalignedLoad<double>(ptr);
+          ptr += sizeof(double);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional double comovement_max_offset_sd_meters = 19;
+      case 19:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 153)) {
+          _Internal::set_has_comovement_max_offset_sd_meters(&has_bits);
+          _impl_.comovement_max_offset_sd_meters_ = ::PROTOBUF_NAMESPACE_ID::internal::UnalignedLoad<double>(ptr);
+          ptr += sizeof(double);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 comovement_window_ms = 20;
+      case 20:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 160)) {
+          _Internal::set_has_comovement_window_ms(&has_bits);
+          _impl_.comovement_window_ms_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 comovement_min_samples = 21;
+      case 21:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 168)) {
+          _Internal::set_has_comovement_min_samples(&has_bits);
+          _impl_.comovement_min_samples_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional double comovement_min_forklift_travel_meters = 22;
+      case 22:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 177)) {
+          _Internal::set_has_comovement_min_forklift_travel_meters(&has_bits);
+          _impl_.comovement_min_forklift_travel_meters_ = ::PROTOBUF_NAMESPACE_ID::internal::UnalignedLoad<double>(ptr);
+          ptr += sizeof(double);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional double comovement_min_box_containment = 23;
+      case 23:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 185)) {
+          _Internal::set_has_comovement_min_box_containment(&has_bits);
+          _impl_.comovement_min_box_containment_ = ::PROTOBUF_NAMESPACE_ID::internal::UnalignedLoad<double>(ptr);
+          ptr += sizeof(double);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 comovement_enter_frames = 24;
+      case 24:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 192)) {
+          _Internal::set_has_comovement_enter_frames(&has_bits);
+          _impl_.comovement_enter_frames_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 comovement_exit_frames = 25;
+      case 25:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 200)) {
+          _Internal::set_has_comovement_exit_frames(&has_bits);
+          _impl_.comovement_exit_frames_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 comovement_latch_ms = 26;
+      case 26:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 208)) {
+          _Internal::set_has_comovement_latch_ms(&has_bits);
+          _impl_.comovement_latch_ms_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 comovement_min_span_ms = 27;
+      case 27:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 216)) {
+          _Internal::set_has_comovement_min_span_ms(&has_bits);
+          _impl_.comovement_min_span_ms_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
           CHK_(ptr);
         } else
           goto handle_unusual;
@@ -781,6 +979,66 @@ uint8_t* EventMappingRule::_InternalSerialize(
     target = ::_pbi::WireFormatLite::WriteBoolToArray(17, this->_internal_proximity_violation(), target);
   }
 
+  // optional double comovement_max_distance_meters = 18;
+  if (_internal_has_comovement_max_distance_meters()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteDoubleToArray(18, this->_internal_comovement_max_distance_meters(), target);
+  }
+
+  // optional double comovement_max_offset_sd_meters = 19;
+  if (_internal_has_comovement_max_offset_sd_meters()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteDoubleToArray(19, this->_internal_comovement_max_offset_sd_meters(), target);
+  }
+
+  // optional int32 comovement_window_ms = 20;
+  if (_internal_has_comovement_window_ms()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteInt32ToArray(20, this->_internal_comovement_window_ms(), target);
+  }
+
+  // optional int32 comovement_min_samples = 21;
+  if (_internal_has_comovement_min_samples()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteInt32ToArray(21, this->_internal_comovement_min_samples(), target);
+  }
+
+  // optional double comovement_min_forklift_travel_meters = 22;
+  if (_internal_has_comovement_min_forklift_travel_meters()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteDoubleToArray(22, this->_internal_comovement_min_forklift_travel_meters(), target);
+  }
+
+  // optional double comovement_min_box_containment = 23;
+  if (_internal_has_comovement_min_box_containment()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteDoubleToArray(23, this->_internal_comovement_min_box_containment(), target);
+  }
+
+  // optional int32 comovement_enter_frames = 24;
+  if (_internal_has_comovement_enter_frames()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteInt32ToArray(24, this->_internal_comovement_enter_frames(), target);
+  }
+
+  // optional int32 comovement_exit_frames = 25;
+  if (_internal_has_comovement_exit_frames()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteInt32ToArray(25, this->_internal_comovement_exit_frames(), target);
+  }
+
+  // optional int32 comovement_latch_ms = 26;
+  if (_internal_has_comovement_latch_ms()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteInt32ToArray(26, this->_internal_comovement_latch_ms(), target);
+  }
+
+  // optional int32 comovement_min_span_ms = 27;
+  if (_internal_has_comovement_min_span_ms()) {
+    target = stream->EnsureSpace(target);
+    target = ::_pbi::WireFormatLite::WriteInt32ToArray(27, this->_internal_comovement_min_span_ms(), target);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -904,6 +1162,72 @@ size_t EventMappingRule::ByteSizeLong() const {
         this->_internal_scale_factor());
   }
 
+  if (cached_has_bits & 0x000000fcu) {
+    // optional double comovement_max_distance_meters = 18;
+    if (cached_has_bits & 0x00000004u) {
+      total_size += 2 + 8;
+    }
+
+    // optional double comovement_max_offset_sd_meters = 19;
+    if (cached_has_bits & 0x00000008u) {
+      total_size += 2 + 8;
+    }
+
+    // optional int32 comovement_window_ms = 20;
+    if (cached_has_bits & 0x00000010u) {
+      total_size += 2 +
+        ::_pbi::WireFormatLite::Int32Size(
+          this->_internal_comovement_window_ms());
+    }
+
+    // optional int32 comovement_min_samples = 21;
+    if (cached_has_bits & 0x00000020u) {
+      total_size += 2 +
+        ::_pbi::WireFormatLite::Int32Size(
+          this->_internal_comovement_min_samples());
+    }
+
+    // optional double comovement_min_forklift_travel_meters = 22;
+    if (cached_has_bits & 0x00000040u) {
+      total_size += 2 + 8;
+    }
+
+    // optional double comovement_min_box_containment = 23;
+    if (cached_has_bits & 0x00000080u) {
+      total_size += 2 + 8;
+    }
+
+  }
+  if (cached_has_bits & 0x00000f00u) {
+    // optional int32 comovement_enter_frames = 24;
+    if (cached_has_bits & 0x00000100u) {
+      total_size += 2 +
+        ::_pbi::WireFormatLite::Int32Size(
+          this->_internal_comovement_enter_frames());
+    }
+
+    // optional int32 comovement_exit_frames = 25;
+    if (cached_has_bits & 0x00000200u) {
+      total_size += 2 +
+        ::_pbi::WireFormatLite::Int32Size(
+          this->_internal_comovement_exit_frames());
+    }
+
+    // optional int32 comovement_latch_ms = 26;
+    if (cached_has_bits & 0x00000400u) {
+      total_size += 2 +
+        ::_pbi::WireFormatLite::Int32Size(
+          this->_internal_comovement_latch_ms());
+    }
+
+    // optional int32 comovement_min_span_ms = 27;
+    if (cached_has_bits & 0x00000800u) {
+      total_size += 2 +
+        ::_pbi::WireFormatLite::Int32Size(
+          this->_internal_comovement_min_span_ms());
+    }
+
+  }
   return MaybeComputeUnknownFieldsSize(total_size, &_impl_._cached_size_);
 }
 
@@ -969,6 +1293,43 @@ void EventMappingRule::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const
   }
   if (from._internal_scale_factor() != 0) {
     _this->_internal_set_scale_factor(from._internal_scale_factor());
+  }
+  cached_has_bits = from._impl_._has_bits_[0];
+  if (cached_has_bits & 0x000000fcu) {
+    if (cached_has_bits & 0x00000004u) {
+      _this->_impl_.comovement_max_distance_meters_ = from._impl_.comovement_max_distance_meters_;
+    }
+    if (cached_has_bits & 0x00000008u) {
+      _this->_impl_.comovement_max_offset_sd_meters_ = from._impl_.comovement_max_offset_sd_meters_;
+    }
+    if (cached_has_bits & 0x00000010u) {
+      _this->_impl_.comovement_window_ms_ = from._impl_.comovement_window_ms_;
+    }
+    if (cached_has_bits & 0x00000020u) {
+      _this->_impl_.comovement_min_samples_ = from._impl_.comovement_min_samples_;
+    }
+    if (cached_has_bits & 0x00000040u) {
+      _this->_impl_.comovement_min_forklift_travel_meters_ = from._impl_.comovement_min_forklift_travel_meters_;
+    }
+    if (cached_has_bits & 0x00000080u) {
+      _this->_impl_.comovement_min_box_containment_ = from._impl_.comovement_min_box_containment_;
+    }
+    _this->_impl_._has_bits_[0] |= cached_has_bits;
+  }
+  if (cached_has_bits & 0x00000f00u) {
+    if (cached_has_bits & 0x00000100u) {
+      _this->_impl_.comovement_enter_frames_ = from._impl_.comovement_enter_frames_;
+    }
+    if (cached_has_bits & 0x00000200u) {
+      _this->_impl_.comovement_exit_frames_ = from._impl_.comovement_exit_frames_;
+    }
+    if (cached_has_bits & 0x00000400u) {
+      _this->_impl_.comovement_latch_ms_ = from._impl_.comovement_latch_ms_;
+    }
+    if (cached_has_bits & 0x00000800u) {
+      _this->_impl_.comovement_min_span_ms_ = from._impl_.comovement_min_span_ms_;
+    }
+    _this->_impl_._has_bits_[0] |= cached_has_bits;
   }
   _this->_internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
@@ -1039,8 +1400,8 @@ void EventMappingRule::InternalSwap(EventMappingRule* other) {
       &other->_impl_.object_type_primary_, rhs_arena
   );
   ::PROTOBUF_NAMESPACE_ID::internal::memswap<
-      PROTOBUF_FIELD_OFFSET(EventMappingRule, _impl_.scale_factor_)
-      + sizeof(EventMappingRule::_impl_.scale_factor_)
+      PROTOBUF_FIELD_OFFSET(EventMappingRule, _impl_.comovement_min_span_ms_)
+      + sizeof(EventMappingRule::_impl_.comovement_min_span_ms_)
       - PROTOBUF_FIELD_OFFSET(EventMappingRule, _impl_.distance_threshold_meters_)>(
           reinterpret_cast<char*>(&_impl_.distance_threshold_meters_),
           reinterpret_cast<char*>(&other->_impl_.distance_threshold_meters_));

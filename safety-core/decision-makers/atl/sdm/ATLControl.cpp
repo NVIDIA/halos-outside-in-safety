@@ -27,10 +27,13 @@
 #include <cstdint>
 
 #include "ATLControl.h"
+#include "atl_sdm_config.h"
 #include <NvPSDGatewayProtocol.h>
+#include "nvpsf_transport.h"
 #include "pss_message_validate.h"
 #include "sdm_decision_request_state.h"
 #include "sdm_decision_freshness.hpp"
+#include "sdm_reviewed_sensor_set.hpp"
 #include "sdm_gateway_decision_sequence.hpp"
 #include "atl_fault_report.h"
 
@@ -38,13 +41,41 @@
 static std::mutex atlLogMtx;
 static FILE* atlLogFile = nullptr;
 
+/* Relative by default, so the launcher's working directory decides where it
+ * lands (/var/log/psf under launch_psf.sh). Set once by atlSetLogFile() before
+ * any control thread exists, and read only under atlLogMtx afterwards. */
+static std::string atlLogPath = "atl_sdm.log";
+static bool atlLogPathFrozen = false;  /* Protected by atlLogMtx. */
+
+bool atlSetLogFile(const std::string& path)
+{
+    if (path.empty())
+        return false;
+
+    std::lock_guard<std::mutex> lock(atlLogMtx);
+    if (atlLogPathFrozen)
+        return false;
+    atlLogPath = path;
+    return true;
+}
+
 static void atl_log_open(void)
 {
     std::lock_guard<std::mutex> lock(atlLogMtx);
+    /* Freeze even if fopen fails: console-only logging is still runtime. */
+    atlLogPathFrozen = true;
     if (!atlLogFile) {
-        atlLogFile = fopen("atl_sdm.log", "a");
-        if (atlLogFile)
+        atlLogFile = fopen(atlLogPath.c_str(), "a");
+        if (atlLogFile) {
             setvbuf(atlLogFile, nullptr, _IOLBF, 0);
+        } else {
+            /* Not fatal -- the console stream still carries every line. Said out
+             * loud because the operator now chooses this path, and a silently
+             * unopened file is exactly the case where two instances' evidence
+             * ends up indistinguishable. */
+            fprintf(stderr, "[ATL][ERR] cannot open log file '%s' (%s); logging to console only\n",
+                    atlLogPath.c_str(), strerror(errno));
+        }
     }
 }
 
@@ -92,24 +123,31 @@ static void atl_log_err(const std::string& msg)     { atl_log("ERR", msg.c_str()
 #define ACK_MONITOR_INTERVAL_S 1
 #define ACK_RECEIVER_SLEEP_MS  100
 #define MAIN_LOOP_POLL_TIMEOUT_MS 50
-/* After HB ACK send returns EAGAIN/EWOULDBLOCK, poll(POLLOUT) before next main POLLIN wait (reduces latency vs deferring to next loop). */
-#define HB_ACK_POLL_TIMEOUT_MS    10
-#define HB_ACK_POLL_MAX_POLLS     32
 
 // Tripwire = trailer entry line. TW OUT = entry into trailer, TW IN = exit from trailer.
-// event_mapping_atl.pb.txt: EVENT_0=forklift TW OUT, EVENT_1=forklift TW IN,
+// Default event_mapping_atl.pb.txt binding: EVENT_0=forklift TW OUT, EVENT_1=forklift TW IN,
 // EVENT_2=person TW OUT, EVENT_3=person TW IN, EVENT_4=person restricted ROI violation,
-// EVENT_5=person restricted ROI violation cleared
+// EVENT_5=person restricted ROI violation cleared. --config rebinds these at
+// startup, which is what lets a second ATL SDM cover a different zone of the
+// same site from the same binary.
 
 /* Heartbeat / registration (NvPSDGatewayProtocol.h) */
 /* Re-register with gateway periodically so we recover after gateway restart (in-memory state lost). */
 static constexpr int REG_RETRY_INTERVAL_MS = 30000;
-/* Non-blocking UDP: retry REGR with poll(POLLOUT) when send returns EAGAIN/EWOULDBLOCK. */
+/*
+ * REGR retry budget when the caller asks for it (launch and reconnect).
+ * The transport send is non-blocking, so WOULD_BLOCK means the peer buffer is
+ * momentarily full rather than that anything is wrong; a short sleep between
+ * attempts is the whole of the back-off this needs. The poll(POLLOUT) ladder
+ * this replaces existed because the raw socket gave no other way to wait.
+ */
 static constexpr int REGR_SEND_MAX_ATTEMPTS = 32;
-static constexpr int REGR_SEND_EINTR_MAX_RETRIES = 32;
-static constexpr int REGR_SEND_POLL_TIMEOUT_MS = 5;
-/* Max poll timeouts (or spurious wakeups) per outer send attempt; avoids infinite inner loop on launch. */
-static constexpr int REGR_POLL_MAX_POLLS_PER_ATTEMPT = 64;
+static constexpr int REGR_SEND_RETRY_SLEEP_MS = 5;
+/*
+ * Reconnect cadence for the upstream link. Fixed, not
+ * exponential, and matched to the PSS -> PSD link.
+ */
+static constexpr int GW_RECONNECT_INTERVAL_MS = 500;
 static constexpr int SAFE_RELEASE_MIN_INTERVAL_MS = 1000;
 
 /* launchATLControlAlgo decisionRepeatIntervalMs: 0 = periodic repeat off; when non-zero, inclusive
@@ -119,41 +157,132 @@ static constexpr std::uint32_t kDecisionRepeatIntervalMsMax       = 36000U;
 static constexpr std::uint32_t kHbTimingMsMin                     = 100U;
 static constexpr std::uint32_t kHbTimingMsMax                     = 600000U;
 
-/* Event types this SDM subscribes to (must match onEventNotificationReceive); gateway filters by REGR. */
-static constexpr EventType ATL_SUBSCRIBED_EVENTS[] = {
-    EVENT_0, EVENT_1, EVENT_2, EVENT_3, EVENT_4, EVENT_5, SW_FAIL
-};
-static constexpr uint8_t ATL_SUBSCRIBED_COUNT =
-    sizeof(ATL_SUBSCRIBED_EVENTS) / sizeof(ATL_SUBSCRIBED_EVENTS[0]);
+/* The six situations this SDM reacts to, and the event code carrying each.
+ *
+ * A generic EVENT_n has no meaning of its own: it means whatever the
+ * deployment's mdx-client event map assigns to it. The values below are only
+ * the historic single-deployment convention, and each is independent of the
+ * others -- there is no requirement that they be contiguous, ordered, or start
+ * at EVENT_0. --config rebinds them to match the output_event codes the event
+ * map actually emits, which is what lets two ATL SDMs cover two zones of one
+ * site: each subscribes to its own codes, and the gateway's REGR filter keeps
+ * the other zone's events away from it.
+ *
+ * The configuration file is the only source; there is no command-line
+ * override. These fields are filled positionally from AtlSdmConfig::events, so
+ * this declaration order must stay in step with kEventKeys in
+ * atl_sdm_config.cpp: reordering the fields silently rebinds every situation.
+ *
+ * Startup-only and immutable: written by atlSetSubscribedEvents() before any
+ * control thread exists, read by the listener thread afterwards.
+ *
+ * Initialised to EVENT_UNKNOWN, which no event map can emit, so this is a
+ * placeholder and NOT a default: launchATLControlAlgo refuses to run until
+ * atlSetSubscribedEvents has replaced it. Leaving a real code here is the
+ * defect this guards -- a second ATL SDM launched without a configuration
+ * would register for the first one's codes and emit decisions about the first
+ * one's trailer on its own PLC port. */
+static struct {
+    EventType forkliftEntered;  /* forklift tripwire OUT */
+    EventType forkliftExited;   /* forklift tripwire IN  */
+    EventType personEntered;    /* person tripwire OUT   */
+    EventType personExited;     /* person tripwire IN    */
+    EventType roiViolation;     /* a person is in the restricted area */
+    EventType roiCleared;       /* that violation cleared             */
+} atlEvent = { EVENT_UNKNOWN, EVENT_UNKNOWN, EVENT_UNKNOWN,
+               EVENT_UNKNOWN, EVENT_UNKNOWN, EVENT_UNKNOWN };
 
-struct SafetyRelevantSensor {
-    uint8_t pipelineId;
-    const char* sensorName;
-};
+/* What supplied the binding above, for the startup log -- always "--config"
+ * for atl_sdm. Empty until it is set, which is also how launchATLControlAlgo
+ * tells "never set" from "set". */
+static std::string atlEventSource;
+static std::mutex atlBindingMtx;
+static bool atlBindingFrozen = false;
 
-/* Reviewed sensor set from pkg/sensor_config.conf. Gateway auto-subscribes
- * SENSOR_INVALID/SENSOR_VALID; ATL uses pipelineID as the safety key. */
-static constexpr SafetyRelevantSensor kSafetyRelevantSensors[] = {
-    {1U, "Camera"},
-    {2U, "Camera_01"},
-    {3U, "Camera_02"},
-};
-static constexpr uint32_t kSafetyRelevantSensorMask =
-    (1U << (kSafetyRelevantSensors[0].pipelineId - 1U)) |
-    (1U << (kSafetyRelevantSensors[1].pipelineId - 1U)) |
-    (1U << (kSafetyRelevantSensors[2].pipelineId - 1U));
-static_assert(kSafetyRelevantSensors[0].pipelineId >= 1U &&
-              kSafetyRelevantSensors[1].pipelineId >= 1U &&
-              kSafetyRelevantSensors[2].pipelineId >= 1U,
-              "Pipeline IDs are one-based");
-static_assert(kSafetyRelevantSensors[0].pipelineId <= 8U &&
-              kSafetyRelevantSensors[1].pipelineId <= 8U &&
-              kSafetyRelevantSensors[2].pipelineId <= 8U,
-              "Pipeline IDs must stay within sensor_config bounds");
-static_assert(kSafetyRelevantSensors[0].pipelineId != kSafetyRelevantSensors[1].pipelineId &&
-              kSafetyRelevantSensors[0].pipelineId != kSafetyRelevantSensors[2].pipelineId &&
-              kSafetyRelevantSensors[1].pipelineId != kSafetyRelevantSensors[2].pipelineId,
-              "Pipeline IDs must be unique");
+/* The REGR list: the six situations plus SW_FAIL, which is always subscribed
+ * and handled as a fault rather than as a situation. */
+static constexpr uint8_t ATL_SUBSCRIBED_COUNT = ATL_EVENT_COUNT + 1U;
+/* The REGR payload carries the count in a single byte. */
+static_assert(ATL_SUBSCRIBED_COUNT <= 255U,
+              "ATL subscription list must fit the REGR count byte");
+
+static void atlSubscribedEvents(EventType out[ATL_SUBSCRIBED_COUNT])
+{
+    out[0] = atlEvent.forkliftEntered;
+    out[1] = atlEvent.forkliftExited;
+    out[2] = atlEvent.personEntered;
+    out[3] = atlEvent.personExited;
+    out[4] = atlEvent.roiViolation;
+    out[5] = atlEvent.roiCleared;
+    out[6] = SW_FAIL;
+}
+static_assert(ATL_SUBSCRIBED_COUNT == 7U, "atlSubscribedEvents fills every slot");
+
+bool atlSetSubscribedEvents(const EventType* events, std::size_t count,
+                            const char* source)
+{
+    std::lock_guard<std::mutex> lock(atlBindingMtx);
+    if (atlBindingFrozen)
+        return false;
+
+    if (events == nullptr || count != ATL_EVENT_COUNT
+        || source == nullptr || source[0] == '\0')
+        return false;
+
+    /* Two situations sharing a code would make the dispatch order decide which
+     * one an event means, so reject rather than silently prefer one. */
+    for (std::size_t i = 0U; i < count; ++i)
+    {
+        /* Public callers may bypass the config parser. Faults and health
+         * reports must never be bound to physical ATL situations. */
+        if (events[i] < EVENT_0 || events[i] > EVENT_23)
+            return false;
+        for (std::size_t j = i + 1U; j < count; ++j)
+        {
+            if (events[i] == events[j])
+                return false;
+        }
+    }
+
+    atlEvent.forkliftEntered = events[0];
+    atlEvent.forkliftExited  = events[1];
+    atlEvent.personEntered   = events[2];
+    atlEvent.personExited    = events[3];
+    atlEvent.roiViolation    = events[4];
+    atlEvent.roiCleared      = events[5];
+    atlEventSource           = source;
+    return true;
+}
+
+/* Record which code carries each situation. When several ATL SDMs share a
+ * gateway this is the only thing telling their logs apart, and it is otherwise
+ * visible only on the command line that
+ * started them. */
+static void atlLogStartupBindings()
+{
+    atl_log_info("ATL: events (from " + atlEventSource + ")" +
+                 " forklift-entered=" + atlEventTypeName(atlEvent.forkliftEntered) +
+                 " forklift-exited="  + atlEventTypeName(atlEvent.forkliftExited) +
+                 " person-entered="   + atlEventTypeName(atlEvent.personEntered) +
+                 " person-exited="    + atlEventTypeName(atlEvent.personExited) +
+                 " roi-violation="    + atlEventTypeName(atlEvent.roiViolation) +
+                 " roi-cleared="      + atlEventTypeName(atlEvent.roiCleared));
+
+}
+/*
+ * Reviewed sensor set, loaded from sensor_pipelines_config.conf at startup.
+ *
+ * Written once in launchATLControlAlgo before any thread or socket exists, then
+ * read-only for the life of the process. That ordering is what makes an
+ * unsynchronised read safe here: there is no reader until after the write, and
+ * there is never a second write. Gateway auto-subscribes
+ * SENSOR_INVALID/SENSOR_VALID; ATL uses pipelineID as the safety key.
+ */
+static ReviewedSensorSet gReviewedSensors{};
+/* Bitmask of pipelineIds already reported as absent from the reviewed set, so
+ * each one is logged exactly once. Touched only from the event path, which is
+ * the single decision thread. */
+static uint32_t          gUnreviewedSensorWarned = 0U;
 
 /* PLC command socket */
 static int                   plcSock    = -1;
@@ -182,10 +311,13 @@ static std::map<uint16_t, CommandStatus> pendingCommands;
 static std::mutex commandStatusMtx;
 
 // ATL-specific state (tripwire = trailer entry line; TW OUT = entry, TW IN = exit)
-static bool forkliftInTrailer = false;              // EVENT_0: entered trailer; EVENT_1: exited
-static int personsInTrailerCount = 0;                // EVENT_2: person entered (+); EVENT_3: person exited (-)
-static constexpr int PERSONS_IN_TRAILER_MAX = 10000;  // cap to avoid overflow from EVENT_2/3 skew
-static bool restrictedAreaViolationByPerson = false;   // EVENT_4 set; EVENT_5 clear
+/* Physical state. The comments name the SITUATION, not an event code: which
+ * code carries each situation is chosen at startup (see atlEvent above), so
+ * naming EVENT_0 here would be wrong for any instance that was configured. */
+static bool forkliftInTrailer = false;              // forkliftEntered sets; forkliftExited clears
+static int personsInTrailerCount = 0;                // personEntered (+); personExited (-)
+static constexpr int PERSONS_IN_TRAILER_MAX = 10000;  // cap to avoid overflow from entered/exited skew
+static bool restrictedAreaViolationByPerson = false;   // roiViolation sets; roiCleared clears
 // Master mutex for atomic state reading
 static std::mutex masterStateMtx;
 static ObjectRecord lastForkliftRecord = {};
@@ -221,10 +353,34 @@ static std::atomic<std::uint32_t> g_decisionRepeatIntervalMs{5000U};
 /* SIGINT/SIGTERM latch: only `volatile sig_atomic_t` assignment in handler (POSIX async-signal-safe). */
 static volatile sig_atomic_t g_signal_received = 0;
 
-/* PSD Gateway UDP socket: bind ephemeral, send REGR to gateway, recv DecisionRequests + HB */
-static int psdGatewayListenSock = -1;
+/*
+ * PSD Gateway upstream endpoint. Send REGR to the gateway, receive
+ * filtered DecisionRequests and heartbeats.
+ *
+ * Was a raw AF_INET SOCK_DGRAM descriptor with a connect() applied purely to
+ * get peer filtering on the receive path. It is now an NvPSFTransport in the
+ * client role, which gives the same filtering plus the SO_PEERCRED check
+ * requires on the UNIX_SOCKET path -- a client must validate the accepting
+ * process before trusting envelopes, so that a rogue process cannot pre-bind
+ * the gateway socket path and impersonate it.
+ *
+ * gwPeer is the transport's identity for the gateway, not a descriptor. It
+ * carries a generation counter, so an identity naming a slot that has since
+ * been recycled is detected rather than acted on.
+ */
+static NvPSFTransport* gwTransport = nullptr;
+static NvPSFPeerId     gwPeer      = NVPSF_PEER_INVALID;
 static std::mutex gwSockMtx;
-static struct sockaddr_in gatewayAddr = {};
+
+/*
+ * Endpoint configuration, retained for reconnect. openGatewayTransport() is
+ * called again on every reconnect attempt, so the parameters have to outlive
+ * launchATLControlAlgo's arguments rather than being consumed once.
+ */
+static NvPSFTransportKind gwTransportKind = NVPSF_TRANSPORT_UNIX_SOCKET;
+static std::string        gwSocketPath;
+static std::string        gwInetAddr;
+static std::uint16_t      gwInetPort = 0;
 /* HB ACK: one non-blocking send per HB; if EAGAIN, flushPendingHbAck() retries each loop (no inline poll). */
 static bool                     hbAckPending = false;
 static char                     hbAckPendingBuf[NVPSD_GATEWAY_HB_MSG_SIZE];
@@ -244,17 +400,99 @@ static std::atomic<std::uint32_t>            g_hbPeriodMs{5500U};
 static std::atomic<bool>                     hbFaultLatched{false};
 /* PSS ERROR/SW_FAIL active flag. The safe-state latch clears only on PLC safe-release. */
 static std::atomic<bool>                     pssErrorFusionSuppressLatched{false};
-static std::atomic<bool>                     pssFaultActive{false};
+/*
+ * PSS fault, split by cause.
+ *
+ * One bucket could not express "this evidence recovered" -- every PSS cause
+ * cleared on the same predicate, so a recovered PSS delivery link and a real
+ * SW_FAIL were indistinguishable and a quiet site could stay release-denied
+ * indefinitely. Every sub-cause still raises the single kSafeLatchPss bit; what
+ * differs is what CLEARS each one.
+ *
+ * MODE_ERROR     pssStatus.mode == ERROR (PSS delivery failure or SAIM heartbeat
+ *                failure). Cleared by any request carrying mode != ERROR,
+ *                INCLUDING a status/no-op.
+ * GATEWAY_COMM   a SW_FAIL the gateway synthesised about its own PSS link.
+ *                Cleared by the gateway's recovery record, or by ordinary
+ *                qualifying traffic as a floor.
+ * SW_FAIL        every other SW_FAIL, including one whose cause this build does
+ *                not recognise. Cleared only by the historical predicate.
+ * MONITOR_LOST / PERCEPTION_MONITOR_LOST / MDX_LOST
+ *                that monitor, or a numbered MDX client instance, stopped being
+ *                registered, however it happened.
+ *                Cleared ONLY by PSS's presence report naming it; also raised by a
+ *                report that no longer names one seen before.
+ * INPUT_UNUSABLE PSS is rejecting a required source's reports (cause 13).
+ *                Cleared ONLY when PSS's report shows that same source confirmed
+ *                usable again (SdmSourceInputStateEvaluate); other sources'
+ *                traffic clears nothing.
+ */
+enum PssSubCause
+{
+    kPssSubModeError = 0,
+    kPssSubGatewayComm,
+    kPssSubSwFail,
+    kPssSubMonitorLost,   /* the Safety Monitor was lost */
+    kPssSubPerceptionMonitorLost, /* the Perception Monitor was lost */
+    kPssSubMdxLost,       /* a numbered MDX client instance was lost */
+    kPssSubInputUnusable, /* a source's reports are being rejected */
+    kPssSubCauseCount
+};
+static std::atomic<bool>                     pssSubCauseActive[kPssSubCauseCount]{};
+static const char* const                     kPssSubCauseName[kPssSubCauseCount] = {
+    "pss_mode_error", "gateway_comm", "sw_fail", "safety_monitor_lost",
+    "perception_monitor_lost", "mdx_client_lost", "input_unusable"
+};
+/* The monitor-lost sub-causes are applied through SdmSourcePresenceEvaluate(),
+ * shared by every SDM, which speaks SDM_PSS_SUB_* bits. */
+static_assert((1U << kPssSubMonitorLost) == SDM_PSS_SUB_MONITOR_LOST,
+              "kPssSubMonitorLost must match SDM_PSS_SUB_MONITOR_LOST");
+static_assert((1U << kPssSubPerceptionMonitorLost) == SDM_PSS_SUB_PM_LOST,
+              "kPssSubPerceptionMonitorLost must match SDM_PSS_SUB_PM_LOST");
+static_assert((1U << kPssSubMdxLost) == SDM_PSS_SUB_MDX_LOST,
+              "kPssSubMdxLost must match SDM_PSS_SUB_MDX_LOST");
+/* Every SW_FAIL is classified by SdmSwFailSubCause(), which speaks the same bits. */
+static_assert((1U << kPssSubModeError) == SDM_PSS_SUB_MODE_ERROR &&
+              (1U << kPssSubGatewayComm) == SDM_PSS_SUB_GATEWAY_COMM &&
+              (1U << kPssSubSwFail) == SDM_PSS_SUB_SW_FAIL &&
+              (1U << kPssSubInputUnusable) == SDM_PSS_SUB_INPUT_UNUSABLE,
+              "PssSubCause indices must match the SDM_PSS_SUB_* bits");
+
+/*
+ * Serializes a PLC release with the processing of a whole DecisionRequest.
+ *
+ * One request can clear some causes and raise others -- PSS leaving ERROR while
+ * the same request carries a SW_FAIL, say. Each step takes its own lock, so a
+ * release landing between the clear and the raise would see no active cause and
+ * be accepted, in a state that never existed upstream. Held by the gateway
+ * listener for each whole packet -- the sequence and freshness clears that
+ * precede the request as much as the request itself -- and taken first by
+ * handleSafeReleaseRequest(), it makes the release see the packet either not at
+ * all or completely, as if both were handled in one task.
+ *
+ * Lock order: faultTransitionMtx -> decisionEvalSendMtx -> safeStateLatchMtx. No
+ * other thread takes it.
+ */
+static std::mutex                            faultTransitionMtx;
 static constexpr uint32_t                    kSafeLatchGatewayHb = 1U << 0;
 static constexpr uint32_t                    kSafeLatchPss       = 1U << 1;
 static constexpr uint32_t                    kSafeLatchCountDrift = 1U << 2;
 static constexpr uint32_t                    kSafeLatchDecisionFreshness = 1U << 3;
 static constexpr uint32_t                    kSafeLatchGatewayDecisionSequence = 1U << 4;
 static constexpr uint32_t                    kSafeLatchAllSafetyRelevantSensorsFailed = 1U << 5;
+/* AI-pipeline distrust is a SAFE-STATE CAUSE, not merely an input filter.
+ * PSS reports it pipeline-wide (one Perception Monitor verdict for the whole perception
+ * pipeline), and while it holds, nothing arriving from any MDX client can be
+ * trusted to describe the physical world. Continuing to drive the PLC from the
+ * last decision would keep the machine running on evidence known to be bad, so
+ * the SDM latches instead. Release is gated on the ACTIVE flag below, which
+ * only AI_PIPELINE_VALID clears. */
+static constexpr uint32_t                    kSafeLatchAiPipelineInvalid = 1U << 6;
 static std::atomic<uint32_t>                 safeStateLatchCauses{0U};
 static std::mutex                            safeStateLatchMtx;
 static std::atomic<uint32_t>                 failedSafetyRelevantSensorMask{0U};
 static std::atomic<bool>                     allSafetyRelevantSensorsFailedActive{false};
+static std::atomic<bool>                     aiPipelineInvalidActive{false};
 
 /* AVOID_SAFETY_LATCH_FOR_SAIM_INIT (compile-time; ON by default on this build).
  * When enabled, a SENSOR_INVALID whose cause is SAIM's pre-first-frame SAIM_INIT
@@ -270,8 +508,19 @@ static std::atomic<bool>                     allSafetyRelevantSensorsFailedActiv
 #define AVOID_SAFETY_LATCH_FOR_SAIM_INIT 1
 #endif
 #if AVOID_SAFETY_LATCH_FOR_SAIM_INIT
-/* SAIM pre-first-frame seed cause (sai/include/sai_common.h SAIM_INIT). */
-static constexpr char kSaimInitCause[] = "SAIM_INIT";
+/* SAIM pre-first-frame seed cause. Compared as an enum, not a string: a
+ * truncated or non-terminated buffer can no longer be mistaken for this value,
+ * and the comparison is identical in every SDM. */
+static constexpr EventCause kSaimInitCause = CAUSE_SAIM_INIT;
+/* Pipelines whose SAIM_INIT seed has not been resolved by a SENSOR_VALID yet.
+ * PSS folds SENSOR_INVALID into its trust state WITHOUT keeping the cause
+ * (SafetyEventManager::OnTrustReport), then stamps the result onto ordinary
+ * perception events as isHealthy=false. Those entries carry their own cause,
+ * CAUSE_NONE, so the kSaimInitCause test below cannot recognise them and the
+ * seed latches through that second path even though the first suppresses it.
+ * The seed is a sustained condition rather than one event, so the pending
+ * state is held per pipeline until SAIM reports the sensor valid. */
+static std::atomic<uint32_t> saimInitPendingSensorMask{0U};
 #endif
 static std::atomic<int>                      regrTier2AttemptsRemaining{0};
 static std::atomic<uint32_t>                 g_lastGatewayHbMissCount{0U};
@@ -307,29 +556,48 @@ static bool safeStateLatched()
 
 static void sendLatchedSafeHold();
 
-static void markPssFaultActive()
+static bool pssAnySubCauseActive()
+{
+    for (int i = 0; i < kPssSubCauseCount; ++i)
+    {
+        if (pssSubCauseActive[i].load(std::memory_order_acquire))
+            return true;
+    }
+    return false;
+}
+
+static void markPssSubCause(PssSubCause cause)
 {
     std::lock_guard<std::mutex> lock(safeStateLatchMtx);
-    pssFaultActive.store(true, std::memory_order_release);
+    pssSubCauseActive[cause].store(true, std::memory_order_release);
     pssErrorFusionSuppressLatched.store(true, std::memory_order_release);
     safeStateLatchCauses.fetch_or(kSafeLatchPss, std::memory_order_acq_rel);
 }
 
-static void clearPssFaultActive()
+/* Clears an ACTIVE sub-cause. The latch is untouched: a cause going away is not
+ * consent to resume, so a validated PLC safe-release is still required. Output
+ * suppression lifts only once EVERY sub-cause is clear. */
+static void clearPssSubCause(PssSubCause cause)
 {
     std::lock_guard<std::mutex> lock(safeStateLatchMtx);
-    pssFaultActive.store(false, std::memory_order_release);
-    pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
+    if (!pssSubCauseActive[cause].exchange(false, std::memory_order_acq_rel))
+        return;
+
+    if (!pssAnySubCauseActive())
+        pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
+
+    atl_log_info(std::string("ATL: PSS sub-cause cleared: ") + kPssSubCauseName[cause] +
+                 "; latch awaits PLC release");
 }
 
 static uint32_t safetyRelevantSensorBit(uint32_t pipelineId)
 {
-    if (pipelineId == 0U || pipelineId > 31U)
+    if (pipelineId == 0U || pipelineId > kReviewedSensorMaxPipelineId)
         return 0U;
 
-    for (const SafetyRelevantSensor& sensor : kSafetyRelevantSensors)
+    for (size_t i = 0U; i < gReviewedSensors.entries.count; ++i)
     {
-        if (pipelineId == static_cast<uint32_t>(sensor.pipelineId))
+        if (pipelineId == static_cast<uint32_t>(gReviewedSensors.entries.entries[i].pipelineId))
             return 1U << (pipelineId - 1U);
     }
     return 0U;
@@ -351,7 +619,7 @@ static bool markAllSafetyRelevantSensorsFailedLatched()
 
 static void clearAllSafetyRelevantSensorsFailedActiveIfRecovered(uint32_t failedMask)
 {
-    if ((failedMask & kSafetyRelevantSensorMask) == kSafetyRelevantSensorMask)
+    if ((failedMask & gReviewedSensors.mask) == gReviewedSensors.mask)
         return;
 
     if (allSafetyRelevantSensorsFailedActive.exchange(false, std::memory_order_acq_rel))
@@ -391,7 +659,32 @@ static bool updateSensorHealthFromDecisionRequest(const DecisionRequest* request
             static_cast<uint32_t>(sd.event.fusionMetadata.pipelineID);
         const uint32_t bit = safetyRelevantSensorBit(pipelineId);
         if (bit == 0U)
+        {
+            /* Not in the reviewed set, so this event cannot move the latch.
+             *
+             * Stated, not warned about. This is ROUTINE in 3D: the daemon
+             * forwards each camera's own SENSOR_INVALID/SENSOR_VALID as well as
+             * the synthesised group verdict, and in 3D only the group is
+             * reviewed -- so a correctly configured deployment logs one line per
+             * camera here. It is ALSO how a mis-scoped
+             * sensor_pipelines_config.conf presents, with the group id
+             * appearing instead of the cameras. The SDM does not read
+             * nvpss.conf and so cannot tell those apart; it records which ids
+             * are outside the reviewed set and leaves the reading to whoever
+             * knows the deployment mode. Raising it to an error would assert a
+             * fault that is not established.
+             *
+             * Once per id: the seen-mask bounds this at 31 lines for the life of
+             * the process, so a per-DecisionRequest stream cannot bury the log. */
+            if (shouldWarnUnreviewedSensor(gUnreviewedSensorWarned, pipelineId))
+            {
+                atl_log_info("ATL: pipelineID " + std::to_string(pipelineId) +
+                    " is outside the reviewed sensor set " +
+                    describeReviewedSensorSet(gReviewedSensors) +
+                    "; its health does not affect the all-safety-relevant-sensors-failed latch");
+            }
             continue;
+        }
 
         bool updateMask = false;
         bool failed = false;
@@ -402,8 +695,27 @@ static bool updateSensorHealthFromDecisionRequest(const DecisionRequest* request
              * the sensor's failed bit unchanged (pending) so it does not contribute
              * to the all-safety-relevant-sensors-failed latch. Real post-init
              * failures carry a different cause and still latch. */
-            if (std::strncmp(sd.event.ruleIdentifier, kSaimInitCause,
-                             sizeof(sd.event.ruleIdentifier)) == 0)
+            /* ONLY this cause suppresses. Every other value -- including one
+             * this build does not recognise -- falls through and sets the
+             * failed bit, so an unknown cause latches rather than being
+             * silently ignored. */
+            if (sd.event.cause == kSaimInitCause)
+            {
+                /* Record the seed so the propagated evidence below can be
+                 * attributed to it. Only the explicit SENSOR_INVALID is
+                 * authoritative for that; the suppression itself is unchanged. */
+                if (et == SENSOR_INVALID)
+                    saimInitPendingSensorMask.fetch_or(bit, std::memory_order_acq_rel);
+                continue;
+            }
+            /* The same seed arriving as propagated evidence rather than as the
+             * seed event: PSS dropped the cause on the way, so this entry says
+             * only isHealthy=false with CAUSE_NONE. Suppress it for exactly the
+             * pipelines SAIM has declared init-pending. An explicit
+             * SENSOR_INVALID is excluded and still latches whatever the pending
+             * state, so a genuine fault during the window fails closed. */
+            if (et != SENSOR_INVALID &&
+                (saimInitPendingSensorMask.load(std::memory_order_acquire) & bit) != 0U)
                 continue;
 #endif
             updateMask = true;
@@ -411,6 +723,11 @@ static bool updateSensorHealthFromDecisionRequest(const DecisionRequest* request
         }
         else if (et == SENSOR_VALID || (sd.isHealthy && sd.isTrustedSource))
         {
+#if AVOID_SAFETY_LATCH_FOR_SAIM_INIT
+            /* SAIM has resolved this sensor, so the init window is over for it
+             * and any later unhealthy evidence must latch again. */
+            saimInitPendingSensorMask.fetch_and(~bit, std::memory_order_acq_rel);
+#endif
             updateMask = true;
             failed = false;
         }
@@ -423,15 +740,13 @@ static bool updateSensorHealthFromDecisionRequest(const DecisionRequest* request
         const uint32_t newMask = updateSafetyRelevantSensorFailedBit(bit, failed);
         if (newMask != previousMask)
         {
-            const std::string cause(sd.event.ruleIdentifier,
-                strnlen(sd.event.ruleIdentifier, sizeof(sd.event.ruleIdentifier)));
             atl_log_info("ATL: safety-sensor health change pipelineID=" +
                 std::to_string(pipelineId) +
                 (failed ? " state=FAILED" : " state=RECOVERED") +
-                " cause=" + (cause.empty() ? std::string("UNKNOWN") : cause));
+                " cause=" + std::to_string(static_cast<unsigned>(sd.event.cause)));
         }
 
-        if ((newMask & kSafetyRelevantSensorMask) == kSafetyRelevantSensorMask)
+        if ((newMask & gReviewedSensors.mask) == gReviewedSensors.mask)
             latchEntered = markAllSafetyRelevantSensorsFailedLatched() || latchEntered;
         else
             clearAllSafetyRelevantSensorsFailedActiveIfRecovered(newMask);
@@ -470,10 +785,14 @@ static void resetSafeStateFaultsForLaunch()
     std::lock_guard<std::mutex> lock(safeStateLatchMtx);
     hbFaultLatched.store(false, std::memory_order_release);
     pssErrorFusionSuppressLatched.store(false, std::memory_order_release);
-    pssFaultActive.store(false, std::memory_order_release);
+    for (int i = 0; i < kPssSubCauseCount; ++i)
+        pssSubCauseActive[i].store(false, std::memory_order_release);
     decisionFreshnessFaultActive.store(false, std::memory_order_release);
     gatewayDecisionSequenceFaultActive.store(false, std::memory_order_release);
     failedSafetyRelevantSensorMask.store(0U, std::memory_order_release);
+#if AVOID_SAFETY_LATCH_FOR_SAIM_INIT
+    saimInitPendingSensorMask.store(0U, std::memory_order_release);
+#endif
     allSafetyRelevantSensorsFailedActive.store(false, std::memory_order_release);
     sdmGatewayDecisionSequenceReset(&gatewayDecisionSequenceState);
     safeStateLatchCauses.store(0U, std::memory_order_release);
@@ -762,6 +1081,71 @@ static void resetAtlStateFromPlcSafeRelease()
     resetLastForkliftRecordLocked();
 }
 
+/* Latch on AI_PIPELINE_INVALID. Returns true on the entry edge only, so the
+ * caller can emit the safe hold once rather than per repeated report. */
+static bool markAiPipelineInvalidLatched()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    const bool firstEdge = !aiPipelineInvalidActive.exchange(true, std::memory_order_acq_rel);
+    safeStateLatchCauses.fetch_or(kSafeLatchAiPipelineInvalid, std::memory_order_acq_rel);
+    if (firstEdge)
+    {
+        atl_log_err("ATL: AI pipeline reported INVALID; entering safe hold");
+    }
+    return firstEdge;
+}
+
+/* AI_PIPELINE_VALID clears the ACTIVE condition only. The latch itself survives
+ * until a PLC safe-release is accepted -- same contract as all-sensors-failed:
+ * the cause going away is not consent to resume. */
+static void clearAiPipelineInvalidActive()
+{
+    std::lock_guard<std::mutex> lock(safeStateLatchMtx);
+    if (aiPipelineInvalidActive.exchange(false, std::memory_order_acq_rel))
+    {
+        atl_log_info("ATL: AI pipeline reported VALID; condition cleared, latch awaits PLC release");
+    }
+}
+
+/*
+ * Apply every AI-pipeline verdict in the request. Returns true on the latch
+ * entry edge. Same shape as the PXC and combined SDMs.
+ *
+ * AI_PIPELINE_INVALID arrives ALREADY STAMPED UNTRUSTED: PSS sets the
+ * pipeline-wide flag in OnTrustReport before routing the event. So this reads
+ * the verdict without looking at isTrustedSource, and must run before anything
+ * that skips untrusted events -- or returns early.
+ */
+static bool updateAiPipelineTrustFromDecisionRequest(const DecisionRequest* request)
+{
+    if (request == nullptr)
+        return false;
+
+    bool latchEntered = false;
+    const uint8_t maxSrc =
+        std::min(request->sensorDataSummarySize,
+                 static_cast<uint8_t>(MAX_SENSORS_DATA_SUMMARY_SIZE));
+
+    for (uint8_t i = 0U; i < maxSrc; ++i)
+    {
+        const SensorData& sd = request->sensorDataSummary[i];
+        if (sd.event.status == STALE)
+            continue;
+
+        const EventType et = static_cast<EventType>(sd.event.type);
+        if (et == AI_PIPELINE_INVALID)
+        {
+            latchEntered = markAiPipelineInvalidLatched() || latchEntered;
+        }
+        else if (et == AI_PIPELINE_VALID)
+        {
+            clearAiPipelineInvalidActive();
+        }
+    }
+
+    return latchEntered;
+}
+
 static uint32_t activeSafeLatchCauses()
 {
     uint32_t active = 0U;
@@ -770,7 +1154,7 @@ static uint32_t activeSafeLatchCauses()
     {
         active |= kSafeLatchGatewayHb;
     }
-    if (pssFaultActive.load(std::memory_order_acquire))
+    if (pssAnySubCauseActive())
     {
         active |= kSafeLatchPss;
     }
@@ -785,6 +1169,13 @@ static uint32_t activeSafeLatchCauses()
     if (allSafetyRelevantSensorsFailedActive.load(std::memory_order_acquire))
     {
         active |= kSafeLatchAllSafetyRelevantSensorsFailed;
+    }
+    /* Gates handleSafeReleaseRequest(): a release arriving while the AI pipeline
+     * is still INVALID is denied, so release is accepted only after
+     * AI_PIPELINE_VALID has been received. */
+    if (aiPipelineInvalidActive.load(std::memory_order_acquire))
+    {
+        active |= kSafeLatchAiPipelineInvalid;
     }
     /* Count drift is an SDM state-consistency fault. It latches safe output,
      * but has no continuing external source once PLC/operator confirms clear. */
@@ -835,6 +1226,7 @@ static void markSafeReleaseNoopResponseSuccess(
 
 static void handleSafeReleaseRequest()
 {
+    std::lock_guard<std::mutex> transitionLock(faultTransitionMtx);
     std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
 
     const uint32_t active = activeSafeLatchCauses();
@@ -1180,47 +1572,112 @@ static void atlPeriodicDecisionLoop()
     }
 }
 
-/* ====================== DECISION LOGIC ========================== */
-void onEventNotificationReceive(const DecisionRequest* request)
+/* Sources this SDM has EVER known of (PSS_PRESENCE_*), from a presence report or
+ * a source-lost SW_FAIL. Never cleared: it is what stops a PSS restart forgetting
+ * a lost source. Decision-handler thread only. */
+static uint32_t sourcePresenceSeen = 0U;
+
+/*
+ * Apply the source-lost rules, by the same pure function as every other
+ * SDM: every source-lost SW_FAIL in the request raises its sub-cause -- wherever
+ * it sits and whatever the mode, which the SW_FAIL loop below cannot promise --
+ * and PSS's presence report clears a source it names and raises one this SDM
+ * knows of that it omits. What the SDM knows of includes the report's expected
+ * set, so a restarted SDM relearns a source that is down.
+ *
+ * The hold is sent HERE on a raise. The report rides a no-op, and the no-op path
+ * returns before anything else would send one. Called before the PSS-ERROR
+ * return too, so a raise is never discarded; the evaluator itself withholds
+ * clears while mode == ERROR.
+ */
+static void applySourcePresence(const DecisionRequest* request)
 {
-    atl_log_info("SDM: processing DecisionRequest id=" +
-        std::to_string(request->requestId));
-
-    /* --- PSS ERROR mode ------------------------------------------------ */
-    if (request->pssStatus.mode == ERROR)
+    static constexpr PssSubCause kTracked[] = {kPssSubMonitorLost, kPssSubPerceptionMonitorLost,
+                                               kPssSubMdxLost};
+    const SdmPssSubCauseDelta d = SdmSourcePresenceEvaluate(&sourcePresenceSeen, request);
+    uint32_t entered = 0U;
+    for (const PssSubCause cause : kTracked)
     {
-        atl_log_warning("PSS is in error mode, sending stop + software error command");
-        if (!pssErrorFusionSuppressLatched.exchange(true, std::memory_order_acq_rel))
+        const uint32_t bit = 1U << cause;
+        if ((d.cleared & bit) != 0U)
+            clearPssSubCause(cause);
+        if ((d.raised & bit) != 0U && !pssSubCauseActive[cause].load(std::memory_order_acquire))
         {
-            AtlFaultReport(ATL_FAULT_REPORT_PSS_ERROR, 0U, 0);
+            atl_log_err(std::string("ATL: source reported lost, or missing from the presence report -- "
+                        "triggering safe hold; sub-cause=") + kPssSubCauseName[cause] +
+                        " (clears only when it is back)");
+            entered |= bit;
         }
-        {
-            std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
-            markPssFaultActive();
-            sendDecisionCommand(CMD_UNMUTE, true, nullptr);
-            sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
-        }
+    }
+    if (entered == 0U)
         return;
-    }
 
-    /* --- Normal / Degraded mode ---------------------------------------- */
-
-    const uint8_t maxSrc =
-        std::min(request->sensorDataSummarySize,
-                 static_cast<uint8_t>(MAX_SENSORS_DATA_SUMMARY_SIZE));
-
-    if (maxSrc == 1U &&
-        static_cast<EventType>(request->sensorDataSummary[0].event.type) == PSS_STATUS_NOOP)
+    AtlFaultReport(ATL_FAULT_REPORT_SW_FAIL, 0U, 0);
+    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+    for (const PssSubCause cause : kTracked)
     {
-        atl_log_info("ATL: PSS_STATUS_NOOP received; freshness refreshed without physical-state update");
+        if ((entered & (1U << cause)) != 0U)
+            markPssSubCause(cause);
+    }
+    sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+    sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+}
+
+/* Identities (PSS_INPUT_STATE_MASK layout) whose rejected input this SDM holds
+ * the input-unusable cause for. Process lifetime, like sourcePresenceSeen. */
+static uint32_t sourceInputUnusableSeen = 0U;
+
+/*
+ * Apply PSS's input-state report and every cause-13 SW_FAIL: a source whose
+ * reports PSS keeps rejecting. The cause clears only when PSS reports that same
+ * source confirmed usable again -- never on other sources' traffic. Called
+ * before the PSS-ERROR return, like the presence report; the evaluator itself
+ * withholds clears while mode == ERROR.
+ */
+static void applySourceInputState(const DecisionRequest* request)
+{
+    const SdmPssSubCauseDelta d =
+        SdmSourceInputStateEvaluate(&sourceInputUnusableSeen, request);
+    if ((d.cleared & SDM_PSS_SUB_INPUT_UNUSABLE) != 0U)
+        clearPssSubCause(kPssSubInputUnusable);
+    if ((d.raised & SDM_PSS_SUB_INPUT_UNUSABLE) == 0U ||
+        pssSubCauseActive[kPssSubInputUnusable].load(std::memory_order_acquire))
         return;
-    }
 
-    if (SdmDecisionRequestClearsPssFaultActive(request))
+    atl_log_err(std::string("ATL: a source's reports are being rejected -- triggering safe hold; "
+                "sub-cause=input_unusable (clears only when PSS confirms that source usable again)"));
+    AtlFaultReport(ATL_FAULT_REPORT_SW_FAIL, 0U, 0);
+    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+    markPssSubCause(kPssSubInputUnusable);
+    sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+    sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+}
+
+static const char* swFailSubCauseNote(uint8_t bit)
+{
+    switch (bit)
     {
-        clearPssFaultActive();
+        case SDM_PSS_SUB_GATEWAY_COMM:   return " (gateway communication)";
+        case SDM_PSS_SUB_MONITOR_LOST:   return " (Safety Monitor lost -- clears only when it is back)";
+        case SDM_PSS_SUB_PM_LOST:        return " (Perception Monitor lost -- clears only when it is back)";
+        case SDM_PSS_SUB_MDX_LOST:       return " (MDX client instance lost -- clears only when it is back)";
+        case SDM_PSS_SUB_INPUT_UNUSABLE: return " (a source's reports are being rejected -- clears only when "
+                                                "PSS confirms that source usable again)";
+        default:                         return "";
     }
+}
 
+/*
+ * Latch on EVERY new, non-STALE SW_FAIL in the request, each in its own
+ * sub-cause (SdmSwFailSubCause), and send the hold once. Called on both sides of
+ * the PSS-ERROR return: a request can carry several faults, and one that rides an
+ * ERROR-mode request is still a fault. Stopping at the first, or skipping them in
+ * ERROR, left the others unlatched, so restoring the first permitted a release
+ * while they persisted. Returns whether any SW_FAIL was applied.
+ */
+static bool applySwFailEvents(const DecisionRequest* request, uint8_t maxSrc)
+{
+    uint32_t raised = 0U;
     for (uint8_t i = 0; i < maxSrc; ++i)
     {
         const SensorData& sd = request->sensorDataSummary[i];
@@ -1232,18 +1689,140 @@ void onEventNotificationReceive(const DecisionRequest* request)
             continue;
         lastEventId[i] = sd.event.id;
 
-        atl_log_err("ATL: SW_FAIL received — triggering safe hold");
-        AtlFaultReport(ATL_FAULT_REPORT_SW_FAIL, 0U, 0);
+        const uint8_t bit = SdmSwFailSubCause(&sd.event);
+        atl_log_err(std::string("ATL: SW_FAIL received — triggering safe hold; cause=") +
+                    std::to_string(static_cast<unsigned>(sd.event.cause)) +
+                    swFailSubCauseNote(bit));
+        raised |= bit;
+    }
+    if (raised == 0U)
+        return false;
+
+    AtlFaultReport(ATL_FAULT_REPORT_SW_FAIL, 0U, 0);
+    std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
+    for (int c = 0; c < kPssSubCauseCount; ++c)
+    {
+        if ((raised & (1U << c)) != 0U)
+            markPssSubCause(static_cast<PssSubCause>(c));
+    }
+    sendDecisionCommand(CMD_UNMUTE, true, nullptr);
+    sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
+    return true;
+}
+
+/* ====================== DECISION LOGIC ========================== */
+/* The request itself. The caller holds faultTransitionMtx: the gateway listener
+ * for the whole packet, or the public entry point below. */
+static void processDecisionRequestLocked(const DecisionRequest* request)
+{
+    atl_log_info("SDM: processing DecisionRequest id=" +
+        std::to_string(request->requestId));
+
+    /*
+     * AI-PIPELINE VERDICTS FIRST -- before the PSS-ERROR return and the SW_FAIL
+     * return below.
+     *
+     * The AI monitor reports its verdict ONCE, on change. Either early return
+     * used to discard a verdict riding the same request, and nothing would ever
+     * re-send it: after PSS recovered and the PLC released, this SDM ran with the
+     * pipeline untrusted, skipping its events and holding its last command. The
+     * hold is sent here on the latch edge -- the same physical-event hold the
+     * event loop used to send -- and processing CONTINUES; the rest of the
+     * request may send the hold again, which is harmless.
+     */
+    if (updateAiPipelineTrustFromDecisionRequest(request))
+    {
+        ObjectRecord forkliftRecord = {};
+        const bool hasForkliftRecord = snapshotLastForkliftRecord(&forkliftRecord);
+        sendPhysicalEventSafeHold(hasForkliftRecord ? &forkliftRecord : nullptr);
+    }
+
+    /* PSS's presence and input-state reports, before the PSS-ERROR return for
+     * the same reason. */
+    applySourcePresence(request);
+    applySourceInputState(request);
+
+    /* The sensor verdicts too, before both returns below -- the PSS-ERROR return
+     * and the SW_FAIL return. A SENSOR_INVALID riding either kind of request used
+     * to be discarded; after PSS recovered, a PLC release was then accepted with
+     * every safety-relevant sensor still failed, until PSS next re-asserted the
+     * verdict. Raise and clear both apply in every mode: a clear releases
+     * nothing, the latch still waits for a PLC release. A latch entered here gets
+     * its hold from whichever path the request takes below. */
+    const bool sensorLatchEntered = updateSensorHealthFromDecisionRequest(request);
+
+    const uint8_t maxSrc =
+        std::min(request->sensorDataSummarySize,
+                 static_cast<uint8_t>(MAX_SENSORS_DATA_SUMMARY_SIZE));
+
+    /* --- PSS ERROR mode ------------------------------------------------ */
+    if (request->pssStatus.mode == ERROR)
+    {
+        atl_log_warning("PSS is in error mode, sending stop + software error command");
+        if (!pssErrorFusionSuppressLatched.exchange(true, std::memory_order_acq_rel))
+        {
+            AtlFaultReport(ATL_FAULT_REPORT_PSS_ERROR, 0U, 0);
+        }
+        /* The request's SW_FAILs are faults in their own right; mode_error
+         * clearing later must not take them with it. */
+        (void)applySwFailEvents(request, maxSrc);
         {
             std::lock_guard<std::mutex> evalLock(decisionEvalSendMtx);
-            markPssFaultActive();
+            markPssSubCause(kPssSubModeError);
             sendDecisionCommand(CMD_UNMUTE, true, nullptr);
             sendDecisionCommand(CMD_SW_ERROR, true, nullptr);
         }
         return;
     }
 
-    if (updateSensorHealthFromDecisionRequest(request))
+    /* --- Normal / Degraded mode ---------------------------------------- */
+
+    /*
+     * mode != ERROR from here, which is AFFIRMATIVE evidence that neither PSS
+     * delivery nor the SAIM heartbeat is failed -- PSS recomputes the field on
+     * every send from exactly those two conditions.
+     *
+     * Applied BEFORE the status/no-op early return below, deliberately. A no-op
+     * carries this field just as a physical request does, and on a quiet site it
+     * may be the only thing that ever arrives; refusing to act on it is what
+     * left a recovered system release-denied indefinitely.
+     */
+    if (SdmDecisionRequestClearsPssModeError(request))
+    {
+        clearPssSubCause(kPssSubModeError);
+    }
+
+    if (maxSrc == 1U &&
+        static_cast<EventType>(request->sensorDataSummary[0].event.type) == PSS_STATUS_NOOP)
+    {
+        /* The gateway's all-client recovery record rides a no-op. It is the only
+         * evidence that reaches an SDM receiving no ordinary event traffic, which
+         * is the asymmetry it exists to remove. */
+        if (SdmDecisionRequestIsGatewayCommRecovered(request))
+        {
+            clearPssSubCause(kPssSubGatewayComm);
+        }
+        atl_log_info("ATL: PSS_STATUS_NOOP received; freshness refreshed without physical-state update");
+        return;
+    }
+
+    if (SdmDecisionRequestClearsPssSwFail(request))
+    {
+        clearPssSubCause(kPssSubSwFail);
+        /*
+         * The gateway-comm sub-cause clears here TOO, not only on the recovery
+         * record. Without this floor, a gateway restart -- which forgets it owed
+         * a recovery -- or a single dropped recovery record would leave this SDM
+         * release-denied for the life of the process, which is worse than the
+         * behaviour this change replaced.
+         */
+        clearPssSubCause(kPssSubGatewayComm);
+    }
+
+    if (applySwFailEvents(request, maxSrc))
+        return;
+
+    if (sensorLatchEntered)
     {
         sendLatchedSafeHold();
         return;
@@ -1277,6 +1856,11 @@ void onEventNotificationReceive(const DecisionRequest* request)
             continue;
         }
 
+        /* Already consumed by updateAiPipelineTrustFromDecisionRequest() at
+         * the top of this function, ahead of every early return. */
+        if (et == AI_PIPELINE_INVALID || et == AI_PIPELINE_VALID)
+            continue;
+
         if (!sd.isHealthy)
         {
             atl_log_info("Sensor unhealthy -- logging only, not processing for decision");
@@ -1289,9 +1873,13 @@ void onEventNotificationReceive(const DecisionRequest* request)
             continue;
         }
 
-        switch (et)
+        /* Configured codes are runtime values, so these cannot be case labels.
+         * atlSetSubscribedEvents rejects duplicates, so at most one arm matches;
+         * a code this SDM did not subscribe to matches none and is ignored,
+         * which is what keeps a second ATL SDM's zone events out of this one's
+         * state even if the gateway ever forwarded them. */
+        if (et == atlEvent.forkliftEntered)  /* Forklift TW OUT = forklift entered trailer */
         {
-        case EVENT_0:  /* Forklift TW OUT = forklift entered trailer */
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
                 updateLastForkliftRecordLocked(sd);
@@ -1299,8 +1887,9 @@ void onEventNotificationReceive(const DecisionRequest* request)
                 atl_log_info("ATL: Forklift entered trailer (TW OUT)");
             }
             stateChanged = true;
-            break;
-        case EVENT_1:  /* Forklift TW IN = forklift exited trailer */
+        }
+        else if (et == atlEvent.forkliftExited)  /* Forklift TW IN = forklift exited trailer */
+        {
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
                 updateLastForkliftRecordLocked(sd);
@@ -1308,8 +1897,9 @@ void onEventNotificationReceive(const DecisionRequest* request)
                 atl_log_info("ATL: Forklift exited trailer (TW IN)");
             }
             stateChanged = true;
-            break;
-        case EVENT_2:  /* Person TW OUT = person entered trailer */
+        }
+        else if (et == atlEvent.personEntered)  /* Person TW OUT = person entered trailer */
+        {
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
                 if (personsInTrailerCount < PERSONS_IN_TRAILER_MAX) {
@@ -1324,8 +1914,9 @@ void onEventNotificationReceive(const DecisionRequest* request)
                 }
             }
             stateChanged = true;
-            break;
-        case EVENT_3:  /* Person TW IN = person exited trailer */
+        }
+        else if (et == atlEvent.personExited)  /* Person TW IN = person exited trailer */
+        {
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
                 if (personsInTrailerCount > 0) {
@@ -1339,25 +1930,24 @@ void onEventNotificationReceive(const DecisionRequest* request)
                 }
             }
             stateChanged = true;
-            break;
-        case EVENT_4:  /* Person restricted area ROI violation */
+        }
+        else if (et == atlEvent.roiViolation)  /* Person restricted area ROI violation */
+        {
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
                 restrictedAreaViolationByPerson = true;
                 atl_log_info("ATL: Person restricted area violation set");
             }
             stateChanged = true;
-            break;
-        case EVENT_5:  /* Person restricted area ROI violation cleared */
+        }
+        else if (et == atlEvent.roiCleared)  /* Person restricted area ROI violation cleared */
+        {
             {
                 std::lock_guard<std::mutex> lock(masterStateMtx);
                 restrictedAreaViolationByPerson = false;
                 atl_log_info("ATL: Person restricted area violation cleared");
             }
             stateChanged = true;
-            break;
-        default:
-            break;
         }
     }
 
@@ -1377,136 +1967,249 @@ void onEventNotificationReceive(const DecisionRequest* request)
         evaluateATLDecision();
 }
 
-/* If false, one non-blocking send only (listener path); if true, poll/retry for launch. */
+void onEventNotificationReceive(const DecisionRequest* request)
+{
+    /* The whole request is one fault-state transition as far as a PLC release
+     * can tell; see faultTransitionMtx. */
+    std::lock_guard<std::mutex> transitionLock(faultTransitionMtx);
+    processDecisionRequestLocked(request);
+}
+
+/* If false, one non-blocking send only (listener path); if true, retry for launch. */
 static bool sendGatewayRegistration(bool retryUntilWritable);
 
-/* Wait for POLLOUT on fd (bounded); used after HB ACK send EAGAIN so we do not wait for MAIN_LOOP_POLL_TIMEOUT_MS. */
-static bool hbAckPollForWritable(int fd)
+/* ================= PSD Gateway upstream endpoint =====================
+ *
+ * OWNERSHIP, stated because getting this wrong causes a two-reader race:
+ * the transport handle is opened, polled, received from, reconnected and
+ * closed by ONE thread -- the main thread, which runs psdGatewayEventListener()
+ * inline and only calls shutdownATLControlAlgo() after that returns. Every
+ * upstream send also originates there (flushPendingHbAck, emitHbAckTryOnce and
+ * the periodic sendGatewayRegistration are all called from the listener loop;
+ * the launch-time REGR runs before the listener starts). So there is exactly
+ * one reader and one writer, and they are the same thread.
+ *
+ * gwSockMtx is retained rather than removed because shutdownATLControlAlgo()
+ * is a public entry point that a future caller could invoke from elsewhere,
+ * and because it still guards hbAckPending/hbAckPendingBuf. It is NEVER held
+ * across NvPSFTransportPoll: Poll blocks for its full timeout, and holding it
+ * there would stall every send for that period.
+ */
+
+/** Open the upstream endpoint. Leaves gwTransport null on failure. */
+static bool openGatewayTransport()
 {
-    struct pollfd pfd = {};
-    pfd.fd     = fd;
-    pfd.events = POLLOUT;
-    int pollBudget = 0;
-    while (pollBudget < HB_ACK_POLL_MAX_POLLS)
+    NvPSFTransportCfg cfg = {};
+    cfg.kind            = gwTransportKind;
+    cfg.role            = NVPSF_ROLE_CLIENT;
+    cfg.link            = NVPSF_LINK_GATEWAY_TO_SDM;
+    cfg.maxPeers        = 1U;    /* forced to 1 for a client regardless */
+    cfg.maxMessageBytes = sizeof(NvPSDGatewayDecisionRequestPacket);
+    /* The measured floor for this link --
+     * see NvPSFGatewaySdmMinQueueDepth() for the derivation and the deployment
+     * sysctl this now requires. A shortfall is a fatal startup error. */
+    cfg.minQueueDepth   = NvPSFGatewaySdmMinQueueDepth();
+    cfg.recvTimeoutMs   = MAIN_LOOP_POLL_TIMEOUT_MS;
+    cfg.sendTimeoutMs   = 0U;
+    cfg.unixPath        = gwSocketPath.c_str();
+    /* Ignored for a client: the transport applies unixMode with chmod() after
+     * bind(), and a client connects rather than binds. Set to 0 rather than
+     * copied from the gateway, so it cannot read as a permission this end
+     * enforces. Access control on this side is the SO_PEERCRED check below. */
+    cfg.unixMode        = 0;
+    /* The client validates the ACCEPTING process, so a rogue process
+     * that pre-binds the gateway path cannot impersonate the gateway. The
+     * transport performs this at connect and refuses the peer on mismatch. */
+    cfg.allowedGid      = getgid();
+    cfg.inetAddr        = gwInetAddr.c_str();
+    cfg.inetPort        = gwInetPort;
+
+    NvPSFTransport* t = nullptr;
+    const NvPSFTransportErr oerr = NvPSFTransportOpen(&cfg, &t);
+    if (oerr != NVPSF_TRANSPORT_OK || t == nullptr)
     {
-        pfd.revents = 0;
-        const int pr = poll(&pfd, 1, HB_ACK_POLL_TIMEOUT_MS);
-        if (pr < 0)
+        return false;
+    }
+
+    /*
+     * A client must be able to send first -- the REGR is the first message on
+     * this link -- and its peer identity is assigned internally, so it cannot
+     * be constructed by the caller.
+     */
+    NvPSFPeerId p = NVPSF_PEER_INVALID;
+    if (NvPSFTransportSolePeer(t, &p) != NVPSF_TRANSPORT_OK)
+    {
+        (void)NvPSFTransportClose(t);
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lk(gwSockMtx);
+    gwTransport = t;
+    gwPeer      = p;
+    return true;
+}
+
+/** Close the upstream endpoint if open. Caller must not hold gwSockMtx. */
+static void closeGatewayTransport()
+{
+    NvPSFTransport* t = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(gwSockMtx);
+        t = gwTransport;
+        gwTransport = nullptr;
+        gwPeer      = NVPSF_PEER_INVALID;
+    }
+    if (t != nullptr)
+    {
+        (void)NvPSFTransportClose(t);
+    }
+}
+
+/*
+ * Re-establish the upstream link after the gateway has gone.
+ *
+ * Count-unbounded at a fixed 500 ms cadence with no exponential backoff, per
+ * matching the PSS -> PSD link. Unbounded
+ * because a gateway restart must not require restarting the SDM; fixed cadence
+ * because backoff would make worst-case recovery depend on how long the outage
+ * had already lasted, which is exactly when recovery matters most.
+ *
+ * NO SEQUENCE RESET. sdmGatewayDecisionSequenceReset() is deliberately not
+ * called here: a reconnected gateway sends a NEW epoch, and the sequence
+ * checker re-baselines on an epoch change by itself. Resetting as well would
+ * discard the evidence that a gap occurred, and the acceptance criterion is
+ * that an outage beyond the freshness window latches on FRESHNESS, not on a
+ * spurious sequence gap.
+ *
+ * @return true once connected and re-registered; false only if shutdown was
+ *         requested while reconnecting.
+ */
+static bool reconnectGatewayTransport()
+{
+    /* Logged on entry and on success, so a reconnect never masks an outage
+     * This is the SDM-side counterpart of the PSS -> PSD link-lost pair. */
+    atl_log_err("SDM: gateway upstream link lost; reconnecting");
+
+    for (uint32_t attempt = 1U;
+         !stopSDMThreads.load() && !signalShutdownRequested.load(); ++attempt)
+    {
+        if (g_signal_received != 0)
+            signalShutdownRequested.store(true);
+
+        if (openGatewayTransport())
         {
-            if (errno == EINTR)
-                continue;
-            return false;
+            /*
+             * Re-register before returning. A restored connection with no
+             * event-type subscription is worse than no connection: the gateway
+             * would accept it, count it as a healthy client, and forward
+             * nothing -- and the SDM would then latch on decision freshness
+             * with a link that looks up from both ends.
+             */
+            if (sendGatewayRegistration(true))
+            {
+                lastRegistrationTime = std::chrono::steady_clock::now();
+                atl_log_info("SDM: gateway upstream link re-established after " +
+                             std::to_string(attempt) + " attempt(s)");
+                return true;
+            }
+            atl_log_warning("SDM: reconnected but REGR failed; retrying");
+            closeGatewayTransport();
         }
-        if (pr == 0)
-        {
-            ++pollBudget;
-            continue;
-        }
-        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
-            return false;
-        if (pfd.revents & POLLOUT)
-            return true;
-        ++pollBudget;
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(GW_RECONNECT_INTERVAL_MS));
     }
     return false;
 }
 
-static void hbAckApplySendResult(ssize_t sent, int sendErr, bool requirePendingFlag)
+/*
+ * One upstream send. Non-blocking by construction (sendTimeoutMs = 0), so a
+ * full peer buffer returns WOULD_BLOCK rather than stalling the listener.
+ * Backpressure policy: drop, count, report -- never block the safety path.
+ *
+ * THE LOCK IS HELD ACROSS THE SEND DELIBERATELY. DO NOT "FIX" THIS.
+ *
+ * gwSockMtx is what makes the handle safe: closeGatewayTransport() nulls
+ * gwTransport under this same lock and only THEN calls NvPSFTransportClose, so
+ * either this send runs with a valid handle or it sees nullptr and returns
+ * PEER_GONE. Release the lock before the send and there is a window in which
+ * Close frees the handle while Send is inside it -- a use-after-free on the
+ * safety path.
+ *
+ * This is permitted. Send is non-blocking at the syscall
+ * level (MSG_DONTWAIT) and acquires only the transport's own leaf mutex, so
+ * there is no cycle and nothing to stall. See the per-entry-point table in
+ * nvpsf_transport.h under "Caller lock-order obligation": Send and Recv are
+ * permitted under a caller lock; Poll, DropPeer and Close are not.
+ */
+static NvPSFTransportErr gatewaySend(const void* buf, size_t len)
+{
+    std::lock_guard<std::mutex> lk(gwSockMtx);
+    if (gwTransport == nullptr)
+        return NVPSF_TRANSPORT_PEER_GONE;
+    return NvPSFTransportSend(gwTransport, gwPeer, buf, len);
+}
+
+static void hbAckApplySendResult(NvPSFTransportErr err, bool requirePendingFlag)
 {
     std::lock_guard<std::mutex> lk(gwSockMtx);
     if (requirePendingFlag && !hbAckPending)
         return;
-    if (sent == static_cast<ssize_t>(NVPSD_GATEWAY_HB_MSG_SIZE))
-        hbAckPending = false;
-    else if (sent >= 0)
+    if (err == NVPSF_TRANSPORT_OK)
     {
-        atl_log_err("SDM: short send on HB ACK");
         hbAckPending = false;
     }
-    else if (sendErr != EAGAIN && sendErr != EWOULDBLOCK && sendErr != EINTR)
+    else if (err == NVPSF_TRANSPORT_WOULD_BLOCK)
     {
-        atl_log_err("SDM: heartbeat ACK send failed");
+        /* Left pending on purpose: flushPendingHbAck() retries on the next
+         * listener iteration. Clearing it here would convert a momentarily
+         * full buffer into a missed heartbeat ACK, and enough of those trip
+         * the gateway's tier ladder against a healthy SDM. */
+    }
+    else
+    {
+        /* PEER_GONE and hard errors are not retried here -- the listener's own
+         * PEER_GONE handling owns reconnection, and a stale ACK for a
+         * pre-restart heartbeat sequence is not worth replaying afterwards. */
+        atl_log_err("SDM: heartbeat ACK send failed (" +
+                    std::string(NvPSFTransportErrName(err)) + ")");
         hbAckPending = false;
     }
 }
 
 static void flushPendingHbAck()
 {
-    int  fd = -1;
     char sendBuf[NVPSD_GATEWAY_HB_MSG_SIZE];
     {
         std::lock_guard<std::mutex> lk(gwSockMtx);
-        if (!hbAckPending || psdGatewayListenSock < 0)
+        if (!hbAckPending || gwTransport == nullptr)
             return;
-        fd = psdGatewayListenSock;
         std::memcpy(sendBuf, hbAckPendingBuf, NVPSD_GATEWAY_HB_MSG_SIZE);
     }
 
-    ssize_t sent = send(fd, sendBuf, NVPSD_GATEWAY_HB_MSG_SIZE, 0);
-    int     sendErr = (sent < 0) ? errno : 0;
-
-    if (sent == static_cast<ssize_t>(NVPSD_GATEWAY_HB_MSG_SIZE) || sent >= 0 ||
-        (sendErr != EAGAIN && sendErr != EWOULDBLOCK && sendErr != EINTR))
-    {
-        hbAckApplySendResult(sent, sendErr, true);
-        return;
-    }
-    if (sendErr == EINTR)
-    {
-        hbAckApplySendResult(sent, sendErr, true);
-        return;
-    }
-
-    if (hbAckPollForWritable(fd))
-    {
-        sent = send(fd, sendBuf, NVPSD_GATEWAY_HB_MSG_SIZE, 0);
-        sendErr = (sent < 0) ? errno : 0;
-    }
-    hbAckApplySendResult(sent, sendErr, true);
+    hbAckApplySendResult(gatewaySend(sendBuf, NVPSD_GATEWAY_HB_MSG_SIZE), true);
 }
 
 static void emitHbAckTryOnce(const char ack[NVPSD_GATEWAY_HB_MSG_SIZE])
 {
-    int  fd = -1;
-    char sendBuf[NVPSD_GATEWAY_HB_MSG_SIZE];
     {
         std::lock_guard<std::mutex> lk(gwSockMtx);
         std::memcpy(hbAckPendingBuf, ack, NVPSD_GATEWAY_HB_MSG_SIZE);
         hbAckPending = true;
-        if (psdGatewayListenSock < 0)
+        if (gwTransport == nullptr)
             return;
-        fd = psdGatewayListenSock;
-        std::memcpy(sendBuf, ack, NVPSD_GATEWAY_HB_MSG_SIZE);
     }
 
-    ssize_t sent = send(fd, sendBuf, NVPSD_GATEWAY_HB_MSG_SIZE, 0);
-    int     sendErr = (sent < 0) ? errno : 0;
-
-    if (sent == static_cast<ssize_t>(NVPSD_GATEWAY_HB_MSG_SIZE) || sent >= 0 ||
-        (sendErr != EAGAIN && sendErr != EWOULDBLOCK && sendErr != EINTR))
-    {
-        hbAckApplySendResult(sent, sendErr, false);
-        return;
-    }
-    if (sendErr == EINTR)
-    {
-        hbAckApplySendResult(sent, sendErr, false);
-        return;
-    }
-
-    if (hbAckPollForWritable(fd))
-    {
-        sent = send(fd, sendBuf, NVPSD_GATEWAY_HB_MSG_SIZE, 0);
-        sendErr = (sent < 0) ? errno : 0;
-    }
-    hbAckApplySendResult(sent, sendErr, false);
+    hbAckApplySendResult(gatewaySend(ack, NVPSD_GATEWAY_HB_MSG_SIZE), false);
 }
 
 /* EVENT loop receive DecisionRequest from PSD Gateway */
 static void psdGatewayEventListener()
 {
-    char               rawBuf[sizeof(NvPSDGatewayDecisionRequestPacket)];
-    struct pollfd      pfd;
+    char rawBuf[sizeof(NvPSDGatewayDecisionRequestPacket)];
+    /* The last registration refusal reported (RGNK reason), 0 once a gateway
+     * heartbeat shows this SDM registered: each reason is logged once. */
+    uint8_t lastRegRefusal = 0U;
 
     while (!stopSDMThreads.load() && !signalShutdownRequested.load())
     {
@@ -1552,46 +2255,112 @@ static void psdGatewayEventListener()
                 }
             }
         }
+        /*
+         * Snapshot the handle under gwSockMtx, then use it with the lock
+         * released -- Poll blocks for MAIN_LOOP_POLL_TIMEOUT_MS and must not
+         * hold a lock a send path waits on.
+         *
+         * Using it after the unlock is safe because this thread OWNS the
+         * handle's lifetime: psdGatewayEventListener() runs on the main thread
+         * (:2167), reconnect and close are both on this path, and teardown
+         * (:2185) runs only after this function has returned and every other
+         * thread has been joined. No other thread can Close it underneath the
+         * Poll below.
+         */
+        NvPSFTransport* t = nullptr;
         {
             std::lock_guard<std::mutex> lk(gwSockMtx);
-            if (psdGatewayListenSock < 0)
-                break;
-            pfd.fd = psdGatewayListenSock;
+            t = gwTransport;
         }
-        pfd.events  = POLLIN;
-        pfd.revents = 0;
-        int ready = poll(&pfd, 1, MAIN_LOOP_POLL_TIMEOUT_MS);
-        if (ready < 0)
+        if (t == nullptr)
         {
-            if (errno == EINTR)
-                continue; /* retry poll after signal */
-            atl_log_warning("SDM: poll on psdGateway socket failed");
-            continue;
-        }
-        if (ready == 0)
-            continue; /* timeout -- re-check stop flags */
-
-        /* Connected UDP: kernel only delivers datagrams from gateway peer. */
-        int recvFd = -1;
-        {
-            std::lock_guard<std::mutex> lk(gwSockMtx);
-            if (psdGatewayListenSock < 0)
-                break;
-            recvFd = psdGatewayListenSock;
-        }
-        ssize_t n = recv(recvFd, rawBuf, sizeof(rawBuf), MSG_DONTWAIT);
-
-        if (n < 0)
-        {
-            if (errno == EINTR)
-                continue; /* retry recv after signal */
-            if (errno != EAGAIN && errno != EWOULDBLOCK)
-                atl_log_warning("SDM: recv on psdGateway socket failed");
+            /* Either the launch-time open failed because the gateway is not up
+             * yet, or a reconnect attempt left it closed. Wait for it rather
+             * than exiting the loop -- exiting would end the SDM. */
+            if (!reconnectGatewayTransport())
+                break;      /* shutdown requested while waiting */
             continue;
         }
 
-        /* Check if this is a heartbeat from PSDGateway */
-        if (n == NVPSD_GATEWAY_HB_MSG_SIZE &&
+        /*
+         * POLL IS NOT A PASSIVE SLEEP, and its events must be inspected.
+         *
+         * On POLLHUP it emits PEER_GONE *and releases the peer slot*. Throwing
+         * the array away consumes the disconnect: Recv then finds no slot in
+         * use and returns WOULD_BLOCK rather than PEER_GONE, and the next Poll
+         * builds zero pollfds and returns TIMEOUT immediately without
+         * sleeping. The loop would spin a core at 100% forever and never
+         * reconnect, while looking from the outside like a quiet link.
+         *
+         * That is not hypothetical: the same defect was found by review on the
+         * PSS -> PSD side of exactly this pattern. The listener spends nearly
+         * all its idle time inside Poll, so a gateway restart almost always
+         * arrives on this path rather than through Recv.
+         */
+        NvPSFTransportEvent events[4];
+        size_t              eventCount = 0;
+        const NvPSFTransportErr perr =
+            NvPSFTransportPoll(t, MAIN_LOOP_POLL_TIMEOUT_MS, events,
+                               sizeof(events) / sizeof(events[0]), &eventCount);
+
+        bool peerGone = false;
+        for (size_t i = 0; i < eventCount; ++i)
+        {
+            if (events[i].kind == NVPSF_EVENT_PEER_GONE)
+                peerGone = true;
+        }
+
+        if (!peerGone && perr != NVPSF_TRANSPORT_OK &&
+            perr != NVPSF_TRANSPORT_TIMEOUT)
+        {
+            /* Back off before retrying: a persistent poll failure would
+             * otherwise peg a core and flood the log without bound. */
+            atl_log_warning("SDM: poll on gateway transport failed (" +
+                            std::string(NvPSFTransportErrName(perr)) + ")");
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
+
+        size_t n = 0;
+        NvPSFTransportErr rerr = NVPSF_TRANSPORT_WOULD_BLOCK;
+        if (!peerGone)
+        {
+            /* Peer-filtered by the transport: on UDP by the connect() it
+             * applies internally, on UNIX_SOCKET by the connection itself
+             * plus the SO_PEERCRED check made at connect time. */
+            rerr = NvPSFTransportRecv(t, nullptr, rawBuf, sizeof(rawBuf), &n);
+        }
+
+        if (peerGone || rerr == NVPSF_TRANSPORT_PEER_GONE)
+        {
+            closeGatewayTransport();
+            if (!reconnectGatewayTransport())
+                break;      /* shutdown requested mid-reconnect */
+            continue;
+        }
+        if (rerr == NVPSF_TRANSPORT_WOULD_BLOCK ||
+            rerr == NVPSF_TRANSPORT_TIMEOUT)
+        {
+            continue;       /* nothing arrived -- re-check the stop flags */
+        }
+        if (rerr == NVPSF_TRANSPORT_TRUNCATED)
+        {
+            /* Oversized for this link. The message is already discarded by the
+             * kernel and cannot be re-read; dropping it is the only option, and
+             * it must not be mistaken for a short read of a valid packet. */
+            atl_log_warning("SDM: oversized message from gateway; discarding");
+            continue;
+        }
+        if (rerr != NVPSF_TRANSPORT_OK)
+        {
+            atl_log_warning("SDM: recv on gateway transport failed (" +
+                            std::string(NvPSFTransportErrName(rerr)) + ")");
+            continue;
+        }
+
+        /* Check if this is a heartbeat from PSDGateway. Cast because Recv
+         * reports a size_t length and the wire constant is a plain int. */
+        if (n == static_cast<size_t>(NVPSD_GATEWAY_HB_MSG_SIZE) &&
             std::memcmp(rawBuf, NVPSD_GATEWAY_HB_MAGIC_GATEWAY, 4) == 0)
         {
             uint32_t netSeq;
@@ -1606,6 +2375,7 @@ static void psdGatewayEventListener()
                 hbLastRecvTime = std::chrono::steady_clock::now();
                 hbGatewayAlive.store(true);
             }
+            lastRegRefusal = 0U;
 
             /* Send ACK: [HBPC][seqNo]; EAGAIN leaves pending — flushPendingHbAck() each loop iteration. */
             char ack[NVPSD_GATEWAY_HB_MSG_SIZE];
@@ -1615,8 +2385,27 @@ static void psdGatewayEventListener()
             continue;
         }
 
+        /* --- Registration refused by the gateway (RGNK) --- */
+        {
+            uint8_t refusal = 0U;
+            if (NvPSDGatewayParseRegReject(rawBuf, n, &refusal))
+            {
+                /* Diagnosis only. Unregistered, this SDM receives no decisions and
+                 * latches on its gateway-heartbeat watchdog, exactly as before;
+                 * the periodic REGR keeps retrying. */
+                if (refusal != lastRegRefusal)
+                {
+                    lastRegRefusal = refusal;
+                    atl_log_err(std::string("SDM: the gateway refused this SDM's registration; reason=") +
+                                NvPSDGatewayRegRejectReasonName(refusal) +
+                                " -- not registered, no decisions will arrive");
+                }
+                continue;
+            }
+        }
+
         /* --- Gateway-wrapped DecisionRequest --- */
-        if (n == static_cast<ssize_t>(sizeof(NvPSDGatewayDecisionRequestPacket)))
+        if (n == sizeof(NvPSDGatewayDecisionRequestPacket))
         {
             NvPSDGatewayDecisionRequestPacket packet;
             std::memcpy(&packet, rawBuf, sizeof(packet));
@@ -1645,6 +2434,12 @@ static void psdGatewayEventListener()
                 std::to_string(packet.gatewayTxSeq) +
                 " events=" +
                 std::to_string(request.sensorDataSummarySize));
+
+            /* The whole packet is one fault-state transition as far as a PLC
+             * release can tell: the sequence and freshness clears below as much as
+             * the request. Taken here, a release cannot land between a clear and
+             * the same request's SW_FAIL -- accepted, then re-latched. */
+            std::lock_guard<std::mutex> transitionLock(faultTransitionMtx);
 
             const SdmGatewayDecisionSequenceResult seqResult =
                 sdmGatewayDecisionSequenceObserve(&gatewayDecisionSequenceState,
@@ -1678,7 +2473,7 @@ static void psdGatewayEventListener()
             }
 
             markDecisionRequestFresh(request.requestId);
-            onEventNotificationReceive(&request);
+            processDecisionRequestLocked(&request);
         }
         else if (n > 0)
         {
@@ -1686,84 +2481,25 @@ static void psdGatewayEventListener()
                 " bytes, expected " +
                 std::to_string(sizeof(NvPSDGatewayDecisionRequestPacket)) + ")");
         }
-        /* n < 0 after poll said POLLIN: spurious -- just loop back */
+        /* Any other length is neither a heartbeat nor a decision packet on
+         * this link; loop back rather than guessing at it. */
     }
 }
 
-/* REGR send helpers: socket is O_NONBLOCK; send/EINTR loop runs without gwSockMtx (fd snapshot only). */
-enum class RegrSendResult { Ok, Failed, NeedPoll };
-
-static RegrSendResult regrTrySend(int fd, const char* buf, size_t bufSize, bool retryUntilWritable)
-{
-    int eintrCount = 0;
-    while (eintrCount < REGR_SEND_EINTR_MAX_RETRIES)
-    {
-        ssize_t sent = send(fd, buf, bufSize, 0);
-        if (sent == static_cast<ssize_t>(bufSize))
-            return RegrSendResult::Ok;
-        if (sent >= 0)
-        {
-            atl_log_err("SDM: short send on REGR");
-            return RegrSendResult::Failed;
-        }
-        const int err = errno;
-        if (err == EINTR)
-        {
-            ++eintrCount;
-            continue;
-        }
-        if (err != EAGAIN && err != EWOULDBLOCK)
-        {
-            atl_log_err("SDM: failed to send REGR to gateway");
-            return RegrSendResult::Failed;
-        }
-        if (!retryUntilWritable)
-            return RegrSendResult::Failed;
-        return RegrSendResult::NeedPoll;
-    }
-    atl_log_err("SDM: REGR send failed (EINTR retries exhausted)");
-    return RegrSendResult::Failed;
-}
-
-enum class RegrPollResult { Writable, RetryLater, FatalError };
-
-static RegrPollResult regrPollUntilWritable(int fd)
-{
-    struct pollfd pfd = {};
-    pfd.fd     = fd;
-    pfd.events = POLLOUT;
-    int pollBudget = 0;
-    while (pollBudget < REGR_POLL_MAX_POLLS_PER_ATTEMPT)
-    {
-        pfd.revents = 0;
-        const int pr = poll(&pfd, 1, REGR_SEND_POLL_TIMEOUT_MS);
-        if (pr < 0)
-        {
-            if (errno == EINTR)
-                continue;
-            atl_log_warning("SDM: poll before REGR resend failed");
-            return RegrPollResult::FatalError;
-        }
-        if (pr == 0)
-        {
-            ++pollBudget;
-            continue;
-        }
-        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
-        {
-            atl_log_err("SDM: gateway socket poll error before REGR resend");
-            return RegrPollResult::FatalError;
-        }
-        if (pfd.revents & POLLOUT)
-            return RegrPollResult::Writable;
-        ++pollBudget;
-    }
-    return RegrPollResult::RetryLater;
-}
-
-/* Send REGR registration to gateway so it forwards subscribed event types.
- * Bounded: REGR_SEND_MAX_ATTEMPTS × (REGR_SEND_EINTR_MAX_RETRIES send tries, REGR_POLL_MAX_POLLS_PER_ATTEMPT polls per wait).
- * gwSockMtx: brief fd snapshot only; regrTrySend / poll run without mutex. */
+/*
+ * Send REGR registration to the gateway so it forwards subscribed event types.
+ *
+ * The poll(POLLOUT) ladder this replaces existed only because a raw
+ * O_NONBLOCK socket offered no other way to wait for writability. The
+ * transport's send is non-blocking by contract, and the only retryable outcome
+ * is WOULD_BLOCK, so the retry reduces to "sleep briefly and try again",
+ * bounded by REGR_SEND_MAX_ATTEMPTS.
+ *
+ * @param retryUntilWritable true at launch and on reconnect, where a REGR that
+ *        does not land leaves the SDM subscribed to nothing; false on the
+ *        periodic path, where the next REG_RETRY_INTERVAL_MS tick retries and
+ *        blocking the listener would delay decision handling.
+ */
 static bool sendGatewayRegistration(bool retryUntilWritable)
 {
     constexpr size_t bufSize = 4 + 1 + ATL_SUBSCRIBED_COUNT * sizeof(uint32_t);
@@ -1771,9 +2507,11 @@ static bool sendGatewayRegistration(bool retryUntilWritable)
     std::memcpy(buf, NVPSD_GATEWAY_REG_MAGIC, 4);
     /* Wire format: one byte count (gateway reads as uint8_t); avoid signed char. */
     buf[4] = static_cast<unsigned char>(ATL_SUBSCRIBED_COUNT);
+    EventType subscribed[ATL_SUBSCRIBED_COUNT];
+    atlSubscribedEvents(subscribed);
     for (uint8_t i = 0; i < ATL_SUBSCRIBED_COUNT; ++i)
     {
-        uint32_t val = htonl(static_cast<uint32_t>(ATL_SUBSCRIBED_EVENTS[i]));
+        uint32_t val = htonl(static_cast<uint32_t>(subscribed[i]));
         std::memcpy(buf + 5 + i * sizeof(uint32_t), &val, sizeof(uint32_t));
     }
 
@@ -1781,32 +2519,27 @@ static bool sendGatewayRegistration(bool retryUntilWritable)
 
     for (int attempt = 0; attempt < maxAttempts; ++attempt)
     {
-        int fd = -1;
-        {
-            std::lock_guard<std::mutex> lk(gwSockMtx);
-            if (psdGatewayListenSock < 0)
-                return false;
-            fd = psdGatewayListenSock;
-        }
-        const RegrSendResult sr = regrTrySend(fd, buf, bufSize, retryUntilWritable);
+        const NvPSFTransportErr err = gatewaySend(buf, bufSize);
 
-        if (sr == RegrSendResult::Ok)
+        if (err == NVPSF_TRANSPORT_OK)
         {
             atl_log_info("SDM: sent registration (" + std::to_string(ATL_SUBSCRIBED_COUNT) + " event types) to gateway");
             return true;
         }
-        if (sr == RegrSendResult::Failed)
+        if (err != NVPSF_TRANSPORT_WOULD_BLOCK)
+        {
+            /* PEER_GONE or a hard error. Not retried here: the listener owns
+             * reconnection, and spinning the retry budget against a link that
+             * is down would only delay entering it. */
+            atl_log_err("SDM: failed to send REGR to gateway (" +
+                        std::string(NvPSFTransportErrName(err)) + ")");
+            return false;
+        }
+        if (!retryUntilWritable)
             return false;
 
-        switch (regrPollUntilWritable(fd))
-        {
-        case RegrPollResult::FatalError:
-            return false;
-        case RegrPollResult::RetryLater:
-            continue;
-        case RegrPollResult::Writable:
-            break;
-        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(REGR_SEND_RETRY_SLEEP_MS));
     }
     atl_log_warning("SDM: REGR send still blocked after retries");
     return false;
@@ -1836,9 +2569,28 @@ int launchATLControlAlgo(const std::string& gatewayIP,
                          std::uint32_t decisionRepeatIntervalMs,
                          std::uint32_t hbStaleMs,
                          std::uint32_t hbPeriodMs,
-                         std::uint32_t decisionFreshnessTimeoutMs)
+                         std::uint32_t decisionFreshnessTimeoutMs,
+                         NvPSFTransportKind gatewayTransport,
+                         const std::string& gatewaySocketPath,
+                         const std::string& sensorPipelinesConfigPath)
 {
+    /* Refuse before anything else: with no binding this process would register
+     * for nothing meaningful and decide on evidence it never subscribed to.
+     * Checked here rather than only in main() because this is a public entry
+     * point shipped in the dev package, so an out-of-tree caller reaches it
+     * without passing through the CLI at all. Freeze the binding under the
+     * setter's lock before any reader exists; runtime lookups stay read-only. */
+    {
+        std::lock_guard<std::mutex> lock(atlBindingMtx);
+        if (atlEventSource.empty() || atlBindingFrozen)
+        {
+            std::cerr << "error: ATL requires a valid startup event binding before launch\n";
+            return -1;
+        }
+        atlBindingFrozen = true;
+    }
     atl_log_open();
+    atlLogStartupBindings();
 
     if (gatewayPort == 0 || plcPort == 0)
     {
@@ -1882,6 +2634,33 @@ int launchATLControlAlgo(const std::string& gatewayIP,
             std::to_string(SDM_DECISION_FRESHNESS_TIMEOUT_MS_MAX));
         atl_log_close();
         return -1;
+    }
+
+    /*
+     * Reviewed sensor set. Loaded before any socket, thread or signal handler
+     * exists, so a deployment whose config is missing or malformed exits here
+     * having done nothing rather than running with a latch that can never arm.
+     *
+     * The set is NOT cross-checked against sensor_config.conf, and must not be:
+     * in 3D the only reviewed identity is the BEV group, whose pipelineId is
+     * deliberately absent from sensor_config.conf. A "must appear in
+     * sensor_config" rule would reject exactly the deployment this change
+     * exists to support. The daemon owns that cross-check, on group MEMBERS,
+     * where it is the correct one.
+     */
+    {
+        std::string setErr;
+        if (!loadReviewedSensorSet(sensorPipelinesConfigPath.c_str(), gReviewedSensors, setErr))
+        {
+            atl_log_err("ATL: cannot load the reviewed sensor set; refusing to start: " + setErr);
+            std::cerr << "error: " << setErr << "\n";
+            atl_log_close();
+            return -1;
+        }
+        /* Unconditional: a set that silently shrank is only visible if the
+         * runtime states what it resolved. */
+        atl_log_info("ATL: reviewed sensor set from " + sensorPipelinesConfigPath + ": " +
+                     describeReviewedSensorSet(gReviewedSensors));
     }
 
     g_signal_received = 0;
@@ -1936,67 +2715,52 @@ int launchATLControlAlgo(const std::string& gatewayIP,
         atl_log_close(); return -1;
     }
 
-    /* --- PSD Gateway socket: bind ephemeral, send REGR to gateway, recv DecisionRequests + HB --- */
-    psdGatewayListenSock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (psdGatewayListenSock < 0)
-    {
-        atl_log_err("Failed to create psdGateway socket");
-        close(plcSock); plcSock = -1;
-        atl_log_close(); return -1;
-    }
+    /*
+     * --- PSD Gateway upstream endpoint: send REGR, receive DecisionRequests + HB ---
+     *
+     * The socket/fcntl/bind/connect ladder this replaces is now inside the
+     * transport, along with the O_NONBLOCK the old code set by hand and the
+     * peer filtering the old connect() was really there to obtain.
+     *
+     * The plcSock cleanup ladder below is preserved verbatim: every failure
+     * path from here on still closes plcSock before returning, because nothing
+     * else will.
+     */
+    gwTransportKind = gatewayTransport;
+    gwSocketPath    = gatewaySocketPath;
+    gwInetAddr      = gatewayIP;
+    gwInetPort      = gatewayPort;
 
-    const int gwFlags = fcntl(psdGatewayListenSock, F_GETFL, 0);
-    if (gwFlags < 0)
+    /*
+     * A failure to open here is NOT fatal, and that is a deliberate change of
+     * behaviour rather than a missing error path.
+     *
+     * On UDP an unconnected peer was invisible: connect() on a datagram socket
+     * only records an address, so it succeeded whether or not a gateway
+     * existed. On UNIX_SOCKET it does not -- connect() fails outright until
+     * the gateway has bound the path. Treating that as fatal would mean an SDM
+     * launched before the gateway exits instead of waiting, which is exactly
+     * what the "SDM started before the gateway retries until the path appears
+     * and then registers" criterion forbids. The listener's reconnect loop
+     * owns the wait.
+     */
+    if (openGatewayTransport())
     {
-        atl_log_err("Failed to get psdGateway socket flags");
-        close(plcSock); plcSock = -1;
-        close(psdGatewayListenSock); psdGatewayListenSock = -1;
-        atl_log_close(); return -1;
+        if (sendGatewayRegistration(true))
+            lastRegistrationTime = std::chrono::steady_clock::now();
+        else
+        {
+            atl_log_warning("SDM: initial REGR did not complete; will retry in event loop");
+            /* Elapsed time >= REG_RETRY_INTERVAL_MS so first listener iteration retries soon. */
+            lastRegistrationTime = std::chrono::steady_clock::now() -
+                std::chrono::milliseconds(REG_RETRY_INTERVAL_MS);
+        }
     }
-    if (fcntl(psdGatewayListenSock, F_SETFL, gwFlags | O_NONBLOCK) < 0)
-    {
-        atl_log_err("Failed to set psdGateway socket non-blocking");
-        close(plcSock); plcSock = -1;
-        close(psdGatewayListenSock); psdGatewayListenSock = -1;
-        atl_log_close(); return -1;
-    }
-
-    struct sockaddr_in bindAddr = {};
-    bindAddr.sin_family      = AF_INET;
-    bindAddr.sin_addr.s_addr = INADDR_ANY;
-    bindAddr.sin_port        = htons(0);
-    if (bind(psdGatewayListenSock, (struct sockaddr*)&bindAddr, sizeof(bindAddr)) < 0)
-    {
-        atl_log_err("Failed to bind psdGateway socket");
-        close(plcSock); plcSock = -1;
-        close(psdGatewayListenSock); psdGatewayListenSock = -1;
-        atl_log_close(); return -1;
-    }
-
-    gatewayAddr.sin_family = AF_INET;
-    gatewayAddr.sin_port  = htons(gatewayPort);
-    if (inet_pton(AF_INET, gatewayIP.c_str(), &gatewayAddr.sin_addr) <= 0)
-    {
-        atl_log_err("Invalid gateway IP address");
-        close(plcSock); plcSock = -1;
-        close(psdGatewayListenSock); psdGatewayListenSock = -1;
-        atl_log_close(); return -1;
-    }
-    /* Connected UDP: receive path is limited to this peer. */
-    if (connect(psdGatewayListenSock, reinterpret_cast<const struct sockaddr*>(&gatewayAddr),
-                sizeof(gatewayAddr)) < 0)
-    {
-        atl_log_err("Failed to connect psdGateway UDP socket to gateway");
-        close(plcSock); plcSock = -1;
-        close(psdGatewayListenSock); psdGatewayListenSock = -1;
-        atl_log_close(); return -1;
-    }
-    if (sendGatewayRegistration(true))
-        lastRegistrationTime = std::chrono::steady_clock::now();
     else
     {
-        atl_log_warning("SDM: initial REGR did not complete; will retry in event loop");
-        /* Elapsed time >= REG_RETRY_INTERVAL_MS so first listener iteration retries soon. */
+        atl_log_warning("SDM: psdGateway transport not available at launch (" +
+                        std::string(NvPSFTransportKindName(gwTransportKind)) +
+                        "); waiting for the gateway");
         lastRegistrationTime = std::chrono::steady_clock::now() -
             std::chrono::milliseconds(REG_RETRY_INTERVAL_MS);
     }
@@ -2099,12 +2863,12 @@ void shutdownATLControlAlgo()
     {
         std::lock_guard<std::mutex> lk(gwSockMtx);
         hbAckPending = false;
-        if (psdGatewayListenSock >= 0)
-        {
-            close(psdGatewayListenSock);
-            psdGatewayListenSock = -1;
-        }
     }
+    /* Not under gwSockMtx: Close tears down descriptors and must not run with
+     * a lock held that a send path could be waiting on. Safe here because
+     * every thread that touches the handle has been joined above, and the
+     * listener returned before this function was called. */
+    closeGatewayTransport();
 
     /* Clear pending commands */
     {

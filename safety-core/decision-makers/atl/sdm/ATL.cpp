@@ -11,7 +11,10 @@
 #include <limits>
 #include <string>
 #include "ATLControl.h"
+#include "atl_sdm_config.h"
 #include "sdm_decision_freshness.hpp"
+#include "sdm_reviewed_sensor_set.hpp"
+#include "nvpsf_transport.h"
 
 /* Must match launchATLControlAlgo validation in ATLControl.cpp */
 static constexpr std::uint32_t kDecisionRepeatIntervalMsMinNonZero = 100U;
@@ -19,14 +22,13 @@ static constexpr std::uint32_t kDecisionRepeatIntervalMsMax        = 36000U;
 static constexpr std::uint32_t kHbTimingMsMin                      = 100U;
 static constexpr std::uint32_t kHbTimingMsMax                      = 600000U;
 
+
 static void printUsage(const char* prog)
 {
     std::cerr << "Usage: " << prog
               << " [OPTIONS]\n\n"
               << "ATL V2 Safety Decision Maker.\n\n"
               << "Options:\n"
-              << "  --gateway_ip <IP>            PSD Gateway IP (default: 127.0.0.1).\n"
-              << "  --gateway_port <PORT>        PSD Gateway port, 1-65535 (default: 50000).\n"
               << "  --cmd_rx_ip <IP>             Command receiver IP (default: 127.0.0.1).\n"
               << "  --cmd_rx_port <PORT>         Command receiver port, 1-65535 (default: 12345).\n"
               << "  --max_hb_failures <N>        Heartbeat miss limit, 1-255 (default: 10).\n"
@@ -42,18 +44,29 @@ static void printUsage(const char* prog)
               << SDM_DECISION_FRESHNESS_TIMEOUT_MS_MIN << ".."
               << SDM_DECISION_FRESHNESS_TIMEOUT_MS_MAX
               << " (default: " << SDM_DECISION_FRESHNESS_TIMEOUT_MS_DEFAULT << ").\n"
-              << "  -h, --help                   Show this help message.\n";
-}
-
-static bool requireOptionValue(int argc, int i, const char* optName, const char* prog)
-{
-    if (i + 1 >= argc)
-    {
-        std::cerr << "error: " << optName << " requires a value\n";
-        printUsage(prog);
-        return false;
-    }
-    return true;
+              << "  --config <PATH>              REQUIRED. Startup configuration file, and the\n"
+              << "                                only source of the event binding. Every key\n"
+              << "                                is mandatory and there is no compiled-in\n"
+              << "                                fallback. The safety-relevant pipelines are\n"
+              << "                                NOT here -- see --sensor_pipelines_config.\n"
+              << "                                Event names are\n"
+              << "                                EVENT_0..EVENT_" << static_cast<unsigned>(EVENT_23)
+              << ", distinct, in any order; see\n"
+              << "                                atl_sdm_zone1.conf.sample.\n"
+              << "  --log_file <PATH>            This instance's log file (default:\n"
+              << "                                atl_sdm.log in the working directory). Give\n"
+              << "                                each SDM its own when several run together.\n"
+              << "  --sensor_pipelines_config <PATH>\n"
+              << "                                Reviewed sensor set behind the\n"
+              << "                                all-safety-relevant-sensors-failed latch\n"
+              << "                                (default: " << SDM_SENSOR_PIPELINES_CONFIG_DEFAULT << ").\n"
+              << "                                Missing or malformed is fatal.\n"
+              << "  -h, --help                   Show this help message.\n\n"
+              << "The configured event codes must match the output_event codes in the\n"
+              << "mdx-client event map, so the gateway routes this deployment's events to\n"
+              << "this decision maker. Two ATL SDMs sharing one gateway must not share a\n"
+              << "code: the gateway filters by registration, and a shared code would be\n"
+              << "delivered to both.\n";
 }
 
 static bool parsePort(const char* arg, std::uint16_t& out, const char* name, const char* prog)
@@ -82,6 +95,18 @@ static bool parsePort(const char* arg, std::uint16_t& out, const char* name, con
     out = static_cast<std::uint16_t>(val);
     return true;
 }
+
+static bool requireOptionValue(int argc, int i, const char* optName, const char* prog)
+{
+    if (i + 1 >= argc)
+    {
+        std::cerr << "error: " << optName << " requires a value\n";
+        printUsage(prog);
+        return false;
+    }
+    return true;
+}
+
 
 static bool parseUint32Range(const char* arg,
                              std::uint32_t& out,
@@ -122,25 +147,27 @@ int main(int argc, char* argv[])
     std::uint32_t  hbStaleMs = 5000U;
     std::uint32_t  hbPeriodMs = 5500U;
     std::uint32_t  decisionFreshnessTimeoutMs = SDM_DECISION_FRESHNESS_TIMEOUT_MS_DEFAULT;
+    std::string    sensorPipelinesConfigPath = SDM_SENSOR_PIPELINES_CONFIG_DEFAULT;
+
+    /* Upstream transport selection. Startup-only and immutable. */
+    /* AF_UNIX SOCK_SEQPACKET, not selectable. The gateway hop is UNIX-only by
+     * deployment decision; only the out-of-scope PLC link stays UDP, and that is
+     * a raw AF_INET datagram socket elsewhere in this process, not this
+     * transport. */
+    const NvPSFTransportKind gatewayTransport = NVPSF_TRANSPORT_UNIX_SOCKET;
+    std::string        gatewaySocketPath = NVPSF_SOCKET_PATH_PSD_GATEWAY;
+
+    /* Collected during parsing and applied afterwards, because options may
+     * arrive in any order and --log_file must take effect before the control
+     * layer opens its log. */
+    std::string configPath;
+    std::string logFilePath;
 
     for (int i = 1; i < argc; ++i)
     {
         const char* arg = argv[i];
 
-        if (strcmp(arg, "--gateway_ip") == 0)
-        {
-            if (!requireOptionValue(argc, i, "--gateway_ip", argv[0]))
-                return 1;
-            gatewayIP = argv[++i];
-        }
-        else if (strcmp(arg, "--gateway_port") == 0)
-        {
-            if (!requireOptionValue(argc, i, "--gateway_port", argv[0]))
-                return 1;
-            if (!parsePort(argv[++i], gatewayPort, "--gateway_port", argv[0]))
-                return 1;
-        }
-        else if (strcmp(arg, "--cmd_rx_ip") == 0)
+        if (strcmp(arg, "--cmd_rx_ip") == 0)
         {
             if (!requireOptionValue(argc, i, "--cmd_rx_ip", argv[0]))
                 return 1;
@@ -234,6 +261,55 @@ int main(int argc, char* argv[])
                                   "--decision_freshness_timeout_ms", argv[0]))
                 return 1;
         }
+        else if (strcmp(arg, "--config") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--config", argv[0]))
+                return 1;
+            configPath = argv[++i];
+            if (configPath.empty())
+            {
+                std::cerr << "error: --config: path is empty\n";
+                printUsage(argv[0]);
+                return 1;
+            }
+        }
+        else if (strcmp(arg, "--events") == 0)
+        {
+            /* Removed rather than aliased. It had no equivalent flag to map to
+             * -- the binding is the file -- and accepting it with a warning
+             * would silently run the file's codes while the operator believed
+             * they had overridden them. Named here instead of falling through
+             * to "unknown option" so a stale script says what to do next. */
+            std::cerr << "error: --events was removed; the configuration file named by"
+                         " --config is now the only source of the event binding. Put the"
+                         " six codes in that file.\n";
+            printUsage(argv[0]);
+            return 1;
+        }
+        else if (strcmp(arg, "--log_file") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--log_file", argv[0]))
+                return 1;
+            logFilePath = argv[++i];
+            if (logFilePath.empty())
+            {
+                std::cerr << "error: --log_file: path is empty\n";
+                printUsage(argv[0]);
+                return 1;
+            }
+        }
+        else if (strcmp(arg, "--sensor_pipelines_config") == 0)
+        {
+            if (!requireOptionValue(argc, i, "--sensor_pipelines_config", argv[0]))
+                return 1;
+            sensorPipelinesConfigPath = argv[++i];
+            if (sensorPipelinesConfigPath.empty())
+            {
+                std::cerr << "error: --sensor_pipelines_config: empty path\n";
+                printUsage(argv[0]);
+                return 1;
+            }
+        }
         else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0)
         {
             printUsage(argv[0]);
@@ -253,8 +329,75 @@ int main(int argc, char* argv[])
         }
     }
 
-    /* Blocks until shutdown; non-zero if initialization failed. */
+
+    /* --- Startup bindings, applied before the control layer opens its log --- */
+
+    if (!logFilePath.empty() && !atlSetLogFile(logFilePath))
+    {
+        std::cerr << "error: --log_file: rejected\n";
+        printUsage(argv[0]);
+        return 1;
+    }
+
+    /* --config is mandatory. There is no compiled-in binding to fall back on,
+     * and that is the point: an ATL SDM started without one would otherwise
+     * register for whatever the build happened to default to. For a second zone
+     * that means silently subscribing to the first zone's codes, tracking the
+     * first zone's trailer, and emitting a mute permission on its own PLC port
+     * for a trailer it has no evidence about. Same rule, and the same reason, as
+     * enableFusion and sensorConfig in nvpss.conf. */
+    if (configPath.empty())
+    {
+        std::cerr << "error: --config is required; it states the event binding"
+                     " (the safety-relevant pipelines come from"
+                     " --sensor_pipelines_config)\n";
+        printUsage(argv[0]);
+        return 1;
+    }
+
+    {
+        AtlSdmConfig cfg = {};
+        std::string err;
+        if (!atlSdmConfigLoad(configPath, cfg, err))
+        {
+            std::cerr << "error: --config " << configPath << ": " << err << "\n";
+            return 1;
+        }
+        /* Events only. The safety-relevant pipeline set moved to
+         * sensor_pipelines_config.conf, which every CCPLEX SDM and mdx-client
+         * read, so one reviewed set serves the whole deployment and the ATL and
+         * PXC sets cannot drift apart again. launchATLControlAlgo loads it. */
+        if (!atlSetSubscribedEvents(cfg.events, ATL_EVENT_COUNT, "--config"))
+        {
+            /* The loader validated the list, so reaching here means the two
+             * validators have drifted apart. Refuse rather than run on a
+             * binding neither of them fully agreed to. */
+            std::cerr << "error: --config " << configPath << ": rejected by the control layer\n";
+            return 1;
+        }
+    }
+
+    /* Authority on the transport this run used: the safe-state injectors'
+     * --transport flag only declares it, so evidence must be read against this
+     * line and the matching one in the gateway log.
+     *
+     * Kind only. The endpoint address, port and socket path are sensitive per the
+     * repo logging rule and are not needed for evidence; they stay behind NVPSF_DBG. */
+    std::cout << "[TRANSPORT] gateway upstream: "
+              << NvPSFTransportKindName(gatewayTransport) << "\n";
+#ifdef NVPSF_DBG
+    std::cout << "[TRANSPORT] endpoint: "
+              << (gatewayTransport == NVPSF_TRANSPORT_UNIX_SOCKET
+                      ? "socket=" + gatewaySocketPath
+                      : "ip=" + gatewayIP + " port=" + std::to_string(gatewayPort))
+              << "\n";
+#endif
+
+    /* Blocks until shutdown; non-zero if initialization failed.
+     * --gateway_transport had no effect on the link actually used. */
     return launchATLControlAlgo(gatewayIP, gatewayPort, plcIP, plcPort, maxHbFailures,
                                 decisionIntervalMs, hbStaleMs, hbPeriodMs,
-                                decisionFreshnessTimeoutMs);
+                                decisionFreshnessTimeoutMs,
+                                gatewayTransport, gatewaySocketPath,
+                                sensorPipelinesConfigPath);
 }

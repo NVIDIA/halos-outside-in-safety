@@ -17,7 +17,8 @@ namespace MDXClient {
 // This is deliberately keyed by the typed internal candidate kind, never by
 // a generated/private rule identifier.
 inline bool shouldPopulatePairFusionMetadata(AlertCandidateKind candidateKind) {
-    return candidateKind == AlertCandidateKind::kProximityPair;
+    return candidateKind == AlertCandidateKind::kProximityPair ||
+           candidateKind == AlertCandidateKind::kCoMovementPair;
 }
 
 // Frame candidates are rate-selected solely from their immutable parser

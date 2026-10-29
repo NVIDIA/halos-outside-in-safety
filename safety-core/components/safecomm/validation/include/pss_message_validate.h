@@ -48,7 +48,7 @@ extern "C" {
 #define PSS_ERR_SEVERITY                   (1U << 4)
 #define PSS_ERR_CONFIDENCE                 (1U << 5)
 #define PSS_ERR_SENSOR_IDENTIFIER          (1U << 6)
-#define PSS_ERR_RULE_IDENTIFIER            (1U << 7)
+#define PSS_ERR_EVENT_CAUSE                (1U << 7)
 #define PSS_ERR_OBJECT_TYPE                (1U << 8)
 #define PSS_ERR_EVENT_STATUS               (1U << 9)
 #define PSS_ERR_OPERATIONAL_MODE           (1U << 10)
@@ -160,7 +160,10 @@ bool pssDecisionRequestVerifyCRC(const DecisionRequest *req);
  *   - EventType and ObjectType enum ranges
  *   - confidenceLevel in [0.0f, 1.0f] (NaN is rejected)
  *   - timestamp != 0 (rejects uninitialized events)
- *   - sensorIdentifier / ruleIdentifier NUL-terminated within bounds
+ *   - sensorIdentifier NUL-terminated within bounds
+ *   - cause within the EventCause enum. An in-range value the receiver does not
+ *     recognise is accepted deliberately: unknown causes must reach the SDMs,
+ *     which treat anything other than CAUSE_SAIM_INIT as a genuine failure.
  *
  * @return PSS_VALID (0) on success, or a bitmask of PSS_ERR_* flags
  *         indicating which checks failed.

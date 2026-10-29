@@ -50,14 +50,39 @@ static inline void NvPSSBuildStatusNoopDecisionRequest(DecisionRequest* request,
     (void)std::snprintf(sensorData.event.sensorIdentifier,
                         sizeof(sensorData.event.sensorIdentifier),
                         "%s", "PSS_DAEMON");
-    (void)std::snprintf(sensorData.event.ruleIdentifier,
-                        sizeof(sensorData.event.ruleIdentifier),
-                        "%s", "PSS_STATUS_NOOP");
+    sensorData.event.cause = CAUSE_NONE;
+}
+
+/* One presence-report word: a PSS_PRESENCE_* set in bits 0..15 and an
+ * input-state set (PSS_INPUT_STATE_MASK layout) in bits 16..31. */
+static inline uint32_t NvPSSPackPresenceWord(uint32_t presenceSet, uint32_t inputStateSet)
+{
+    return (presenceSet & 0x0000FFFFU) |
+           ((inputStateSet & PSS_INPUT_STATE_MASK) << PSS_INPUT_STATE_SHIFT);
+}
+
+/* Make a PSS no-op the presence report: CAUSE_SOURCE_PRESENCE with
+ * the PSS_PRESENCE_* set present now in objectID[0] and the set PSS expects in
+ * objectID[1], each with its input-state set packed above it
+ * (NvPSSPackPresenceWord: unusable with present, confirmed-usable with expected).
+ * All are sampled by the CALLER, and the caller must sample them when
+ * the DecisionRequest is BUILT -- not when the no-op was queued -- so a report can
+ * never be older than a loss or an escalation PSS has already raised. */
+static inline void NvPSSStampSourcePresence(FusedSafetyEvent* event, uint32_t presenceMask,
+                                            uint32_t expectedMask)
+{
+    if (event == nullptr)
+        return;
+    event->cause = CAUSE_SOURCE_PRESENCE;
+    event->fusionMetadata.objectID[0] = presenceMask;
+    event->fusionMetadata.objectID[1] = expectedMask;
 }
 
 static inline void NvPSSBuildStatusNoopFusedEvent(FusedSafetyEvent* event,
                                                   uint32_t eventId,
-                                                  uint64_t timestampNs)
+                                                  uint64_t timestampNs,
+                                                  uint32_t presenceMask,
+                                                  uint32_t expectedMask)
 {
     if (event == nullptr)
         return;
@@ -74,9 +99,7 @@ static inline void NvPSSBuildStatusNoopFusedEvent(FusedSafetyEvent* event,
     (void)std::snprintf(event->sensorIdentifier,
                         sizeof(event->sensorIdentifier),
                         "%s", "PSS_DAEMON");
-    (void)std::snprintf(event->ruleIdentifier,
-                        sizeof(event->ruleIdentifier),
-                        "%s", "PSS_STATUS_NOOP");
+    NvPSSStampSourcePresence(event, presenceMask, expectedMask);
 }
 
 #endif /* NVPSS_STATUS_NOOP_HPP */

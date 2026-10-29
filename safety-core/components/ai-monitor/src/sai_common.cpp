@@ -124,13 +124,16 @@ bool ThresholdConfig::loadFromFile(const std::string& path, ThresholdConfig& out
     SaiConfigParser parser;
     if (!parser.loadFromFile(path)) return false;
 
-    static const std::vector<std::string> required = {
+    // Split to match the getter each key is read with below.
+    static const std::vector<std::string> requiredFloats = {
         "w_histogram", "w_contrast", "w_edge", "w_entropy", "w_laplacian",
-        "uv_weight_cb", "uv_weight_cr", "uv_weight_sat",
+        "uv_weight_cb", "uv_weight_cr", "uv_weight_sat"
+    };
+    static const std::vector<std::string> requiredInts = {
         "score_low_threshold", "score_high_threshold",
         "counter_max", "max_increment", "max_decrement"
     };
-    if (!parser.validateRequiredKeys(required)) return false;
+    if (!parser.validateRequiredKeys(requiredFloats, requiredInts)) return false;
 
     out.w_histogram              = parser.getFloat("w_histogram",          out.w_histogram);
     out.w_contrast               = parser.getFloat("w_contrast",           out.w_contrast);
@@ -202,6 +205,7 @@ bool ThresholdConfig::loadFromFile(const std::string& path, ThresholdConfig& out
 
     out.score_low_threshold      = parser.getInt("score_low_threshold",        out.score_low_threshold);
     out.score_high_threshold     = parser.getInt("score_high_threshold",       out.score_high_threshold);
+    out.score_at_k_sigma         = parser.getInt("score_at_k_sigma",           out.score_high_threshold);
     out.counter_max              = parser.getInt("counter_max",                out.counter_max);
     out.max_increment            = parser.getInt("max_increment",              out.max_increment);
     out.max_decrement            = parser.getInt("max_decrement",              out.max_decrement);
@@ -234,7 +238,7 @@ bool ThresholdConfig::validate() const {
         fail("w_laplacian must be in [0, 1]");
 
     float wsum = w_histogram + w_contrast + w_edge + w_entropy + w_laplacian;
-    if (std::fabs(wsum - 1.0f) > 0.01f)
+    if (std::fabs(wsum - 1.0f) > kWeightSumTolerance)
         fail("luma score weights must sum to ~1.0 "
              "(w_histogram + w_contrast + w_edge + w_entropy + w_laplacian)");
 
@@ -246,29 +250,19 @@ bool ThresholdConfig::validate() const {
         fail("uv_weight_sat must be in [0, 1]");
 
     float uv_wsum = uv_weight_cb + uv_weight_cr + uv_weight_sat;
-    if (std::fabs(uv_wsum - 1.0f) > 0.01f)
+    if (std::fabs(uv_wsum - 1.0f) > kWeightSumTolerance)
         fail("uv chroma weights must sum to ~1.0 (uv_weight_cb + uv_weight_cr + uv_weight_sat)");
 
-    // Intentionally tighter than the original [0.5, 10.0]: k <= 2 produces
-    // hair-trigger alarms (~95% Gaussian coverage at k=2 still flags ~5% of
-    // healthy frames as bad), and k >= 5 makes the system practically blind
-    // (~1 in 1.7M Gaussian tail). [2, 5] brackets the Shewhart control-chart
-    // band around the 3-sigma convention. Legacy configs that loaded a value
-    // outside this range will fail loudly here, which is the desired
-    // behavior - that value was almost certainly mis-tuned.
-    if (!std::isfinite(k) || k < 2.0f || k > 5.0f)
-        fail("k must be finite and in [2.0, 5.0]");
+    if (!std::isfinite(k) || k < 2.0f || k > 8.0f)
+        fail("k must be finite and in [2.0, 8.0]");
 
-    // Tighter than the original (0, 1): a floor >= 50% of |mu| means
-    // sigma_eff dominates any realistic learned sigma, collapsing the
-    // k*sigma scoring to a fixed-fraction band and defeating the LEARN step.
-    // Lower bound stays open so 0 is rejected (would re-introduce
-    // divide-by-zero on static-scene baselines). The struct default of 0.05
-    // and the legacy-translation output range (~0.1 - 0.17) both sit
-    // comfortably inside.
+    // A divide-by-zero guard, not a tolerance. The tightest learned sigmas are
+    // ~7e-4 of their mean, so capping at 1e-3 blunts them by at most 1.5x.
+    // 0 leaves the degenerate case to the scorer's zero-sigma branch (zscore
+    // in tile_scorer.cpp).
     if (!std::isfinite(sigma_floor_fraction) ||
-        sigma_floor_fraction <= 0.f || sigma_floor_fraction >= 0.5f)
-        fail("sigma_floor_fraction must be in (0, 0.5)");
+        sigma_floor_fraction < 0.f || sigma_floor_fraction > 1e-3f)
+        fail("sigma_floor_fraction must be in [0, 0.001]");
 
     if (score_low_threshold <= 0 || score_low_threshold >= 100)
         fail("score_low_threshold must be in (0, 100)");
@@ -276,12 +270,40 @@ bool ThresholdConfig::validate() const {
         fail("score_high_threshold must be in (0, 100)");
     if (score_high_threshold <= score_low_threshold)
         fail("score_high_threshold must be > score_low_threshold");
-    if (counter_max <= 0 || counter_max > 100)
-        fail("counter_max must be in [1, 100]");
-    if (max_increment < 1 || max_increment > 10)
-        fail("max_increment must be in [1, 10]");
+    // Upper bound is 99, not 100: zero_score_sigmas_for divides by (100 - this),
+    // and 100 would put the curve's zero crossing at infinity.
+    if (score_at_k_sigma < 0 || score_at_k_sigma > 99)
+        fail("score_at_k_sigma must be in [0, 99]");
+    // counter_max is the patience in frames, so its ceiling is COUNTER_MAX_LIMIT
+    // rather than a round number; that constant also carries the overflow
+    // headroom the quadratic increment relies on.
+    if (counter_max <= 0 || counter_max > COUNTER_MAX_LIMIT)
+        fail("counter_max must be in [1, COUNTER_MAX_LIMIT]");
+    // Bounded by counter_max, not by a fixed magnitude: max_increment is the
+    // ratio between the slowest and fastest latch, and a step larger than the
+    // cap would only mean "latch in one frame" while making the ratio a lie.
+    if (max_increment < 1 || max_increment > counter_max)
+        fail("max_increment must be in [1, counter_max]");
+    // Release must never outpace attack. This bound compares endpoints only, so
+    // it delivers the invariant solely because both counter steps share the same
+    // quadratic shape (see nvdec_decoder.cpp); against a linear decrement a good
+    // frame would still drain faster than an equally-distant bad frame fills.
     if (max_decrement < 1 || max_decrement > max_increment)
         fail("max_decrement must be in [1, max_increment]");
+    // Same invariant, but in raw score points rather than as a fraction of each
+    // side's span. Needed separately because the steps normalise by different
+    // spans - low^2 for the fill, (100 - high)^2 for the drain.
+    if (score_low_threshold > 0 && score_low_threshold < 100 &&
+        score_high_threshold > score_low_threshold && score_high_threshold < 100 &&
+        max_decrement >= 1 && max_decrement <= max_increment &&
+        max_increment <= COUNTER_MAX_LIMIT) {
+        const int drain_span = 100 - score_high_threshold;   // in [1, 98]
+        if (max_decrement * score_low_threshold * score_low_threshold >
+            max_increment * drain_span * drain_span)
+            fail("max_decrement * score_low_threshold^2 must be <= max_increment"
+                 " * (100 - score_high_threshold)^2, else a good frame drains"
+                 " faster than an equally-distant bad frame fills");
+    }
 
     if (canny_low_thresh <= 0 || canny_low_thresh >= 255)
         fail("canny_low_thresh must be in (0, 255)");
@@ -293,39 +315,83 @@ bool ThresholdConfig::validate() const {
     return ok;
 }
 
+namespace {
+
+// One row per key, a comma-separated list in tile order.
+template <typename T, size_t N>
+void write_list(std::ostream& f, const std::string& key, const T (&v)[N]) {
+    f << key << "=";
+    for (size_t i = 0; i < N; ++i)
+        f << (i ? "," : "") << v[i];
+    f << "\n";
+}
+
+const char* const kTileTwinNames[TT_COUNT] = {
+    "level", "contrast", "fine", "cb", "cr", "cb_strength", "cr_strength", "sat",
+    "cb_spread", "cr_spread", "sat_spread"
+};
+
+// Each tile band's two rows: its mean, and its sigma named for the side it keeps
+// (_lo below the mean, _hi above). Save and load both read this list, so a file
+// that still carries the other side's row never has it taken for this one.
+struct BandRows {
+    const char* mu;
+    const char* sigma;
+    TileBand TileBaseline::*band;
+};
+const BandRows kTileBands[] = {
+    {"tile_grain_mu",  "tile_grain_hi",  &TileBaseline::grain},
+    {"tile_detail_mu", "tile_detail_lo", &TileBaseline::detail},
+    {"tile_motion_mu", "tile_motion_hi", &TileBaseline::motion},
+};
+
+}  // namespace
+
 bool BaselineValues::saveToFile(const std::string& path) const {
+    // The loader refuses a baseline below this, so writing one would only waste
+    // the LEARN run that produced it and surface later as a confusing
+    // rejected-on-startup failure.
+    if (total_frames < MIN_LEARN_FRAMES_FOR_SIGMA) {
+        std::cerr << "[Config] BaselineValues: refusing to save total_frames="
+                  << total_frames << " < MIN_LEARN_FRAMES_FOR_SIGMA="
+                  << MIN_LEARN_FRAMES_FOR_SIGMA << "\n";
+        return false;
+    }
+    // Same reason: the loader requires every metric, chroma included.
+    if (!has_chroma) {
+        std::cerr << "[Config] BaselineValues: refusing to save a baseline"
+                     " without chroma rows\n";
+        return false;
+    }
+
     std::ofstream f(path);
     if (!f.is_open()) return false;
-    f << "hist_mean="        << hist_mean        << "\n"
-      << "hist_var="         << hist_var         << "\n"
-      << "rms_contrast="     << rms_contrast     << "\n"
-      << "edge_density="     << edge_density     << "\n"
-      << "entropy="          << entropy          << "\n"
-      << "lap_var="          << lap_var          << "\n"
-      << "hist_mean_std="    << hist_mean_std    << "\n"
-      << "hist_var_std="     << hist_var_std     << "\n"
-      << "rms_contrast_std=" << rms_contrast_std << "\n"
-      << "edge_density_std=" << edge_density_std << "\n"
-      << "entropy_std="      << entropy_std      << "\n"
-      << "lap_var_std="      << lap_var_std      << "\n"
-      << "total_frames="     << total_frames     << "\n"
-      << "canny_low_thresh=" << canny_low_thresh << "\n"
+
+    // Grid dimensions lead the file so a baseline learned on another grid is
+    // identifiable as such at load, rather than only failing on element count.
+    f << "tile_rows="         << kTileRows         << "\n"
+      << "tile_cols="         << kTileCols         << "\n"
+      << "frame_width="       << frame_width       << "\n"
+      << "frame_height="      << frame_height      << "\n"
+      << "total_frames="      << total_frames      << "\n"
+      << "canny_low_thresh="  << canny_low_thresh  << "\n"
       << "canny_high_thresh=" << canny_high_thresh << "\n";
 
-    if (has_chroma) {
-        f << "cb_mean="       << cb_mean       << "\n"
-          << "cb_mean_std="   << cb_mean_std   << "\n"
-          << "cb_var="        << cb_var        << "\n"
-          << "cb_var_std="    << cb_var_std    << "\n"
-          << "cr_mean="       << cr_mean       << "\n"
-          << "cr_mean_std="   << cr_mean_std   << "\n"
-          << "cr_var="        << cr_var        << "\n"
-          << "cr_var_std="    << cr_var_std    << "\n"
-          << "sat_mean="      << sat_mean      << "\n"
-          << "sat_mean_std="  << sat_mean_std  << "\n"
-          << "sat_var="       << sat_var       << "\n"
-          << "sat_var_std="   << sat_var_std   << "\n";
+    for (int m = 0; m < QM_COUNT; ++m) {
+        const std::string name(kQualityMetricNames[m]);
+        f << name << "="         << mu[m]     << "\n"
+          << name << "_std_lo=" << std_lo[m] << "\n"
+          << name << "_std_hi=" << std_hi[m] << "\n";
     }
+
+    for (const BandRows& r : kTileBands) {
+        write_list(f, r.mu,    (tile.*r.band).mu);
+        write_list(f, r.sigma, (tile.*r.band).sigma);
+    }
+    for (int k = 0; k < TT_COUNT; ++k)
+        write_list(f, std::string("tile_level_") + kTileTwinNames[k], tile.level[k]);
+    write_list(f, "tile_black",  tile.black);
+    write_list(f, "tile_white",  tile.white);
     return f.good();
 }
 
@@ -333,15 +399,33 @@ bool BaselineValues::loadFromFile(const std::string& path, BaselineValues& out) 
     SaiConfigParser parser;
     if (!parser.loadFromFile(path)) return false;
 
-    static const std::vector<std::string> required = {
-        "hist_mean", "hist_var", "rms_contrast", "edge_density",
-        "hist_mean_std", "hist_var_std", "rms_contrast_std", "edge_density_std",
-        "total_frames"
-    };
-    if (!parser.validateRequiredKeys(required)) return false;
+    // Grid first: every list below is sized by it, and a mismatch is the one
+    // failure worth naming precisely. Left to the element-count check it would
+    // surface as a generic "wrong number of elements" and read as corruption.
+    const int rows = parser.getInt("tile_rows", 0);
+    const int cols = parser.getInt("tile_cols", 0);
+    if (rows != kTileRows || cols != kTileCols) {
+        std::cerr << "[Config] BaselineValues: " << path << " was learned on a "
+                  << rows << "x" << cols << " tile grid but this build uses "
+                  << kTileRows << "x" << kTileCols
+                  << ". Re-run LEARN to regenerate this baseline.\n";
+        return false;
+    }
 
-    // Validate total_frames before touching `out` so a stale baseline never
-    // leaks into gates that read total_frames > 0 as "baseline exists".
+    // The metric rows are lists, which getFloatList checks element by element
+    // below; only the scalar keys go through the typed check. The frame size is
+    // required: a missing or garbled one would switch off ACTIVE's size check.
+    static const std::vector<std::string> requiredInts = {
+        "total_frames", "frame_width", "frame_height", "canny_low_thresh", "canny_high_thresh"
+    };
+    if (!parser.validateRequiredKeys({}, requiredInts)) {
+        std::cerr << "[Config] BaselineValues: " << path
+                  << " is incomplete. Re-run LEARN to regenerate it.\n";
+        return false;
+    }
+
+    // Checked before `out` is touched so a stale baseline never leaks into
+    // gates that read total_frames > 0 as "baseline exists".
     const int total_frames = parser.getInt("total_frames", 0);
     if (total_frames < MIN_LEARN_FRAMES_FOR_SIGMA) {
         std::cerr << "[Config] BaselineValues: total_frames=" << total_frames
@@ -350,47 +434,52 @@ bool BaselineValues::loadFromFile(const std::string& path, BaselineValues& out) 
         return false;
     }
 
-    out.hist_mean        = parser.getFloat("hist_mean",        out.hist_mean);
-    out.hist_var         = parser.getFloat("hist_var",         out.hist_var);
-    out.rms_contrast     = parser.getFloat("rms_contrast",     out.rms_contrast);
-    out.edge_density     = parser.getFloat("edge_density",     out.edge_density);
-    out.hist_mean_std    = parser.getFloat("hist_mean_std",    out.hist_mean_std);
-    out.hist_var_std     = parser.getFloat("hist_var_std",     out.hist_var_std);
-    out.rms_contrast_std = parser.getFloat("rms_contrast_std", out.rms_contrast_std);
-    out.edge_density_std = parser.getFloat("edge_density_std", out.edge_density_std);
-    out.entropy          = parser.getFloat("entropy",          out.entropy);
-    out.lap_var          = parser.getFloat("lap_var",          out.lap_var);
-    out.entropy_std      = parser.getFloat("entropy_std",      out.entropy_std);
-    out.lap_var_std      = parser.getFloat("lap_var_std",      out.lap_var_std);
-    out.total_frames     = total_frames;
-    out.canny_low_thresh  = parser.getInt("canny_low_thresh",  out.canny_low_thresh);
-    out.canny_high_thresh = parser.getInt("canny_high_thresh", out.canny_high_thresh);
+    // Parsed into a temporary and committed only once every metric has loaded,
+    // so a file that fails halfway leaves the caller's baseline untouched
+    // rather than half-replaced.
+    BaselineValues tmp;
+    tmp.total_frames      = total_frames;
+    tmp.frame_width       = parser.getInt("frame_width",  0);
+    tmp.frame_height      = parser.getInt("frame_height", 0);
+    tmp.canny_low_thresh  = parser.getInt("canny_low_thresh",  out.canny_low_thresh);
+    tmp.canny_high_thresh = parser.getInt("canny_high_thresh", out.canny_high_thresh);
 
-    // Chroma (UV-plane) baseline is optional: only adopt it when all 12 keys are present.
-    out.has_chroma =
-        parser.hasKey("cb_mean")  && parser.hasKey("cb_mean_std")  &&
-        parser.hasKey("cb_var")   && parser.hasKey("cb_var_std")   &&
-        parser.hasKey("cr_mean")  && parser.hasKey("cr_mean_std")  &&
-        parser.hasKey("cr_var")   && parser.hasKey("cr_var_std")   &&
-        parser.hasKey("sat_mean") && parser.hasKey("sat_mean_std") &&
-        parser.hasKey("sat_var")  && parser.hasKey("sat_var_std");
-    if (out.has_chroma) {
-        out.cb_mean      = parser.getFloat("cb_mean",      out.cb_mean);
-        out.cb_mean_std  = parser.getFloat("cb_mean_std",  out.cb_mean_std);
-        out.cb_var       = parser.getFloat("cb_var",       out.cb_var);
-        out.cb_var_std   = parser.getFloat("cb_var_std",   out.cb_var_std);
-        out.cr_mean      = parser.getFloat("cr_mean",      out.cr_mean);
-        out.cr_mean_std  = parser.getFloat("cr_mean_std",  out.cr_mean_std);
-        out.cr_var       = parser.getFloat("cr_var",       out.cr_var);
-        out.cr_var_std   = parser.getFloat("cr_var_std",   out.cr_var_std);
-        out.sat_mean     = parser.getFloat("sat_mean",     out.sat_mean);
-        out.sat_mean_std = parser.getFloat("sat_mean_std", out.sat_mean_std);
-        out.sat_var      = parser.getFloat("sat_var",      out.sat_var);
-        out.sat_var_std  = parser.getFloat("sat_var_std",  out.sat_var_std);
-    } else {
-        std::cerr << "[Config] no chroma baseline in " << path
-                  << "; chroma validation disabled, scoring on luma (Y) only.\n";
+    // The pair is the only spread the file carries, so a metric missing either
+    // side cannot be scored and has nothing to fall back on.
+    auto load_metric = [&](int m) {
+        const std::string base(kQualityMetricNames[m]);
+        return parser.getFloatList(base,             &tmp.mu[m],     1) &&
+               parser.getFloatList(base + "_std_lo", &tmp.std_lo[m], 1) &&
+               parser.getFloatList(base + "_std_hi", &tmp.std_hi[m], 1);
+    };
+
+    // Every metric is required, chroma included: a partial baseline is never adopted.
+    for (int m = 0; m < QM_COUNT; ++m) {
+        if (!load_metric(m)) {
+            std::cerr << "[Config] BaselineValues: " << path << " has no usable "
+                      << kQualityMetricNames[m]
+                      << " row. Re-run LEARN to regenerate this baseline.\n";
+            return false;
+        }
     }
+    tmp.has_chroma = true;
+
+    TileBaseline& tb = tmp.tile;
+    bool tiles_ok = parser.getFloatList("tile_black",  tb.black,  kTileCount) &&
+                    parser.getFloatList("tile_white",  tb.white,  kTileCount);
+    for (const BandRows& r : kTileBands)
+        tiles_ok = tiles_ok && parser.getFloatList(r.mu,    (tb.*r.band).mu,    kTileCount) &&
+                               parser.getFloatList(r.sigma, (tb.*r.band).sigma, kTileCount);
+    for (int k = 0; tiles_ok && k < TT_COUNT; ++k)
+        tiles_ok = parser.getFloatList(std::string("tile_level_") + kTileTwinNames[k],
+                                       tb.level[k], kTileCount);
+    if (!tiles_ok) {
+        std::cerr << "[Config] BaselineValues: " << path << " has no usable tile rows."
+                     " Re-run LEARN to regenerate this baseline.\n";
+        return false;
+    }
+
+    out = tmp;
     return true;
 }
 
@@ -401,16 +490,14 @@ bool BaselineValues::validate() const {
         ok = false;
     };
 
+    // The sai_metric_is_var means are stored as sai_safe_log(raw), so they go
+    // negative whenever the raw variance is under 1 - routine on a monochrome
+    // source, whose chroma variances sit at 0. The surviving bound is the
+    // clamp's own output: anything below it did not come from sai_safe_log.
+    const float log_floor = logf(kMetricLogFloor);
+
     if (total_frames < MIN_LEARN_FRAMES_FOR_SIGMA)
         fail("total_frames must be >= MIN_LEARN_FRAMES_FOR_SIGMA");
-    if (!std::isfinite(hist_mean) || hist_mean < 0.f)
-        fail("hist_mean must be finite and >= 0");
-    if (!std::isfinite(hist_var) || hist_var < 0.f)
-        fail("hist_var must be finite and >= 0");
-    if (!std::isfinite(rms_contrast) || rms_contrast < 0.f)
-        fail("rms_contrast must be finite and >= 0");
-    if (!std::isfinite(edge_density) || edge_density < 0.f)
-        fail("edge_density must be finite and >= 0");
 
     if (canny_low_thresh <= 0 || canny_low_thresh >= 255)
         fail("canny_low_thresh must be in (0, 255)");
@@ -419,40 +506,52 @@ bool BaselineValues::validate() const {
     if (canny_high_thresh <= canny_low_thresh)
         fail("canny_high_thresh must be > canny_low_thresh");
 
-    if (!std::isfinite(hist_mean_std) || hist_mean_std < 0.f)
-        fail("hist_mean_std must be finite and >= 0");
-    if (!std::isfinite(hist_var_std) || hist_var_std < 0.f)
-        fail("hist_var_std must be finite and >= 0");
-    if (!std::isfinite(rms_contrast_std) || rms_contrast_std < 0.f)
-        fail("rms_contrast_std must be finite and >= 0");
-    if (!std::isfinite(edge_density_std) || edge_density_std < 0.f)
-        fail("edge_density_std must be finite and >= 0");
-    if (!std::isfinite(entropy) || entropy < 0.f)
-        fail("entropy must be finite and >= 0");
-    if (!std::isfinite(lap_var) || lap_var < 0.f)
-        fail("lap_var must be finite and >= 0");
-    if (!std::isfinite(entropy_std) || entropy_std < 0.f)
-        fail("entropy_std must be finite and >= 0");
-    if (!std::isfinite(lap_var_std) || lap_var_std < 0.f)
-        fail("lap_var_std must be finite and >= 0");
+    if (frame_width <= 0 || frame_width > MAX_DIM || frame_height <= 0 || frame_height > MAX_DIM)
+        fail("frame_width and frame_height must be in (0, MAX_DIM]");
 
-    if (has_chroma) {
-        auto chk = [&](float v, const char* msg) {
-            if (!std::isfinite(v) || v < 0.f) fail(msg);
-        };
-        chk(cb_mean,      "cb_mean must be finite and >= 0");
-        chk(cb_mean_std,  "cb_mean_std must be finite and >= 0");
-        chk(cb_var,       "cb_var must be finite and >= 0");
-        chk(cb_var_std,   "cb_var_std must be finite and >= 0");
-        chk(cr_mean,      "cr_mean must be finite and >= 0");
-        chk(cr_mean_std,  "cr_mean_std must be finite and >= 0");
-        chk(cr_var,       "cr_var must be finite and >= 0");
-        chk(cr_var_std,   "cr_var_std must be finite and >= 0");
-        chk(sat_mean,     "sat_mean must be finite and >= 0");
-        chk(sat_mean_std, "sat_mean_std must be finite and >= 0");
-        chk(sat_var,      "sat_var must be finite and >= 0");
-        chk(sat_var_std,  "sat_var_std must be finite and >= 0");
+    // The lower bound on a mean is set by the metric's space: the log metrics
+    // can legitimately sit below zero, the raw ones cannot. A negative or
+    // non-finite half-sigma would invert the band on that side; zero is
+    // permitted, because sigma_floor_fraction takes over there.
+    auto fail_m = [&](int m, const char* why) {
+        ok = false;
+        std::cerr << "[Config] BaselineValues: " << kQualityMetricNames[m] << " " << why << "\n";
+    };
+    for (int m = 0; m < QM_COUNT; ++m) {
+        if (sai_metric_is_chroma(m) && !has_chroma) continue;
+        if (sai_metric_is_var(m)) {
+            if (!std::isfinite(mu[m]) || mu[m] < log_floor)
+                fail_m(m, "must be finite and >= log(kMetricLogFloor)");
+        } else if (!std::isfinite(mu[m]) || mu[m] < 0.f) {
+            fail_m(m, "must be finite and >= 0");
+        }
+        if (!std::isfinite(std_lo[m]) || std_lo[m] < 0.f ||
+            !std::isfinite(std_hi[m]) || std_hi[m] < 0.f)
+            fail_m(m, "sigmas must be finite and >= 0");
     }
 
+    // A tile band has a finite mean and a finite non-negative sigma.
+    int bad_tiles = 0;
+    auto band_ok = [](const TileBand& b, int t) {
+        return std::isfinite(b.mu[t]) && std::isfinite(b.sigma[t]) && b.sigma[t] >= 0.f;
+    };
+    for (int t = 0; t < kTileCount; ++t) {
+        bool good = band_ok(tile.grain, t) && band_ok(tile.detail, t) && band_ok(tile.motion, t) &&
+                    tile.black[t] >= 0.f && tile.black[t] <= 1.f &&
+                    tile.white[t] >= 0.f && tile.white[t] <= 1.f;
+        for (int k = 0; k < TT_COUNT; ++k) good = good && std::isfinite(tile.level[k][t]);
+        if (!good) ++bad_tiles;
+    }
+    if (bad_tiles > 0) {
+        std::cerr << "[Config] BaselineValues: " << bad_tiles << " tile(s) out of range\n";
+        ok = false;
+    }
     return ok;
 }
+
+// QualityMetric order; see the enum in sai_common.h.
+const char* const kQualityMetricNames[QM_COUNT] = {
+    "hist_mean", "hist_var", "rms_contrast", "edge_density",
+    "entropy",   "lap_var",  "cb_mean",      "cb_var",
+    "cr_mean",   "cr_var",   "sat_mean",     "sat_var"
+};

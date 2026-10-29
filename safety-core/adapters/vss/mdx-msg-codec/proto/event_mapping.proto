@@ -61,6 +61,39 @@
  * social_distancing_violation filter. The producer contract must ensure that the SD
  * report applies to the configured type pair; cluster data does not bind a violation to
  * a particular object ID pair in this mapping schema.
+ *
+ * --- CO-MOVEMENT RULES ---
+ * A co-movement rule has message_source="mdx-frames", alert_type="co_movement" and a
+ * primary/secondary object type pair. It reports that the secondary object is being
+ * carried by the primary one -- a person riding the forklift they are standing on --
+ * rather than merely being near it. This is a temporal judgement, so unlike every
+ * other rule category it is evaluated over a rolling window of frames rather than the
+ * current frame alone.
+ *
+ * The verdict requires, across one window: the pair stayed inside
+ * comovement_max_distance_meters on every sample; the relative position vector from
+ * primary to secondary held steady, i.e. its standard deviation stayed within
+ * comovement_max_offset_sd_meters; and the primary object actually travelled at least
+ * comovement_min_forklift_travel_meters. A rider is carried, so the offset barely
+ * changes while the vehicle covers ground; anyone on foot re-arranges themselves
+ * relative to it. The travel requirement is what stops a person standing beside a
+ * parked vehicle from qualifying, since their offset is equally steady.
+ *
+ * When comovement_min_box_containment is set, sustained image-space containment of the
+ * secondary object's bounding box within the primary's substitutes for that travel:
+ * a rider is drawn inside the vehicle from the camera's point of view whether or not
+ * it is moving. Leave it unset to require travel unconditionally.
+ *
+ * The window is hysteretic: comovement_enter_frames consecutive passing evaluations
+ * are needed to report co-movement and comovement_exit_frames consecutive failures to
+ * stop, with comovement_latch_ms holding the verdict across brief detection gaps. This
+ * keeps a verdict stable instead of alternating frame to frame, which matters because
+ * a consumer suppresses a stop on it.
+ *
+ * Co-movement rules take no threshold list, no proximity_violation and no violation
+ * filter; they emit one event per co-moving pair per frame, subject to scale_factor.
+ * Pairs are matched unordered, but the reported event always carries the primary
+ * object first, so a consumer need not re-resolve the roles.
  */
 
 syntax = "proto3";
@@ -77,9 +110,9 @@ message EventMappingRule {
   // --- Conditions (empty string = match any) ---
   // Source topic: "mdx-events" or "mdx-frames"
   string message_source = 2;
-  // Alert type: "tripwire", "roi", "empty_roi", "social_distancing", or
+  // Alert type: "tripwire", "roi", "empty_roi", "social_distancing",
   // "object_presence" (one event
-  // per current frame per object matching object_type).
+  // per current frame per object matching object_type), or "co_movement".
   string alert_type = 3;
   // Event direction (mdx-events): "IN", "OUT", "ENTRY", "EXIT"
   string event_type = 4;
@@ -103,7 +136,7 @@ message EventMappingRule {
   string social_distancing_violation = 10; // From FrameMessage.socialDistancing.proximityDetections
 
   // --- Output ---
-  string output_event = 11;  // e.g. "EVENT_0", "ROI_ENTRY", "ROI_EXIT", "TW_CROSSING_ENTRY"
+  string output_event = 11;  // "EVENT_0".."EVENT_23" or "SW_FAIL"; anything else maps to EVENT_UNKNOWN
   reserved 12;
   reserved "severity";
 
@@ -126,6 +159,38 @@ message EventMappingRule {
   // distance_threshold_meters; false requires distance_threshold_meters to be absent.
   // Pair rules must use message_source="mdx-frames" and alert_type="social_distancing".
   optional bool proximity_violation = 17;
+
+  // --- Co-movement rule tuning (alert_type="co_movement" only) ---
+  // All are optional; an absent field takes the built-in default. Every present
+  // value must be finite and within its documented range or the rule is rejected,
+  // so a typo cannot silently widen the criteria for suppressing a stop.
+  // Largest primary-to-secondary distance tolerated on any sample of the window.
+  optional double comovement_max_distance_meters = 18;
+  // Standard deviation of the primary-to-secondary offset vector allowed across the
+  // window. This is the discriminating measurement: a carried object holds a nearly
+  // constant offset, so the tolerance is tight.
+  optional double comovement_max_offset_sd_meters = 19;
+  // Length of the rolling window, and the minimum number of samples and elapsed time
+  // that must accumulate inside it before a verdict is possible. The span guards
+  // against a burst of frames satisfying the sample count over an interval too short
+  // for the offset to have been meaningfully observed.
+  optional int32 comovement_window_ms = 20;
+  optional int32 comovement_min_samples = 21;
+  optional int32 comovement_min_span_ms = 27;
+  // Ground distance the primary object must cover within the window. A steady offset
+  // is only evidence of carriage once the carrier has moved.
+  optional double comovement_min_forklift_travel_meters = 22;
+  // Fraction of the secondary object's bounding box that must sit inside the
+  // primary's, sustained across the window, for image-space containment to stand in
+  // for the travel requirement. Unset means travel is always required.
+  optional double comovement_min_box_containment = 23;
+  // Hysteresis: consecutive passing evaluations required to report co-movement, and
+  // consecutive failures required to withdraw it.
+  optional int32 comovement_enter_frames = 24;
+  optional int32 comovement_exit_frames = 25;
+  // How long a reported verdict survives without any new sample for the pair, so a
+  // momentary detection gap does not withdraw it.
+  optional int32 comovement_latch_ms = 26;
 }
 
 message EventMappingConfig {

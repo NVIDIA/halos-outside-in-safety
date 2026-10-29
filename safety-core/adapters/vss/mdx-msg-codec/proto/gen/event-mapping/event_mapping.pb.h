@@ -208,6 +208,16 @@ class EventMappingRule final :
     kRuleIdPrefixMatchFieldNumber = 7,
     kProximityViolationFieldNumber = 17,
     kScaleFactorFieldNumber = 16,
+    kComovementMaxDistanceMetersFieldNumber = 18,
+    kComovementMaxOffsetSdMetersFieldNumber = 19,
+    kComovementWindowMsFieldNumber = 20,
+    kComovementMinSamplesFieldNumber = 21,
+    kComovementMinForkliftTravelMetersFieldNumber = 22,
+    kComovementMinBoxContainmentFieldNumber = 23,
+    kComovementEnterFramesFieldNumber = 24,
+    kComovementExitFramesFieldNumber = 25,
+    kComovementLatchMsFieldNumber = 26,
+    kComovementMinSpanMsFieldNumber = 27,
   };
   // string name = 1;
   void clear_name();
@@ -421,6 +431,136 @@ class EventMappingRule final :
   void _internal_set_scale_factor(int32_t value);
   public:
 
+  // optional double comovement_max_distance_meters = 18;
+  bool has_comovement_max_distance_meters() const;
+  private:
+  bool _internal_has_comovement_max_distance_meters() const;
+  public:
+  void clear_comovement_max_distance_meters();
+  double comovement_max_distance_meters() const;
+  void set_comovement_max_distance_meters(double value);
+  private:
+  double _internal_comovement_max_distance_meters() const;
+  void _internal_set_comovement_max_distance_meters(double value);
+  public:
+
+  // optional double comovement_max_offset_sd_meters = 19;
+  bool has_comovement_max_offset_sd_meters() const;
+  private:
+  bool _internal_has_comovement_max_offset_sd_meters() const;
+  public:
+  void clear_comovement_max_offset_sd_meters();
+  double comovement_max_offset_sd_meters() const;
+  void set_comovement_max_offset_sd_meters(double value);
+  private:
+  double _internal_comovement_max_offset_sd_meters() const;
+  void _internal_set_comovement_max_offset_sd_meters(double value);
+  public:
+
+  // optional int32 comovement_window_ms = 20;
+  bool has_comovement_window_ms() const;
+  private:
+  bool _internal_has_comovement_window_ms() const;
+  public:
+  void clear_comovement_window_ms();
+  int32_t comovement_window_ms() const;
+  void set_comovement_window_ms(int32_t value);
+  private:
+  int32_t _internal_comovement_window_ms() const;
+  void _internal_set_comovement_window_ms(int32_t value);
+  public:
+
+  // optional int32 comovement_min_samples = 21;
+  bool has_comovement_min_samples() const;
+  private:
+  bool _internal_has_comovement_min_samples() const;
+  public:
+  void clear_comovement_min_samples();
+  int32_t comovement_min_samples() const;
+  void set_comovement_min_samples(int32_t value);
+  private:
+  int32_t _internal_comovement_min_samples() const;
+  void _internal_set_comovement_min_samples(int32_t value);
+  public:
+
+  // optional double comovement_min_forklift_travel_meters = 22;
+  bool has_comovement_min_forklift_travel_meters() const;
+  private:
+  bool _internal_has_comovement_min_forklift_travel_meters() const;
+  public:
+  void clear_comovement_min_forklift_travel_meters();
+  double comovement_min_forklift_travel_meters() const;
+  void set_comovement_min_forklift_travel_meters(double value);
+  private:
+  double _internal_comovement_min_forklift_travel_meters() const;
+  void _internal_set_comovement_min_forklift_travel_meters(double value);
+  public:
+
+  // optional double comovement_min_box_containment = 23;
+  bool has_comovement_min_box_containment() const;
+  private:
+  bool _internal_has_comovement_min_box_containment() const;
+  public:
+  void clear_comovement_min_box_containment();
+  double comovement_min_box_containment() const;
+  void set_comovement_min_box_containment(double value);
+  private:
+  double _internal_comovement_min_box_containment() const;
+  void _internal_set_comovement_min_box_containment(double value);
+  public:
+
+  // optional int32 comovement_enter_frames = 24;
+  bool has_comovement_enter_frames() const;
+  private:
+  bool _internal_has_comovement_enter_frames() const;
+  public:
+  void clear_comovement_enter_frames();
+  int32_t comovement_enter_frames() const;
+  void set_comovement_enter_frames(int32_t value);
+  private:
+  int32_t _internal_comovement_enter_frames() const;
+  void _internal_set_comovement_enter_frames(int32_t value);
+  public:
+
+  // optional int32 comovement_exit_frames = 25;
+  bool has_comovement_exit_frames() const;
+  private:
+  bool _internal_has_comovement_exit_frames() const;
+  public:
+  void clear_comovement_exit_frames();
+  int32_t comovement_exit_frames() const;
+  void set_comovement_exit_frames(int32_t value);
+  private:
+  int32_t _internal_comovement_exit_frames() const;
+  void _internal_set_comovement_exit_frames(int32_t value);
+  public:
+
+  // optional int32 comovement_latch_ms = 26;
+  bool has_comovement_latch_ms() const;
+  private:
+  bool _internal_has_comovement_latch_ms() const;
+  public:
+  void clear_comovement_latch_ms();
+  int32_t comovement_latch_ms() const;
+  void set_comovement_latch_ms(int32_t value);
+  private:
+  int32_t _internal_comovement_latch_ms() const;
+  void _internal_set_comovement_latch_ms(int32_t value);
+  public:
+
+  // optional int32 comovement_min_span_ms = 27;
+  bool has_comovement_min_span_ms() const;
+  private:
+  bool _internal_has_comovement_min_span_ms() const;
+  public:
+  void clear_comovement_min_span_ms();
+  int32_t comovement_min_span_ms() const;
+  void set_comovement_min_span_ms(int32_t value);
+  private:
+  int32_t _internal_comovement_min_span_ms() const;
+  void _internal_set_comovement_min_span_ms(int32_t value);
+  public:
+
   // @@protoc_insertion_point(class_scope:mdx.client.config.EventMappingRule)
  private:
   class _Internal;
@@ -447,6 +587,16 @@ class EventMappingRule final :
     bool rule_id_prefix_match_;
     bool proximity_violation_;
     int32_t scale_factor_;
+    double comovement_max_distance_meters_;
+    double comovement_max_offset_sd_meters_;
+    int32_t comovement_window_ms_;
+    int32_t comovement_min_samples_;
+    double comovement_min_forklift_travel_meters_;
+    double comovement_min_box_containment_;
+    int32_t comovement_enter_frames_;
+    int32_t comovement_exit_frames_;
+    int32_t comovement_latch_ms_;
+    int32_t comovement_min_span_ms_;
   };
   union { Impl_ _impl_; };
   friend struct ::TableStruct_event_5fmapping_2eproto;
@@ -630,7 +780,7 @@ inline const std::string& EventMappingRule::name() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_name(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.name_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.name)
 }
@@ -643,11 +793,11 @@ inline const std::string& EventMappingRule::_internal_name() const {
   return _impl_.name_.Get();
 }
 inline void EventMappingRule::_internal_set_name(const std::string& value) {
-
+  
   _impl_.name_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_name() {
-
+  
   return _impl_.name_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_name() {
@@ -656,9 +806,9 @@ inline std::string* EventMappingRule::release_name() {
 }
 inline void EventMappingRule::set_allocated_name(std::string* name) {
   if (name != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.name_.SetAllocated(name, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -680,7 +830,7 @@ inline const std::string& EventMappingRule::message_source() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_message_source(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.message_source_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.message_source)
 }
@@ -693,11 +843,11 @@ inline const std::string& EventMappingRule::_internal_message_source() const {
   return _impl_.message_source_.Get();
 }
 inline void EventMappingRule::_internal_set_message_source(const std::string& value) {
-
+  
   _impl_.message_source_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_message_source() {
-
+  
   return _impl_.message_source_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_message_source() {
@@ -706,9 +856,9 @@ inline std::string* EventMappingRule::release_message_source() {
 }
 inline void EventMappingRule::set_allocated_message_source(std::string* message_source) {
   if (message_source != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.message_source_.SetAllocated(message_source, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -730,7 +880,7 @@ inline const std::string& EventMappingRule::alert_type() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_alert_type(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.alert_type_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.alert_type)
 }
@@ -743,11 +893,11 @@ inline const std::string& EventMappingRule::_internal_alert_type() const {
   return _impl_.alert_type_.Get();
 }
 inline void EventMappingRule::_internal_set_alert_type(const std::string& value) {
-
+  
   _impl_.alert_type_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_alert_type() {
-
+  
   return _impl_.alert_type_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_alert_type() {
@@ -756,9 +906,9 @@ inline std::string* EventMappingRule::release_alert_type() {
 }
 inline void EventMappingRule::set_allocated_alert_type(std::string* alert_type) {
   if (alert_type != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.alert_type_.SetAllocated(alert_type, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -780,7 +930,7 @@ inline const std::string& EventMappingRule::event_type() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_event_type(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.event_type_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.event_type)
 }
@@ -793,11 +943,11 @@ inline const std::string& EventMappingRule::_internal_event_type() const {
   return _impl_.event_type_.Get();
 }
 inline void EventMappingRule::_internal_set_event_type(const std::string& value) {
-
+  
   _impl_.event_type_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_event_type() {
-
+  
   return _impl_.event_type_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_event_type() {
@@ -806,9 +956,9 @@ inline std::string* EventMappingRule::release_event_type() {
 }
 inline void EventMappingRule::set_allocated_event_type(std::string* event_type) {
   if (event_type != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.event_type_.SetAllocated(event_type, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -830,7 +980,7 @@ inline const std::string& EventMappingRule::object_type() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_object_type(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.object_type_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.object_type)
 }
@@ -843,11 +993,11 @@ inline const std::string& EventMappingRule::_internal_object_type() const {
   return _impl_.object_type_.Get();
 }
 inline void EventMappingRule::_internal_set_object_type(const std::string& value) {
-
+  
   _impl_.object_type_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_object_type() {
-
+  
   return _impl_.object_type_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_object_type() {
@@ -856,9 +1006,9 @@ inline std::string* EventMappingRule::release_object_type() {
 }
 inline void EventMappingRule::set_allocated_object_type(std::string* object_type) {
   if (object_type != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.object_type_.SetAllocated(object_type, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -880,7 +1030,7 @@ inline const std::string& EventMappingRule::rule_id() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_rule_id(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.rule_id_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.rule_id)
 }
@@ -893,11 +1043,11 @@ inline const std::string& EventMappingRule::_internal_rule_id() const {
   return _impl_.rule_id_.Get();
 }
 inline void EventMappingRule::_internal_set_rule_id(const std::string& value) {
-
+  
   _impl_.rule_id_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_rule_id() {
-
+  
   return _impl_.rule_id_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_rule_id() {
@@ -906,9 +1056,9 @@ inline std::string* EventMappingRule::release_rule_id() {
 }
 inline void EventMappingRule::set_allocated_rule_id(std::string* rule_id) {
   if (rule_id != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.rule_id_.SetAllocated(rule_id, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -931,7 +1081,7 @@ inline bool EventMappingRule::rule_id_prefix_match() const {
   return _internal_rule_id_prefix_match();
 }
 inline void EventMappingRule::_internal_set_rule_id_prefix_match(bool value) {
-
+  
   _impl_.rule_id_prefix_match_ = value;
 }
 inline void EventMappingRule::set_rule_id_prefix_match(bool value) {
@@ -950,7 +1100,7 @@ inline const std::string& EventMappingRule::restricted_area_violation() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_restricted_area_violation(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.restricted_area_violation_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.restricted_area_violation)
 }
@@ -963,11 +1113,11 @@ inline const std::string& EventMappingRule::_internal_restricted_area_violation(
   return _impl_.restricted_area_violation_.Get();
 }
 inline void EventMappingRule::_internal_set_restricted_area_violation(const std::string& value) {
-
+  
   _impl_.restricted_area_violation_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_restricted_area_violation() {
-
+  
   return _impl_.restricted_area_violation_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_restricted_area_violation() {
@@ -976,9 +1126,9 @@ inline std::string* EventMappingRule::release_restricted_area_violation() {
 }
 inline void EventMappingRule::set_allocated_restricted_area_violation(std::string* restricted_area_violation) {
   if (restricted_area_violation != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.restricted_area_violation_.SetAllocated(restricted_area_violation, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -1000,7 +1150,7 @@ inline const std::string& EventMappingRule::confined_area_violation() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_confined_area_violation(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.confined_area_violation_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.confined_area_violation)
 }
@@ -1013,11 +1163,11 @@ inline const std::string& EventMappingRule::_internal_confined_area_violation() 
   return _impl_.confined_area_violation_.Get();
 }
 inline void EventMappingRule::_internal_set_confined_area_violation(const std::string& value) {
-
+  
   _impl_.confined_area_violation_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_confined_area_violation() {
-
+  
   return _impl_.confined_area_violation_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_confined_area_violation() {
@@ -1026,9 +1176,9 @@ inline std::string* EventMappingRule::release_confined_area_violation() {
 }
 inline void EventMappingRule::set_allocated_confined_area_violation(std::string* confined_area_violation) {
   if (confined_area_violation != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.confined_area_violation_.SetAllocated(confined_area_violation, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -1050,7 +1200,7 @@ inline const std::string& EventMappingRule::social_distancing_violation() const 
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_social_distancing_violation(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.social_distancing_violation_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.social_distancing_violation)
 }
@@ -1063,11 +1213,11 @@ inline const std::string& EventMappingRule::_internal_social_distancing_violatio
   return _impl_.social_distancing_violation_.Get();
 }
 inline void EventMappingRule::_internal_set_social_distancing_violation(const std::string& value) {
-
+  
   _impl_.social_distancing_violation_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_social_distancing_violation() {
-
+  
   return _impl_.social_distancing_violation_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_social_distancing_violation() {
@@ -1076,9 +1226,9 @@ inline std::string* EventMappingRule::release_social_distancing_violation() {
 }
 inline void EventMappingRule::set_allocated_social_distancing_violation(std::string* social_distancing_violation) {
   if (social_distancing_violation != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.social_distancing_violation_.SetAllocated(social_distancing_violation, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -1100,7 +1250,7 @@ inline const std::string& EventMappingRule::output_event() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_output_event(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.output_event_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.output_event)
 }
@@ -1113,11 +1263,11 @@ inline const std::string& EventMappingRule::_internal_output_event() const {
   return _impl_.output_event_.Get();
 }
 inline void EventMappingRule::_internal_set_output_event(const std::string& value) {
-
+  
   _impl_.output_event_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_output_event() {
-
+  
   return _impl_.output_event_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_output_event() {
@@ -1126,9 +1276,9 @@ inline std::string* EventMappingRule::release_output_event() {
 }
 inline void EventMappingRule::set_allocated_output_event(std::string* output_event) {
   if (output_event != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.output_event_.SetAllocated(output_event, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -1178,7 +1328,7 @@ inline const std::string& EventMappingRule::object_type_secondary() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_object_type_secondary(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.object_type_secondary_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.object_type_secondary)
 }
@@ -1191,11 +1341,11 @@ inline const std::string& EventMappingRule::_internal_object_type_secondary() co
   return _impl_.object_type_secondary_.Get();
 }
 inline void EventMappingRule::_internal_set_object_type_secondary(const std::string& value) {
-
+  
   _impl_.object_type_secondary_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_object_type_secondary() {
-
+  
   return _impl_.object_type_secondary_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_object_type_secondary() {
@@ -1204,9 +1354,9 @@ inline std::string* EventMappingRule::release_object_type_secondary() {
 }
 inline void EventMappingRule::set_allocated_object_type_secondary(std::string* object_type_secondary) {
   if (object_type_secondary != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.object_type_secondary_.SetAllocated(object_type_secondary, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -1228,7 +1378,7 @@ inline const std::string& EventMappingRule::object_type_primary() const {
 template <typename ArgT0, typename... ArgT>
 inline PROTOBUF_ALWAYS_INLINE
 void EventMappingRule::set_object_type_primary(ArgT0&& arg0, ArgT... args) {
-
+ 
  _impl_.object_type_primary_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.object_type_primary)
 }
@@ -1241,11 +1391,11 @@ inline const std::string& EventMappingRule::_internal_object_type_primary() cons
   return _impl_.object_type_primary_.Get();
 }
 inline void EventMappingRule::_internal_set_object_type_primary(const std::string& value) {
-
+  
   _impl_.object_type_primary_.Set(value, GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::_internal_mutable_object_type_primary() {
-
+  
   return _impl_.object_type_primary_.Mutable(GetArenaForAllocation());
 }
 inline std::string* EventMappingRule::release_object_type_primary() {
@@ -1254,9 +1404,9 @@ inline std::string* EventMappingRule::release_object_type_primary() {
 }
 inline void EventMappingRule::set_allocated_object_type_primary(std::string* object_type_primary) {
   if (object_type_primary != nullptr) {
-
+    
   } else {
-
+    
   }
   _impl_.object_type_primary_.SetAllocated(object_type_primary, GetArenaForAllocation());
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
@@ -1279,7 +1429,7 @@ inline int32_t EventMappingRule::scale_factor() const {
   return _internal_scale_factor();
 }
 inline void EventMappingRule::_internal_set_scale_factor(int32_t value) {
-
+  
   _impl_.scale_factor_ = value;
 }
 inline void EventMappingRule::set_scale_factor(int32_t value) {
@@ -1313,6 +1463,286 @@ inline void EventMappingRule::_internal_set_proximity_violation(bool value) {
 inline void EventMappingRule::set_proximity_violation(bool value) {
   _internal_set_proximity_violation(value);
   // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.proximity_violation)
+}
+
+// optional double comovement_max_distance_meters = 18;
+inline bool EventMappingRule::_internal_has_comovement_max_distance_meters() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000004u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_max_distance_meters() const {
+  return _internal_has_comovement_max_distance_meters();
+}
+inline void EventMappingRule::clear_comovement_max_distance_meters() {
+  _impl_.comovement_max_distance_meters_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000004u;
+}
+inline double EventMappingRule::_internal_comovement_max_distance_meters() const {
+  return _impl_.comovement_max_distance_meters_;
+}
+inline double EventMappingRule::comovement_max_distance_meters() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_max_distance_meters)
+  return _internal_comovement_max_distance_meters();
+}
+inline void EventMappingRule::_internal_set_comovement_max_distance_meters(double value) {
+  _impl_._has_bits_[0] |= 0x00000004u;
+  _impl_.comovement_max_distance_meters_ = value;
+}
+inline void EventMappingRule::set_comovement_max_distance_meters(double value) {
+  _internal_set_comovement_max_distance_meters(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_max_distance_meters)
+}
+
+// optional double comovement_max_offset_sd_meters = 19;
+inline bool EventMappingRule::_internal_has_comovement_max_offset_sd_meters() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000008u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_max_offset_sd_meters() const {
+  return _internal_has_comovement_max_offset_sd_meters();
+}
+inline void EventMappingRule::clear_comovement_max_offset_sd_meters() {
+  _impl_.comovement_max_offset_sd_meters_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000008u;
+}
+inline double EventMappingRule::_internal_comovement_max_offset_sd_meters() const {
+  return _impl_.comovement_max_offset_sd_meters_;
+}
+inline double EventMappingRule::comovement_max_offset_sd_meters() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_max_offset_sd_meters)
+  return _internal_comovement_max_offset_sd_meters();
+}
+inline void EventMappingRule::_internal_set_comovement_max_offset_sd_meters(double value) {
+  _impl_._has_bits_[0] |= 0x00000008u;
+  _impl_.comovement_max_offset_sd_meters_ = value;
+}
+inline void EventMappingRule::set_comovement_max_offset_sd_meters(double value) {
+  _internal_set_comovement_max_offset_sd_meters(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_max_offset_sd_meters)
+}
+
+// optional int32 comovement_window_ms = 20;
+inline bool EventMappingRule::_internal_has_comovement_window_ms() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000010u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_window_ms() const {
+  return _internal_has_comovement_window_ms();
+}
+inline void EventMappingRule::clear_comovement_window_ms() {
+  _impl_.comovement_window_ms_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000010u;
+}
+inline int32_t EventMappingRule::_internal_comovement_window_ms() const {
+  return _impl_.comovement_window_ms_;
+}
+inline int32_t EventMappingRule::comovement_window_ms() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_window_ms)
+  return _internal_comovement_window_ms();
+}
+inline void EventMappingRule::_internal_set_comovement_window_ms(int32_t value) {
+  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_.comovement_window_ms_ = value;
+}
+inline void EventMappingRule::set_comovement_window_ms(int32_t value) {
+  _internal_set_comovement_window_ms(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_window_ms)
+}
+
+// optional int32 comovement_min_samples = 21;
+inline bool EventMappingRule::_internal_has_comovement_min_samples() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000020u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_min_samples() const {
+  return _internal_has_comovement_min_samples();
+}
+inline void EventMappingRule::clear_comovement_min_samples() {
+  _impl_.comovement_min_samples_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000020u;
+}
+inline int32_t EventMappingRule::_internal_comovement_min_samples() const {
+  return _impl_.comovement_min_samples_;
+}
+inline int32_t EventMappingRule::comovement_min_samples() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_min_samples)
+  return _internal_comovement_min_samples();
+}
+inline void EventMappingRule::_internal_set_comovement_min_samples(int32_t value) {
+  _impl_._has_bits_[0] |= 0x00000020u;
+  _impl_.comovement_min_samples_ = value;
+}
+inline void EventMappingRule::set_comovement_min_samples(int32_t value) {
+  _internal_set_comovement_min_samples(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_min_samples)
+}
+
+// optional int32 comovement_min_span_ms = 27;
+inline bool EventMappingRule::_internal_has_comovement_min_span_ms() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000800u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_min_span_ms() const {
+  return _internal_has_comovement_min_span_ms();
+}
+inline void EventMappingRule::clear_comovement_min_span_ms() {
+  _impl_.comovement_min_span_ms_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000800u;
+}
+inline int32_t EventMappingRule::_internal_comovement_min_span_ms() const {
+  return _impl_.comovement_min_span_ms_;
+}
+inline int32_t EventMappingRule::comovement_min_span_ms() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_min_span_ms)
+  return _internal_comovement_min_span_ms();
+}
+inline void EventMappingRule::_internal_set_comovement_min_span_ms(int32_t value) {
+  _impl_._has_bits_[0] |= 0x00000800u;
+  _impl_.comovement_min_span_ms_ = value;
+}
+inline void EventMappingRule::set_comovement_min_span_ms(int32_t value) {
+  _internal_set_comovement_min_span_ms(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_min_span_ms)
+}
+
+// optional double comovement_min_forklift_travel_meters = 22;
+inline bool EventMappingRule::_internal_has_comovement_min_forklift_travel_meters() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000040u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_min_forklift_travel_meters() const {
+  return _internal_has_comovement_min_forklift_travel_meters();
+}
+inline void EventMappingRule::clear_comovement_min_forklift_travel_meters() {
+  _impl_.comovement_min_forklift_travel_meters_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000040u;
+}
+inline double EventMappingRule::_internal_comovement_min_forklift_travel_meters() const {
+  return _impl_.comovement_min_forklift_travel_meters_;
+}
+inline double EventMappingRule::comovement_min_forklift_travel_meters() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_min_forklift_travel_meters)
+  return _internal_comovement_min_forklift_travel_meters();
+}
+inline void EventMappingRule::_internal_set_comovement_min_forklift_travel_meters(double value) {
+  _impl_._has_bits_[0] |= 0x00000040u;
+  _impl_.comovement_min_forklift_travel_meters_ = value;
+}
+inline void EventMappingRule::set_comovement_min_forklift_travel_meters(double value) {
+  _internal_set_comovement_min_forklift_travel_meters(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_min_forklift_travel_meters)
+}
+
+// optional double comovement_min_box_containment = 23;
+inline bool EventMappingRule::_internal_has_comovement_min_box_containment() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000080u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_min_box_containment() const {
+  return _internal_has_comovement_min_box_containment();
+}
+inline void EventMappingRule::clear_comovement_min_box_containment() {
+  _impl_.comovement_min_box_containment_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000080u;
+}
+inline double EventMappingRule::_internal_comovement_min_box_containment() const {
+  return _impl_.comovement_min_box_containment_;
+}
+inline double EventMappingRule::comovement_min_box_containment() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_min_box_containment)
+  return _internal_comovement_min_box_containment();
+}
+inline void EventMappingRule::_internal_set_comovement_min_box_containment(double value) {
+  _impl_._has_bits_[0] |= 0x00000080u;
+  _impl_.comovement_min_box_containment_ = value;
+}
+inline void EventMappingRule::set_comovement_min_box_containment(double value) {
+  _internal_set_comovement_min_box_containment(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_min_box_containment)
+}
+
+// optional int32 comovement_enter_frames = 24;
+inline bool EventMappingRule::_internal_has_comovement_enter_frames() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000100u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_enter_frames() const {
+  return _internal_has_comovement_enter_frames();
+}
+inline void EventMappingRule::clear_comovement_enter_frames() {
+  _impl_.comovement_enter_frames_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000100u;
+}
+inline int32_t EventMappingRule::_internal_comovement_enter_frames() const {
+  return _impl_.comovement_enter_frames_;
+}
+inline int32_t EventMappingRule::comovement_enter_frames() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_enter_frames)
+  return _internal_comovement_enter_frames();
+}
+inline void EventMappingRule::_internal_set_comovement_enter_frames(int32_t value) {
+  _impl_._has_bits_[0] |= 0x00000100u;
+  _impl_.comovement_enter_frames_ = value;
+}
+inline void EventMappingRule::set_comovement_enter_frames(int32_t value) {
+  _internal_set_comovement_enter_frames(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_enter_frames)
+}
+
+// optional int32 comovement_exit_frames = 25;
+inline bool EventMappingRule::_internal_has_comovement_exit_frames() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000200u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_exit_frames() const {
+  return _internal_has_comovement_exit_frames();
+}
+inline void EventMappingRule::clear_comovement_exit_frames() {
+  _impl_.comovement_exit_frames_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000200u;
+}
+inline int32_t EventMappingRule::_internal_comovement_exit_frames() const {
+  return _impl_.comovement_exit_frames_;
+}
+inline int32_t EventMappingRule::comovement_exit_frames() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_exit_frames)
+  return _internal_comovement_exit_frames();
+}
+inline void EventMappingRule::_internal_set_comovement_exit_frames(int32_t value) {
+  _impl_._has_bits_[0] |= 0x00000200u;
+  _impl_.comovement_exit_frames_ = value;
+}
+inline void EventMappingRule::set_comovement_exit_frames(int32_t value) {
+  _internal_set_comovement_exit_frames(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_exit_frames)
+}
+
+// optional int32 comovement_latch_ms = 26;
+inline bool EventMappingRule::_internal_has_comovement_latch_ms() const {
+  bool value = (_impl_._has_bits_[0] & 0x00000400u) != 0;
+  return value;
+}
+inline bool EventMappingRule::has_comovement_latch_ms() const {
+  return _internal_has_comovement_latch_ms();
+}
+inline void EventMappingRule::clear_comovement_latch_ms() {
+  _impl_.comovement_latch_ms_ = 0;
+  _impl_._has_bits_[0] &= ~0x00000400u;
+}
+inline int32_t EventMappingRule::_internal_comovement_latch_ms() const {
+  return _impl_.comovement_latch_ms_;
+}
+inline int32_t EventMappingRule::comovement_latch_ms() const {
+  // @@protoc_insertion_point(field_get:mdx.client.config.EventMappingRule.comovement_latch_ms)
+  return _internal_comovement_latch_ms();
+}
+inline void EventMappingRule::_internal_set_comovement_latch_ms(int32_t value) {
+  _impl_._has_bits_[0] |= 0x00000400u;
+  _impl_.comovement_latch_ms_ = value;
+}
+inline void EventMappingRule::set_comovement_latch_ms(int32_t value) {
+  _internal_set_comovement_latch_ms(value);
+  // @@protoc_insertion_point(field_set:mdx.client.config.EventMappingRule.comovement_latch_ms)
 }
 
 // -------------------------------------------------------------------

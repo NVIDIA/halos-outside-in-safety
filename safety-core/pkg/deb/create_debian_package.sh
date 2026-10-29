@@ -14,7 +14,7 @@ USAGE
 SOURCE_DIR=""
 BUILD_DIR=""
 OUTPUT_DIR=""
-VERSION="1.2.1"
+VERSION="1.4.0"
 TARGET_ARCH=""
 
 while [[ $# -gt 0 ]]; do
@@ -63,9 +63,13 @@ mkdir -p \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/crossing-junction-safety-monitor" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/common/safety_latch_manager" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/mdx-client" \
     "$RUNTIME_ROOT/etc/ld.so.conf.d" \
+    "$RUNTIME_ROOT/etc/logrotate.d" \
     "$RUNTIME_ROOT/etc/rsyslog.d" \
+    "$RUNTIME_ROOT/var/log/psf" \
     "$RUNTIME_ROOT/usr/lib/tmpfiles.d"
 
 copy_required() {
@@ -107,6 +111,10 @@ copy_required "$BUILD_DIR/decision-makers/proximity/proximity_sdm" "$RUNTIME_ROO
 copy_required "$BUILD_DIR/decision-makers/proximity/proximity_sdm_cmd_receiver" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity/"
 copy_required "$BUILD_DIR/decision-makers/atl_proximity/atl_proximity_sdm" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity/"
 copy_required "$BUILD_DIR/decision-makers/atl_proximity/atl_proximity_sdm_cmd_receiver" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity/"
+copy_required "$BUILD_DIR/decision-makers/crossing-junction-safety-monitor/crossing_junction_safety_monitor_sdm" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/crossing-junction-safety-monitor/"
+copy_required "$BUILD_DIR/decision-makers/crossing-junction-safety-monitor/crossing_junction_safety_monitor_sdm_cmd_receiver" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/crossing-junction-safety-monitor/"
 copy_required "$BUILD_DIR/adapters/vss/mdx-client/mdx_client" "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/mdx-client/"
 
 copy_required "$SOURCE_DIR/components/event-integrator/daemon/nvpss.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
@@ -114,8 +122,31 @@ copy_required "$SAFETY_CORE_CONFIG_DIR/thresholds.cfg" "$RUNTIME_ROOT${INSTALL_P
 copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/configs/"
 copy_required "$SAFETY_CORE_CONFIG_DIR/thresholds.cfg" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
+# sensor_pipelines_config.conf ships live: in a 3D deployment it names the BEV
+# group Kafka reports under, and the launcher reads it from bin/.
+copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_pipelines_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/configs/"
+copy_required "$SAFETY_CORE_CONFIG_DIR/sensor_pipelines_config.conf" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
 copy_required "$PKG_DEB_DIR/launch_safety_core.sh" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/launch_psf.sh"
-chmod 0755 "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/launch_psf.sh"
+copy_required "$PKG_DEB_DIR/sdm_launch_common.sh" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/"
+chmod 0755 "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/launch_psf.sh" "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/sdm_launch_common.sh"
+
+# SDM instance configs are operator-owned: only .sample templates ship, and the
+# launcher takes the active copies through --sdm-config.
+for atl_zone in 1 2; do
+    copy_required "$SOURCE_DIR/decision-makers/atl/atl_sdm_zone${atl_zone}.conf" \
+        "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/atl_sdm_zone${atl_zone}.conf.sample"
+done
+for pxc_config in pxc_sdm_forklift pxc_sdm_robots; do
+    copy_required "$SOURCE_DIR/decision-makers/proximity/${pxc_config}.conf" \
+        "$RUNTIME_ROOT${INSTALL_PREFIX}/bin/${pxc_config}.conf.sample"
+done
+
+for latch_file in safety_latch_manager.py safety_latch_panel.py README.md; do
+    copy_required "$SOURCE_DIR/decision-makers/common/safety_latch_manager/${latch_file}" \
+        "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/common/safety_latch_manager/"
+done
+chmod 0755 "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/common/safety_latch_manager/safety_latch_manager.py" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/common/safety_latch_manager/safety_latch_panel.py"
 
 # safety_monitor falls back to a shipped <sensor>_baseline.cfg.default template
 # when no learned <sensor>_baseline.cfg is present in the baseline directory.
@@ -129,8 +160,25 @@ copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/proximity/proximity_event
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/proximity/"
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl_proximity/event_mapping_atl_proximity.pb.txt" \
     "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/atl_proximity/"
+copy_required "$SOURCE_DIR/adapters/vss/event-mappings/crossing-junction-safety-monitor/crossing_junction_safety_event_mapping.pb.txt" \
+    "$RUNTIME_ROOT${INSTALL_PREFIX}/apps/crossing-junction-safety-monitor/"
 
 copy_required "$PKG_DEB_DIR/systemd/99-safety-core-logs.conf" "$RUNTIME_ROOT/etc/rsyslog.d/"
+
+cat > "$RUNTIME_ROOT/etc/logrotate.d/safety-core" <<'EOF'
+/var/log/psf/*.log {
+    su root root
+    daily
+    rotate 7
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
+EOF
+chmod 0644 "$RUNTIME_ROOT/etc/logrotate.d/safety-core"
 
 cat > "$RUNTIME_ROOT/etc/ld.so.conf.d/safety-core.conf" <<EOF
 ${INSTALL_PREFIX}/lib
@@ -174,15 +222,15 @@ if command -v ldconfig >/dev/null 2>&1; then
     ldconfig
 fi
 if [ "$1" = "purge" ] && [ -d /run/nvpsf ]; then
-    rm -f /run/nvpsf/nvpssd /run/nvpsf/nvpssd_to_psd
+    rm -f /run/nvpsf/nvpssd /run/nvpsf/nvpssd_to_psd /run/nvpsf/nvpsd_gateway
 fi
 EOF
 chmod 0755 "$RUNTIME_ROOT/DEBIAN/postrm"
 
 RUNTIME_DEB="${PACKAGE_NAME}.deb"
 RUNTIME_TARBALL="${PACKAGE_NAME}.tar.gz"
-tar -czf "$OUTPUT_DIR/${RUNTIME_TARBALL}" -C "$RUNTIME_ROOT" .
-dpkg-deb --build "$RUNTIME_ROOT" "$OUTPUT_DIR/${RUNTIME_DEB}"
+tar --owner=0 --group=0 -czf "$OUTPUT_DIR/${RUNTIME_TARBALL}" -C "$RUNTIME_ROOT" .
+dpkg-deb --root-owner-group --build "$RUNTIME_ROOT" "$OUTPUT_DIR/${RUNTIME_DEB}"
 
 mkdir -p \
     "$DEV_ROOT${INSTALL_PREFIX}/include" \
@@ -195,6 +243,10 @@ mkdir -p \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/include" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/sdm/ccplex" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/include" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/crossing-junction-safety-monitor/sdm/ccplex" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/crossing-junction-safety-monitor/udp_cmd_receiver" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/crossing-junction-safety-monitor/include" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/common/sensor_config" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/samples"
 
 for dir in \
@@ -204,6 +256,8 @@ for dir in \
     "$SOURCE_DIR/components/safecomm/validation/include" \
     "$SOURCE_DIR/components/safecomm/posix_msg_que/include" \
     "$SOURCE_DIR/components/safecomm/posix_sockets/include" \
+    "$SOURCE_DIR/components/safecomm/transport/include" \
+    "$SOURCE_DIR/components/common/sensor_config/inc" \
     "$SOURCE_DIR/adapters/vss/mdx-msg-bus/include" \
     "$SOURCE_DIR/adapters/vss/mdx-msg-codec/include" \
     "$SOURCE_DIR/adapters/vss/mdx-client/include"; do
@@ -222,6 +276,12 @@ cp -a "$SOURCE_DIR/decision-makers/atl/include"/. \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl/include/"
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl/event_mapping_atl.pb.txt" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl/"
+copy_optional "$SOURCE_DIR/decision-makers/atl/README.md" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl/"
+for atl_zone in 1 2; do
+    copy_required "$SOURCE_DIR/decision-makers/atl/atl_sdm_zone${atl_zone}.conf" \
+        "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl/"
+done
 
 cp -a "$SOURCE_DIR/decision-makers/proximity/sdm/ccplex"/. \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/sdm/ccplex/"
@@ -233,6 +293,12 @@ cp -a "$SOURCE_DIR/decision-makers/proximity/include"/. \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/include/"
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/proximity/proximity_event_mapping.pb.txt" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/"
+copy_optional "$SOURCE_DIR/decision-makers/proximity/README.md" \
+    "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/"
+for pxc_config in pxc_sdm_forklift pxc_sdm_robots; do
+    copy_required "$SOURCE_DIR/decision-makers/proximity/${pxc_config}.conf" \
+        "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/proximity/"
+done
 
 # atl_proximity ships no udp_cmd_receiver source of its own: its receiver is
 # built from the proximity one, staged above.
@@ -247,6 +313,22 @@ copy_optional "$SOURCE_DIR/decision-makers/atl_proximity/README.md" \
 copy_optional "$SOURCE_DIR/adapters/vss/event-mappings/atl_proximity/event_mapping_atl_proximity.pb.txt" \
     "$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/atl_proximity/"
 
+CJS_SRC="$SOURCE_DIR/decision-makers/crossing-junction-safety-monitor"
+CJS_DEST="$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/crossing-junction-safety-monitor"
+cp -a "$CJS_SRC/sdm/ccplex"/. "$CJS_DEST/sdm/ccplex/"
+cp -a "$SOURCE_DIR/components/safecomm/validation/src/pss_message_validate.c" "$CJS_DEST/sdm/ccplex/"
+cp -a "$CJS_SRC/udp_cmd_receiver"/. "$CJS_DEST/udp_cmd_receiver/"
+cp -a "$CJS_SRC/include"/. "$CJS_DEST/include/"
+copy_required "$SOURCE_DIR/adapters/vss/event-mappings/crossing-junction-safety-monitor/crossing_junction_safety_event_mapping.pb.txt" \
+    "$CJS_DEST/"
+
+# Shared by every SDM example: the decision-request helpers and the sensor
+# config parser the ATL and proximity configs are resolved with.
+COMMON_DEST="$DEV_ROOT${INSTALL_PREFIX}/examples/apps/metropolis/common"
+cp -a "$SOURCE_DIR/decision-makers/common/include" "$COMMON_DEST/"
+cp -a "$SOURCE_DIR/decision-makers/common"/*.h "$SOURCE_DIR/decision-makers/common"/*.hpp "$COMMON_DEST/"
+cp -a "$SOURCE_DIR/components/common/sensor_config/src/sensor_config_parser.cpp" "$COMMON_DEST/sensor_config/"
+
 mkdir -p "$DEV_ROOT/DEBIAN"
 cat > "$DEV_ROOT/DEBIAN/control" <<EOF
 Package: ${PACKAGE_NAME}-dev
@@ -260,8 +342,8 @@ EOF
 
 DEV_DEB="${PACKAGE_NAME}-dev.deb"
 DEV_TARBALL="${PACKAGE_NAME}-dev.tar.gz"
-tar -czf "$OUTPUT_DIR/${DEV_TARBALL}" -C "$DEV_ROOT" .
-dpkg-deb --build "$DEV_ROOT" "$OUTPUT_DIR/${DEV_DEB}"
+tar --owner=0 --group=0 -czf "$OUTPUT_DIR/${DEV_TARBALL}" -C "$DEV_ROOT" .
+dpkg-deb --root-owner-group --build "$DEV_ROOT" "$OUTPUT_DIR/${DEV_DEB}"
 
 echo "Created:"
 echo "  $OUTPUT_DIR/${RUNTIME_DEB}"

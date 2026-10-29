@@ -86,7 +86,16 @@ public:
      * @param index Number of FusedEvents which have been pushed to next pipeline
      * @return NvPSSDErr indicating success or failure
      */
-    NvPSSDErr ClearFusedEvents(uint8_t count);
+    /*
+     * count is size_t, matching the fusedEvents.size() every caller passes.
+     * It was uint8_t, which truncated: at exactly 256 pending fused events the
+     * argument arrived as 0, the call failed its own range check, nothing was
+     * cleared, and the same events were re-delivered on every subsequent tick
+     * forever. fusedEvents is an unbounded vector fed by four push_back sites,
+     * so that backlog is reachable under precisely the overload this queue
+     * exists to survive.
+     */
+    NvPSSDErr ClearFusedEvents(size_t count);
 
     /**
      * @brief Clean up processed events from the queues

@@ -4,12 +4,26 @@
  */
 
 /**
- * @file  cmd_pkt.h
- * @brief  64-byte command / acknowledgement packet definition.
+ * @file  proximity_cmd_pkt.h
+ * @brief  64-byte command / acknowledgement packet definition for the
+ *         Proximity SDM, covering all three pair groups it arbitrates:
+ *         Agility_Digit_Humanoid<->Person, Forklift<->Person and
+ *         Transporter<->Person.
  *
  * This header is self-contained and can be included by any application
  * (sender, receiver, logger, test harness, etc.) that needs to build
  * or parse decision command packets.
+ *
+ * WIRE NOTE -- the identifier is 0xA5, the value this app emitted before the
+ * forklift SDM was merged into it. The merge briefly adopted the forklift SDM's
+ * 0xA6, but deployed receivers accept only 0xA2 and 0xA5 and drop the rest, so
+ * 0xA6 packets were rejected and no command reached the controller.
+ *
+ * Nothing else about the format moved with the merge: the 64-byte layout, the
+ * CRC regions, the two object records and the opcode set are exactly what the
+ * 0xA5 app sent. This is therefore wire-identical to that app, not merely
+ * compatible with it -- an existing receiver reads these packets correctly and
+ * every opcode it can receive is one it already knows.
  *
  * Byte Map (64 bytes total):
  *   [0]       Identifier             (uint8_t)   – magic byte 0xA5
@@ -22,8 +36,8 @@
  *   [44-63]   Object Record 1        (20 bytes)
  */
 
-#ifndef CMD_PACKET_H
-#define CMD_PACKET_H
+#ifndef PROXIMITY_CMD_PACKET_H
+#define PROXIMITY_CMD_PACKET_H
 
 #include <cstdint>
 #include <cstddef>
@@ -172,4 +186,4 @@ static inline const char* commandName(uint8_t cmd)
     }
 }
 
-#endif /* CMD_PACKET_H */
+#endif /* PROXIMITY_CMD_PACKET_H */

@@ -5,10 +5,10 @@
 
 #include <string>
 #include <cstring>
-#include <cstdlib>
 #include <cstdio>
 #include <ctime>
 #include <cstdint>
+#include <iostream>
 #include <map>
 #include <mutex>
 #include <chrono>
@@ -23,44 +23,6 @@
 
 namespace MDXClient {
 
-/* Helper: get string field from codec sub-message handle. Returns empty string if not present. */
-static std::string getRuleStringField(const NvPSFMsgCodecMsg* rule, const char* field) {
-    NvPSFMsgCodecFieldResult r = NvPSFMsgCodecGetField(rule, field);
-    if (r.type == NvPSF_VALUE_STRING && r.data.s) {
-        std::string s(r.data.s);
-        free((void*)r.data.s);
-        return s;
-    }
-    return std::string();
-}
-
-static double getRuleDoubleField(const NvPSFMsgCodecMsg* rule, const char* field) {
-    NvPSFMsgCodecFieldResult r = NvPSFMsgCodecGetField(rule, field);
-    if (r.type == NvPSF_VALUE_DOUBLE) return r.data.d;
-    if (r.type == NvPSF_VALUE_FLOAT) return (double)r.data.f;
-    return 0.0;
-}
-
-static bool getRuleOptionalBoolField(const NvPSFMsgCodecMsg* rule, const char* field,
-                                     bool* value) {
-    if (rule == nullptr || field == nullptr || value == nullptr ||
-        !NvPSFMsgCodecGetFieldPresence(rule, field)) {
-        return false;
-    }
-    const NvPSFMsgCodecFieldResult result = NvPSFMsgCodecGetField(rule, field);
-    if (result.type != NvPSF_VALUE_BOOL) {
-        return false;
-    }
-    *value = result.data.b;
-    return true;
-}
-
-static int32_t getRuleInt32Field(const NvPSFMsgCodecMsg* rule, const char* field) {
-    NvPSFMsgCodecFieldResult r = NvPSFMsgCodecGetField(rule, field);
-    if (r.type == NvPSF_VALUE_INT32) return r.data.i32;
-    return 0;
-}
-
 static bool stringEqualsCaseInsensitive(const std::string& a, const char* b) {
     if (!b) return false;
     return matchesConfiguredStringCondition(a, b);
@@ -74,47 +36,52 @@ static bool parseViolationFilter(const std::string& ruleVal, bool alertVal) {
     return false;
 }
 
-static bool ruleMatches(const NvPSFMsgCodecMsg* rule, const AlertMessage& alert) {
-    const double distThresh = getRuleDoubleField(rule, "distance_threshold_meters");
-    const bool distanceThresholdPresent = NvPSFMsgCodecGetFieldPresence(
-        rule, "distance_threshold_meters");
-    bool proximityViolation = false;
-    const bool proximityViolationPresent = getRuleOptionalBoolField(
-        rule, "proximity_violation", &proximityViolation);
-    const std::string msgSource = getRuleStringField(rule, "message_source");
-    const std::string alertType = getRuleStringField(rule, "alert_type");
-    const std::string configuredPrimaryType = getRuleStringField(rule, "object_type_primary");
-    const std::string configuredSecondaryType = getRuleStringField(rule, "object_type_secondary");
-    const std::string objectType = getRuleStringField(rule, "object_type");
-    const std::string ruleId = getRuleStringField(rule, "rule_id");
-    const std::string restrictedFilter = getRuleStringField(rule, "restricted_area_violation");
-    const std::string confinedFilter = getRuleStringField(rule, "confined_area_violation");
-    const std::string sdFilter = getRuleStringField(rule, "social_distancing_violation");
-    const std::string primaryType = configuredPrimaryType.empty()
-        ? objectType : configuredPrimaryType;
-    const bool isPairRule = isProximityPairRule(
-        alertType, configuredPrimaryType, configuredSecondaryType,
-        proximityViolationPresent, distanceThresholdPresent);
-    if (isPairRule) {
-        const bool hasViolationFilter = !restrictedFilter.empty() ||
-                                        !confinedFilter.empty() || !sdFilter.empty();
-        if (!isValidProximityPairRule(msgSource, alertType, primaryType,
-                                      configuredSecondaryType, proximityViolationPresent,
-                                      proximityViolation, distanceThresholdPresent,
-                                      distThresh, hasViolationFilter) ||
+static bool ruleMatches(const EventMappingRule& rule, const AlertMessage& alert) {
+    const std::string& ruleId = rule.ruleId;
+    if (rule.isCoMovementRule) {
+        // Re-validated here for the same reason the pair branch is: a rule that
+        // did not survive compilation must not match anything, since matching it
+        // would suppress a stop.
+        if (!isValidCoMovementRule(rule.messageSource, rule.alertType, rule.primaryType,
+                                   rule.configuredSecondaryType, rule.proximityViolationPresent,
+                                   rule.distanceThresholdPresent, rule.hasViolationFilter,
+                                   rule.outputEvent) ||
+            !isValidProximityPairRuleId(ruleId) ||
+            !isValidCoMovementParams(rule.coMovement)) {
+            return false;
+        }
+        if (alert.candidateKind != AlertCandidateKind::kCoMovementPair) {
+            return false;
+        }
+        // The candidate always carries the carrier first, so the roles are matched
+        // in order rather than unordered.
+        if (!matchesConfiguredStringCondition(rule.primaryType, alert.object.type) ||
+            !matchesConfiguredStringCondition(rule.configuredSecondaryType,
+                                              alert.object2.type)) {
+            return false;
+        }
+    } else if (alert.candidateKind == AlertCandidateKind::kCoMovementPair) {
+        // No other rule category may consume a co-movement candidate.
+        return false;
+    } else if (rule.isPairRule) {
+        if (!isValidProximityPairRule(rule.messageSource, rule.alertType, rule.primaryType,
+                                      rule.configuredSecondaryType,
+                                      rule.proximityViolationPresent, rule.proximityViolation,
+                                      rule.distanceThresholdPresent, rule.distanceThreshold,
+                                      rule.hasViolationFilter) ||
             !isValidProximityPairRuleId(ruleId)) {
             return false;
         }
         if (alert.candidateKind != AlertCandidateKind::kProximityPair) {
             return false;
         }
-        if (!matchesConfiguredProximityPair(primaryType, configuredSecondaryType,
+        if (!matchesConfiguredProximityPair(rule.primaryType, rule.configuredSecondaryType,
                                             alert.object.type, alert.object2.type)) {
             return false;
         }
-        if (proximityViolation) {
+        if (rule.proximityViolation) {
             if (alert.proximitySelection != ProximitySelection::kThresholdViolation ||
-                alert.proximityThreshold != distThresh) {
+                alert.proximityThreshold != rule.distanceThreshold) {
                 return false;
             }
         } else if (alert.proximitySelection != ProximitySelection::kNoViolation) {
@@ -124,33 +91,36 @@ static bool ruleMatches(const NvPSFMsgCodecMsg* rule, const AlertMessage& alert)
         // A generic frame-social rule cannot consume a pair-specific candidate.
         return false;
     }
-    if (!violationRuleMatchesCandidateScope(restrictedFilter, confinedFilter, sdFilter,
-                                            msgSource, alertType, alert.messageSource,
+    if (!violationRuleMatchesCandidateScope(rule.restrictedFilter, rule.confinedFilter,
+                                            rule.socialFilter, rule.messageSource,
+                                            rule.alertType, alert.messageSource,
                                             alert.type)) {
         return false;
     }
-    if (!violationRuleMatchesCandidateKind(restrictedFilter, confinedFilter, sdFilter,
-                                           alert.candidateKind)) {
+    if (!violationRuleMatchesCandidateKind(rule.restrictedFilter, rule.confinedFilter,
+                                           rule.socialFilter, alert.candidateKind)) {
         return false;
     }
-    if (!matchesConfiguredStringCondition(msgSource, alert.messageSource)) return false;
-    if (!matchesConfiguredStringCondition(alertType, alert.type)) return false;
-    std::string eventType = getRuleStringField(rule, "event_type");
-    if (!matchesConfiguredStringCondition(eventType, alert.eventType)) return false;
-    if (!isPairRule &&
-        !matchesConfiguredStringCondition(objectType, alert.object.type)) return false;
-    if (!isPairRule && !ruleId.empty()) {
+    if (!matchesConfiguredStringCondition(rule.messageSource, alert.messageSource)) return false;
+    if (!matchesConfiguredStringCondition(rule.alertType, alert.type)) return false;
+    if (!matchesConfiguredStringCondition(rule.eventType, alert.eventType)) return false;
+    // Both pair-shaped categories matched their object types by role above, and
+    // neither candidate carries a rule identifier of its own.
+    const bool isPairShapedRule = rule.isPairRule || rule.isCoMovementRule;
+    if (!isPairShapedRule &&
+        !matchesConfiguredStringCondition(rule.objectType, alert.object.type)) return false;
+    if (!isPairShapedRule && !ruleId.empty()) {
         if (alert.ruleId[0] == '\0') return false;
         std::string alertRuleId(alert.ruleId);
         bool idMatch = stringEqualsCaseInsensitive(ruleId, alertRuleId.c_str())
             || (alertRuleId.size() > ruleId.size() && alertRuleId.compare(0, ruleId.size(), ruleId) == 0 && alertRuleId[ruleId.size()] == ':');
         if (!idMatch) return false;
     }
-    if (!parseViolationFilter(restrictedFilter, alert.restrictedAreaViolation))
+    if (!parseViolationFilter(rule.restrictedFilter, alert.restrictedAreaViolation))
         return false;
-    if (!parseViolationFilter(confinedFilter, alert.confinedAreaViolation))
+    if (!parseViolationFilter(rule.confinedFilter, alert.confinedAreaViolation))
         return false;
-    if (!parseViolationFilter(sdFilter, alert.socialDistancingViolation))
+    if (!parseViolationFilter(rule.socialFilter, alert.socialDistancingViolation))
         return false;
     return true;
 }
@@ -163,8 +133,7 @@ static EventType stringToEventType(const std::string& s) {
         {"EVENT_12", EVENT_12}, {"EVENT_13", EVENT_13}, {"EVENT_14", EVENT_14}, {"EVENT_15", EVENT_15},
         {"EVENT_16", EVENT_16}, {"EVENT_17", EVENT_17}, {"EVENT_18", EVENT_18}, {"EVENT_19", EVENT_19},
         {"EVENT_20", EVENT_20}, {"EVENT_21", EVENT_21}, {"EVENT_22", EVENT_22},
-        {"ROI_ENTRY", ROI_ENTRY}, {"ROI_EXIT", ROI_EXIT},
-        {"TW_CROSSING_ENTRY", TW_CROSSING_ENTRY}, {"TW_CROSSING_EXIT", TW_CROSSING_EXIT},
+        {"EVENT_23", EVENT_23},
         {"SW_FAIL", SW_FAIL},
     };
     auto it = kEventTypeMap.find(s);
@@ -252,8 +221,10 @@ static uint64_t stringToNS(const char* ts) {
 // SafetyEventReporter
 // ---------------------------------------------------------------------------
 
-void SafetyEventReporter::setSensorConfigPath(const std::string& path) {
+void SafetyEventReporter::setSensorIdentityConfig(const std::string& path,
+                                                 IdentitySource source) {
     sensorConfigPath_ = path;
+    identitySource_   = source;
 }
 
 bool SafetyEventReporter::init(bool debugMode, std::atomic<bool>& stopFlag) {
@@ -261,22 +232,67 @@ bool SafetyEventReporter::init(bool debugMode, std::atomic<bool>& stopFlag) {
     stopFlag_ = &stopFlag;
 
     if (!sensorConfigPath_.empty()) {
-        std::string cfgErr;
-        auto entries = sensorConfigLoad(sensorConfigPath_, &cfgErr);
-        if (entries.empty()) {
-            NvPSBWriteData(NVPSB_LOG_ERR, "Failed to load sensor config: " + cfgErr, "");
-            return false;
+        if (identitySource_ == IdentitySource::CameraConfig) {
+            std::string cfgErr;
+            auto entries = sensorConfigLoad(sensorConfigPath_, &cfgErr);
+            if (entries.empty()) {
+                NvPSBWriteData(NVPSB_LOG_ERR, "Failed to load sensor config: " + cfgErr, "");
+                return false;
+            }
+            sensorNameToPid_ = sensorConfigNameToIdMap(entries);
+        } else {
+            /* Two columns, no rtspUrl -- a BEV group has no stream, which is
+             * exactly why it cannot be expressed in sensor_config.conf and why
+             * these are separate files rather than one with an extra column.
+             * sensorPipelinesParse refuses a third field, so a sensor_config
+             * handed in here is reported as the wrong file rather than being
+             * silently accepted with the URL ignored. */
+            SensorPipelines pipelines{};
+            const SensorConfigErr rc =
+                sensorPipelinesParse(sensorConfigPath_.c_str(), &pipelines);
+            if (rc != SENSOR_CONFIG_OK) {
+                NvPSBWriteData(NVPSB_LOG_ERR,
+                    "Failed to load sensor pipelines config: " +
+                    std::string(sensorConfigErrStr(rc)), "file: " + sensorConfigPath_);
+                return false;
+            }
+            sensorNameToPid_.clear();
+            for (size_t i = 0U; i < pipelines.count; ++i) {
+                sensorNameToPid_[pipelines.entries[i].sensorName] =
+                    pipelines.entries[i].pipelineId;
+            }
         }
-        sensorNameToPid_ = sensorConfigNameToIdMap(entries);
-        NvPSBWriteData(NVPSB_LOG_INFO, "Loaded sensor config with " +
-            std::to_string(sensorNameToPid_.size()) + " sensors", "");
+
+        /* Name the FILE and the identities it resolved, not just a count. In 3D
+         * this list is expected to hold the group alone; a reader who sees
+         * cameras here is looking at a 2D file in a 3D deployment, where every
+         * group-addressed event would be dropped as unresolvable. */
+        std::string names;
+        for (const auto& kv : sensorNameToPid_) {
+            if (!names.empty()) names += ", ";
+            names += kv.first + ":" + std::to_string(kv.second);
+        }
+        NvPSBWriteData(NVPSB_LOG_INFO,
+            std::string("Sensor identity map loaded from ") +
+            (identitySource_ == IdentitySource::CameraConfig
+                 ? "sensor_config" : "sensor_pipelines_config"),
+            "file: " + sensorConfigPath_ + ", count: " +
+            std::to_string(sensorNameToPid_.size()) + ", {" + names + "}");
     }
 
     if (!debugMode_) {
-        if (NvPSSRegisterPSSClient(&pssClientId_, CLIENT_MDX) != NVPSSD_SUCCESS) {
-            NvPSBWriteData(NVPSB_LOG_ERR, "Failed to register PSS client", "");
+        if (NvPSSRegisterPSSClientInstance(&pssClientId_, CLIENT_MDX, pssInstanceId_) !=
+            NVPSSD_SUCCESS) {
+            /* A refused numbered instance is usually a second mdx_client started
+             * with the same --instance-id: PSS allows one client per instance. */
+            NvPSBWriteData(NVPSB_LOG_ERR, "Failed to register PSS client",
+                "instanceId: " + std::to_string(pssInstanceId_));
             return false;
         }
+        NvPSBWriteData(NVPSB_LOG_INFO, "Registered with PSS",
+            pssInstanceId_ == 0U
+                ? std::string("instanceId: 0 (anonymous -- PSS cannot report this client's loss)")
+                : "instanceId: " + std::to_string(pssInstanceId_));
         pssRegistered_ = true;
         heartbeatRunning_.store(true);
         heartbeatThread_ = std::thread(&SafetyEventReporter::heartbeatLoop, this);
@@ -315,41 +331,33 @@ void SafetyEventReporter::heartbeatLoop() {
 }
 
 bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
-        const NvPSFMsgCodecMsg* config) {
-    int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
-    const NvPSFMsgCodecMsg* matchedRule = nullptr;
-    NvPSFMsgCodecMsg* matchedRuleHandle = nullptr;
-    for (int i = 0; i < rulesCount; i++) {
-        NvPSFMsgCodecMsg* rule = nullptr;
-        char rulePath[64];
-        snprintf(rulePath, sizeof(rulePath), "rules[%d]", i);
-        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS) continue;
-        if (ruleMatches(rule, alertMsg)) {
-            matchedRuleHandle = rule;
-            matchedRule = rule;
+        const EventMapping& mapping) {
+    const EventMappingRule* matchedRule = nullptr;
+    for (size_t i = 0; i < mapping.rules.size(); i++) {
+        if (ruleMatches(mapping.rules[i], alertMsg)) {
+            matchedRule = &mapping.rules[i];
             break;
         }
-        NvPSFMsgCodecFreeMsg(rule);
     }
-    if (!matchedRule) return true;
+    if (matchedRule == nullptr) return true;
 
     std::string sensorIdStr(alertMsg.sensorId);
-    std::string matchedMsgSource = getRuleStringField(matchedRule, "message_source");
-    int32_t scaleFactor = getRuleInt32Field(matchedRule, "scale_factor");
 
-    if (!shouldReportFrameCandidate(alertMsg.messageSource, matchedMsgSource,
-                                    scaleFactor, alertMsg.frameOrdinal)) {
-        NvPSFMsgCodecFreeMsg(matchedRuleHandle);
+    if (!shouldReportFrameCandidate(alertMsg.messageSource, matchedRule->messageSource,
+                                    matchedRule->scaleFactor, alertMsg.frameOrdinal)) {
         return true;
     }
 
-    std::string outputEvent = getRuleStringField(matchedRule, "output_event");
-    std::string ruleName = getRuleStringField(matchedRule, "name");
-    const std::string configuredRuleId = getRuleStringField(matchedRule, "rule_id");
-    const std::string outputRuleIdentifier = selectOutputRuleIdentifier(
-        alertMsg.candidateKind, alertMsg.ruleId, configuredRuleId);
-    if (outputRuleIdentifier.empty()) {
-        NvPSFMsgCodecFreeMsg(matchedRuleHandle);
+    /* Validity gate, not a payload. Wire schema 4 removed
+     * SafetyEvent.ruleIdentifier, so this identifier is no longer sent
+     * anywhere -- only whether it could be formed at all is consumed here. An
+     * empty result means a proximity-pair rule carries an unusable rule_id,
+     * which rejects the alert. Named for what it decides, because a
+     * std::string holding a value nothing reads invites the next reader to
+     * assume it still reaches PSS. */
+    const bool ruleIdentityValid = !selectOutputRuleIdentifier(
+        alertMsg.candidateKind, alertMsg.ruleId, matchedRule->ruleId).empty();
+    if (!ruleIdentityValid) {
         return false;
     }
 
@@ -357,15 +365,40 @@ bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
     /* Pass the producer's endTimestamp through, translated into the
      * CLOCK_MONOTONIC frame the rest of the stack uses. */
     safetyEvent.timestamp = stringToNS(alertMsg.endTimestamp);
+
+#ifdef NVPSF_DBG
+    /* Ingest age: how stale the producer's stamp already is by the time this
+     * event is minted here. Everything it covers is UPSTREAM of PSF -- the VSS
+     * perception/analytics pipeline plus the Kafka hop -- so subtracting it
+     * from the age the SDM measures isolates what PSF itself contributes.
+     *
+     * clock_gettime(CLOCK_MONOTONIC) to match the epoch stringToNS() just
+     * mapped into. Debug-only: nothing in the reporting path reads this. */
+    {
+        struct timespec ingestTs = {};
+        if (safetyEvent.timestamp != 0U &&
+            clock_gettime(CLOCK_MONOTONIC, &ingestTs) == 0) {
+            const uint64_t nowNs =
+                static_cast<uint64_t>(ingestTs.tv_sec) * 1000000000ULL +
+                static_cast<uint64_t>(ingestTs.tv_nsec);
+            if (nowNs >= safetyEvent.timestamp) {
+                std::cout << "MDX_INGEST_AGE_US "
+                          << ((nowNs - safetyEvent.timestamp) / 1000ULL)
+                          << " src=" << alertMsg.messageSource
+                          << " ts=" << alertMsg.endTimestamp << std::endl;
+            }
+        }
+    }
+#endif
+
     safetyEvent.id = alertMsg.id;
     safetyEvent.confidenceLevel = 0.7f;
     safetyEvent.processed = false;
-    safetyEvent.type = stringToEventType(outputEvent);
+    safetyEvent.type = stringToEventType(matchedRule->outputEvent);
     strncpy(safetyEvent.sensorIdentifier, alertMsg.sensorId, MAX_INDENTIFIER_LENGTH - 1);
     safetyEvent.sensorIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
-    strncpy(safetyEvent.ruleIdentifier, outputRuleIdentifier.c_str(),
-            MAX_INDENTIFIER_LENGTH - 1);
-    safetyEvent.ruleIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
+    /* Rule identity is the EVENT_* value; the configured rule_id stays client-side. */
+    safetyEvent.cause = CAUSE_NONE;
 
     const bool isProximityAlert = shouldPopulatePairFusionMetadata(
         alertMsg.candidateKind);
@@ -400,39 +433,84 @@ bool SafetyEventReporter::reportAlert(const AlertMessage& alertMsg,
         safetyEvent.fusionMetadata.objectType[1] = ot0;
     }
     auto pidIt = sensorNameToPid_.find(sensorIdStr);
-    if (pidIt != sensorNameToPid_.end()) {
-        safetyEvent.fusionMetadata.pipelineID = pidIt->second;
-    } else {
-        NvPSBWriteData(NVPSB_LOG_WARNING,
-            "Event from unknown sensor (not in sensor_config): " + sensorIdStr, "");
-        safetyEvent.fusionMetadata.pipelineID = 0;
+    if (pidIt == sensorNameToPid_.end()) {
+        /* Drop, do not fall back to pipelineID 0.
+         *
+         * 0 is the daemon's "unknown sensor" passthrough, reserved for events
+         * that name no sensor at all (heartbeat SW_FAIL, status no-op). An
+         * application event sent with it skips the sensor_config membership
+         * check in the daemon and is stamped isHealthy=true permanently,
+         * because QueryTrustState(0) can never report a sensor invalid --
+         * so it would drive an ATL or PXC decision with no perception-health
+         * gating whatsoever.
+         *
+         * The daemon refuses such an event too (REPORT_REJECTED_UNRESOLVED_SENSOR).
+         * Dropping here as well is not redundant: this is the only place that
+         * knows the offending sensor NAME, which is what an operator needs to
+         * fix the configuration. */
+        /* Name the file the map was ACTUALLY built from. The identity source is
+         * mode-dependent (sensor_config.conf in 2D, sensor_pipelines_config.conf
+         * in 3D), so a fixed "add it to sensor_config" is not merely imprecise
+         * in 3D -- it is wrong. Adding a camera to sensor_config changes nothing
+         * there, because the map is not built from that file, and the operator
+         * would edit the wrong thing while the events keep dropping. */
+        const bool fromCameras = (identitySource_ == IdentitySource::CameraConfig);
+        const std::string sourceName = fromCameras ? "sensor_config"
+                                                   : "sensor_pipelines_config";
+        NvPSBWriteData(NVPSB_LOG_ERR,
+            "Dropping event: sensor not in " + sourceName +
+                ", so it has no pipelineID: " + sensorIdStr,
+            "output_event: " + matchedRule->outputEvent +
+                ", identity file: " + sensorConfigPath_ +
+                ". Add the sensor to " + sourceName +
+                ", or correct the sensor name the producer emits." +
+                (fromCameras
+                     ? ""
+                     : " In 3D this file names the BEV group, not the cameras, so a"
+                       " per-camera name arriving here means the producer and the"
+                       " deployment topology disagree."));
+        return false;
     }
+    safetyEvent.fusionMetadata.pipelineID = pidIt->second;
     safetyEvent.fusionMetadata.clientID = static_cast<uint8_t>(pssClientId_);
     safetyEvent.fusionMetadata.speed = alertMsg.speed;
 
     if (debugMode_) {
-        printSafetyEvent(std::cout, safetyEvent, matchedRule);
-        NvPSFMsgCodecFreeMsg(matchedRuleHandle);
+        printSafetyEvent(std::cout, safetyEvent, *matchedRule);
         return true;
     }
     if (NvPSSReportSafetyEvent(pssClientId_, &safetyEvent) == NVPSSD_SUCCESS) {
-        NvPSBWriteData(NVPSB_LOG_INFO, "Safety event reported: " + outputEvent + " (rule: " + ruleName + ")", "");
-        NvPSFMsgCodecFreeMsg(matchedRuleHandle);
+        std::string detail;
+        if (alertMsg.candidateKind == AlertCandidateKind::kCoMovementPair) {
+            // The evidence is logged with the event because this is the only
+            // record of why a stop was later suppressed for this pair.
+            char evidence[192];
+            snprintf(evidence, sizeof(evidence),
+                     " carrier=%u rider=%u offsetSd=%.3fm travel=%.2fm containment=%.2f%s",
+                     alertMsg.objectId, alertMsg.objectId2,
+                     static_cast<double>(alertMsg.coMovement.offsetSd),
+                     static_cast<double>(alertMsg.coMovement.carrierTravel),
+                     static_cast<double>(alertMsg.coMovement.boxContainment),
+                     alertMsg.coMovement.travelWaivedByBox ? " (travel waived by box)" : "");
+            detail = evidence;
+        }
+        NvPSBWriteData(NVPSB_LOG_INFO, "Safety event reported: " + matchedRule->outputEvent +
+            " (rule: " + matchedRule->name + ")" + detail, "");
         return true;
     }
     NvPSBWriteData(NVPSB_LOG_ERR, "Failed to report safety event to PSS", "");
-    NvPSFMsgCodecFreeMsg(matchedRuleHandle);
     return false;
 }
 
 void SafetyEventReporter::printSafetyEvent(std::ostream& out, const SafetyEvent& e,
-        const NvPSFMsgCodecMsg* rule) {
-    std::string ruleName = getRuleStringField(rule, "name");
-    std::string outputEvent = getRuleStringField(rule, "output_event");
+        const EventMappingRule& rule) {
+    const std::string& ruleName = rule.name;
     out << "[MDX_DEBUG] Matched rule: \"" << (ruleName.empty() ? "(unnamed)" : ruleName) << "\"\n"
-        << "  output_event=" << outputEvent
+        << "  output_event=" << rule.outputEvent
         << "\n  SafetyEvent: id=" << e.id << " type=" << e.type
-        << " sensor=" << e.sensorIdentifier << " rule=" << e.ruleIdentifier
+        /* Numeric: see pss_protocol.h -- no enum-to-string helper exists. */
+        << " sensor=" << e.sensorIdentifier
+        << " cause=" << static_cast<unsigned>(e.cause)
         << " objectID[0]=" << e.fusionMetadata.objectID[0] << " objectID[1]=" << e.fusionMetadata.objectID[1]
         << " timestamp=" << e.timestamp << " confidence=" << e.confidenceLevel << std::endl;
 }

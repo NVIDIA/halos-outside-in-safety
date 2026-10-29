@@ -18,6 +18,8 @@ set(_safety_core_atl_proximity_include_dirs
   "${SAFETY_CORE_COMPONENTS_DIR}/event-integrator/daemon/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/protocols/decision-maker-gateway/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/safecomm/validation/include"
+  "${SAFETY_CORE_COMPONENTS_DIR}/safecomm/transport/include"
+  "${SAFETY_CORE_SENSOR_CONFIG_DIR}/inc"
 )
 
 if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY_SDM)
@@ -28,6 +30,7 @@ if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY_SDM)
   add_executable(atl_proximity_sdm
     "${_safety_core_atl_proximity_sdm_dir}/AtlProximity.cpp"
     "${_safety_core_atl_proximity_sdm_dir}/AtlProximityControl.cpp"
+    "${SAFETY_CORE_SENSOR_CONFIG_DIR}/src/sensor_config_parser.cpp"
   )
 
   target_include_directories(atl_proximity_sdm PRIVATE
@@ -40,6 +43,7 @@ if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY_SDM)
 
   target_link_libraries(atl_proximity_sdm PRIVATE
     safety_core_msg_validation
+    nvpsf_transport
     Threads::Threads
     rt
   )

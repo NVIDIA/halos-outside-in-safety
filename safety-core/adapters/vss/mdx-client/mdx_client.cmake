@@ -21,6 +21,8 @@ endforeach()
 
 add_executable(mdx_client
   "${_safety_core_mdx_client_dir}/src/MDXClient.cpp"
+  "${_safety_core_mdx_client_dir}/src/CoMovementTracker.cpp"
+  "${_safety_core_mdx_client_dir}/src/EventMapping.cpp"
   "${_safety_core_mdx_client_dir}/src/EventsParser.cpp"
   "${_safety_core_mdx_client_dir}/src/FramesParser.cpp"
   "${_safety_core_mdx_client_dir}/src/SafetyEventReporter.cpp"

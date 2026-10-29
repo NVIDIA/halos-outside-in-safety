@@ -1,18 +1,204 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Shared MDX mapping for PXC, ATL+PXC and PXC+PXC. ATL-only and ATL+ATL use
+# atl/event_mapping_atl.pb.txt instead. Per-SDM configs select subscriptions;
+# the gateway forwards only the application events selected by each instance.
+#
+# ATL zones one/two use EVENT_0..11; PXC uses the disjoint EVENT_12..23 block:
+# Forklift 12..14, Agility humanoid 15..17, Transporter 18..20, Fourier 21..23.
+# Each three-event block is ordered NORMAL, REDUCE, STOP. Deploy this mapping
+# and the matching SDM configs together; older PXC bindings use different IDs.
+# Use one mdx_client with this file, not separate clients for its rule groups.
+#
+# Four proximity pair groups are tracked, each with a
+# 3-tier no_violation / warning / critical model:
+#   - Agility_Digit_Humanoid <-> Person   (2m warning, 1m critical)
+#   - Forklift               <-> Person   (2m warning, 1m critical)
+#   - Transporter            <-> Person   (2m warning, 1m critical)
+#   - Fourier_GR1_T2_Humanoid <-> Person   (2m warning, 1m critical)
+#
+# Every group pairs a machine with a person. Machine-to-machine proximity
+# (Forklift <-> Forklift) is deliberately not tracked: two vehicles closing on
+# each other is a collision concern rather than a person-safety one, and it is
+# covered by the person-machine model instead. Generic event numbers have no
+# source namespace: never run another producer that uses numbers in this range
+# against the same nvpss_daemon as this mapping. Older PXC mappings/configs
+# must likewise not be mixed with these bindings. Producers and consumers
+# must agree on the meaning of every event number.
+#
+# The three tiers are the whole model: no co-movement rule is configured, so a
+# Person riding a machine is treated exactly like one standing next to it. See
+# the note at the end of this file for what that costs and how to change it.
+#
+# All four groups share the same 2m/1m bands. The thresholds are still stored
+# per group rather than once globally, because mdx-client resolves the tier per
+# group: it sorts a group's thresholds ascending and selects the first one the
+# measured distance falls within, so the tightest matching tier wins and the
+# groups do not interfere. The SDM sees only the resulting tier, never the
+# distance, which is why one arbitration path serves all of them. Keeping
+# them per group also means a single group can be retuned later without
+# disturbing the others.
+#
+# A group's warning tier must not exceed behavior-analytics'
+# proximityDetectionThreshold (vss-behavior-analytics-config.json, currently
+# 4m): mdx-client rejects a pair group whose thresholds sit outside the
+# pipeline's own proximity range, since the pipeline never reports violations
+# beyond it. At a 2m warning all four groups now sit well inside that limit,
+# but the check still binds -- dropping the analytics threshold below 2 would
+# silently disable every group.
+#
+# Distances between the 2m warning and the 4m analytics threshold are still
+# reported by the pipeline as violations. They match no tier here, so mdx-client
+# emits them against each group's no_violation rule (EVENT_12/15/18/21) rather than
+# dropping them. That matters: a pair leaving the warning band produces an
+# explicit safe event, so the SDM's retained per-pair state is cleared instead
+# of holding the last violation until its TTL expires.
+#
+# object_type_primary/secondary must match the class names produced by VSS
+# behavior-analytics for this deployment (vss-behavior-analytics-config.json
+# proximityDetectionCenterClasses / proximityDetectionSurroundingClasses).
+# Every tracked pair is machine-to-person, so "Agility_Digit_Humanoid",
+# "Forklift", "Transporter" and "Fourier_GR1_T2_Humanoid" are the center classes
+# and "Person" is the only surrounding class: proximityDetectionCenterClasses
+# must enable every machine used by the selected SDM configs, while
+# proximityDetectionSurroundingClasses needs "Person" alone.
+# A machine missing from the center list is not a degraded group but a silent
+# one -- behavior-analytics never clusters that pair, so the pipeline reports it
+# as no-violation at every distance and the group below can only ever emit its
+# safe tier. Listing a machine class as a surrounding class too -- which the
+# dropped Forklift<->Forklift group required, so that behavior-analytics
+# clustered a Forklift against nearby Forklifts -- now only produces pairs no
+# rule below matches.
+
+# --- ATL zone one: EVENT_0..5 ---------------------------------------------
 
 rules {
-  name: "Proximity no violation (safe distance, >2m or SD false)"
+  name: "Forklift tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_0"
+}
+rules {
+  name: "Forklift tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_1"
+}
+rules {
+  name: "Person tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_2"
+}
+rules {
+  name: "Person tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "person"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_3"
+}
+rules {
+  name: "Person restricted area ROI violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "true"
+  output_event: "EVENT_4"
+}
+rules {
+  name: "Person restricted area ROI violation cleared"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "false"
+  output_event: "EVENT_5"
+}
+
+# --- ATL zone two: EVENT_6..11 --------------------------------------------
+
+rules {
+  name: "Zone2 forklift tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "forklift"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_6"
+}
+rules {
+  name: "Zone2 forklift tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "forklift"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_7"
+}
+rules {
+  name: "Zone2 person tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "person"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_8"
+}
+rules {
+  name: "Zone2 person tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "person"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_9"
+}
+rules {
+  name: "Zone2 person restricted area ROI violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-2"
+  restricted_area_violation: "true"
+  output_event: "EVENT_10"
+}
+rules {
+  name: "Zone2 person restricted area ROI violation cleared"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-2"
+  restricted_area_violation: "false"
+  output_event: "EVENT_11"
+}
+
+# --- Proximity pairs: EVENT_12..23 ----------------------------------------
+
+rules {
+  name: "Humanoid-Person no violation (safe distance, >2m or SD false)"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
   rule_id: "agility_digit_person_no_violation"
   object_type_primary: "Agility_Digit_Humanoid"
   object_type_secondary: "Person"
   proximity_violation: false
-  output_event: "EVENT_8"
+  output_event: "EVENT_15"
 }
 rules {
-  name: "Proximity 2m > distance > 1m"
+  name: "Humanoid-Person 2m >= distance > 1m"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
   rule_id: "agility_digit_person_lt_2m"
@@ -20,10 +206,10 @@ rules {
   object_type_secondary: "Person"
   proximity_violation: true
   distance_threshold_meters: 2.0
-  output_event: "EVENT_9"
+  output_event: "EVENT_16"
 }
 rules {
-  name: "Proximity distance < 1m"
+  name: "Humanoid-Person distance <= 1m"
   message_source: "mdx-frames"
   alert_type: "social_distancing"
   rule_id: "agility_digit_person_lt_1m"
@@ -31,5 +217,120 @@ rules {
   object_type_secondary: "Person"
   proximity_violation: true
   distance_threshold_meters: 1.0
-  output_event: "EVENT_10"
+  output_event: "EVENT_17"
 }
+rules {
+  name: "Forklift-Person no violation (safe distance, >2m or SD false)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_no_violation"
+  object_type_primary: "Forklift"
+  object_type_secondary: "Person"
+  proximity_violation: false
+  output_event: "EVENT_12"
+}
+rules {
+  name: "Forklift-Person 2m >= distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_lt_2m"
+  object_type_primary: "Forklift"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_13"
+}
+rules {
+  name: "Forklift-Person distance <= 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "forklift_person_lt_1m"
+  object_type_primary: "Forklift"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 1.0
+  output_event: "EVENT_14"
+}
+rules {
+  name: "Transporter-Person no violation (safe distance, >2m or SD false)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "transporter_person_no_violation"
+  object_type_primary: "Transporter"
+  object_type_secondary: "Person"
+  proximity_violation: false
+  output_event: "EVENT_18"
+}
+rules {
+  name: "Transporter-Person 2m >= distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "transporter_person_lt_2m"
+  object_type_primary: "Transporter"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_19"
+}
+rules {
+  name: "Transporter-Person distance <= 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "transporter_person_lt_1m"
+  object_type_primary: "Transporter"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 1.0
+  output_event: "EVENT_20"
+}
+rules {
+  name: "Fourier-Humanoid-Person no violation (safe distance, >2m or SD false)"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "fourier_humanoid_person_no_violation"
+  object_type_primary: "Fourier_GR1_T2_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: false
+  output_event: "EVENT_21"
+}
+rules {
+  name: "Fourier-Humanoid-Person 2m >= distance > 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "fourier_humanoid_person_lt_2m"
+  object_type_primary: "Fourier_GR1_T2_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 2.0
+  output_event: "EVENT_22"
+}
+rules {
+  name: "Fourier-Humanoid-Person distance <= 1m"
+  message_source: "mdx-frames"
+  alert_type: "social_distancing"
+  rule_id: "fourier_humanoid_person_lt_1m"
+  object_type_primary: "Fourier_GR1_T2_Humanoid"
+  object_type_secondary: "Person"
+  proximity_violation: true
+  distance_threshold_meters: 1.0
+  output_event: "EVENT_23"
+}
+
+# Co-movement (a Person riding a Forklift, rather than standing near it) is
+# deliberately not configured here. This application does not require telling a
+# vehicle's own operator apart from a pedestrian, so no rule below emits the
+# co-movement event and every Person inside a machine's critical band stops that
+# machine -- including one being carried by it.
+#
+# The capability itself is intact and generic in mdx-client, not deleted: the
+# tracker, its parameter validation and the comovement_* fields on
+# EventMappingRule all remain. mdx-client builds its co-movement state only from
+# rules whose alert_type is "co_movement", and skips the whole evaluation for a
+# frame when no such rule is compiled, so leaving this rule out disables the
+# feature outright at no per-frame cost rather than merely muting its output.
+#
+# To re-enable it, add back a rule with alert_type "co_movement" naming the
+# carrier and rider types. Note that the SDM side must also be able to consume
+# the event for suppression to take effect. The parameter values previously
+# tuned against this deployment's footage, together with the measurements behind
+# them, are preserved in this file's git history.

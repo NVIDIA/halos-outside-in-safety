@@ -12,6 +12,7 @@ set(_safety_core_gateway_include_dirs
   "${_safety_core_event_integrator_dir}/daemon/include"
   "${_safety_core_safecomm_dir}/validation/include"
   "${_safety_core_safecomm_dir}/posix_msg_que/include"
+  "${_safety_core_safecomm_dir}/transport/include"
 )
 
 if(SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY_NVPSD)
@@ -55,6 +56,7 @@ if(SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY_NVPSD)
     nvpssd_interface
     safety_core_msg_validation
     nvpss_msg_que
+    nvpsf_transport
     Threads::Threads
     rt
   )

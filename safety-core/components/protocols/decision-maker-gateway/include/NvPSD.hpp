@@ -11,22 +11,16 @@
 #include <condition_variable>
 #include <atomic>
 #include <queue>
+#include <vector>
 
-#include "posix_msg_que.h"
+#include "nvpsf_transport.h"
 #include "NvPSD.h"
+#include "nvpsf_transport.h"
 #include "pss_daemon.h"
 
 
 namespace nvpsd
 {
-
-typedef enum NvPSDChannelBackend_t
-{
-    POSIX_MSG_QUE=0,
-    POSIX_SOCKET,
-    NVSCI
-}NvPSDChannelBackend;
-
 
 typedef struct NvPSDCbInternal_t
 {
@@ -51,22 +45,40 @@ class NvPSD
 {
 
 private:
-    const std::string writeChannel;
-    const std::string readChannel;
-    const std::string criticalWriteChannel;
-    const std::string criticalReadChannel;
+    /* One AF_UNIX SOCK_SEQPACKET connection carries both severities; there is
+     * no per-severity channel to name or track. */
     const NvPSDEndpoint endpt;
-    int writeChannelMqd;
-    int readChannelMqd;
-    int criticalWriteChannelMqd;
-    int criticalReadChannelMqd;
 
-    std::atomic<int> PSDclientSocket;
+    /*
+     * AF_UNIX SOCK_SEQPACKET client endpoint, replacing the raw SOCK_STREAM
+     * descriptor. Atomic for the same reason the descriptor was: teardown uses
+     * exchange(nullptr) so exactly one caller wins the right to close, and a
+     * concurrent user sees nullptr rather than a freed object.
+     *
+     * The socket type is not cosmetic. The PSS daemon's server side is
+     * SOCK_SEQPACKET, and a SOCK_STREAM client cannot connect to it --
+     * connect() fails with EPROTOTYPE. Both ends must come from the same
+     * release.
+     */
+    std::atomic<NvPSFTransport*> transport;
+    /* The daemon, re-learned on every (re)connect. */
+    NvPSFPeerId serverPeer;
+
+    /*
+     * The event types this client registered, kept so they can be re-issued
+     * after a reconnect. Restoring the connection without them would leave the
+     * daemon's eventTypeToClient map empty for this client: connected, and
+     * silently unable to receive a single DecisionRequest.
+     *
+     * Written by NvPSDRegisterEventTypes before the listener thread starts, and
+     * read only by the listener's reconnect path afterwards.
+     */
+    std::vector<EventType> registeredEventTypes;
     std::string PSSDaemonSocketPath;
     uint32_t clientId;
 
     NvPSDCbInternal callbacks;
-    NvPSDChannelBackend backend;
+    NvPSFTransportKind backend;
 
     std::atomic<NvPSDState> pssState;
     std::atomic<NvPSDState> clientState;
@@ -87,10 +99,9 @@ private:
 
     std::atomic<bool> listenOnMsgChannelBackend;
     std::thread msgHandlerThread;
-    std::thread criticalMsgHandlerThread;
     std::thread decisionResponseTrasmitThread;
+    /* One handler for one socket: both severities share the connection. */
     NvPSDErr handleMsgsOnMsgQueClientEndpt();
-    NvPSDErr handleMsgsOnCriticalMsgQueClientEndpt();
     NvPSDErr handleDecisionResponseTransmission();
 
     std::thread psdHeartbeatThread;
@@ -103,11 +114,21 @@ private:
     NvPSDErr NvPSDStopHeartbeat();
 
 public:
-    NvPSD(std::string writeChannel, std::string readChannel,
-          std::string criticalWriteChannel, std::string criticalReadChannel,
-          NvPSDEndpoint endPt);
+    explicit NvPSD(NvPSDEndpoint endPt);
     ~NvPSD();
-    NvPSDErr NvPSDChannelCreate(NvPSDChannelBackend backend);
+    NvPSDErr NvPSDChannelCreate(NvPSFTransportKind backend);
+
+    /** Open the AF_UNIX endpoint and complete the client-ID handshake. */
+    NvPSDErr openPssToPsdTransport();
+    /**
+     * Re-establish the PSS -> PSD link after the daemon has gone.
+     *
+     * Count-unbounded at a fixed cadence: a daemon restart must
+     * not require restarting this process. Re-issues the stored event-type
+     * registration, because a connection without routing is indistinguishable
+     * from a dead link from the SDMs' point of view.
+     */
+    NvPSDErr reconnectPssToPsd();
     NvPSDErr NvPSDSetCbs(NvPSDCbInternal callbacks);
     NvPSDEndpoint NvPSDGetChannelEndpt();
     NvPSDErr NvPSDChannelListenerStart();
@@ -117,7 +138,7 @@ public:
     NvPSDErr NvPSDRequestStart();
     NvPSDErr NvPSDGenerateDecision(const DecisionRequest* request, DecisionResponse* response);
     NvPSDErr NvPSDStop();
-    NvPSDErr NvPSDChannelClose(NvPSDChannelBackend backend);
+    NvPSDErr NvPSDChannelClose(NvPSFTransportKind backend);
 
     NvPSDErr NvPSDRegisterEventTypes(const EventType* eventTypes, uint32_t count);
 };

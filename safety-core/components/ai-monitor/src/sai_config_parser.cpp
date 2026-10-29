@@ -88,6 +88,56 @@ float SaiConfigParser::getFloat(const std::string& key, float defaultValue) cons
     return val;
 }
 
+bool SaiConfigParser::getFloatList(const std::string& key, float* out, int count) const {
+    if (out == nullptr || count <= 0) return false;
+
+    auto it = values_.find(key);
+    if (it == values_.end()) return false;
+
+    // Parse into a temporary so a malformed list leaves the caller's values
+    // intact; a half-written baseline row would otherwise satisfy downstream
+    // "has data" checks with garbage in the tail.
+    std::vector<float> parsed;
+    parsed.reserve(static_cast<size_t>(count));
+
+    const std::string& csv = it->second;
+    size_t             pos = 0;
+    while (pos <= csv.size()) {
+        const size_t comma = csv.find(',', pos);
+        const size_t end   = (comma == std::string::npos) ? csv.size() : comma;
+
+        float val = 0.f;
+        if (!safe_stof(trim(csv.substr(pos, end - pos)), val)) {
+            std::cerr << "[Config] Invalid float in list for key '" << key
+                      << "' at element " << parsed.size() << "\n";
+            return false;
+        }
+        // Stop growing past the expected count so a pathological line cannot
+        // drive an unbounded allocation before the size check below.
+        if (parsed.size() >= static_cast<size_t>(count)) {
+            std::cerr << "[Config] Key '" << key << "' has more than " << count
+                      << " elements. This baseline was written by a different"
+                         " build or tile grid; re-run LEARN to regenerate it.\n";
+            return false;
+        }
+        parsed.push_back(val);
+
+        if (comma == std::string::npos) break;
+        pos = comma + 1;
+    }
+
+    if (parsed.size() != static_cast<size_t>(count)) {
+        std::cerr << "[Config] Key '" << key << "' has " << parsed.size()
+                  << " elements; expected exactly " << count
+                  << ". This baseline was written by a different build or"
+                     " tile grid; re-run LEARN to regenerate it.\n";
+        return false;
+    }
+
+    for (int i = 0; i < count; ++i) out[i] = parsed[static_cast<size_t>(i)];
+    return true;
+}
+
 int SaiConfigParser::getInt(const std::string& key, int defaultValue) const {
     auto it = values_.find(key);
     if (it == values_.end()) return defaultValue;
@@ -105,15 +155,45 @@ bool SaiConfigParser::hasKey(const std::string& key) const {
 }
 
 bool SaiConfigParser::validateRequiredKeys(
-        const std::vector<std::string>& requiredKeys) const {
-    bool allPresent = true;
-    for (const auto& key : requiredKeys) {
-        if (values_.find(key) == values_.end()) {
+        const std::vector<std::string>& floatKeys,
+        const std::vector<std::string>& intKeys) const {
+    bool allValid = true;
+
+    // safe_stof also rejects non-finite text, so "nan"/"inf" cannot reach a
+    // caller that only range-checks the parsed value.
+    for (const auto& key : floatKeys) {
+        auto it = values_.find(key);
+        if (it == values_.end()) {
             std::cerr << "[Config] Required key missing: " << key << "\n";
-            allPresent = false;
+            allValid = false;
+            continue;
+        }
+        float val;
+        if (!safe_stof(it->second, val)) {
+            std::cerr << "[Config] Required key '" << key
+                      << "' is not a finite number: " << it->second << "\n";
+            allValid = false;
         }
     }
-    return allPresent;
+
+    // safe_stoi, not safe_stof: a fractional value like "15.5" in an integer
+    // field is a config error, not something to round silently.
+    for (const auto& key : intKeys) {
+        auto it = values_.find(key);
+        if (it == values_.end()) {
+            std::cerr << "[Config] Required key missing: " << key << "\n";
+            allValid = false;
+            continue;
+        }
+        int val;
+        if (!safe_stoi(it->second, val)) {
+            std::cerr << "[Config] Required key '" << key
+                      << "' is not an integer: " << it->second << "\n";
+            allValid = false;
+        }
+    }
+
+    return allValid;
 }
 
 void SaiConfigParser::printLoadedConfig() const {

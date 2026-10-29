@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(safety-core
-  VERSION 1.2.1
+  VERSION 1.4.0
   LANGUAGES C CXX
 )
 
@@ -36,6 +36,9 @@ option(SAFETY_CORE_BUILD_DECISION_MAKERS_PROXIMITY_CMD_RECEIVER "Build proximity
 option(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY "Build combined ATL + forklift/person proximity decision-maker" ON)
 option(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY_SDM "Build atl_proximity atl_proximity_sdm executable" ON)
 option(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY_CMD_RECEIVER "Build atl_proximity atl_proximity_sdm_cmd_receiver executable" ON)
+option(SAFETY_CORE_BUILD_DECISION_MAKERS_CROSSING_JUNCTION "Build crossing-junction safety decision-maker" ON)
+option(SAFETY_CORE_BUILD_DECISION_MAKERS_CROSSING_JUNCTION_SDM "Build crossing_junction_safety_monitor_sdm executable" ON)
+option(SAFETY_CORE_BUILD_DECISION_MAKERS_CROSSING_JUNCTION_CMD_RECEIVER "Build crossing_junction_safety_monitor_sdm_cmd_receiver executable" ON)
 option(SAFETY_CORE_BUILD_EVENT_INTEGRATOR "Build the event-integrator component" ON)
 option(SAFETY_CORE_BUILD_EVENT_INTEGRATOR_PSS_DAEMON "Build event-integrator pss_daemon" ON)
 option(SAFETY_CORE_BUILD_EVENT_INTEGRATOR_INTERFACE "Build event-integrator nvpssd_interface library" ON)
@@ -46,6 +49,7 @@ option(SAFETY_CORE_BUILD_PROTOCOLS_DECISION_MAKER_GATEWAY_PROCESS "Build protoco
 option(SAFETY_CORE_BUILD_SAFECOMM "Build the safecomm component" ON)
 option(SAFETY_CORE_BUILD_SAFECOMM_POSIX_MSG_QUE "Build safecomm libnvpss_msg_que.so" ON)
 option(SAFETY_CORE_BUILD_SAFECOMM_POSIX_SOCKETS "Build safecomm libnvpss_socket_comms.so" ON)
+option(SAFETY_CORE_BUILD_SAFECOMM_TRANSPORT "Build safecomm libnvpsf_transport.so" ON)
 option(SAFETY_CORE_ENABLE_PROFILE "Enable ai-monitor PROFILE compile definition" OFF)
 
 set(SAFETY_CORE_TARGET_ARCH "native" CACHE STRING "Target architecture: native, x86_64, arm64, or aarch64")

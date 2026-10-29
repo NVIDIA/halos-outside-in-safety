@@ -1,0 +1,151 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Crossing-Junction-Safety-Monitor event mapping (EVENT_0, EVENT_1, EVENT_3).
+#
+# The junction rules only, with no proximity tiers. Use this file when
+# crossing_junction_safety_monitor_sdm is the only SDM behind the gateway. A
+# deployment that runs a proximity SDM behind the same mdx-client needs a
+# combined mapping carrying both rule sets instead, for the reason below.
+#
+# Splitting them is not cosmetic. A DecisionRequest holds at most
+# MAX_SENSORS_DATA_SUMMARY_SIZE (8) events. Measured on this deployment with the
+# combined file loaded, the proximity rules produced 25802 of 39970 events over
+# 13 minutes -- 65% of the traffic, none of it subscribed by any running SDM --
+# and left 26% of gateway requests pinned at all 8 slots. EVENT_1 and EVENT_3 are
+# levels that re-assert several times a second and shrug that off, but EVENT_0
+# is a single-shot edge: one of the five crossings in that window was emitted by
+# mdx-client, logged as received by the PSS daemon, and never reached the SDM,
+# costing 28.5s of siren that should have sounded.
+#
+# ========= Crossing-Junction-Safety-Monitor (EVENT_0, EVENT_1, EVENT_3) =========
+#
+# The junction alarm is siren = A1 AND A2:
+#   A1  a Forklift crossed a tripwire heading into the junction  -> EVENT_0
+#   A2  at least one Person is inside the junction ROI           -> EVENT_1
+#
+# Forklifts are tracked by the tripwire alone here. This deployment does not
+# monitor them in the junction ROI, so roi-id-1's restrictedObjectTypes lists
+# Person only and the Forklift ROI rules (EVENT_2 occupies, EVENT_4 vacated)
+# are deliberately absent. Three consequences follow, all intended:
+#
+#   A1 is armed by the crossing and released by tripwire_engage_window_ms
+#   instead of by the vehicle leaving the ROI, so it no longer sustains while a
+#   forklift stands still in an occupied junction.
+#
+#   The SDM's roi_entry_pulse_ms backstop, which arms A1 for a forklift seen
+#   inside the ROI with no recorded crossing, goes inert because the report it
+#   keys on is never emitted. That path carried most of the arming in earlier
+#   measurements, so expect materially fewer arms -- the trade being that every
+#   alarm is now attributable to an observed crossing.
+#
+#   Dropping EVENT_2 is what makes dropping EVENT_4 mandatory rather than
+#   tidy. emitRestrictedAreaClears() in FramesParser.cpp decides from the
+#   mapping, not from calibration.json: it would keep finding the Forklift
+#   vacated rule, find no violator to suppress it, and assert EVENT_4 on every
+#   frame carrying roi-id-1. Release is edge-driven, so a permanently asserted
+#   vacated report would drop A1 almost as soon as a crossing raised it.
+#
+# EVENT_0 is an edge; EVENT_1 is a level, re-reported for as long as the person
+# stays inside the ROI, and its absence is what releases A2. See
+# CrossingJunctionSafetyControl.cpp for why occupancy is carried as a level
+# rather than as mdx-events ROI ENTRY/EXIT edges.
+
+# The inbound crossing. Tripwire events reach mdx-client on mdx-events as
+# TripEvent, whose event.id is the tripwire and event.type the direction.
+#
+# "OUT" is the crossing towards the junction. That polarity is a property of how
+# the calibration authors the tripwire, not of this file, so it is stated here
+# explicitly: behavior-analytics reports the crossing running in the same sense
+# as the direction segment (p1 -> p2) as OUT. The calibration must therefore
+# point that segment TOWARDS the junction -- p1 on the approach side of the
+# wire, p2 on the junction side -- so that a forklift driving in crosses along
+# it and is reported OUT, while one leaving crosses against it and arrives as
+# IN. The opposite crossing is deliberately left unmapped: a forklift leaving
+# the junction must not arm the alarm.
+#
+# This is load-bearing and silent when wrong, so it is worth knowing how it
+# reads when mis-authored. This deployment's calibration initially pointed the
+# segment away from the junction, which inverted the labels: OUT was then
+# produced by forklifts driving OUT of the junction, and every genuine entry
+# arrived as IN and was discarded. Measured over two 735s windows by taking each
+# crossing's own trajectory from mdx-frames and differencing x across +/-3s of
+# the crossing (the junction lies west, so dx<0 is entering):
+#
+#     IN   n=25  mean dx = -6.44 m   westbound, into the junction  (23/25)
+#     OUT  n=19  mean dx = +6.87 m   eastbound, out of it          (16/19)
+#
+# Of the 20 forklift tracks that entered from this access, 0 produced an OUT
+# crossing and 20 produced an IN crossing -- a total loss of A1, while the arms
+# that did fire came from vehicles on their way out. Both directions occur in
+# this footage, so the filter is load-bearing rather than defensive.
+#
+# object_type is filtered to Forklift because Persons cross this same wire
+# frequently, and a pedestrian walking into the junction is condition A2's
+# business, not A1's. TripEvent does carry object.type, so the filter resolves
+# rather than silently rejecting every crossing. Measured over one 735s window
+# on this footage the wire saw 25 Forklift and 17 Person inbound crossings, so
+# without the filter roughly 40% of A1 arms would have been pedestrians.
+rules {
+  name: "Forklift crosses junction tripwire inbound (A1 arm)"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "Forklift"
+  rule_id: "tripwire-id-1"
+  output_event: "EVENT_0"
+}
+
+# Junction occupancy, from the mdx-frames ROI entries.
+#
+# behavior-analytics only sets info["restrictedAreaViolation"] to "true" when the
+# object's class is listed in that ROI's restrictedObjectTypes in calibration.json
+# -- with the class absent the flag is always "false" and the rule below can
+# never fire. The junction ROI therefore needs:
+#
+#     "restrictedObjectTypes": ["Person"]
+#
+# on roi-id-1 for every sensor. "Restricted" is being used here as the pipeline's
+# generic per-class occupancy report, not to declare the junction off-limits.
+# Forklift is intentionally not in that list, per the header.
+#
+# scale_factor throttles these from the full 25 fps to about 5 events/s per
+# sensor (the frame ordinal behind it is counted per sensor). That is roughly one
+# event every 200ms against a person ROI hold time of 1500ms, so the SDM
+# tolerates several consecutive misses before it treats the junction as vacated.
+rules {
+  name: "Person occupies junction ROI (A2)"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "Person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "true"
+  scale_factor: 5
+  output_event: "EVENT_1"
+}
+# The explicit vacated report, the counterpart of EVENT_1, mapped the same way
+# ATL maps its EVENT_4/EVENT_5 pair. Perception never says "the object left",
+# but mdx-client synthesizes that statement per frame and per object type, from
+# two complementary paths in FramesParser.cpp:
+#
+#   frame carries roi-id-1     -> emitRestrictedAreaClears() asserts the clear for
+#                                 each monitored class with no violator this frame
+#   frame carries no ROI at all -> emitEmptyRoiClears() asserts the clear for every
+#                                 restricted_area_violation "false" rule
+#
+# Measured on this deployment those two cases account for every frame -- a frame
+# never carries some other ROI without roi-id-1 -- so the rule below gives the SDM
+# a positive vacated report on every frame rather than leaving it to infer
+# departure from a silent channel. That turns release from a 1500ms timeout into
+# an edge, and leaves the hold time as a backstop for a sensor that stops
+# reporting altogether.
+rules {
+  name: "Person vacated junction ROI (A2 release)"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "Person"
+  rule_id: "roi-id-1"
+  restricted_area_violation: "false"
+  scale_factor: 5
+  output_event: "EVENT_3"
+}

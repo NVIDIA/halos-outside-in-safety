@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -27,7 +27,7 @@ NvPSSComErr NvPSSComDataSrcInit(NvPSSComCtx* ctx, const char* writeChannel, cons
 
     NvPSSComErr err;
     ctx->mNvPSSCom = std::make_unique<nvpss::NvPSSCom>(writeChannel, readChannel, nvpss::NVPSSCOM_SRC);
-    err = ctx->mNvPSSCom->NvPSSComChannelCreate(nvpss::POSIX_MSG_QUE);
+    err = ctx->mNvPSSCom->NvPSSComChannelCreate(nvpss::NVPSSCOM_BACKEND_POSIX_MSG_QUE);
     if(err != NVPSSCOM_SUCCESS)
     {
         err = NVPSSCOM_FAIL;
@@ -43,7 +43,7 @@ NvPSSComErr NvPSSComDataSinkInit(NvPSSComCtx* ctx, const char* writeChannel, con
 
     NvPSSComErr err;
     ctx->mNvPSSCom = std::make_unique<nvpss::NvPSSCom>(writeChannel, readChannel, nvpss::NVPSSCOM_SINK);
-    err = ctx->mNvPSSCom->NvPSSComChannelCreate(nvpss::POSIX_MSG_QUE);
+    err = ctx->mNvPSSCom->NvPSSComChannelCreate(nvpss::NVPSSCOM_BACKEND_POSIX_MSG_QUE);
     if(err != NVPSSCOM_SUCCESS)
     {
         err = NVPSSCOM_FAIL;
@@ -137,7 +137,7 @@ exit:
 NvPSSComErr NvPSSComDataSrcExit(NvPSSComCtx* ctx)
 {
     NvPSSComErr err = NVPSSCOM_SUCCESS;
-    err = ctx->mNvPSSCom->NvPSSComChannelClose(nvpss::POSIX_MSG_QUE);
+    err = ctx->mNvPSSCom->NvPSSComChannelClose(nvpss::NVPSSCOM_BACKEND_POSIX_MSG_QUE);
     if(err != NVPSSCOM_SUCCESS)
     {
         err = NVPSSCOM_FAIL;
@@ -151,7 +151,7 @@ exit:
 NvPSSComErr NvPSSComDataSinkExit(NvPSSComCtx* ctx)
 {
     NvPSSComErr err = NVPSSCOM_SUCCESS;
-    err = ctx->mNvPSSCom->NvPSSComChannelClose(nvpss::POSIX_MSG_QUE);
+    err = ctx->mNvPSSCom->NvPSSComChannelClose(nvpss::NVPSSCOM_BACKEND_POSIX_MSG_QUE);
     if(err != NVPSSCOM_SUCCESS)
     {
         std::cerr<<"Error in terminating data sourece\n";

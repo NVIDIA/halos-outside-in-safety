@@ -124,7 +124,11 @@ if(SAFETY_CORE_CUDA_TARGET_DIR)
   )
 endif()
 
-if(TARGET CUDA::cudart)
+# Static cudart: the NVIDIA container runtime injects only driver libraries,
+# so the packaged binaries must not need libcudart.so at run time.
+if(TARGET CUDA::cudart_static)
+  target_link_libraries(saim_gpu PRIVATE CUDA::cudart_static)
+elseif(TARGET CUDA::cudart)
   target_link_libraries(saim_gpu PRIVATE CUDA::cudart)
 endif()
 
@@ -134,6 +138,8 @@ add_executable(safety_monitor
   "${_safety_core_ai_monitor_dir}/src/sai_config_parser.cpp"
   "${_safety_core_ai_monitor_dir}/src/rtsp_client.cpp"
   "${_safety_core_ai_monitor_dir}/src/nvdec_decoder.cpp"
+  "${_safety_core_ai_monitor_dir}/src/learn_filter.cpp"
+  "${_safety_core_ai_monitor_dir}/src/tile_scorer.cpp"
   "${_safety_core_ai_monitor_dir}/src/safety_event_reporter.cpp"
   "${_safety_core_ai_monitor_dir}/src/frame_quality_analyzer_factory.cpp"
   $<TARGET_OBJECTS:safety_core_sensor_config>
@@ -167,7 +173,9 @@ target_link_libraries(safety_monitor PRIVATE
   rt
 )
 
-if(TARGET CUDA::cudart)
+if(TARGET CUDA::cudart_static)
+  target_link_libraries(safety_monitor PRIVATE CUDA::cudart_static)
+elseif(TARGET CUDA::cudart)
   target_link_libraries(safety_monitor PRIVATE CUDA::cudart)
 endif()
 

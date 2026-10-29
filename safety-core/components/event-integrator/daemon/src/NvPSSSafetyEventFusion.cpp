@@ -141,7 +141,12 @@ NvPSSDErr SafetyEventFusion::EnableEarlyTermination(bool enable) {
 
 NvPSSDErr SafetyEventFusion::ProcessNewSafetyEvent(const SafetyEvent& event)
 {
-    // Filter STALE events
+    /* Filter STALE events -- a BACKSTOP, not the freshness rule. The rule is
+     * two-sided (too old OR too far in the future) and is applied before this
+     * engine is reached, by SafetyEventManager::isEventStale() in
+     * ProcessSafetyEventForFusion. This check bounds only the past; it still
+     * fires at the window edge, where it compares nanoseconds and the manager
+     * whole milliseconds. Change the freshness rule there, not here. */
     struct timespec ts = {};
     clock_gettime(CLOCK_MONOTONIC, &ts);
     uint64_t now;
@@ -311,11 +316,6 @@ NvPSSDErr SafetyEventFusion::ProcessSafetyEvents(EventType type)
                 continue;
             }
 
-            // Skip events with different rule identifiers
-            if (strcmp(baseEvent.ruleIdentifier, candidateEvent.ruleIdentifier) != 0)
-            {
-                continue;
-            }
 
             // Calculate similarities with progressive threshold checking
             SimilarityResult similarity = CalculateSimilarity(&baseEvent, &candidateEvent, false);
@@ -517,11 +517,6 @@ NvPSSDErr SafetyEventFusion::ProcessSafetyEvents(EventType type)
                     continue;
                 }
 
-                // Skip events with different rule identifiers
-                if (std::strcmp(existingFused.fusedEvent.ruleIdentifier, candidateEvent.ruleIdentifier) != 0)
-                {
-                    continue;
-                }
 
                 // Calculate similarities with progressive threshold checking
                 SimilarityResult similarity = CalculateSimilarity(&existingFused.fusedEvent, &candidateEvent, true);
@@ -857,8 +852,11 @@ FusedSafetyEvent SafetyEventFusion::CreateFusedSafetyEvent(
     strncpy(fusedEvent.sensorIdentifier, event1.sensorIdentifier, MAX_INDENTIFIER_LENGTH - 1);
     fusedEvent.sensorIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
 
-    strncpy(fusedEvent.ruleIdentifier, event1.ruleIdentifier, MAX_INDENTIFIER_LENGTH - 1);
-    fusedEvent.ruleIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
+    /* A fused event is a daemon-constructed aggregate, so it may only claim a
+     * cause both contributors agree on. Attributing event1's cause to the
+     * composite would name one input's reason as the whole event's, which
+     * misleads triage. Disagreement collapses to CAUSE_NONE. */
+    fusedEvent.cause = (event1.cause == event2.cause) ? event1.cause : CAUSE_NONE;
 
     fusedEvent.id = event1.id;
     fusedEvent.type = event1.type;
@@ -897,8 +895,9 @@ FusedSafetyEvent SafetyEventFusion::CreateFusedSafetyEvent(
     strncpy(fusedEvent.sensorIdentifier, existingFused.sensorIdentifier, MAX_INDENTIFIER_LENGTH - 1);
     fusedEvent.sensorIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
 
-    strncpy(fusedEvent.ruleIdentifier, existingFused.ruleIdentifier, MAX_INDENTIFIER_LENGTH - 1);
-    fusedEvent.ruleIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
+    /* Same rule when folding a new event into an existing fused event: the
+     * aggregate keeps the cause only while every contributor still agrees. */
+    fusedEvent.cause = (existingFused.cause == newEvent.cause) ? existingFused.cause : CAUSE_NONE;
 
     fusedEvent.id = existingFused.id;
     fusedEvent.type = existingFused.type;
@@ -990,8 +989,8 @@ FusedSafetyEvent SafetyEventFusion::CreatePassThroughEvent(
     strncpy(fusedEvent.sensorIdentifier, event.sensorIdentifier, MAX_INDENTIFIER_LENGTH - 1);
     fusedEvent.sensorIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
 
-    strncpy(fusedEvent.ruleIdentifier, event.ruleIdentifier, MAX_INDENTIFIER_LENGTH - 1);
-    fusedEvent.ruleIdentifier[MAX_INDENTIFIER_LENGTH - 1] = '\0';
+    /* Passthrough has a single contributor, so the cause carries unchanged. */
+    fusedEvent.cause = event.cause;
 
     fusedEvent.type = event.type;
     fusedEvent.timestamp = event.timestamp;
@@ -1035,16 +1034,19 @@ NvPSSDErr SafetyEventFusion::CleanProcessedEvents()
     return NVPSSD_SUCCESS;
 }
 
-NvPSSDErr SafetyEventFusion::ClearFusedEvents(uint8_t count)
+NvPSSDErr SafetyEventFusion::ClearFusedEvents(size_t count)
 {
     std::lock_guard<std::mutex> lock(fusedEventsMutex);
 
-    if(count == 0 || count > fusedEvents.size())
+    if (count == 0 || count > fusedEvents.size())
     {
         return NVPSSD_FAIL;
     }
 
-    fusedEvents.erase(fusedEvents.begin(), fusedEvents.begin() + count);
+    fusedEvents.erase(
+        fusedEvents.begin(),
+        fusedEvents.begin() +
+            static_cast<std::vector<FusedSafetyEvent>::difference_type>(count));
 
     return NVPSSD_SUCCESS;
 }

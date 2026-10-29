@@ -14,3 +14,7 @@ endif()
 if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_PROXIMITY)
   add_subdirectory(atl_proximity)
 endif()
+
+if(SAFETY_CORE_BUILD_DECISION_MAKERS_CROSSING_JUNCTION)
+  add_subdirectory(crossing-junction-safety-monitor)
+endif()

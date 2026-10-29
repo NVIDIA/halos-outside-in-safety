@@ -20,6 +20,37 @@
 #include <thread>
 #include <vector>
 
+// SAIM event causes, carried in SafetyEvent.cause so PSS logs and the SDMs can
+// attribute why a sensor changed state. The verdict stays in EventType
+// (SENSOR_INVALID/VALID).
+//
+// Addressable objects rather than bare enum constants: the reporter API takes
+// a const EventCause*, where nullptr means "preserve the slot's current cause".
+// A pointer keeps that meaning without a sentinel enum value that could reach
+// the wire.
+// SENSOR_INVALID causes:
+constexpr EventCause kSaimInputDegraded     = CAUSE_SAIM_INPUT_DEGRADED;    // frame-quality score below threshold
+constexpr EventCause kSaimInternalError     = CAUSE_SAIM_INTERNAL_ERROR;    // analyzer init / per-frame compute failure
+constexpr EventCause kSaimStreamDisconnect  = CAUSE_SAIM_STREAM_DISCONNECT; // stream lost / reconnect / no keyframe at start-up
+constexpr EventCause kSaimFrameDrop         = CAUSE_SAIM_FRAME_DROP;        // FU-A NAL drops
+constexpr EventCause kSaimInit              = CAUSE_SAIM_INIT;              // first-registration fail-safe seed (pre-frames)
+constexpr EventCause kSaimUnknown           = CAUSE_SAIM_UNKNOWN;           // defensive fallback: INVALID with missing/contradictory cause
+// SENSOR_VALID cause:
+constexpr EventCause kSaimSensorHealthy     = CAUSE_SAIM_SENSOR_HEALTHY;    // recovery edge (sustained good streak)
+
+// Two constraints a new SAIM cause has to satisfy. Neither is visible from this
+// file alone, and both are load-bearing:
+//
+// 1. kSaimInit is the ONLY value any SDM treats as benign. Every other cause on
+//    a SENSOR_INVALID sets the sensor's failed bit and contributes to the
+//    all-safety-relevant-sensors-failed latch. Reporting a new cause that is
+//    "not really a failure" therefore latches. Emit SENSOR_VALID, or extend the
+//    SDM suppression deliberately -- do not assume a new cause is inert.
+//
+// 2. EventCause is a wire field shared with every SDM. A new value must be
+//    added to pss_protocol.h, which bumps PSS_SCHEMA_VERSION and forces all
+//    PSF components to ship together. It cannot be added here alone.
+
 /*
  * Per-camera state-mirror reporter. Each registered sensor owns one slot
  * holding its latest state. update_slot() is non-blocking and overwrites
@@ -77,7 +108,7 @@ public:
                      uint64_t  ts_monotonic_ns,
                      float     confidence,
                      uint32_t  eventId,
-                     const char* eventCause);
+                     const EventCause* eventCause);
 
     // Telemetry counter snapshots.
     uint64_t sentCount()            const { return sent_.load(std::memory_order_relaxed);            }
@@ -89,7 +120,7 @@ private:
     struct Slot {
         std::mutex mtx;
         EventType  state          = SENSOR_INVALID;
-        char       eventCause[MAX_INDENTIFIER_LENGTH] = {};
+        EventCause eventCause = CAUSE_NONE;
         uint64_t   timestamp_ns   = 0;
         float      confidence     = 1.0f;
         uint32_t   lastEventId    = 0;
@@ -114,7 +145,7 @@ private:
                           uint64_t  ts_monotonic_ns,
                           float     confidence,
                           uint32_t  eventId,
-                          const char* eventCause);
+                          const EventCause* eventCause);
 
     const uint32_t             pssClientId_;
     const std::chrono::seconds reinforceInterval_;
