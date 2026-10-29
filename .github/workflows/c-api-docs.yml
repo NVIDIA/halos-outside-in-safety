@@ -21,6 +21,11 @@
 #   updates) a pull request "docs: regenerate the C API reference" for review. The pages are then
 #   published to docs.nvidia.com with the rest of the docs.
 #
+# Both jobs run on ubuntu-24.04, not ubuntu-latest, because the committed pages were generated
+# with its Doxygen 1.9.8. Doxygen 1.15 (Ubuntu 26.04) drops constexpr from variable declarations,
+# so on a newer runner every run would report changed pages and open a pull request without any
+# header change.
+#
 # One-time setup by a repository admin: Settings -> Actions -> General -> Workflow permissions ->
 # "Allow GitHub Actions to create and approve pull requests". A pull request opened with the
 # default token does not start other workflows; this workflow runs the Fern checks itself before
@@ -57,7 +62,7 @@ jobs:
   check:
     name: Check generated pages
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -95,7 +100,7 @@ jobs:
   update:
     name: Regenerate and open a pull request
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
