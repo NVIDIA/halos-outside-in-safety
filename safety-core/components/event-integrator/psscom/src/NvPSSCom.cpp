@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -61,7 +61,7 @@ NvPSSCom::NvPSSCom(std::string writeChannel, std::string readChannel ,
     readChannelMqd = -1;
     sinkCallbacks = {nullptr, nullptr, nullptr};
     srcCallbacks = {nullptr, nullptr, nullptr, nullptr};
-    backend = POSIX_MSG_QUE;
+    backend = NVPSSCOM_BACKEND_POSIX_MSG_QUE;
     flowRate = 0;
     deqEmpty = false;
     listenOnMsgQue.store(false);
@@ -101,7 +101,7 @@ NvPSSCom::~NvPSSCom()
  * <TBD>
  *
 */
-NvPSSComErr NvPSSCom::NvPSSComChannelCreate(NvPSSComChannelBackend backend)
+NvPSSComErr NvPSSCom::NvPSSComChannelCreate(NvPSSComBackend backend)
 {
     NvPSSComErr err = NVPSSCOM_SUCCESS;
     NvPSFMsgQueStatus mqStatus;
@@ -109,7 +109,7 @@ NvPSSComErr NvPSSCom::NvPSSComChannelCreate(NvPSSComChannelBackend backend)
 
     this->backend = backend;
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
 
         //For PSS Msg Que endpoint is always bidirectional
@@ -295,7 +295,7 @@ NvPSSComErr NvPSSCom::NvPSSComRequestStart()
     memset(send_pkt.data, 0, MAX_DATA_SIZE);
     calculateChecksum(&send_pkt);
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         mqStatus = NvPSFMsgQueSend(writeChannelMqd, (char*)(&send_pkt), sizeof(NvPSSComPacket),
                                     MSG_PRIO_DEFAULT);
@@ -411,7 +411,7 @@ NvPSSComErr NvPSSCom::NvPSSComSetFlowRate(uint8_t flowRate)
     send_pkt.data[0] = flowRate;
     calculateChecksum(&send_pkt);
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
 
         /*If flow rate is being changed runtime, i.e. when srcState = SRC_ACTIVE
@@ -553,7 +553,7 @@ exit:
 NvPSSComErr NvPSSCom::NvPSSComChannelListenerStart()
 {
     NvPSSComErr err = NVPSSCOM_SUCCESS;
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         listenOnMsgQue.store(true);
         msgQueListenerThread = std::thread(&NvPSSCom::msgQueListener, this);
@@ -660,7 +660,7 @@ NvPSSComErr NvPSSCom::requestAndSendData()
         memset(&send_pkt,0,sizeof(NvPSSComPacket));
         send_pkt.cmd = DATA;
         srcCallbacks.onDataRequest(&send_pkt);
-        if(backend == POSIX_MSG_QUE)
+        if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
         {
             mqStatus = NvPSFMsgQueSend(writeChannelMqd, (char*)(&send_pkt),
                                         sizeof(NvPSSComPacket), MSG_PRIO_DEFAULT);
@@ -1305,7 +1305,7 @@ NvPSSComErr NvPSSCom::NvPSSComStop()
     memset(send_pkt.data, 0, MAX_DATA_SIZE);
     calculateChecksum(&send_pkt);
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         mqStatus = NvPSFMsgQueSend(writeChannelMqd, (char*)(&send_pkt),
                                     sizeof(NvPSSComPacket), MSG_PRIO_DEFAULT);
@@ -1374,7 +1374,7 @@ exit:
  *
 */
 
-NvPSSComErr NvPSSCom::NvPSSComChannelClose(NvPSSComChannelBackend backend)
+NvPSSComErr NvPSSCom::NvPSSComChannelClose(NvPSSComBackend backend)
 {
     NvPSSComErr err = NVPSSCOM_SUCCESS;
     NvPSFMsgQueStatus mqStatus;
@@ -1398,7 +1398,7 @@ NvPSSComErr NvPSSCom::NvPSSComChannelClose(NvPSSComChannelBackend backend)
         }
     }
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         //Close and unlink the queues
         mqStatus = NvPSFMsgQueClose(writeChannelMqd);
@@ -1478,7 +1478,7 @@ NvPSSComErr NvPSSCom::NvPSSComPushData(NvPSSComPacket* pkt)
     pkt->cmd = DATA;
     calculateChecksum(pkt);
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         mqStatus = NvPSFMsgQueSend(writeChannelMqd, (char*)(pkt), sizeof(NvPSSComPacket), MSG_PRIO_DEFAULT);
         if(mqStatus.err != NvPSFMSGQ_SUCCESS)
@@ -1528,7 +1528,7 @@ NvPSSComErr NvPSSCom::NvPSSComPause()
     memset(send_pkt.data, 0, MAX_DATA_SIZE);
     calculateChecksum(&send_pkt);
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         mqStatus = NvPSFMsgQueSend(writeChannelMqd, (char*)(&send_pkt), sizeof(NvPSSComPacket), MSG_PRIO_DEFAULT+10);
         if(mqStatus.err == NvPSFMSGQ_SUCCESS)
@@ -1581,7 +1581,7 @@ NvPSSComErr NvPSSCom::NvPSSComResume()
     memset(send_pkt.data, 0, MAX_DATA_SIZE);
     calculateChecksum(&send_pkt);
 
-    if(backend == POSIX_MSG_QUE)
+    if(backend == NVPSSCOM_BACKEND_POSIX_MSG_QUE)
     {
         mqStatus = NvPSFMsgQueSend(writeChannelMqd, (char*)(&send_pkt), sizeof(NvPSSComPacket), MSG_PRIO_DEFAULT+10);
         if(mqStatus.err == NvPSFMSGQ_SUCCESS)

@@ -5,11 +5,12 @@
 
 #include "frame_quality_analyzer_gpu.h"
 #include "saim_kernels.h"
+#include "sai_common.h"
+#include "tile_geometry.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <iostream>
-#include <cmath>
-#include <algorithm>
 #include <climits>
 #include <cuda_runtime.h>
 
@@ -17,27 +18,28 @@ namespace sai { namespace gpu {
 
 bool FrameQualityAnalyzer::allocateGpuResources() noexcept
 {
-    // Floor the allocation at kSwHistogramBinCount so the SW fallback kernel
-    // (which always emits that many bins) never overruns d_hist_ when NVDEC's
-    // HW histogram is unavailable or reports fewer bins.
-    int hist_alloc = (hist_bins_ > kSwHistogramBinCount) ? hist_bins_ : kSwHistogramBinCount;
-    size_t total   = (size_t)W_ * (size_t)H_;
+    size_t total = (size_t)W_ * (size_t)H_;
+    const size_t plane = (size_t)W_ * (size_t)(H_ + 2 * kBandPad) * sizeof(float);
 
-    if (cudaMalloc(&d_hist_, hist_alloc * sizeof(unsigned int)) != cudaSuccess ||
-        cudaMalloc(&d_result_, sizeof(FrameQualityResult)) != cudaSuccess ||
-        cudaMalloc(&d_learn_accum_, sizeof(GpuLearnAccum)) != cudaSuccess ||
-        cudaMalloc(&d_blurred_,   total)                    != cudaSuccess ||
-        cudaMalloc(&d_grad_mag_,  total * sizeof(int16_t))  != cudaSuccess ||
-        cudaMalloc(&d_grad_dir_,  total)                    != cudaSuccess ||
-        cudaMalloc(&d_edges_,     total)                    != cudaSuccess ||
-        cudaMalloc(&d_edgeCount_, sizeof(uint32_t))         != cudaSuccess ||
-        cudaMalloc(&d_chroma_sums_, 6 * sizeof(unsigned long long)) != cudaSuccess ||
-        cudaMalloc(&d_lap_sums_,    2 * sizeof(unsigned long long)) != cudaSuccess)
+    if (cudaMalloc(&d_acc_,         sizeof(GpuTileAccum))       != cudaSuccess ||
+        cudaMalloc(&d_result_,      sizeof(FrameQualityResult)) != cudaSuccess ||
+        cudaMalloc(&d_blurred_,     total)                      != cudaSuccess ||
+        cudaMalloc(&d_grad_mag_,    total * sizeof(int16_t))    != cudaSuccess ||
+        cudaMalloc(&d_grad_dir_,    total)                      != cudaSuccess ||
+        cudaMalloc(&d_edges_,       total)                      != cudaSuccess ||
+        cudaMalloc(&d_hyst_labels_, total * sizeof(uint32_t))   != cudaSuccess ||
+        cudaMalloc(&d_prev_,        2 * total)                  != cudaSuccess ||
+        cudaMalloc(&d_bandA_,       plane)                      != cudaSuccess ||
+        cudaMalloc(&d_bandB_,       plane)                      != cudaSuccess ||
+        !upload_band_weights())
     {
         std::cerr << "[QA] GPU buffer allocation failed\n";
         cleanup();
         return false;
     }
+
+    // Fresh device memory holds no previous frame to compare against.
+    first_ = true;
 
     // Pinned host buffer so cudaMemcpyAsync DMAs directly without a pageable
     // staging copy.
@@ -56,21 +58,11 @@ bool FrameQualityAnalyzer::allocateGpuResources() noexcept
         return false;
     }
 
-    cudaError_t err = cudaMemsetAsync(d_learn_accum_, 0,
-                                      sizeof(GpuLearnAccum), stream_);
-    if (err != cudaSuccess) {
-        std::cerr << "[QA-GPU] cudaMemsetAsync learn_accum failed: "
-                  << cudaGetErrorString(err) << "\n";
-        cleanup();
-        return false;
-    }
-
     initialized_ = true;
     return true;
 }
 
-bool FrameQualityAnalyzer::init(int width, int height, bool nvdec_hist,
-                                int hw_hist_bins)
+bool FrameQualityAnalyzer::init(int width, int height, LumaLines lines)
 {
     NVTX_RANGE("InitAnalyzerBuffers", 0xFFCC8800);
 
@@ -80,36 +72,47 @@ bool FrameQualityAnalyzer::init(int width, int height, bool nvdec_hist,
                   << " (must be 1.." << MAX_DIM << ")\n";
         return false;
     }
-
-    // Normalize once: (nvdec_hist=true, hw_hist_bins=0) is a real NVDEC caps
-    // outcome that, compared raw, would mismatch the stored SW-fallback bin
-    // count and wipe in-progress LEARN on a same-config reconnect. Use the
-    // effective values for both the re-entry check and the store below.
-    const bool effective_nvdec_hist = (nvdec_hist && hw_hist_bins > 0);
-    int        effective_hist_bins  = kSwHistogramBinCount;
-    if (effective_nvdec_hist) {
-        effective_hist_bins = hw_hist_bins;
-        if (effective_hist_bins > kMaxHistBins) {
-            std::cerr << "[QA] WARNING: hw_hist_bins=" << hw_hist_bins
-                      << " exceeds supported max " << kMaxHistBins
-                      << "; clamping bins to " << kMaxHistBins << "\n";
-            effective_hist_bins = kMaxHistBins;
-        }
+    if (!lumaLinesValid(lines)) {
+        std::cerr << "[QA] Invalid luma lines: black " << lines.dark << ", white " << lines.bright << "\n";
+        return false;
     }
+
+    // The grid must divide the frame evenly and leave every CUDA block inside a
+    // single tile. There is no approximation to fall back on: a block spanning
+    // two tiles would credit its pixels to whichever tile it flushed to, so an
+    // incompatible resolution is refused here rather than scored wrongly.
+    const TileGeometry geom = computeTileGeometry(width, height);
+    if (!geom.valid) {
+        std::cerr << "[QA] " << width << "x" << height
+                  << " is not compatible with the " << kTileRows << "x" << kTileCols
+                  << " analysis grid\n";
+        return false;
+    }
+    // The hysteresis counts edges per Canny block, so a tile must hold whole blocks.
+    if (geom.tile_w % kCannyBlockPxW != 0 || geom.tile_h % kCannyBlockPxH != 0) {
+        std::cerr << "[QA] " << width << "x" << height << " tiles are not whole multiples of the "
+                  << kCannyBlockPxW << "x" << kCannyBlockPxH << " edge-detection block\n";
+        return false;
+    }
+    // The band's column step sums whole runs of kBandColRows rows of one tile.
+    if (geom.tile_h % kBandColRows != 0) {
+        std::cerr << "[QA] " << width << "x" << height << " tiles are not a whole multiple of "
+                  << kBandColRows << " rows high\n";
+        return false;
+    }
+
     consecutive_errors_ = 0U;
 
     // LEARN-only: same-dim re-entry is a no-op so a mid-LEARN reconnect does
-    // not wipe the GPU learn accumulator.
+    // not reset LEARN progress; the luma lines stay the ones LEARN started on.
     if (initialized_
         && mode_ == RunMode::LEARN
-        && width == W_ && height == H_
-        && effective_nvdec_hist == use_nvdec_hist_
-        && effective_hist_bins  == hist_bins_) {
+        && width == W_ && height == H_) {
         return true;
     }
 
-    // Different dimensions/hist setup: dropping the accumulator is unavoidable
-    // because histogram and edge stats are resolution-dependent.
+    // Different dimensions: restarting LEARN is unavoidable because the
+    // histogram and edge stats are resolution-dependent.
     if (initialized_ && mode_ == RunMode::LEARN && learn_frames_processed_ > 0) {
         std::cerr << "[QA] WARNING: stream parameters changed mid-LEARN ("
                   << W_ << "x" << H_ << " -> " << width << "x" << height
@@ -117,19 +120,22 @@ bool FrameQualityAnalyzer::init(int width, int height, bool nvdec_hist,
                   << " accumulated frames; restarting baseline accumulation.\n";
     }
 
-    if (initialized_) cleanup();  // also resets learn_frames_processed_
+    // Not left to cleanup(): a failed tryReinitPipeline() leaves the count set
+    // with initialized_ false, and the caller reads a count that did not drop as
+    // "LEARN continues" and keeps the previous resolution's frames.
+    learn_frames_processed_ = 0;
+
+    if (initialized_) cleanup();
 
     W_ = width;  H_ = height;
-    use_nvdec_hist_ = effective_nvdec_hist;
-    hist_bins_      = effective_hist_bins;
+    lines_ = lines;
 
     if (!allocateGpuResources()) {
         return false;
     }
 
 #ifdef DEBUG
-    std::cout << "[QA-GPU] Analyzer initialized (" << W_ << "x" << H_
-              << ") - GPU scoring enabled\n";
+    std::cout << "[QA-GPU] Analyzer initialized (" << W_ << "x" << H_ << ")\n";
 #endif
     return true;
 }
@@ -137,12 +143,20 @@ bool FrameQualityAnalyzer::init(int width, int height, bool nvdec_hist,
 bool FrameQualityAnalyzer::tryReinitPipeline() noexcept
 {
     if (mode_ == RunMode::LEARN && learn_frames_processed_ > 0) {
-        std::cerr << "[QA] reinit during LEARN; discarding "
-                  << learn_frames_processed_ << " accumulated frames\n";
+        std::cerr << "[QA] reinit during LEARN; keeping "
+                  << learn_frames_processed_ << " accepted frames\n";
     }
 
-    cleanup();  // also resets learn_frames_processed_
-    return allocateGpuResources();
+    // Rebuilds at the unchanged W_/H_, so frames either side are one population.
+    // Carried over cleanup(), which zeroes the count for init()'s config-change
+    // restart - the only path where discarding is correct.
+    const uint64_t learn_frames = learn_frames_processed_;
+
+    cleanup();
+    const bool allocated = allocateGpuResources();
+    // Restored on failure too, so a dying stream is not read as a LEARN restart.
+    learn_frames_processed_ = learn_frames;
+    return allocated;
 }
 
 void FrameQualityAnalyzer::handleFrameFailure(const char* where) noexcept
@@ -233,10 +247,10 @@ void FrameQualityAnalyzer::cleanup() {
         }
         stream_ = nullptr;
     }
-    F(d_hist_); F(d_result_); F(d_learn_accum_);
-    F(d_blurred_); F(d_grad_mag_); F(d_grad_dir_); F(d_edges_); F(d_edgeCount_);
-    F(d_chroma_sums_);
-    F(d_lap_sums_);
+    F(d_acc_); F(d_result_);
+    F(d_blurred_); F(d_grad_mag_); F(d_grad_dir_); F(d_edges_); F(d_hyst_labels_);
+    F(d_prev_); F(d_bandA_); F(d_bandB_);
+
     if (h_result_) {
         cudaError_t err = cudaFreeHost(h_result_);
         if (err != cudaSuccess)
@@ -248,9 +262,7 @@ void FrameQualityAnalyzer::cleanup() {
     initialized_ = false;
 }
 
-FrameQualityResult FrameQualityAnalyzer::analyze(
-    const unsigned char* d_y, int y_pitch,
-    CUdeviceptr dpHistogram, int hist_bins, int counter_bytes)
+FrameQualityResult FrameQualityAnalyzer::analyze(const unsigned char* d_y, int y_pitch)
 {
     NVTX_RANGE("FrameAnalyze", 0xFF00FF00);
     FrameQualityResult res{};
@@ -262,8 +274,11 @@ FrameQualityResult FrameQualityAnalyzer::analyze(
         return res;
     }
 
-    if (!initialized_) { res.overall_confidence = 50.f; return res; }
-    if (!d_y || y_pitch < W_) {
+    if (!initialized_) return res;
+    // The CbCr plane is read as byte pairs, which need an even address: an odd
+    // pitch or base would fault and poison the CUDA context every camera shares.
+    if (!d_y || y_pitch < W_ || (y_pitch % 2) != 0 ||
+        (reinterpret_cast<uintptr_t>(d_y) % 2U) != 0U) {
         std::cerr << "[QA-GPU] Invalid frame surface: d_y="
                   << (const void*)d_y << " y_pitch=" << y_pitch
                   << " W_=" << W_ << "\n";
@@ -271,9 +286,13 @@ FrameQualityResult FrameQualityAnalyzer::analyze(
         return res;
     }
 
-    int statsBins = 0;
-    const unsigned int* hist_ptr = prepareHistogram(
-        d_y, y_pitch, dpHistogram, hist_bins, counter_bytes, statsBins);
+    GpuTileAccum* acc = (GpuTileAccum*)d_acc_;
+    const int first = first_ ? 1 : 0;
+    if (cudaMemsetAsync(acc, 0, sizeof(GpuTileAccum), stream_) != cudaSuccess) {
+        handleFrameFailure("accumulator clear");
+        return res;
+    }
+
     runEdgeDetection(d_y, y_pitch);
 
     // NV12 chroma plane immediately follows the luma plane at pitch*H.
@@ -281,29 +300,23 @@ FrameQualityResult FrameQualityAnalyzer::analyze(
     {
         NVTX_RANGE("ChromaStats", 0xFF00AAFF);
         const unsigned char* d_uv = d_y + (size_t)y_pitch * (size_t)H_;
-        launch_chroma_stats(d_uv, y_pitch, W_ / 2, H_ / 2,
-                            (unsigned long long*)d_chroma_sums_, stream_);
+        launch_chroma_stats(d_uv, y_pitch, W_ / 2, H_ / 2, acc, stream_);
     }
-
-    // Laplacian variance (sharpness) reduces the raw Y plane to sum(L)/sum(L^2).
     {
-        NVTX_RANGE("LaplacianStats", 0xFF00CCFF);
-        launch_laplacian_stats(d_y, y_pitch, W_, H_,
-                               (unsigned long long*)d_lap_sums_, stream_);
+        NVTX_RANGE("LumaStats", 0xFF00CCFF);
+        unsigned char* planes = (unsigned char*)d_prev_;
+        const size_t px = (size_t)W_ * (size_t)H_;
+        launch_luma_stats(d_y, y_pitch, W_, H_, planes + prev_plane_ * px, planes + (prev_plane_ ^ 1) * px,
+                          first, lines_, acc, stream_);
     }
-
     {
-        NVTX_RANGE("QualityScoring", 0xFF00FFAA);
-        launch_quality_scoring(
-            hist_ptr,
-            (const uint32_t*)d_edgeCount_,
-            (const unsigned long long*)d_chroma_sums_,
-            (const unsigned long long*)d_lap_sums_,
-            gpu_params_,
-            (FrameQualityResult*)d_result_,
-            (mode_ == RunMode::LEARN) ? (GpuLearnAccum*)d_learn_accum_ : nullptr,
-            statsBins,
-            stream_);
+        NVTX_RANGE("Band", 0xFF00DDFF);
+        launch_fine_band(d_y, y_pitch, W_, H_, (float*)d_bandA_, (float*)d_bandB_, acc, stream_);
+    }
+    {
+        NVTX_RANGE("QualityMetrics", 0xFF00FFAA);
+        launch_quality_metrics(acc, W_ * H_, (W_ / 2) * (H_ / 2),
+                               (FrameQualityResult*)d_result_, stream_);
     }
 
     // Non-blocking launch-error probe. Async kernel errors are surfaced by
@@ -344,6 +357,29 @@ FrameQualityResult FrameQualityAnalyzer::analyze(
             return res;
         }
         res = *h_result_;
+        // The plane just written holds this frame, the previous one from now on.
+        first_ = false;
+        prev_plane_ ^= 1U;
+    }
+
+    // The CUDA checks above only cover faults the driver reported; an unwritten
+    // reduction or corrupt copy returns cudaSuccess with a NaN or a negative in it.
+    // The tile sums are checked by tile_numbers() where they are used.
+    bool finite_ok = true;
+    for (int m = 0; m < QM_COUNT; ++m)
+        finite_ok = finite_ok && sai_metrics_valid({res.raw[m]});
+    if (!finite_ok) {
+        std::cerr << "[QA-GPU] non-finite or negative value in kernel result\n";
+        handleFrameFailure("invalid value in kernel result");
+        return FrameQualityResult{};
+    }
+
+    // A corrupt edge count stays finite, so the check above misses it. Its
+    // hard bound: no more edges than pixels.
+    if (res.raw[QM_EDGE_DENSITY] > 1.f) {
+        std::cerr << "[QA-GPU] edge density out of range\n";
+        handleFrameFailure("value out of range in kernel result");
+        return FrameQualityResult{};
     }
 
     consecutive_errors_ = 0U;
@@ -357,99 +393,18 @@ FrameQualityResult FrameQualityAnalyzer::analyze(
 }
 
 BaselineValues FrameQualityAnalyzer::getLearnedBaseline() {
-    BaselineValues b;
-    if (!d_learn_accum_) return b;
+    // Frame count and has_chroma only. The mu/sigma fields stay zero here and
+    // are filled by the caller's LearnFilter::finalize(), which recomputes them
+    // from the retained per-frame metrics after outlier rejection. total_frames
+    // is what gates that call, so it must be exact.
+    BaselineValues b{};
+    if (learn_frames_processed_ == 0U) return b;
 
-    GpuLearnAccum accum;
-    cudaError_t err = cudaMemcpyAsync(&accum, d_learn_accum_, sizeof(GpuLearnAccum),
-                                      cudaMemcpyDeviceToHost, stream_);
-    if (err != cudaSuccess) {
-        std::cerr << "[QA-GPU] cudaMemcpyAsync learn_accum D2H failed: "
-                  << cudaGetErrorString(err) << "\n";
-        return b;
-    }
-    cudaError_t syncErr = cudaStreamSynchronize(stream_);
-    if (syncErr != cudaSuccess) {
-        std::cerr << "[QA-GPU] cudaStreamSynchronize learn_accum D2H failed: "
-                  << cudaGetErrorString(syncErr) << "\n";
-        return b;
-    }
-
-    if (accum.frame_count > 0) {
-        // Welford state from the GPU: mu is the running mean directly, M2 is
-        // the sum of squared deviations from that running mean.
-        b.hist_mean    = (float)accum.hist_mean_mu;
-        b.hist_var     = (float)accum.hist_var_mu;
-        b.rms_contrast = (float)accum.rms_contrast_mu;
-        b.edge_density = (float)accum.edge_density_mu;
-        b.entropy      = (float)accum.entropy_mu;
-        b.lap_var      = (float)accum.lap_var_mu;
-
-        // Bessel-corrected sample variance: sigma = sqrt(M2 / (N - 1)) is the
-        // unbiased estimator of the camera's true frame-to-frame variability
-        // and matches the Shewhart control-chart convention the k*sigma band
-        // is built on. At N=1 the denominator collapses to N (= 1) to avoid
-        // divide-by-zero; Welford's update guarantees M2=0 there, so sigma=0
-        // either way. Downstream MIN_LEARN_FRAMES_FOR_SIGMA gates reject N<30.
-        const uint64_t divisor =
-            (accum.frame_count >= 2) ? (accum.frame_count - 1) : 1;
-        const double inv_div = 1.0 / (double)divisor;
-        auto sigma_of = [inv_div](double M2) -> double {
-            return std::sqrt(std::max(0.0, M2 * inv_div));
-        };
-        b.hist_mean_std    = (float)sigma_of(accum.hist_mean_M2);
-        b.hist_var_std     = (float)sigma_of(accum.hist_var_M2);
-        b.rms_contrast_std = (float)sigma_of(accum.rms_contrast_M2);
-        b.edge_density_std = (float)sigma_of(accum.edge_density_M2);
-        b.entropy_std      = (float)sigma_of(accum.entropy_M2);
-        b.lap_var_std      = (float)sigma_of(accum.lap_var_M2);
-
-        b.cb_mean      = (float)accum.cb_mean_mu;
-        b.cb_var       = (float)accum.cb_var_mu;
-        b.cr_mean      = (float)accum.cr_mean_mu;
-        b.cr_var       = (float)accum.cr_var_mu;
-        b.sat_mean     = (float)accum.sat_mean_mu;
-        b.sat_var      = (float)accum.sat_var_mu;
-        b.cb_mean_std  = (float)sigma_of(accum.cb_mean_M2);
-        b.cb_var_std   = (float)sigma_of(accum.cb_var_M2);
-        b.cr_mean_std  = (float)sigma_of(accum.cr_mean_M2);
-        b.cr_var_std   = (float)sigma_of(accum.cr_var_M2);
-        b.sat_mean_std = (float)sigma_of(accum.sat_mean_M2);
-        b.sat_var_std  = (float)sigma_of(accum.sat_var_M2);
-        b.has_chroma   = true;
-
-        b.total_frames = (accum.frame_count <= static_cast<uint64_t>(INT_MAX))
-                       ? static_cast<int>(accum.frame_count)
-                       : INT_MAX;
-    }
+    b.has_chroma   = true;
+    b.total_frames = (learn_frames_processed_ <= static_cast<uint64_t>(INT_MAX))
+                   ? static_cast<int>(learn_frames_processed_)
+                   : INT_MAX;
     return b;
-}
-
-const unsigned int* FrameQualityAnalyzer::prepareHistogram(
-    const unsigned char* d_y, int y_pitch,
-    CUdeviceptr dpHistogram, int hist_bins, int counter_bytes,
-    int& out_bins)
-{
-    NVTX_RANGE("PrepareHistogram", 0xFF4488FF);
-    if (use_nvdec_hist_ && dpHistogram && hist_bins > 0
-        && hist_bins <= hist_bins_ && counter_bytes > 0) {
-        if (counter_bytes == 4) {
-            out_bins = hist_bins;
-            return (const unsigned int*)(uintptr_t)dpHistogram;
-        }
-        NVTX_RANGE("HistConvert", 0xFFAA44FF);
-        if (counter_bytes == 8) {
-            launch_convert_hist64(
-                (const uint64_t*)(uintptr_t)dpHistogram,
-                (unsigned int*)d_hist_, hist_bins, stream_);
-            out_bins = hist_bins;
-            return (const unsigned int*)d_hist_;
-        }
-    }
-    NVTX_RANGE("HistFallback", 0xFFAA44FF);
-    launch_histogram_fallback(d_y, y_pitch, W_, H_, (unsigned int*)d_hist_, stream_);
-    out_bins = kSwHistogramBinCount;
-    return (const unsigned int*)d_hist_;
 }
 
 void FrameQualityAnalyzer::runEdgeDetection(const unsigned char* d_y,
@@ -459,56 +414,9 @@ void FrameQualityAnalyzer::runEdgeDetection(const unsigned char* d_y,
     launch_edge_detection(
         d_y, y_pitch, W_, H_,
         d_blurred_, d_grad_mag_, d_grad_dir_,
-        d_edges_, d_edgeCount_,
+        d_edges_, d_hyst_labels_,
         cfg_.canny_low_thresh, cfg_.canny_high_thresh,
-        stream_);
-}
-
-void FrameQualityAnalyzer::syncParams() {
-    gpu_params_.w_histogram              = cfg_.w_histogram;
-    gpu_params_.w_contrast               = cfg_.w_contrast;
-    gpu_params_.w_edge                   = cfg_.w_edge;
-    gpu_params_.w_entropy                = cfg_.w_entropy;
-    gpu_params_.w_laplacian              = cfg_.w_laplacian;
-    gpu_params_.uv_weight_cb             = cfg_.uv_weight_cb;
-    gpu_params_.uv_weight_cr             = cfg_.uv_weight_cr;
-    gpu_params_.uv_weight_sat            = cfg_.uv_weight_sat;
-    gpu_params_.k                        = cfg_.k;
-    gpu_params_.sigma_floor_fraction     = cfg_.sigma_floor_fraction;
-    gpu_params_.baseline_hist_mean       = baseline_.hist_mean;
-    gpu_params_.baseline_hist_var        = baseline_.hist_var;
-    gpu_params_.baseline_rms_contrast    = baseline_.rms_contrast;
-    gpu_params_.baseline_edge_density    = baseline_.edge_density;
-    gpu_params_.baseline_entropy         = baseline_.entropy;
-    gpu_params_.baseline_lap_var         = baseline_.lap_var;
-    gpu_params_.baseline_hist_mean_std    = baseline_.hist_mean_std;
-    gpu_params_.baseline_hist_var_std     = baseline_.hist_var_std;
-    gpu_params_.baseline_rms_contrast_std = baseline_.rms_contrast_std;
-    gpu_params_.baseline_edge_density_std = baseline_.edge_density_std;
-    gpu_params_.baseline_entropy_std      = baseline_.entropy_std;
-    gpu_params_.baseline_lap_var_std      = baseline_.lap_var_std;
-
-    gpu_params_.baseline_cb_mean      = baseline_.cb_mean;
-    gpu_params_.baseline_cb_mean_std  = baseline_.cb_mean_std;
-    gpu_params_.baseline_cb_var       = baseline_.cb_var;
-    gpu_params_.baseline_cb_var_std   = baseline_.cb_var_std;
-    gpu_params_.baseline_cr_mean      = baseline_.cr_mean;
-    gpu_params_.baseline_cr_mean_std  = baseline_.cr_mean_std;
-    gpu_params_.baseline_cr_var       = baseline_.cr_var;
-    gpu_params_.baseline_cr_var_std   = baseline_.cr_var_std;
-    gpu_params_.baseline_sat_mean     = baseline_.sat_mean;
-    gpu_params_.baseline_sat_mean_std = baseline_.sat_mean_std;
-    gpu_params_.baseline_sat_var      = baseline_.sat_var;
-    gpu_params_.baseline_sat_var_std  = baseline_.sat_var_std;
-
-    gpu_params_.has_baseline  = (baseline_.total_frames >= MIN_LEARN_FRAMES_FOR_SIGMA) ? 1 : 0;
-    gpu_params_.has_chroma_baseline =
-        (baseline_.has_chroma &&
-         baseline_.total_frames >= MIN_LEARN_FRAMES_FOR_SIGMA) ? 1 : 0;
-    gpu_params_.is_learn_mode = (mode_ == RunMode::LEARN) ? 1 : 0;
-    gpu_params_.total_pixels  = W_ * H_;
-    gpu_params_.chroma_pixels = (W_ / 2) * (H_ / 2);
-    gpu_params_.lap_pixels    = (W_ > 0 && H_ > 0) ? W_ * H_ : 0;
+        (GpuTileAccum*)d_acc_, stream_);
 }
 
 }}  // namespace sai::gpu

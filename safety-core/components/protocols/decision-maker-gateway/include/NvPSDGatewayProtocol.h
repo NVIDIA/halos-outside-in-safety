@@ -28,6 +28,55 @@
 /** Heartbeat message size: 4-byte magic + 4-byte seq (network byte order). */
 #define NVPSD_GATEWAY_HB_MSG_SIZE 8
 
+/**
+ * Registration refusal: gateway -> client, 4-byte magic + one reason byte
+ * (NvPSDGatewayRegRejectReason).
+ *
+ * Sent for every REGR the gateway refuses, so a refused client can tell refusal
+ * -- and why -- from silence. Additive: its size matches no other message on
+ * this link, and a client built before it discards it as an unexpected size.
+ * Smaller than any REGR, so answering one cannot amplify traffic.
+ */
+#define NVPSD_GATEWAY_REG_REJECT_MAGIC "RGNK"
+#define NVPSD_GATEWAY_REG_REJECT_MSG_SIZE 5
+
+typedef enum {
+    NVPSD_REG_REJECT_MALFORMED            = 1, /* too short, or an event-type count of 0 or too many */
+    NVPSD_REG_REJECT_NO_VALID_EVENT_TYPES = 2, /* no requested type is subscribable */
+    NVPSD_REG_REJECT_TABLE_FULL           = 3, /* every client slot is taken */
+    NVPSD_REG_REJECT_RATE_LIMITED         = 4  /* too many REGRs from this peer in the window */
+} NvPSDGatewayRegRejectReason;
+
+static inline void NvPSDGatewayBuildRegReject(uint8_t out[NVPSD_GATEWAY_REG_REJECT_MSG_SIZE],
+                                              uint8_t reason)
+{
+    memcpy(out, NVPSD_GATEWAY_REG_REJECT_MAGIC, 4);
+    out[4] = reason;
+}
+
+/* True if buf is a registration refusal. *reason receives its reason byte as
+ * sent: a value this build does not know is still a refusal. */
+static inline bool NvPSDGatewayParseRegReject(const void *buf, size_t n, uint8_t *reason)
+{
+    if (buf == NULL || n != (size_t)NVPSD_GATEWAY_REG_REJECT_MSG_SIZE ||
+        memcmp(buf, NVPSD_GATEWAY_REG_REJECT_MAGIC, 4) != 0)
+        return false;
+    if (reason != NULL)
+        *reason = ((const uint8_t *)buf)[4];
+    return true;
+}
+
+static inline const char *NvPSDGatewayRegRejectReasonName(uint8_t reason)
+{
+    switch (reason) {
+    case NVPSD_REG_REJECT_MALFORMED:            return "malformed";
+    case NVPSD_REG_REJECT_NO_VALID_EVENT_TYPES: return "no_valid_event_types";
+    case NVPSD_REG_REJECT_TABLE_FULL:           return "table_full";
+    case NVPSD_REG_REJECT_RATE_LIMITED:         return "rate_limited";
+    default:                                    return "unknown";
+    }
+}
+
 /** DecisionRequest packet: gateway -> SDM (4 bytes). */
 #define NVPSD_GATEWAY_DECISION_MAGIC "DRPG"
 

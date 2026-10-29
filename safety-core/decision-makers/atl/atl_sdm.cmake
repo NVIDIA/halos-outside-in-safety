@@ -12,6 +12,8 @@ set(_safety_core_atl_include_dirs
   "${SAFETY_CORE_COMPONENTS_DIR}/event-integrator/daemon/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/protocols/decision-maker-gateway/include"
   "${SAFETY_CORE_COMPONENTS_DIR}/safecomm/validation/include"
+  "${SAFETY_CORE_COMPONENTS_DIR}/safecomm/transport/include"
+  "${SAFETY_CORE_SENSOR_CONFIG_DIR}/inc"
 )
 
 if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_SDM)
@@ -23,6 +25,8 @@ if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_SDM)
     "${_safety_core_atl_dir}/sdm/ATL.cpp"
     "${_safety_core_atl_dir}/sdm/ATLControl.cpp"
     "${_safety_core_atl_dir}/sdm/atl_fault_report_noop.cpp"
+    "${_safety_core_atl_dir}/sdm/atl_sdm_config.cpp"
+    "${SAFETY_CORE_SENSOR_CONFIG_DIR}/src/sensor_config_parser.cpp"
   )
 
   target_include_directories(atl_sdm PRIVATE
@@ -35,6 +39,7 @@ if(SAFETY_CORE_BUILD_DECISION_MAKERS_ATL_SDM)
 
   target_link_libraries(atl_sdm PRIVATE
     safety_core_msg_validation
+    nvpsf_transport
     Threads::Threads
     rt
   )

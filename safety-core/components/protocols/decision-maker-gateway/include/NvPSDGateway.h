@@ -10,6 +10,8 @@
 #include "pss_protocol.h"
 #include <string>
 
+#include "nvpsf_transport.h"
+
 /**
  * Launch the PSD gateway control loop.
  * Gateway binds to sdmIP:sdmPort for UDP: receives SDM client registrations (event subscriptions),
@@ -18,10 +20,15 @@
  *
  * @param sdmIP   IP address to bind (e.g. "0.0.0.0" for all interfaces).
  * @param sdmPort UDP port to bind (SDM clients send registrations and HB ACKs here).
+ * @param sdmAllow Source addresses permitted to register, comma-separated IPv4
+ *                 or CIDR. REQUIRED for UDP_SOCKET and unused for
+ *                 UNIX_SOCKET, which authenticates registration with SO_PEERCRED.
  * @param numClients Maximum number of SDM clients (1..NVPSD_GATEWAY_MAX_CLIENTS).
  * @return 0 on success, negative value on error.
  */
-int launchPSDControl(const std::string& sdmIP, unsigned int sdmPort, unsigned int numClients);
+int launchPSDControl(unsigned int numClients,
+                     NvPSFTransportKind transportKind,
+                     const std::string& unixSocketPath);
 
 /**
  * Signal the PSD gateway control to shut down and release resources.

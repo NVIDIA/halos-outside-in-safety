@@ -5,8 +5,8 @@
 
 #include <iostream>
 #include <memory>
+#include <new>          /* std::nothrow, used by NvPSDCreateContext */
 
-#include "posix_msg_que.h"
 #include "NvPSD.h"
 #include "NvPSD.hpp"
 #include "pss_message_validate.h"
@@ -18,47 +18,52 @@ struct NvPSDCtx
 };
 
 
+/*
+ * `new`, not `malloc`. NvPSDCtx holds a std::unique_ptr, and malloc does not
+ * run its constructor -- so mNvPSD came back holding whatever was already in
+ * that heap block.
+ *
+ * The first thing either initialize entry point does is
+ *
+ *     ctx->mNvPSD = std::make_unique<nvpsd::NvPSD>(...);
+ *
+ * and that assignment is a reset(): it DELETES the pointer already held before
+ * taking the new one. With an uninitialised member that is `delete` on a wild
+ * address, which lands in ~NvPSD() on garbage and takes the process with it.
+ *
+ * It was latent rather than harmless. A malloc that hands back a fresh, zeroed
+ * page leaves mNvPSD null and `delete nullptr` is a no-op, so this survived
+ * every path where the context was created early. nvpsd_gateway creates it
+ * after NvPSB initialisation and argument parsing have already exercised the
+ * heap, so it gets a recycled block, and the crash is 100% reproducible:
+ *
+ *     Program received signal SIGSEGV
+ *     #0  nvpsd::NvPSD::~NvPSD()
+ *     #1  std::__uniq_ptr_impl<nvpsd::NvPSD>::reset(nvpsd::NvPSD*)
+ *     #2  NvPSDSocketInitialize()
+ *     #3  main()
+ *
+ * The gateway does not start. Nothing reaches the SDMs and every one of them
+ * latches on decision freshness.
+ */
 NvPSDCtx* NvPSDCreateContext()
 {
-    return (NvPSDCtx*)malloc(sizeof(NvPSDCtx));
+    return new (std::nothrow) NvPSDCtx();
 }
 
 
-NvPSDErr NvPSDInitialize(NvPSDCtx* ctx, const char* writeChannel, const char* readChannel,
-                         const char* criticalWriteChannel, const char* criticalReadChannel, NvPSDEndpoint endpoint)
-{
-
-    NvPSDErr err = NVPSD_SUCCESS;
-
-    // Validate ctx pointer
-    if (!ctx)
-    {
-        std::cerr << "ERROR: NULL context provided to NvPSDInitialize" << std::endl;
-        err = NVPSD_FAIL;
-        goto exit;
-    }
-
-    // Validate string parameters
-    if (!writeChannel || !readChannel || !criticalWriteChannel || !criticalReadChannel)
-    {
-        std::cerr << "ERROR: NULL channel name provided" << std::endl;
-        err = NVPSD_FAIL;
-        goto exit;
-    }
-
-    ctx->mNvPSD = std::make_unique<nvpsd::NvPSD>(writeChannel, readChannel,
-                                                 criticalWriteChannel, criticalReadChannel,
-                                                 endpoint);
-    err = ctx->mNvPSD->NvPSDChannelCreate(nvpsd::POSIX_MSG_QUE);
-    if(err != NVPSD_SUCCESS)
-    {
-        err = NVPSD_FAIL;
-        goto exit;
-    }
-
-exit:
-    return err;
-}
+/*
+ * NvPSDInitialize() has been removed.
+ *
+ * It was the POSIX_MSG_QUE entry point -- four message-queue names and a
+ * hard-coded NvPSDChannelCreate(NVPSF_TRANSPORT_POSIX_MSG_QUE). Its only live
+ * caller was the mqueue arm of SafetyEventManager; that arm was unreachable because the daemon defaults to
+ * UNIX_SOCKET and rejects the config key at
+ * startup.
+ *
+ * Use NvPSDSocketInitialize(ctx, endpoint) below. The channel names have no
+ * successor: the endpoint role is the only parameter the socket link needs.
+ */
 
 NvPSDErr NvPSDSocketInitialize(NvPSDCtx* ctx, NvPSDEndpoint endpoint)
 {
@@ -72,10 +77,8 @@ NvPSDErr NvPSDSocketInitialize(NvPSDCtx* ctx, NvPSDEndpoint endpoint)
         goto exit;
     }
 
-    ctx->mNvPSD = std::make_unique<nvpsd::NvPSD>("", "",
-                                                 "", "",
-                                                 endpoint);
-    err = ctx->mNvPSD->NvPSDChannelCreate(nvpsd::POSIX_SOCKET);
+    ctx->mNvPSD = std::make_unique<nvpsd::NvPSD>(endpoint);
+    err = ctx->mNvPSD->NvPSDChannelCreate(NVPSF_TRANSPORT_UNIX_SOCKET);
     if(err != NVPSD_SUCCESS)
     {
         err = NVPSD_FAIL;
@@ -278,28 +281,10 @@ exit:
     return err;
 }
 
-NvPSDErr NvPSDExit(NvPSDCtx* ctx)
-{
-    NvPSDErr err = NVPSD_SUCCESS;
-
-    // Validate ctx pointer
-    if (!ctx)
-    {
-        std::cerr << "ERROR: NULL context provided to NvPSDInitialize" << std::endl;
-        err = NVPSD_FAIL;
-        goto exit;
-    }
-
-    err = ctx->mNvPSD->NvPSDChannelClose(nvpsd::POSIX_MSG_QUE);
-    if(err != NVPSD_SUCCESS)
-    {
-        err = NVPSD_FAIL;
-        goto exit;
-    }
-
-exit:
-    return err;
-}
+/*
+ * NvPSDExit() has been removed along with NvPSDInitialize -- it was the matching
+ * NvPSDChannelClose(NVPSF_TRANSPORT_POSIX_MSG_QUE). Use NvPSDSocketExit().
+ */
 
 NvPSDErr NvPSDSocketExit(NvPSDCtx* ctx)
 {
@@ -313,7 +298,7 @@ NvPSDErr NvPSDSocketExit(NvPSDCtx* ctx)
         goto exit;
     }
 
-    err = ctx->mNvPSD->NvPSDChannelClose(nvpsd::POSIX_SOCKET);
+    err = ctx->mNvPSD->NvPSDChannelClose(NVPSF_TRANSPORT_UNIX_SOCKET);
     if(err != NVPSD_SUCCESS)
     {
         err = NVPSD_FAIL;
@@ -333,8 +318,12 @@ void NvPSDDestroyContext(NvPSDCtx* ctx)
         return;
     }
 
+    /* `delete`, matching the `new` in NvPSDCreateContext. free() would release
+     * the block without running ~NvPSDCtx(), so the unique_ptr's destructor
+     * would never run -- harmless only because of the explicit reset() above,
+     * which is not a property worth depending on. */
     ctx->mNvPSD.reset();
-    free(ctx);
+    delete ctx;
 }
 
 NvPSDErr NvPSDRegisterEventTypes(NvPSDCtx* ctx, const EventType* eventTypes, uint32_t count)

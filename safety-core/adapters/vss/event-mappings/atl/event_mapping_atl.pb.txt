@@ -1,5 +1,42 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# ATL event mapping for mdx_client. Turns VSS tripwire/ROI alerts into the
+# EVENT_* codes the ATL SDM subscribes to.
+#
+# ZONE 1 is the single-zone deployment and is what --app atl runs. Its rules are
+# unchanged and are what atl_sdm uses when launched with no --config.
+#
+# ZONE 2 extends the same file to a second trailer bay served by a second
+# atl_sdm on the same host. Only one mdx_client may run -- it is the sole Kafka
+# consumer and publishes into PSS, which fans out to both SDMs through the PSD
+# gateway -- so both zones' rules live here rather than in a second file.
+#
+#   zone 1   tripwire-id-1, roi-id-1   EVENT_0 .. EVENT_5    atl_sdm (defaults)
+#   zone 2   tripwire-id-2, roi-id-2   EVENT_6 .. EVENT_11   atl_sdm_zone2.conf
+#
+# A single-zone site needs no change and pays nothing for the zone 2 block: a
+# rule carrying rule_id "tripwire-id-2" can only match an alert whose own
+# rule_id is that string, or that string followed by ':'. With no second
+# tripwire or ROI configured in VSS those rules never match and no EVENT_6..11
+# is ever emitted.
+#
+# The two blocks must stay disjoint. Nothing checks this -- mdx-client does not
+# reject two rules sharing an output_event, and PSS does not detect two clients
+# claiming one type. A shared code would be delivered to both SDMs, so one
+# zone's person entering would raise the other zone's trailer occupancy count.
+#
+# Configurable PXC uses EVENT_12..23, disjoint from both ATL zones. Mixed
+# ATL+PXC deployments use proximity/proximity_event_mapping.pb.txt, which
+# contains both ATL zones and the PXC rules. The separate legacy
+# --app atl_proximity still uses EVENT_8..10 for proximity and its own mapping;
+# do not combine that legacy mapping with these zone-two rules.
+#
+# Commissioning note: the tripwire and ROI identifiers below must match the ones
+# configured in VSS for each zone. They are the only thing separating the zones
+# upstream of PSS.
+
+# --- Zone 1: tripwire-id-1 / roi-id-1 (unchanged) ---------------------------
 
 rules {
   name: "Forklift tripwire OUT"
@@ -54,4 +91,63 @@ rules {
   rule_id: "roi-id-1"
   restricted_area_violation: "false"
   output_event: "EVENT_5"
+}
+
+# --- Zone 2: tripwire-id-2 / roi-id-2 ---------------------------------------
+#
+# Inert until a second tripwire and ROI exist in VSS with these identifiers.
+
+rules {
+  name: "Zone2 forklift tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "forklift"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_6"
+}
+rules {
+  name: "Zone2 forklift tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "forklift"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_7"
+}
+rules {
+  name: "Zone2 person tripwire OUT"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "OUT"
+  object_type: "person"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_8"
+}
+rules {
+  name: "Zone2 person tripwire IN"
+  message_source: "mdx-events"
+  alert_type: "tripwire"
+  event_type: "IN"
+  object_type: "person"
+  rule_id: "tripwire-id-2"
+  output_event: "EVENT_9"
+}
+rules {
+  name: "Zone2 person restricted area ROI violation"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-2"
+  restricted_area_violation: "true"
+  output_event: "EVENT_10"
+}
+rules {
+  name: "Zone2 person restricted area ROI violation cleared"
+  message_source: "mdx-frames"
+  alert_type: "roi"
+  object_type: "person"
+  rule_id: "roi-id-2"
+  restricted_area_violation: "false"
+  output_event: "EVENT_11"
 }

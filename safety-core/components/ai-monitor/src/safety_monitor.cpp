@@ -42,6 +42,7 @@ struct StreamPipeline {
 };
 
 static constexpr int RETRY_DELAY_SEC = 5;
+static constexpr int OUTAGE_LOG_EVERY = 60 / RETRY_DELAY_SEC;
 static std::atomic<bool> s_heartbeatRunning{false};
 
 static std::atomic<uint32_t> g_emergencyPssClient{UINT32_MAX};
@@ -130,7 +131,7 @@ static void onRetriesExhausted(StreamPipeline& pipeline,
             safetyEventReporter->update_slot(sensor, SENSOR_INVALID,
                                              monotonic_now_ns(), 1.0f,
                                              pipeline.decoder.allocEventId(),
-                                             SAIM_STREAM_DISCONNECT);
+                                             &kSaimStreamDisconnect);
             std::cerr << "[" << sensor
                       << "] SENSOR_INVALID handed to reporter (" << contextMsg << ")\n";
         }
@@ -228,7 +229,7 @@ static void setupFuaCallback(RTSPClient& client, NVDECDecoder& dec,
             safetyEventReporter->update_slot(sensorName, SENSOR_INVALID,
                                              monotonic_now_ns(), 1.0f,
                                              dec.allocEventId(),
-                                             SAIM_FRAME_DROP);
+                                             &kSaimFrameDrop);
             std::cerr << "[" << sensorName << "] FU-A drop alert: " << dropCount
                       << " dropped NALs, SENSOR_INVALID handed to reporter"
                       << " (suppressed_since_last_emit=" << state->suppressedSinceLastEmit
@@ -261,13 +262,7 @@ static void runStreamPipeline(StreamPipeline& pipeline, RunMode mode,
     if (mode == RunMode::ACTIVE) {
         NVTX_RANGE("LoadThresholdConfig", 0xFF88FF88);
         if (!pipeline.decoder.loadThresholdConfig(thresholdConfigPath)) {
-            std::cerr << "[" << sensor << "] Failed to load threshold config from "
-                      << thresholdConfigPath << "\n";
-            pipeline.result = 1;
-            return;
-        }
-        if (!pipeline.decoder.validateThresholdConfig()) {
-            std::cerr << "[" << sensor << "] Threshold config validation failed\n";
+            std::cerr << "[" << sensor << "] Built-in threshold defaults failed validation\n";
             pipeline.result = 1;
             return;
         }
@@ -299,12 +294,26 @@ static void runStreamPipeline(StreamPipeline& pipeline, RunMode mode,
     // init/connect/setup failures and resets on successful setup. LEARN bounds
     // this counter; ACTIVE only uses it to log the sleep-throttled reconnect.
     int interruptionRetries = 0;
+    int failuresSinceLog = 0;   // ACTIVE: failed connects since the last outage log line
+
+    // ACTIVE: tells the SDM the camera is lost.
+    auto reportStreamLost = [&](const char* why) {
+        if (safetyEventReporter == nullptr) return;
+        bool expected = false;
+        if (!pipeline.decoder.sensorInvalidFlag().compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel))
+            return;
+        safetyEventReporter->update_slot(sensor, SENSOR_INVALID, monotonic_now_ns(), 1.0f,
+                                         pipeline.decoder.allocEventId(),
+                                         &kSaimStreamDisconnect);
+        std::cerr << "[" << sensor << "] SENSOR_INVALID handed to reporter (" << why << ")\n";
+    };
 
     while (!g_stopFlag.load()) {
         NalQueue queue;
         RTSPClient client;
 
-        // init() failure (bad URL / null arg) reuses the connect-fail retry path.
+        // init() only parses the URL, so a failure is a config error: give up in both modes.
         if (!client.init(pipeline.url, &queue, &g_stopFlag)) {
             std::cerr << "[" << sensor
                       << "] RTSPClient init failed (bad URL or null arg)\n";
@@ -319,19 +328,36 @@ static void runStreamPipeline(StreamPipeline& pipeline, RunMode mode,
 
         setupFuaCallback(client, pipeline.decoder, safetyEventReporter, sensor);
 
+        // Decoder-owned, so ACTIVE's deadlines survive this loop's reconnects
+        // while LEARN gets a fresh keyframe budget per session.
+        NVDECDecoder* dec = &pipeline.decoder;
+        dec->onStreamSessionStart();
+        client.setGateTickCallback(
+            [dec](bool gateOpen) { return dec->noteStreamGateState(gateOpen); });
+
         if (!client.connectToServer() || !client.setupRTSPSession()) {
-            if (++retries > MAX_RTSP_CONNECT_RETRIES) {
-                onRetriesExhausted(pipeline, sensor, mode, safetyEventReporter,
-                                   "connection failed");
-                break;
+            if (mode == RunMode::LEARN) {
+                if (++retries > MAX_RTSP_CONNECT_RETRIES) {
+                    onRetriesExhausted(pipeline, sensor, mode, safetyEventReporter,
+                                       "connection failed");
+                    break;
+                }
+                std::cerr << "[" << sensor << "] RTSP connection failed, retry "
+                          << retries << "/" << MAX_RTSP_CONNECT_RETRIES
+                          << " in " << RETRY_DELAY_SEC << "s\n";
+            } else {
+                // ACTIVE never gives up
+                reportStreamLost("connection failed");
+                if (failuresSinceLog == 0)
+                    std::cerr << "[" << sensor << "] RTSP connection failed, retrying every "
+                              << RETRY_DELAY_SEC << "s\n";
+                if (++failuresSinceLog >= OUTAGE_LOG_EVERY) failuresSinceLog = 0;
             }
-            std::cerr << "[" << sensor << "] RTSP connection failed, retry "
-                      << retries << "/" << MAX_RTSP_CONNECT_RETRIES
-                      << " in " << RETRY_DELAY_SEC << "s\n";
             std::this_thread::sleep_for(std::chrono::seconds(RETRY_DELAY_SEC));
             continue;
         }
         retries = 0;
+        failuresSinceLog = 0;
 
         if (!pipeline.decoder.createParser()) {
             std::cerr << "[" << sensor << "] Failed to create decoder parser\n";
@@ -385,6 +411,7 @@ static void runStreamPipeline(StreamPipeline& pipeline, RunMode mode,
                       << MAX_RTSP_CONNECT_RETRIES << " in "
                       << RETRY_DELAY_SEC << "s\n";
         } else {
+            reportStreamLost("stream ended");   // before reconnecting
             // ACTIVE keeps reconnecting forever so transient outages recover;
             // the sleep prevents busy-looping the RTSP server.
             std::cerr << "[" << sensor

@@ -14,7 +14,6 @@
 #include <ctime>
 #include <cmath>
 #include <climits>
-#include <algorithm>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -63,20 +62,6 @@ static double getDoubleField(const NvPSFMsgCodecMsg* msg, const char* path) {
     if (r.type == NvPSF_VALUE_DOUBLE) return r.data.d;
     if (r.type == NvPSF_VALUE_FLOAT) return (double)r.data.f;
     return 0.0;
-}
-
-static bool getOptionalBoolField(const NvPSFMsgCodecMsg* msg, const char* path,
-                                 bool* value) {
-    if (msg == nullptr || path == nullptr || value == nullptr ||
-        !NvPSFMsgCodecGetFieldPresence(msg, path)) {
-        return false;
-    }
-    const NvPSFMsgCodecFieldResult result = NvPSFMsgCodecGetField(msg, path);
-    if (result.type != NvPSF_VALUE_BOOL) {
-        return false;
-    }
-    *value = result.data.b;
-    return true;
 }
 
 static float getFloatField(const NvPSFMsgCodecMsg* msg, const char* path) {
@@ -172,93 +157,6 @@ static std::string getProximityViolationValueFromFrame(const NvPSFMsgCodecMsg* f
     return value;
 }
 
-struct ProximityPairRuleGroup {
-    std::string primaryType;
-    std::string secondaryType;
-    std::vector<double> thresholds;
-    bool hasNoViolationRule = false;
-};
-
-struct ProximityFrameObject {
-    std::string rawId;
-    std::string type;
-    uint32_t numericId;
-    double x;
-    double y;
-    double z;
-};
-
-static std::vector<ProximityPairRuleGroup> collectProximityPairRuleGroups(
-        const NvPSFMsgCodecMsg* config) {
-    std::vector<ProximityPairRuleGroup> groups;
-    if (config == nullptr) {
-        return groups;
-    }
-    std::unordered_map<std::string, size_t> groupIndexes;
-    const int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
-    for (int ruleIndex = 0; ruleIndex < rulesCount; ++ruleIndex) {
-        NvPSFMsgCodecMsg* rule = nullptr;
-        char rulePath[64];
-        snprintf(rulePath, sizeof(rulePath), "rules[%d]", ruleIndex);
-        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS ||
-            rule == nullptr) {
-            continue;
-        }
-        const std::string messageSource = getStringField(rule, "message_source");
-        const std::string alertType = getStringField(rule, "alert_type");
-        const std::string ruleId = getStringField(rule, "rule_id");
-        const std::string objectType = getStringField(rule, "object_type");
-        const std::string configuredPrimaryType = getStringField(rule, "object_type_primary");
-        const std::string configuredSecondaryType = getStringField(rule, "object_type_secondary");
-        const std::string primaryType = configuredPrimaryType.empty()
-            ? objectType : configuredPrimaryType;
-        const double distanceThreshold = getDoubleField(rule, "distance_threshold_meters");
-        const bool distanceThresholdPresent = NvPSFMsgCodecGetFieldPresence(
-            rule, "distance_threshold_meters");
-        bool proximityViolation = false;
-        const bool proximityViolationPresent = getOptionalBoolField(
-            rule, "proximity_violation", &proximityViolation);
-        const std::string restrictedFilter = getStringField(rule, "restricted_area_violation");
-        const std::string confinedFilter = getStringField(rule, "confined_area_violation");
-        const std::string socialFilter = getStringField(rule, "social_distancing_violation");
-        const bool hasViolationFilter = !restrictedFilter.empty() ||
-                                        !confinedFilter.empty() || !socialFilter.empty();
-        const bool isPairRule = isProximityPairRule(
-            alertType, configuredPrimaryType, configuredSecondaryType,
-            proximityViolationPresent, distanceThresholdPresent);
-        if (!isPairRule || !isValidProximityPairRule(
-                messageSource, alertType, primaryType, configuredSecondaryType,
-                proximityViolationPresent, proximityViolation, distanceThresholdPresent,
-                distanceThreshold, hasViolationFilter) ||
-            !isValidProximityPairRuleId(ruleId)) {
-            NvPSFMsgCodecFreeMsg(rule);
-            continue;
-        }
-        const std::string pairKey = canonicalProximityTypePair(
-            primaryType, configuredSecondaryType);
-        std::unordered_map<std::string, size_t>::const_iterator groupIndex =
-            groupIndexes.find(pairKey);
-        if (groupIndex == groupIndexes.end()) {
-            ProximityPairRuleGroup group;
-            group.primaryType = primaryType;
-            group.secondaryType = configuredSecondaryType;
-            groups.push_back(group);
-            groupIndexes.insert(std::make_pair(pairKey, groups.size() - 1U));
-            groupIndex = groupIndexes.find(pairKey);
-        }
-        if (proximityViolation) {
-            groups[groupIndex->second].thresholds.push_back(distanceThreshold);
-        } else {
-            groups[groupIndex->second].hasNoViolationRule = true;
-        }
-        NvPSFMsgCodecFreeMsg(rule);
-    }
-    for (ProximityPairRuleGroup& group : groups) {
-        std::sort(group.thresholds.begin(), group.thresholds.end());
-    }
-    return groups;
-}
-
 static bool areProximityThresholdsWithinPipeline(
         const ProximityPairRuleGroup& group, double pipelineThreshold) {
     if (group.thresholds.empty()) {
@@ -275,8 +173,11 @@ static bool areProximityThresholdsWithinPipeline(
     return true;
 }
 
+// includeBbox is false unless a co-movement rule is configured: the proximity
+// path never reads the box, so the presence check and four field reads below
+// are pure cost to a deployment that has no co-movement rule.
 static std::vector<ProximityFrameObject> collectProximityFrameObjects(
-        const NvPSFMsgCodecMsg* frameMsg) {
+        const NvPSFMsgCodecMsg* frameMsg, bool includeBbox) {
     std::vector<ProximityFrameObject> allObjects;
     std::unordered_map<std::string, size_t> rawIdCounts;
     std::unordered_map<uint32_t, size_t> numericIdCounts;
@@ -299,6 +200,27 @@ static std::vector<ProximityFrameObject> collectProximityFrameObjects(
         frameObject.x = getDoubleField(object, "coordinate.x");
         frameObject.y = getDoubleField(object, "coordinate.y");
         frameObject.z = getDoubleField(object, "coordinate.z");
+        frameObject.hasBbox = false;
+        frameObject.leftX = 0.0;
+        frameObject.topY = 0.0;
+        frameObject.rightX = 0.0;
+        frameObject.bottomY = 0.0;
+        if (includeBbox && NvPSFMsgCodecGetFieldPresence(object, "bbox")) {
+            const double leftX = getDoubleField(object, "bbox.leftX");
+            const double topY = getDoubleField(object, "bbox.topY");
+            const double rightX = getDoubleField(object, "bbox.rightX");
+            const double bottomY = getDoubleField(object, "bbox.bottomY");
+            // A degenerate or inverted box carries no area, so treat it as absent
+            // rather than letting it produce a meaningless containment ratio.
+            if (std::isfinite(leftX) && std::isfinite(topY) && std::isfinite(rightX) &&
+                std::isfinite(bottomY) && rightX > leftX && bottomY > topY) {
+                frameObject.hasBbox = true;
+                frameObject.leftX = leftX;
+                frameObject.topY = topY;
+                frameObject.rightX = rightX;
+                frameObject.bottomY = bottomY;
+            }
+        }
         NvPSFMsgCodecFreeMsg(object);
         if (frameObject.rawId.empty() || frameObject.type.empty() ||
             !parseStrictObjectId(frameObject.rawId, &frameObject.numericId) ||
@@ -395,7 +317,7 @@ FramesParser::FramesParser(NextEventIdFn nextEventId, bool debugMode)
     : nextEventId_(std::move(nextEventId)), debugMode_(debugMode) {}
 
 std::vector<AlertMessage> FramesParser::parseFramesMessage(const std::string& data,
-        const NvPSFMsgCodecMsg* config) {
+        const EventMapping& mapping) {
     std::vector<AlertMessage> alerts;
     NvPSFMsgCodecMsg* frameMsg = nullptr;
     if (NvPSFMsgCodecDecode(data.data(), data.size(), NvPSF_MSG_FRAME, &frameMsg) != NvPSFMSGCODEC_SUCCESS) {
@@ -409,7 +331,7 @@ std::vector<AlertMessage> FramesParser::parseFramesMessage(const std::string& da
     int objectsCount = NvPSFMsgCodecGetRepeatedCount(frameMsg, "objects");
 
     if (roisCount == 0) {
-        emitEmptyRoiClears(frameMsg, config, alerts);
+        emitEmptyRoiClears(frameMsg, mapping, alerts);
     } else {
         // Track, across all ROI entries of this frame, which restricted areas are
         // present and which (roiId, objectType) combinations actually reported a
@@ -527,7 +449,7 @@ std::vector<AlertMessage> FramesParser::parseFramesMessage(const std::string& da
         // an explicit clear, the SDM latches restrictedAreaViolationByPerson on.
         // So, per frame, emit a cleared event (EVENT_5) for each monitored
         // restricted area that is present but has no violating object this frame.
-        emitRestrictedAreaClears(frameMsg, config, presentRestrictedRoiIds,
+        emitRestrictedAreaClears(frameMsg, mapping, presentRestrictedRoiIds,
                                  restrictedViolations, restrictedRoiEmitted, alerts);
     }
 
@@ -544,8 +466,19 @@ std::vector<AlertMessage> FramesParser::parseFramesMessage(const std::string& da
         alerts.push_back(sdAlert);
     }
     if (objectsCount > 0) {
-        evaluateProximityRulesForFrame(frameMsg, config, alerts);
-        evaluateObjectPresenceRulesForFrame(frameMsg, config, alerts);
+        // Decoded once and handed to both evaluators. Each pass costs a codec
+        // sub-message allocation and free per object plus its field reads, and
+        // both evaluators want the same objects from the same frame. Skipped
+        // entirely when neither kind of rule is configured, so a mapping with
+        // no pair rules pays nothing.
+        const bool coMovementConfigured = !mapping.coMovementGroups.empty();
+        if (!mapping.proximityPairGroups.empty() || coMovementConfigured) {
+            const std::vector<ProximityFrameObject> objects =
+                collectProximityFrameObjects(frameMsg, coMovementConfigured);
+            evaluateProximityRulesForFrame(frameMsg, mapping, objects, alerts);
+            evaluateCoMovementRulesForFrame(frameMsg, mapping, objects, alerts);
+        }
+        evaluateObjectPresenceRulesForFrame(frameMsg, mapping, alerts);
     }
     NvPSFMsgCodecFreeMsg(frameMsg);
     return alerts;
@@ -622,35 +555,25 @@ static bool roiIdMatchesRuleId(const std::string& roiId, const std::string& rule
 }
 
 void FramesParser::emitRestrictedAreaClears(const NvPSFMsgCodecMsg* frameMsg,
-        const NvPSFMsgCodecMsg* config,
+        const EventMapping& mapping,
         const std::set<std::string>& presentRestrictedRoiIds,
         const std::vector<std::pair<std::string, std::string>>& restrictedViolations,
         const std::vector<std::pair<std::string, std::string>>& restrictedRoiEmitted,
         std::vector<AlertMessage>& alerts) {
-    if (config == nullptr || presentRestrictedRoiIds.empty()) {
+    if (presentRestrictedRoiIds.empty()) {
         return;
     }
-    const int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
     std::set<std::string> emittedClears;
-    for (int r = 0; r < rulesCount; ++r) {
-        NvPSFMsgCodecMsg* rule = nullptr;
-        char rulePath[64];
-        snprintf(rulePath, sizeof(rulePath), "rules[%d]", r);
-        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS) {
-            continue;
-        }
-        const std::string msgSource = getStringField(rule, "message_source");
-        const std::string alertType = getStringField(rule, "alert_type");
-        const std::string objectType = getStringField(rule, "object_type");
-        const std::string ruleId = getStringField(rule, "rule_id");
-        const std::string restrictedFilter = getStringField(rule, "restricted_area_violation");
-        NvPSFMsgCodecFreeMsg(rule);
+    for (size_t r = 0; r < mapping.rules.size(); ++r) {
+        const EventMappingRule& rule = mapping.rules[r];
+        const std::string& objectType = rule.objectType;
+        const std::string& ruleId = rule.ruleId;
         // Only "restricted_area_violation: true" ROI rules for mdx-frames define a
         // monitored area whose clear (EVENT_5) we must synthesize. The cleared
         // object type is taken from the rule config (not hardcoded).
-        if (!stringEqualsCaseInsensitive(msgSource, "mdx-frames") ||
-            !stringEqualsCaseInsensitive(alertType, "roi") ||
-            !stringEqualsCaseInsensitive(restrictedFilter, "true") ||
+        if (!stringEqualsCaseInsensitive(rule.messageSource, "mdx-frames") ||
+            !stringEqualsCaseInsensitive(rule.alertType, "roi") ||
+            !stringEqualsCaseInsensitive(rule.restrictedFilter, "true") ||
             objectType.empty() || ruleId.empty()) {
             continue;
         }
@@ -703,39 +626,24 @@ void FramesParser::emitRestrictedAreaClears(const NvPSFMsgCodecMsg* frameMsg,
 }
 
 void FramesParser::emitEmptyRoiClears(const NvPSFMsgCodecMsg* frameMsg,
-        const NvPSFMsgCodecMsg* config, std::vector<AlertMessage>& alerts) {
-    if (config == nullptr) {
-        return;
-    }
-    const int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
+        const EventMapping& mapping, std::vector<AlertMessage>& alerts) {
     std::set<std::pair<std::string, AlertCandidateKind>> emittedClears;
-    for (int ruleIndex = 0; ruleIndex < rulesCount; ++ruleIndex) {
-        NvPSFMsgCodecMsg* rule = nullptr;
-        char rulePath[64];
-        snprintf(rulePath, sizeof(rulePath), "rules[%d]", ruleIndex);
-        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS ||
-            rule == nullptr) {
-            continue;
-        }
-        const std::string messageSource = getStringField(rule, "message_source");
-        const std::string alertType = getStringField(rule, "alert_type");
-        const std::string objectType = getStringField(rule, "object_type");
-        const std::string ruleId = getStringField(rule, "rule_id");
-        const std::string restrictedFilter = getStringField(rule, "restricted_area_violation");
-        const std::string confinedFilter = getStringField(rule, "confined_area_violation");
-        NvPSFMsgCodecFreeMsg(rule);
+    for (size_t ruleIndex = 0; ruleIndex < mapping.rules.size(); ++ruleIndex) {
+        const EventMappingRule& rule = mapping.rules[ruleIndex];
+        const std::string& objectType = rule.objectType;
+        const std::string& ruleId = rule.ruleId;
 
-        if (!stringEqualsCaseInsensitive(messageSource, "mdx-frames") ||
-            !stringEqualsCaseInsensitive(alertType, "roi") ||
+        if (!stringEqualsCaseInsensitive(rule.messageSource, "mdx-frames") ||
+            !stringEqualsCaseInsensitive(rule.alertType, "roi") ||
             objectType.empty() || ruleId.empty()) {
             continue;
         }
         AlertCandidateKind candidateKind = AlertCandidateKind::kNone;
-        if (stringEqualsCaseInsensitive(restrictedFilter, "false") &&
-            confinedFilter.empty()) {
+        if (stringEqualsCaseInsensitive(rule.restrictedFilter, "false") &&
+            rule.confinedFilter.empty()) {
             candidateKind = AlertCandidateKind::kRestrictedRoi;
-        } else if (stringEqualsCaseInsensitive(confinedFilter, "false") &&
-                   restrictedFilter.empty()) {
+        } else if (stringEqualsCaseInsensitive(rule.confinedFilter, "false") &&
+                   rule.restrictedFilter.empty()) {
             candidateKind = AlertCandidateKind::kConfinedRoi;
         } else {
             continue;
@@ -817,7 +725,8 @@ AlertMessage FramesParser::buildAlertFromFrameObject(const NvPSFMsgCodecMsg* fra
 }
 
 void FramesParser::evaluateProximityRulesForFrame(const NvPSFMsgCodecMsg* frameMsg,
-        const NvPSFMsgCodecMsg* config, std::vector<AlertMessage>& alerts) {
+        const EventMapping& mapping, const std::vector<ProximityFrameObject>& objects,
+        std::vector<AlertMessage>& alerts) {
     const bool socialDistancingPresent = NvPSFMsgCodecGetFieldPresence(
         frameMsg, "socialDistancing");
     const int32_t proximityDetections = socialDistancingPresent
@@ -830,13 +739,10 @@ void FramesParser::evaluateProximityRulesForFrame(const NvPSFMsgCodecMsg* frameM
         return;
     }
 
-    const std::vector<ProximityPairRuleGroup> groups =
-        collectProximityPairRuleGroups(config);
+    const std::vector<ProximityPairRuleGroup>& groups = mapping.proximityPairGroups;
     if (groups.empty()) {
         return;
     }
-    const std::vector<ProximityFrameObject> objects =
-        collectProximityFrameObjects(frameMsg);
     if (objects.size() < 2U) {
         return;
     }
@@ -906,30 +812,132 @@ void FramesParser::evaluateProximityRulesForFrame(const NvPSFMsgCodecMsg* frameM
     }
 }
 
+void FramesParser::evaluateCoMovementRulesForFrame(const NvPSFMsgCodecMsg* frameMsg,
+        const EventMapping& mapping, const std::vector<ProximityFrameObject>& objects,
+        std::vector<AlertMessage>& alerts) {
+    const std::vector<CoMovementRuleGroup>& groups = mapping.coMovementGroups;
+    if (groups.empty()) {
+        return;
+    }
+    // Deliberately independent of FrameMessage.socialDistancing: the pipeline's
+    // proximity report gates the distance tiers, but co-movement is measured from
+    // object geometry alone. Tying it to that gate would leave holes in the window
+    // exactly when the pipeline reports nothing -- which is also why the caller
+    // collects the objects unconditionally once any of these rules exist.
+    if (objects.size() < 2U) {
+        return;
+    }
+    const std::string sensorId = getStringField(frameMsg, "sensorId");
+
+    for (const CoMovementRuleGroup& group : groups) {
+        for (size_t firstIndex = 0; firstIndex < objects.size(); ++firstIndex) {
+            for (size_t secondIndex = 0; secondIndex < objects.size(); ++secondIndex) {
+                if (firstIndex == secondIndex) {
+                    continue;
+                }
+                // Roles are resolved by type rather than by position, so the pair
+                // occupies one history key however the two objects happen to be
+                // ordered in the frame. The types are required to differ, so at
+                // most one ordering of any pair matches.
+                const ProximityFrameObject& carrier = objects[firstIndex];
+                const ProximityFrameObject& rider = objects[secondIndex];
+                if (!matchesConfiguredStringCondition(group.carrierType, carrier.type) ||
+                    !matchesConfiguredStringCondition(group.riderType, rider.type)) {
+                    continue;
+                }
+
+                const double dx = carrier.x - rider.x;
+                const double dy = carrier.y - rider.y;
+                const double dz = carrier.z - rider.z;
+                const double distance = std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
+                if (!std::isfinite(distance)) {
+                    continue;
+                }
+                // Pairs far enough apart that they could not qualify are not
+                // tracked at all, which is what keeps the history small.
+                //
+                // The ceiling is applied here exactly as evaluate() applies it,
+                // with no margin. A margin would not bring a verdict forward:
+                // evaluate() clears withinCeiling on a single over-ceiling
+                // sample and requires it unconditionally to pass, so samples
+                // banked while a pair was still approaching are the very thing
+                // that blocks the verdict, and they keep blocking it until they
+                // age out a full windowMs later. They also widen offsetSd,
+                // moving the pair further from passing. Admitting them delays
+                // the verdict and multiplies tracked pairs by the square of the
+                // margin; starting the window at the ceiling reaches minSamples
+                // and minSpanMs from inside it, which is the earliest a pass is
+                // possible at all.
+                if (distance > group.params.maxDistanceMeters) {
+                    continue;
+                }
+
+                CoMovementObservation observation;
+                observation.carrierX = carrier.x;
+                observation.carrierY = carrier.y;
+                observation.riderX = rider.x;
+                observation.riderY = rider.y;
+                observation.distance = distance;
+                observation.boxContainment = coMovementBoxContainment(
+                    carrier.hasBbox, carrier.leftX, carrier.topY, carrier.rightX,
+                    carrier.bottomY, rider.hasBbox, rider.leftX, rider.topY, rider.rightX,
+                    rider.bottomY);
+
+                CoMovementMeasurement measurement;
+                if (!coMovementTracker_.observe(sensorId, carrier.numericId, rider.numericId,
+                                                observation, group.params, &measurement)) {
+                    continue;
+                }
+
+                AlertMessage alertMsg = buildAlertFromFrameSocialDistancing(frameMsg);
+                alertMsg.restrictedAreaViolation = false;
+                alertMsg.confinedAreaViolation = false;
+                alertMsg.socialDistancingViolation = false;
+                alertMsg.candidateKind = AlertCandidateKind::kCoMovementPair;
+                alertMsg.proximitySelection = ProximitySelection::kNone;
+                alertMsg.proximityThreshold = 0.0;
+                alertMsg.objectId = carrier.numericId;
+                alertMsg.objectId2 = rider.numericId;
+                strncpy(alertMsg.object.type, carrier.type.c_str(),
+                        sizeof(alertMsg.object.type) - 1U);
+                alertMsg.object.type[sizeof(alertMsg.object.type) - 1U] = '\0';
+                strncpy(alertMsg.object2.type, rider.type.c_str(),
+                        sizeof(alertMsg.object2.type) - 1U);
+                alertMsg.object2.type[sizeof(alertMsg.object2.type) - 1U] = '\0';
+                alertMsg.coordinates[0].x = static_cast<float>(carrier.x);
+                alertMsg.coordinates[0].y = static_cast<float>(carrier.y);
+                alertMsg.coordinates[1].x = static_cast<float>(rider.x);
+                alertMsg.coordinates[1].y = static_cast<float>(rider.y);
+                alertMsg.coordCount = 2;
+                alertMsg.coMovement.offsetSd = static_cast<float>(measurement.offsetSd);
+                alertMsg.coMovement.carrierTravel =
+                    static_cast<float>(measurement.carrierTravel);
+                alertMsg.coMovement.boxContainment =
+                    static_cast<float>(measurement.boxContainment);
+                alertMsg.coMovement.travelWaivedByBox = measurement.travelWaivedByBox;
+                strncpy(alertMsg.type, "co_movement", sizeof(alertMsg.type) - 1U);
+                alertMsg.type[sizeof(alertMsg.type) - 1U] = '\0';
+                alertMsg.ruleId[0] = '\0';
+                alerts.push_back(alertMsg);
+            }
+        }
+    }
+}
+
 void FramesParser::evaluateObjectPresenceRulesForFrame(const NvPSFMsgCodecMsg* frameMsg,
-        const NvPSFMsgCodecMsg* config, std::vector<AlertMessage>& alerts) {
-    int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
+        const EventMapping& mapping, std::vector<AlertMessage>& alerts) {
     int objCount = NvPSFMsgCodecGetRepeatedCount(frameMsg, "objects");
-    for (int r = 0; r < rulesCount; r++) {
-        NvPSFMsgCodecMsg* rule = nullptr;
-        char rulePath[64];
-        snprintf(rulePath, sizeof(rulePath), "rules[%d]", r);
-        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS) continue;
-        std::string alertType = getStringField(rule, "alert_type");
-        std::string msgSource = getStringField(rule, "message_source");
-        std::string objectType = getStringField(rule, "object_type");
-        std::string outputEvent = getStringField(rule, "output_event");
-        if (!stringEqualsCaseInsensitive(alertType, "object_presence") ||
-            !stringEqualsCaseInsensitive(msgSource, "mdx-frames") ||
-            objectType.empty() || outputEvent.empty()) {
-            NvPSFMsgCodecFreeMsg(rule);
+    for (size_t r = 0; r < mapping.rules.size(); r++) {
+        const EventMappingRule& rule = mapping.rules[r];
+        const std::string& objectType = rule.objectType;
+        if (!stringEqualsCaseInsensitive(rule.alertType, "object_presence") ||
+            !stringEqualsCaseInsensitive(rule.messageSource, "mdx-frames") ||
+            objectType.empty() || rule.outputEvent.empty()) {
             continue;
         }
-        std::string ruleIdStr = getStringField(rule, "rule_id");
-        std::string ruleId = ruleIdStr.empty()
+        const std::string ruleId = rule.ruleId.empty()
             ? ("object_presence:" + objectType)
-            : ruleIdStr;
-        NvPSFMsgCodecFreeMsg(rule);
+            : rule.ruleId;
 
         for (int i = 0; i < objCount; i++) {
             NvPSFMsgCodecMsg* obj = nullptr;

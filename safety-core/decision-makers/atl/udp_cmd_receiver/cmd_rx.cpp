@@ -19,6 +19,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <algorithm>
 #include <cerrno>
 #include <ctime>
 #include <cstdlib>
@@ -37,6 +38,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <cstdio>
 
 #include "atl_cmd_pkt.h"
@@ -45,6 +47,16 @@
 
 /* Align with SDM HEARTBEAT_PERIOD_SEC (5s) — expected max gap between CMD_HEARTBEAT. */
 static constexpr int64_t kUpstreamHbExpectedMs = 5000;
+
+/* Release pipe cmd_rx creates and watches alongside the terminal, so no mkfifo
+ * step and no shell redirect are needed. Overridable with --release-fifo;
+ * empty runs with terminal input only. Written once during argument parsing,
+ * before any thread starts. */
+static std::string g_releaseFifoPath = "/tmp/cmd_rx_release";
+
+/* A release command is one short word. More than this arriving with no newline
+ * is a confused writer, not a command, and must not grow the buffer. */
+static constexpr size_t kMaxFifoPendingBytes = 4096U;
 
 class UDPReceiver;
 void upstreamHeartbeatWatchdog(UDPReceiver& receiver);
@@ -193,6 +205,14 @@ public:
     bool isRunning() const
     {
         return running_.load();
+    }
+
+    /* False when initSocket() gave up. run() would return at once on such a
+     * receiver, so main() checks this before claiming to listen. */
+    bool isSocketValid()
+    {
+        std::lock_guard<std::mutex> lk(sock_mtx_);
+        return sock_ >= 0;
     }
 
     void markHeartbeatReceived()
@@ -385,9 +405,15 @@ private:
             return;
         }
 
-        /* Non-blocking */
-        int flags = fcntl(sock_, F_GETFL, 0);
-        fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
+        /* Non-blocking. Unchecked, a failure here leaves the socket blocking and
+         * run()'s recvfrom stalls on an empty socket instead of polling. */
+        const int flags = fcntl(sock_, F_GETFL, 0);
+        if (flags < 0 || fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
+            std::cerr << "Error setting socket non-blocking: "
+                      << strerror(errno) << std::endl;
+            close(sock_); sock_ = -1;
+            return;
+        }
     }
 
     void initVstSocket()
@@ -628,13 +654,204 @@ void upstreamHeartbeatWatchdog(UDPReceiver& receiver)
     }
 }
 
+/*
+ * ReleaseFifo
+ * -----------
+ * The manager's release input, held as its own descriptor so stdin stays free
+ * for the operator. Opened O_RDWR, never O_RDONLY: a read-only open blocks
+ * until a writer appears, and that writer's close would then report end-of-file
+ * and permanently deafen the reader. Our own write descriptor prevents both.
+ */
+class ReleaseFifo
+{
+public:
+    ReleaseFifo() = default;
+    ~ReleaseFifo() { closeFd(); }
+    ReleaseFifo(const ReleaseFifo&) = delete;
+    ReleaseFifo& operator=(const ReleaseFifo&) = delete;
+
+    /* Creates path if absent, then opens it. Returns false and leaves fd()
+     * negative on any failure; that is not fatal, the caller keeps serving the
+     * terminal. */
+    bool openAt(const std::string& path);
+
+    int fd() const { return fd_; }
+
+    /* Reads everything currently available into the pending buffer. */
+    void drain();
+
+    /* Pops the next complete line, false when none is buffered. A line split
+     * across writes is held until its newline arrives. */
+    bool nextLine(std::string& out);
+
+private:
+    void closeFd()
+    {
+        if (fd_ >= 0)
+        {
+            (void)::close(fd_);
+            fd_ = -1;
+        }
+    }
+
+    int fd_ = -1;
+    std::string pending_;
+};
+
+bool ReleaseFifo::openAt(const std::string& path)
+{
+    /* Anything at this path that is not a pipe has to go. A stray
+     * 'echo release > path' before cmd_rx starts leaves a regular file, on which
+     * read() returns 0 forever while select() always reports it readable: the
+     * loop below would spin at full CPU and the writes would never arrive.
+     * lstat, not stat, so a symlink planted here is removed, not followed. */
+    struct stat st{};
+    if (lstat(path.c_str(), &st) == 0 && !S_ISFIFO(st.st_mode) &&
+        unlink(path.c_str()) != 0)
+    {
+        std::cerr << "Release FIFO: cannot replace " << path << ": "
+                  << strerror(errno) << " — terminal input only\n";
+        return false;
+    }
+
+    /* EEXIST is benign: an existing pipe, or another instance racing us to it. */
+    if (mkfifo(path.c_str(), 0660) != 0 && errno != EEXIST)
+    {
+        std::cerr << "Release FIFO: cannot create " << path << ": "
+                  << strerror(errno) << " — terminal input only\n";
+        return false;
+    }
+
+    fd_ = open(path.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    if (fd_ < 0)
+    {
+        std::cerr << "Release FIFO: cannot open " << path << ": "
+                  << strerror(errno) << " — terminal input only\n";
+        return false;
+    }
+
+    struct stat opened{};
+    if (fstat(fd_, &opened) != 0 || !S_ISFIFO(opened.st_mode))
+    {
+        std::cerr << "Release FIFO: " << path << " is not a pipe"
+                  << " — terminal input only\n";
+        closeFd();
+        return false;
+    }
+
+    /* select() indexes a bitmap of fixed width; a descriptor at or past that
+     * width would corrupt memory rather than fail. */
+    if (fd_ >= FD_SETSIZE)
+    {
+        std::cerr << "Release FIFO: descriptor " << fd_ << " exceeds FD_SETSIZE"
+                  << " — terminal input only\n";
+        closeFd();
+        return false;
+    }
+    return true;
+}
+
+void ReleaseFifo::drain()
+{
+    if (fd_ < 0)
+        return;
+
+    char buf[512];
+    for (;;)
+    {
+        const ssize_t n = read(fd_, buf, sizeof(buf));
+        if (n > 0)
+        {
+            pending_.append(buf, static_cast<size_t>(n));
+            if (pending_.size() > kMaxFifoPendingBytes)
+            {
+                std::cerr << "Release FIFO: discarding oversized partial line\n";
+                pending_.clear();
+            }
+            continue;
+        }
+        if (n == 0)
+            break;
+        if (errno == EINTR)
+            continue;
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+            std::cerr << "Release FIFO: read failed: " << strerror(errno) << "\n";
+        break;
+    }
+}
+
+bool ReleaseFifo::nextLine(std::string& out)
+{
+    const size_t nl = pending_.find('\n');
+    if (nl == std::string::npos)
+        return false;
+    out.assign(pending_, 0, nl);
+    pending_.erase(0, nl + 1);
+    return true;
+}
+
+static std::string trimReleaseLine(const std::string& raw)
+{
+    static const char* const kWs = " \t\r\n\v\f";
+    const size_t b = raw.find_first_not_of(kWs);
+    if (b == std::string::npos)
+        return std::string();
+    return raw.substr(b, raw.find_last_not_of(kWs) - b + 1);
+}
+
+/*
+ * Applies one command line, whichever source it came from. Identical handling
+ * either way is the point: the operator's typed release and the manager's
+ * written one must not be able to diverge.
+ */
+static void handleReleaseLine(UDPReceiver& receiver, const std::string& raw,
+                              bool& promptShown)
+{
+    const std::string line = trimReleaseLine(raw);
+
+    if (!receiver.shouldPromptSafeRelease())
+    {
+        if (!line.empty())
+            std::cout << "Ignoring safe-release input until SDM reports a release-ready safe state.\n";
+        return;
+    }
+
+    if (line == "r" || line == "release" || line == "safe-release" ||
+        line == "y" || line == "yes") {
+        (void)receiver.sendSafeReleaseRequest();
+        promptShown = false;
+    } else if (line == "n" || line == "no") {
+        std::cout << "Staying in safe-state; enter 'release' when conditions are safe.\n";
+        promptShown = true;
+    } else if (!line.empty()) {
+        std::cout << "Enter 'release' to exit safe-state, or 'no' to stay safe.\n";
+        promptShown = false;
+    }
+}
+
+/*
+ * safeReleaseInputLoop
+ * --------------------
+ * Watches two equal release sources: the terminal for the operator, the FIFO for
+ * the safety latch manager. Do not redirect stdin to the FIFO as well; that puts
+ * two readers on one pipe and each line reaches only whichever reads first.
+ * Either source may vanish -- stdin at end-of-file under nohup, the FIFO failing
+ * to open -- and the loop keeps serving whichever remains.
+ */
 void safeReleaseInputLoop(UDPReceiver& receiver)
 {
+    ReleaseFifo fifo;
+    if (!g_releaseFifoPath.empty() && fifo.openAt(g_releaseFifoPath))
+        std::cout << "Release FIFO ready: echo release > " << g_releaseFifoPath
+                  << std::endl;
+
+    /* Goes to -1 when the terminal reaches end-of-file, which drops it from the
+     * watch set. Left in, a closed stdin reports readable forever and spins. */
+    int  stdinFd     = STDIN_FILENO;
     bool promptShown = false;
     while (receiver.isRunning())
     {
-        const bool releaseReady = receiver.shouldPromptSafeRelease();
-        if (!releaseReady)
+        if (!receiver.shouldPromptSafeRelease())
         {
             promptShown = false;
         }
@@ -647,42 +864,61 @@ void safeReleaseInputLoop(UDPReceiver& receiver)
         }
         fd_set readfds;
         FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);
+        int maxFd = -1;
+        if (stdinFd >= 0)
+        {
+            FD_SET(stdinFd, &readfds);
+            maxFd = stdinFd;
+        }
+        if (fifo.fd() >= 0)
+        {
+            FD_SET(fifo.fd(), &readfds);
+            maxFd = std::max(maxFd, fifo.fd());
+        }
+        if (maxFd < 0)
+        {
+            std::cerr << "Safe-release input disabled: no usable input source\n";
+            break;
+        }
+
         struct timeval timeout;
         timeout.tv_sec = 0;
         timeout.tv_usec = 200000;
 
-        const int ready = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &timeout);
+        const int ready = select(maxFd + 1, &readfds, nullptr, nullptr, &timeout);
         if (ready == 0)
             continue;
         if (ready < 0) {
             if (errno == EINTR)
                 continue;
-            std::cerr << "Safe-release stdin disabled: select failed: "
+            std::cerr << "Safe-release input disabled: select failed: "
                       << strerror(errno) << std::endl;
             break;
         }
-        if (!FD_ISSET(STDIN_FILENO, &readfds))
-            continue;
 
         std::string line;
-        if (!std::getline(std::cin, line))
-            return;
-        if (!releaseReady) {
-            if (!line.empty())
-                std::cout << "Ignoring safe-release input until SDM reports a release-ready safe state.\n";
-            continue;
+
+        if (stdinFd >= 0 && FD_ISSET(stdinFd, &readfds))
+        {
+            if (!std::getline(std::cin, line))
+            {
+                stdinFd = -1;
+                if (fifo.fd() >= 0)
+                    std::cout << "Terminal input closed; release still accepted on "
+                              << g_releaseFifoPath << std::endl;
+            }
+            else
+            {
+                handleReleaseLine(receiver, line, promptShown);
+            }
         }
-        if (line == "r" || line == "release" || line == "safe-release" ||
-            line == "y" || line == "yes") {
-            (void)receiver.sendSafeReleaseRequest();
-            promptShown = false;
-        } else if (line == "n" || line == "no") {
-            std::cout << "Staying in safe-state; enter 'release' when conditions are safe.\n";
-            promptShown = true;
-        } else {
-            std::cout << "Enter 'release' to exit safe-state, or 'no' to stay safe.\n";
-            promptShown = false;
+        if (fifo.fd() >= 0 && FD_ISSET(fifo.fd(), &readfds))
+        {
+            /* One read can carry more than one line, and select() will not wake
+             * again for bytes already taken off the pipe. */
+            fifo.drain();
+            while (fifo.nextLine(line))
+                handleReleaseLine(receiver, line, promptShown);
         }
     }
 }
@@ -744,6 +980,9 @@ static void printUsage(const char* prog)
               << "  --log-file <PATH>      Write verbose per-packet logs to PATH; console shows only\n"
               << "                         latch/clear/release events (default: /tmp/cmdrx.log).\n"
               << "  --no-log-file          Keep verbose per-packet logs on the console (legacy behavior).\n"
+              << "  --release-fifo <PATH>  Release pipe, created if absent and watched\n"
+              << "                         alongside the terminal (default: /tmp/cmd_rx_release).\n"
+              << "                         Pass '' for terminal input only.\n"
               << "  -h, --help             Show this help message.\n\n"
               << "Safe-release: always enabled. Type 'release' on stdin, or 'echo release > <fifo>'.\n";
 }
@@ -796,6 +1035,16 @@ int main(int argc, char *argv[])
                 return 1;
             }
             expectedSdmIp = argv[++i];
+        }
+        else if (strcmp(argv[i], "--release-fifo") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --release-fifo requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            g_releaseFifoPath = argv[++i];
         }
         else if (strcmp(argv[i], "--sdm_port") == 0)
         {
@@ -929,6 +1178,15 @@ int main(int argc, char *argv[])
 
     UDPReceiver receiver(port, expectedSdmAddr, expectedSdmPort,
                          vstRelayEnabled, vstAddr);
+    /* Exit non-zero before starting anything: run() would fall straight through
+     * on a dead socket, and a supervisor reading status 0 would take the silent
+     * "no command receiver" state for an orderly stop and not restart it. */
+    if (!receiver.isSocketValid())
+    {
+        std::cerr << "fatal: no command socket on port " << port
+                  << "; the receiver cannot accept SDM commands\n";
+        return 1;
+    }
     g_receiver = &receiver;
 
     std::signal(SIGINT,  signalHandler);
@@ -948,10 +1206,9 @@ int main(int argc, char *argv[])
     }
 
     std::thread hbWatch(upstreamHeartbeatWatchdog, std::ref(receiver));
-    /* Safe-release via stdin is always enabled: an operator can type 'release'
-     * in the (now uncluttered) console, or a script can do 'echo release > …'
-     * into the process's stdin/FIFO. */
-    std::cout << "Safe-release stdin enabled ('release' on stdin, or echo into the FIFO)" << std::endl;
+    /* Two equal release sources, both always enabled: the operator types
+     * 'release' in this console, or any process echoes it into the FIFO. */
+    std::cout << "Safe-release enabled (type 'release' here, or echo into the FIFO)" << std::endl;
     std::thread releaseInput(safeReleaseInputLoop, std::ref(receiver));
     std::cout << "Startup safe-release enabled (clears stale latch on first peer contact)" << std::endl;
     std::thread startupRelease_thr(startupSafeReleaseLoop, std::ref(receiver));

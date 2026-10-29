@@ -6,7 +6,11 @@
 /*
  * Proximity UDP Command Receiver Application
  *
- * Simulates the humanoid robot's command interpreter.  Incoming SDM commands
+ * Simulates the controlled machine's command interpreter.  One receiver stands
+ * in for whichever machine the monitored pair names -- this app covers
+ * Agility_Digit_Humanoid, Forklift and Transporter against Person behind a
+ * single command stream, so it is deliberately not named after any one of
+ * them.  Incoming SDM commands
  * are buffered and every EVAL_WINDOW_MS (100 ms) the window is evaluated
  * using a "most conservative wins" policy:
  *
@@ -70,12 +74,12 @@ static constexpr int kStartupReleaseSettleMs = 500;
 static const char* actionLabel(unsigned char cmd)
 {
     switch (cmd) {
-    case CMD_STOP:     return "ESTOP";
-    case CMD_HW_ERROR: return "ESTOP (HW_ERROR)";
-    case CMD_SW_ERROR: return "FAULT SAFE STATE / ALARM";
-    case CMD_REDUCE:   return "SLOW DOWN";
-    case CMD_NORMAL:   return "NORMAL OPERATION";
-    default:           return "UNKNOWN";
+    case CMD_STOP:       return "ESTOP";
+    case CMD_HW_ERROR:   return "ESTOP (HW_ERROR)";
+    case CMD_SW_ERROR:   return "FAULT SAFE STATE / ALARM";
+    case CMD_REDUCE:     return "SLOW DOWN";
+    case CMD_NORMAL:     return "NORMAL OPERATION";
+    default:             return "UNKNOWN";
     }
 }
 
@@ -101,6 +105,13 @@ static uint32_t missCountFromElapsedMs(int64_t elapsedMs)
     return static_cast<uint32_t>(m);
 }
 
+static bool isVstDecisionCommand(unsigned char command)
+{
+    return command == CMD_STOP || command == CMD_REDUCE ||
+           command == CMD_NORMAL || command == CMD_HW_ERROR ||
+           command == CMD_SW_ERROR;
+}
+
 /* Short wall-clock HH:MM:SS stamp for the human-facing console notifications. */
 static std::string nowTimeStr()
 {
@@ -118,9 +129,13 @@ class UDPReceiver
 {
 private:
     int            sock_;
+    int            vst_sock_;
     unsigned int   listen_port_;
     std::atomic<bool> running_;
     std::mutex     sock_mtx_;
+    bool           vst_relay_enabled_ = false;
+    bool           vst_send_failure_logged_ = false;
+    struct sockaddr_in vst_addr_ = {};
 
     static constexpr std::size_t max_length = 1024;
     char data_[max_length];
@@ -153,16 +168,23 @@ private:
 public:
     UDPReceiver(unsigned int listen_port,
                 const struct in_addr& expected_sender_ip,
-                uint16_t expected_sender_port)
+                uint16_t expected_sender_port,
+                bool vst_relay_enabled,
+                const struct sockaddr_in& vst_addr)
         : sock_(-1),
+          vst_sock_(-1),
           listen_port_(listen_port),
           running_(true),
+          vst_relay_enabled_(vst_relay_enabled),
+          vst_addr_(vst_addr),
           expected_sender_ip_(expected_sender_ip),
           expected_sender_port_(expected_sender_port)
     {
         last_hb_time_ = std::chrono::steady_clock::now();
         window_cmds_.reserve(64);
         initSocket();
+        if (vst_relay_enabled_)
+            initVstSocket();
     }
 
     ~UDPReceiver()
@@ -188,6 +210,10 @@ public:
         if (sock_ >= 0) {
             close(sock_);
             sock_ = -1;
+        }
+        if (vst_sock_ >= 0) {
+            close(vst_sock_);
+            vst_sock_ = -1;
         }
     }
 
@@ -397,6 +423,45 @@ private:
         fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
     }
 
+    void initVstSocket()
+    {
+        vst_sock_ = socket(AF_INET, SOCK_DGRAM, 0);
+        if (vst_sock_ < 0) {
+            vst_relay_enabled_ = false;
+            std::cerr << "VST relay disabled: failed to create UDP socket\n";
+            return;
+        }
+
+        const int flags = fcntl(vst_sock_, F_GETFL, 0);
+        if (flags < 0 || fcntl(vst_sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
+            std::cerr << "VST relay disabled: failed to configure UDP socket\n";
+            close(vst_sock_);
+            vst_sock_ = -1;
+            vst_relay_enabled_ = false;
+        }
+    }
+
+    void relayToVst()
+    {
+        std::lock_guard<std::mutex> lk(sock_mtx_);
+        if (!vst_relay_enabled_ || vst_sock_ < 0)
+            return;
+
+        const ssize_t sent = sendto(vst_sock_, data_, COMMAND_PACKET_SIZE,
+                                    MSG_DONTWAIT,
+                                    reinterpret_cast<const struct sockaddr*>(&vst_addr_),
+                                    sizeof(vst_addr_));
+        if (sent == static_cast<ssize_t>(COMMAND_PACKET_SIZE)) {
+            vst_send_failure_logged_ = false;
+            return;
+        }
+
+        if (!vst_send_failure_logged_) {
+            std::cerr << "VST relay send failed; continuing without display delivery\n";
+            vst_send_failure_logged_ = true;
+        }
+    }
+
     void handleReceive(std::size_t bytes_recvd,
                        const struct sockaddr_in& sender_addr,
                        socklen_t sender_len)
@@ -411,15 +476,23 @@ private:
 
         const CmdPacket* pkt = reinterpret_cast<const CmdPacket*>(data_);
 
-        /* Liveness heartbeats may carry the shared Metropolis command identifier
-         * rather than the proximity one, so accept that identifier for
-         * heartbeats only. Every other command must be proximity-addressed. */
-        const bool isSharedHeartbeat =
-            pkt->identifier == METROPOLIS_ATL_PACKET_IDENTIFIER &&
-            pkt->command == CMD_HEARTBEAT;
-
-        /* Validate identifier */
-        if (pkt->identifier != PROXIMITY_PACKET_IDENTIFIER && !isSharedHeartbeat) {
+        /*
+         * Validate identifier.
+         *
+         * Every packet on this link -- including CMD_HEARTBEAT -- must carry
+         * the proximity identifier, and a foreign one is rejected outright.
+         * Accepting another app's identifier for liveness would let a
+         * receiver pointed at the wrong sender keep the watchdog below fed
+         * while every acting command was still refused here, so a miswired
+         * link would run indefinitely without ever executing a decision
+         * instead of latching tier 3. Liveness is only meaningful from the
+         * sender this receiver is actually supposed to obey, so it is
+         * authenticated exactly like a command.
+         *
+         * Upstream senders are responsible for stamping the identifier of
+         * the app they serve.
+         */
+        if (pkt->identifier != PROXIMITY_PACKET_IDENTIFIER) {
             std::cerr << "Invalid packet identifier: 0x"
                       << std::hex << (int)pkt->identifier << std::endl;
             return;
@@ -503,8 +576,8 @@ private:
 
         /* Object records -> log file */
         const char* objectLabels[COMMAND_NUM_OBJECTS] = {
-            "Object 1 (configured primary center role)",
-            "Object 2 (configured secondary surrounding role)"
+            "Object 1 (configured primary/center role)",
+            "Object 2 (configured secondary/surrounding role)"
         };
         for (int i = 0; i < COMMAND_NUM_OBJECTS; i++) {
             const ObjectRecord& obj = pkt->objects[i];
@@ -550,6 +623,9 @@ private:
         else
             std::cerr << "Failed to send acknowledgment: "
                       << strerror(errno) << std::endl;
+
+        if (isVstDecisionCommand(receivedCmd))
+            relayToVst();
 
         if (receivedCmd == CMD_STOP || receivedCmd == CMD_REDUCE ||
             receivedCmd == CMD_NORMAL || receivedCmd == CMD_HW_ERROR ||
@@ -626,11 +702,11 @@ void windowedEvaluator(UDPReceiver& receiver)
         unsigned int nStop = 0, nReduce = 0, nNormal = 0, nHwError = 0, nSwError = 0;
         for (unsigned char c : cmds) {
             switch (c) {
-            case CMD_STOP:     ++nStop;   break;
-            case CMD_REDUCE:   ++nReduce; break;
-            case CMD_NORMAL:   ++nNormal; break;
-            case CMD_HW_ERROR: ++nHwError; break;
-            case CMD_SW_ERROR: ++nSwError; break;
+            case CMD_STOP:       ++nStop;   break;
+            case CMD_REDUCE:     ++nReduce; break;
+            case CMD_NORMAL:     ++nNormal; break;
+            case CMD_HW_ERROR:   ++nHwError; break;
+            case CMD_SW_ERROR:   ++nSwError; break;
             default: break;
             }
         }
@@ -722,10 +798,10 @@ void safeReleaseInputLoop(UDPReceiver& receiver)
  * startupSafeReleaseLoop
  * ----------------------
  * Fires exactly one unconditional (forced) safe-release the moment cmd_rx makes
- * first contact with its peer, proximity_sdm. This clears any safety latch left
- * set by a previous run without needing an operator prompt. The SDM validates
- * the request and denies it if the underlying cause is still active, so an
- * active latch is never force-cleared. Runs once, then exits.
+ * first contact with its peer, proximity_sdm. This clears any safety latch left set by a previous run
+ * without needing an operator prompt. The SDM validates the request and denies it if the
+ * underlying cause is still active, so an active latch is never force-cleared.
+ * Runs once, then exits.
  */
 void startupSafeReleaseLoop(UDPReceiver& receiver)
 {
@@ -763,7 +839,7 @@ static void signalHandler(int /*sig*/)
 
 static void printUsage(const char* prog)
 {
-    std::cerr << "Usage: " << prog << " [-p <LISTEN_PORT>] [--sdm_ip <IPv4>] [--sdm_port <SENDER_PORT>] [--max_hb_failures <N>] [--log-file <PATH>] [--no-log-file] [-h|--help]\n\n"
+    std::cerr << "Usage: " << prog << " [-p <LISTEN_PORT>] [--sdm_ip <IPv4>] [--sdm_port <SENDER_PORT>] [--vst_ip <IPv4> --vst_port <PORT>] [--max_hb_failures <N>] [--log-file <PATH>] [--no-log-file] [-h|--help]\n\n"
               << "Proximity UDP Command Receiver — listens for STOP/REDUCE/NORMAL commands.\n\n"
               << "Ports (these are different):\n"
               << "  -p <LISTEN_PORT>       LOCAL bind/listen port for this receiver, 1-65535\n"
@@ -776,6 +852,8 @@ static void printUsage(const char* prog)
               << "                         port.\n\n"
               << "Options:\n"
               << "  --sdm_ip <IPv4>        Expected SDM sender IP (default: 127.0.0.1).\n"
+              << "  --vst_ip <IPv4>        Optional VST display destination IP; requires --vst_port.\n"
+              << "  --vst_port <PORT>      Optional VST display destination port, 1-65535; requires --vst_ip.\n"
               << "  --max_hb_failures <N>  Upstream heartbeat miss limit, 1-255 (default: 10).\n"
               << "  --log-file <PATH>      Write verbose per-packet logs to PATH; console shows only\n"
               << "                         latch/clear/release events (default: /tmp/cmdrx.log).\n"
@@ -792,6 +870,10 @@ int main(int argc, char *argv[])
     const char* logFilePath = "/tmp/cmdrx.log";
     const char* expectedSdmIp = "127.0.0.1";
     uint16_t expectedSdmPort = 0U;
+    const char* vstIp = nullptr;
+    uint16_t vstPort = 0U;
+    bool vstIpProvided = false;
+    bool vstPortProvided = false;
 
     for (int i = 1; i < argc; i++)
     {
@@ -847,6 +929,38 @@ int main(int argc, char *argv[])
                 return 1;
             }
             expectedSdmPort = static_cast<uint16_t>(p);
+        }
+        else if (strcmp(argv[i], "--vst_ip") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --vst_ip requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            vstIp = argv[++i];
+            vstIpProvided = true;
+        }
+        else if (strcmp(argv[i], "--vst_port") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << "error: --vst_port requires a value\n";
+                printUsage(prog);
+                return 1;
+            }
+            char* end = nullptr;
+            errno = 0;
+            unsigned long p = std::strtoul(argv[++i], &end, 10);
+            if (errno == ERANGE || end == argv[i] || *end != '\0' ||
+                p < 1UL || p > 65535UL)
+            {
+                std::cerr << "error: --vst_port: invalid port (use 1..65535)\n";
+                printUsage(prog);
+                return 1;
+            }
+            vstPort = static_cast<uint16_t>(p);
+            vstPortProvided = true;
         }
         else if (strcmp(argv[i], "--max_hb_failures") == 0)
         {
@@ -906,7 +1020,29 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    UDPReceiver receiver(port, expectedSdmAddr, expectedSdmPort);
+    if (vstIpProvided != vstPortProvided)
+    {
+        std::cerr << "error: --vst_ip and --vst_port must be used together\n";
+        printUsage(prog);
+        return 1;
+    }
+
+    struct sockaddr_in vstAddr = {};
+    const bool vstRelayEnabled = vstIpProvided;
+    if (vstRelayEnabled)
+    {
+        vstAddr.sin_family = AF_INET;
+        vstAddr.sin_port = htons(vstPort);
+        if (inet_pton(AF_INET, vstIp, &vstAddr.sin_addr) != 1)
+        {
+            std::cerr << "error: --vst_ip: invalid IPv4 address\n";
+            printUsage(prog);
+            return 1;
+        }
+    }
+
+    UDPReceiver receiver(port, expectedSdmAddr, expectedSdmPort,
+                         vstRelayEnabled, vstAddr);
     g_receiver = &receiver;
 
     std::signal(SIGINT,  signalHandler);

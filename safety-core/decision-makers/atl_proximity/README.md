@@ -15,6 +15,10 @@ binary and its own command stream; proximity gets a new decision maker with its
 own command stream on a different port. They share one event mapping file, one
 Kafka consumer and one PSD gateway, so a single `mdx_client` feeds both.
 
+This legacy app is distinct from config-driven `--app atl,pxc`, which launches
+`proximity_sdm` instead. See the [PXC guide](../proximity/README.md) for that
+combination; its introduction does not change this app's decision policy.
+
 ## Description
 
 Three processes carry the application, on top of the usual `nvpss_daemon` and
@@ -40,9 +44,9 @@ worst case, so the proximity logic here is this component's own.
 ### Event mapping
 
 `event_mapping_atl_proximity.pb.txt` holds both sets. `EVENT_6` and `EVENT_7`
-are intentionally unused so the proximity tiers keep the same numbering as the
-standalone proximity app, which makes the two deployments comparable when
-reading `pss.log` side by side.
+remain unused, and this app retains its historic proximity codes 8..10.
+The config-driven PXC mapping now uses 12..23; do not mix the two mappings or
+combine this legacy mapping with ATL zone-two subscriptions (6..11).
 
 | Event | Source | Condition | Command |
 |---|---|---|---|
@@ -52,9 +56,8 @@ reading `pss.log` side by side.
 | `EVENT_9` | proximity | 2 m >= distance > 1 m | `REDUCE` |
 | `EVENT_10` | proximity | distance <= 1 m | `STOP` |
 
-Section 1 is inherited verbatim from
-`adapters/vss/event-mappings/atl/event_mapping_atl.pb.txt`. Do not renumber it:
-`decision-makers/atl/sdm/ATLControl.cpp` switches on these exact values.
+The ATL rules use the zone-one bindings in `atl_sdm_zone1.conf`. Keep that
+selected config aligned with this mapping; ATL reads its bindings at startup.
 
 ### Decision policy
 
@@ -69,49 +72,25 @@ overflow is handled fail-safe in `AtlPxcPairFusionObserve()`.
 
 ## Prerequisites
 
-### 1. Kernel POSIX message queue size
-
-**This is required. The stack will not start without it.**
-
-`DecisionRequest` scales with `MAX_SENSORS_DATA_SUMMARY_SIZE`
-(`components/event-integrator/daemon/include/pss_protocol.h`). At the current 32 slots the struct is
-**8369 bytes**, which exceeds the kernel's default `fs.mqueue.msgsize_max` of
-8192. `mq_open()` then fails with `EINVAL` and PSS cannot create its queue.
-
-Two things must agree:
-
-- `MQ_MAX_MSG_SIZE` in
-  `components/safecomm/posix_msg_que/include/posix_msg_que.h`, currently
-  `16384`, must stay >= `sizeof(DecisionRequest)`.
-- The enclosing IPC namespace must permit that size.
-
-Under Docker, `mqueue` sysctls are IPC-namespaced, so set it per container:
-
-```bash
-docker run --sysctl fs.mqueue.msgsize_max=16384 ...
-```
-
-On bare metal:
-
-```bash
-sudo sysctl -w fs.mqueue.msgsize_max=16384
-# persist across reboots
-echo 'fs.mqueue.msgsize_max = 16384' | sudo tee /etc/sysctl.d/99-psf-mqueue.conf
-```
-
-If you change the slot count, **two constants must move together** —
-`MAX_SENSORS_DATA_SUMMARY_SIZE` (wire struct) and `MAX_EVENTS_PER_QUE`
-(`components/event-integrator/daemon/include/NvPSSSafetyEventManager.hpp`, PSS
-queue depth). The drain
-takes the smaller of the two per `DecisionRequest`, so raising only one has no
-effect. Also bump `PSS_SCHEMA_VERSION`, since the change is wire-incompatible,
-and rebuild and redeploy PSS, the gateway and both SDMs together.
-
-### 2. Runtime environment
-
 - VSS deployed and publishing to Kafka topics `mdx-events` and `mdx-frames`.
 - A `sensor_config.conf` mapping sensor names to pipeline IDs
-  (`pipelineId, sensorName, rtspUrl`); see `adapters/vss/mdx-client/README.md`.
+  (`pipelineId, sensorName, rtspUrl`); see the
+  [MDX client guide](../../adapters/vss/mdx-client/README.md).
+- An active `atl_sdm_zone1.conf`, copied and reviewed from
+  `/opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample`. Pass its path with
+  `--atl-zone1-conf`; the ATL SDM has no default event binding.
+- A readable `sensor_pipelines_config.conf`. **`atl_proximity_sdm` refuses to
+  start without it** — it is the reviewed sensor set behind the
+  all-safety-relevant-sensors-failed latch, and it is configuration rather than
+  a compiled table so that this SDM, `atl_sdm` and `proximity_sdm` cannot
+  disagree about which sensors the latch covers. The package installs one at
+  `/opt/nvidia/psf/bin/sensor_pipelines_config.conf`; override with
+  `--sensor_pipelines_config <PATH>`.
+
+  Keep it consistent with the cameras actually deployed. An id listed there that
+  no camera ever reports can never fail, so the latch condition can never be met
+  and the safe hold is silently disabled. The SDM logs the set it resolved at
+  startup — read that line against the cameras you have.
 - Two free UDP ports for the PLC command streams. Defaults are 12345 for
   `atl_sdm` and 12346 for `atl_proximity_sdm`; they must differ.
 
@@ -167,52 +146,87 @@ straight to the launcher, and `/opt/nvidia/psf` is already populated inside.
 The paths below assume the runtime package is installed, or that you are inside
 the container image.
 
-### Through the launcher (recommended)
+### Through the launcher
 
 ```bash
+cp /opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample ~/atl_sdm_zone1.conf   # review it
 /opt/nvidia/psf/bin/launch_psf.sh \
+  --saim-mode skip --pcm-mode skip \
   --app atl_proximity \
+  --atl-zone1-conf ~/atl_sdm_zone1.conf \
   --sensor-config /opt/nvidia/psf/configs/sensor_config.conf \
   --cmd_rx_port 12345 \
   --proximity_cmd_rx_port 12346
 ```
 
-This starts the gateway, the PSS daemon, both SDMs and one `mdx_client`, in that
+This starts the PSS daemon, the gateway, both SDMs and one `mdx_client`, in that
 order. Options that apply to this app:
 
 | Option | Effect |
 |---|---|
+| `--saim-mode active\|skip\|learn` | `active` also runs the Safety AI Monitor; `learn` only captures SAIM baselines and exits. `required_safety_monitor` in `nvpss.conf` must be `1` for `active` and `0` otherwise |
+| `--pcm-mode active\|skip\|learn` | The same for the Perception Monitor and `required_perception_monitor` |
+| `--atl-zone1-conf PATH` | Required active ATL event-binding config |
 | `--cmd_rx_port PORT` | PLC port for `atl_sdm` |
 | `--proximity_cmd_rx_port PORT` | PLC port for `atl_proximity_sdm`; must differ from the above |
 | `--pair_ttl_ms MS` | Pair liveness window for the proximity SDM |
 | `--cmd_rx_ip IP` | PLC address, shared by both SDMs |
-| `--broker ADDR` | Kafka broker passed to `mdx_client` |
+| `--broker ADDR` | Kafka broker (default `localhost:9092`) |
 
-The last two SDM options are accepted only with `--app atl_proximity`, since
-they have no meaning for the single-SDM apps.
+`--proximity_cmd_rx_port` and `--pair_ttl_ms` are accepted only with
+`--app atl_proximity`. The generic `--sdm-config`, `--sdm-log-file`,
+`--event-mapping` and `--sdm-external` options are for the config-driven ATL/PXC
+selections, not this app.
 
-The decision makers are CCPLEX only; this app has no FSI variant.
+The shipped `nvpss.conf` sets `required_safety_monitor = 1` and
+`required_perception_monitor = 1`, which match `--saim-mode active --pcm-mode active`.
+The examples here skip both monitors, so set both keys to `0`; that removes the
+sensor-integrity and AI-pipeline checks, so their safe-hold paths are not
+exercised. The [perception monitor guide](../../components/perception-monitor/README.md)
+covers running PCM.
+See the "Required safety sources" section of the
+[event integrator guide](../../components/event-integrator/README.md).
 
 ### Under Docker
 
-Remember the sysctl from the prerequisites — without it PSS cannot create its
-queue and the stack will not come up:
+The image entrypoint is `launch_psf.sh`, so everything after the image name is
+a launcher option. Mount the reviewed configs read-only and pass their container
+paths. Confirm every host config path exists as a readable regular file before
+launching: `-v` creates a directory if the source is missing.
 
 ```bash
 docker run -d --name nv-psf --network host \
-  --sysctl fs.mqueue.msgsize_max=16384 \
-  -v /path/to/sensor_config.conf:/opt/nvidia/psf/configs/sensor_config.conf:ro \
+  -v /run/nvpsf:/run/nvpsf \
+  -v /var/log/psf:/var/log/psf \
+  -v /path/to/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro \
+  -v /path/to/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro \
+  -v /path/to/sensor_pipelines_config.conf:/opt/nvidia/psf/bin/sensor_pipelines_config.conf:ro \
+  -v /path/to/atl_sdm_zone1.conf:/opt/nvidia/psf/bin/atl_sdm_zone1.conf:ro \
   psf-desktop:latest \
+  --saim-mode skip --pcm-mode skip \
   --app atl_proximity \
+  --atl-zone1-conf /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
   --cmd_rx_ip 127.0.0.1 --cmd_rx_port 12349 --proximity_cmd_rx_port 12350 \
   --pair_ttl_ms 2000 \
-  --sensor-config /opt/nvidia/psf/configs/sensor_config.conf
+  --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
 ```
 
-Use `psf-tegra:latest` on Tegra. The config is mounted because the one shipped
-in the package is a template and has to describe your actual sensors. No GPU
-runtime flag is needed: the launcher starts the gateway, the PSS daemon, the
-SDMs and `mdx_client`, none of which use the GPU.
+Use `psf-tegra:latest` on Tegra. With both monitors skipped the mounted
+`nvpss.conf` must set `required_safety_monitor = 0` and
+`required_perception_monitor = 0`. For `--saim-mode active`, add
+`--runtime=nvidia` (the Safety AI Monitor uses the GPU) and mount the SAIM
+baseline directory at `/opt/nvidia/psf/bin/saim_baseline`. For
+`--pcm-mode active`, mount the PCM baselines at
+`/opt/nvidia/psf/bin/pcm_baseline` and the Docker socket at
+`/var/run/docker.sock`.
+
+### Logs
+
+`launch_psf.sh` starts the combined SDMs from `/var/log/psf`. Their dedicated
+logs are `/var/log/psf/atl_sdm.log` and
+`/var/log/psf/atl_proximity_sdm.log`; the syslog stream from the PSS daemon,
+the gateway and `mdx_client` is written to `/var/log/psf/psf.log` and, in the
+container, is also available through container stdout.
 
 ### Running the proximity SDM directly
 
@@ -261,8 +275,9 @@ separate app and mapping instead.
 **Pair scoping is enforced by the event mapping**, via
 `object_type_primary` / `object_type_secondary`. Matching is unordered.
 
-**Thresholds mirror the standalone proximity app**, so operator-facing
-behaviour is unchanged across the two deployments.
+**The supplied thresholds use the same 2 m / 1 m bands as standalone PXC.**
+Their decision policies remain distinct; equal thresholds do not make the
+two implementations equivalent.
 
 ## Directory layout
 

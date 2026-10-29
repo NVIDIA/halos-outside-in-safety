@@ -70,7 +70,10 @@ inline bool insertUniqueProximityPairRuleId(std::set<std::string>* ruleIds,
 inline std::string selectOutputRuleIdentifier(AlertCandidateKind candidateKind,
                                               const std::string& candidateRuleId,
                                               const std::string& configuredRuleId) {
-    if (candidateKind != AlertCandidateKind::kProximityPair) {
+    // Pair-shaped candidates carry no identifier of their own: the rule they
+    // matched is what names them downstream.
+    if (candidateKind != AlertCandidateKind::kProximityPair &&
+        candidateKind != AlertCandidateKind::kCoMovementPair) {
         return candidateRuleId;
     }
     return isValidProximityPairRuleId(configuredRuleId)
@@ -95,14 +98,48 @@ inline std::string canonicalProximityTypePair(const std::string& primaryType,
     return first + "\x1f" + second;
 }
 
+inline bool isCoMovementAlertType(const std::string& alertType) {
+    return matchesConfiguredStringCondition("co_movement", alertType);
+}
+
 inline bool isProximityPairRule(const std::string& alertType,
                                 const std::string& configuredPrimaryType,
                                 const std::string& configuredSecondaryType,
                                 bool proximityViolationPresent,
                                 bool distanceThresholdPresent) {
+    // A co-movement rule also declares a type pair, so it must be excluded here
+    // or it would be classified as a proximity rule and then rejected by
+    // isValidProximityPairRule, taking the whole configuration down with it.
+    if (isCoMovementAlertType(alertType)) {
+        return false;
+    }
     return proximityViolationPresent || distanceThresholdPresent ||
            !configuredPrimaryType.empty() || !configuredSecondaryType.empty() ||
            matchesConfiguredStringCondition("no_violation", alertType);
+}
+
+// A co-movement rule names two different object types, takes neither a distance
+// threshold nor a proximity outcome, and carries no violation filter. The types
+// must differ because the test asks which of the two is carrying the other.
+inline bool isValidCoMovementRule(const std::string& messageSource,
+                                  const std::string& alertType,
+                                  const std::string& primaryType,
+                                  const std::string& secondaryType,
+                                  bool proximityViolationPresent,
+                                  bool distanceThresholdPresent,
+                                  bool hasViolationFilter,
+                                  const std::string& outputEvent) {
+    if (!isCoMovementAlertType(alertType) ||
+        !matchesConfiguredStringCondition("mdx-frames", messageSource)) {
+        return false;
+    }
+    if (hasViolationFilter || proximityViolationPresent || distanceThresholdPresent) {
+        return false;
+    }
+    if (primaryType.empty() || secondaryType.empty() || outputEvent.empty()) {
+        return false;
+    }
+    return !matchesConfiguredStringCondition(primaryType, secondaryType);
 }
 
 inline bool isValidProximityPairRule(const std::string& messageSource,

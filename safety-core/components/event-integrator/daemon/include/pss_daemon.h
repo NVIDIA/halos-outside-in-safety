@@ -19,10 +19,28 @@ typedef enum NvPSSDStatus_t
 }NvPSSDErr;
 
 /* PSD Socket Communication System Definitions */
-/* AF_UNIX path for the PSS<->PSD control channel. Lives under /run/nvpsf so
- * the launcher can bind-mount a single narrow directory into the container
- * rather than sharing /tmp with the host. */
+/* AF_UNIX paths for the PSS daemon's two listening sockets. Both live under
+ * /run/nvpsf (NVPSF_RUNTIME_DIR in components/safecomm/transport/include/nvpsf_transport.h)
+ * so the launcher can bind-mount a single narrow directory into the container
+ * rather than sharing /tmp with the host. These are the sole definitions of
+ * both strings: server and client sides must reference these macros rather
+ * than repeating the literal, or the two ends can drift apart silently.
+ * Spelled out here rather than composed from NVPSF_RUNTIME_DIR because this
+ * header has 28 includers across 9 components, none of which should be forced
+ * to carry the transport include path just to learn a socket path. */
+/**
+ * Default configuration file for nvpss_daemon. Overridable with --conf.
+ *
+ * Defined here rather than inline at the read site so the usage text, the
+ * default and any future packaging reference are one string. The override
+ * exists because a path with no override made the daemon unrunnable in a test
+ * fixture without editing an installed system file.
+ */
+#define NVPSS_DAEMON_DEFAULT_CONF "/opt/nvidia/psf/bin/nvpss.conf"
+
 #define PSS_DAEMON_SOCKET_PATH "/run/nvpsf/nvpssd_to_psd"
+/* PSS client RPC endpoint (nvpss_daemon server, libnvpss clients). */
+#define PSS_DAEMON_RPC_SOCKET_PATH "/run/nvpsf/nvpssd"
 #define MAX_PSD_CLIENTS 32
 
 /* Message types for PSD socket communication */
@@ -71,11 +89,29 @@ typedef struct NvPSSDToPSDResp_t
  */
 NvPSSDErr NvPSSRegisterPSSClient(uint32_t* clientId, uint8_t clientType);
 
+/*
+ *  @brief Register a PSS client with an instance id.
+ *  @description As NvPSSRegisterPSSClient(), which is this with instanceId 0.
+ *  A non-zero instanceId is valid only for CLIENT_MDX, in 1..PSS_MDX_INSTANCE_MAX,
+ *  and makes that MDX client IDENTIFIABLE: PSS then treats (CLIENT_MDX, instanceId)
+ *  as a singleton, reports its presence to the SDMs, and raises
+ *  CAUSE_MDX_CLIENT_LOST when it goes away, which only that instance coming back
+ *  clears. Instance 0 is an anonymous MDX client and behaves exactly as before.
+ *
+ *  @return NVPSSD_SUCCESS if the daemon accepted the registration, NVPSSD_FAIL otherwise.
+ */
+NvPSSDErr NvPSSRegisterPSSClientInstance(uint32_t* clientId, uint8_t clientType, uint8_t instanceId);
+
+/* Highest MDX client instance id. Instance k has presence bit PSS_PRESENCE_MDX_INSTANCE(k). */
+#define PSS_MDX_INSTANCE_MAX 8U
+
 /* REGISTER_CLIENT response status codes.
  * Returned in respPayload[4] of the RPC response (after the 4-byte client id). */
 #define REGISTER_ACCEPTED               1  /* Registration successful */
 #define REGISTER_REJECTED_DUPLICATE_TYPE 2  /* Another active client of the same type exists */
 #define REGISTER_REJECTED_INVALID_TYPE   3  /* clientType not one of the valid CLIENT_* constants */
+#define REGISTER_REJECTED_INVALID_INSTANCE 4 /* instance id above PSS_MDX_INSTANCE_MAX, or non-zero
+                                                for a client type other than CLIENT_MDX */
 
 /*
  *  @brief Terminate a PSS client.
@@ -98,6 +134,10 @@ NvPSSDErr NvPSSTerminatePSSClient(const uint32_t clientId);
 #define REPORT_REJECTED_UNAUTHORIZED       3  /* Heartbeat fault, payload too small, or unauthorized client type */
 #define REPORT_REJECTED_LOW_CONFIDENCE     4  /* confidenceLevel below configured acceptance threshold */
 #define REPORT_REJECTED_VALIDATION_FAILED  5  /* CRC, schema, or field-range validation failed */
+#define REPORT_REJECTED_UNRESOLVED_SENSOR  6  /* Per-sensor event whose sensor identity could not be
+                                                resolved: fusionMetadata.pipelineID == 0. Distinct
+                                                from VALIDATION_FAILED so a client can tell a
+                                                configuration error from a corrupt message. */
 
 /**
  *  @brief Report a safety event.
@@ -133,7 +173,8 @@ NvPSSDErr NvPSSReportSafetyEvent(const uint32_t clientId, const SafetyEvent* eve
  *   AI_PIPELINE_INVALID / AI_PIPELINE_VALID       -> only CLIENT_PERCEPTION_MONITOR
  *
  * CLIENT_MDX is multi-client; CLIENT_SAFETY_MONITOR, CLIENT_PSD_GATEWAY, and
- * CLIENT_PERCEPTION_MONITOR are singletons.
+ * CLIENT_PERCEPTION_MONITOR are singletons. An MDX client registered with an
+ * instance id (NvPSSRegisterPSSClientInstance) is a singleton per instance id.
  */
 #define CLIENT_MDX                 1
 #define CLIENT_SAFETY_MONITOR      2

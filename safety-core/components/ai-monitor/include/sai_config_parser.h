@@ -31,10 +31,20 @@ public:
     float       getFloat(const std::string& key, float defaultValue = 0.f) const;
     int         getInt(const std::string& key, int defaultValue = 0) const;
 
+    // Parses a comma-separated value into exactly `count` floats.
+    //
+    // Returns false without touching `out` when the key is absent, an element
+    // is unparseable, or the element count differs from `count`. The count is
+    // strict on purpose: a baseline written for a different tile grid must be
+    // rejected outright, because zero-filling or truncating it would score the
+    // stream against a silently wrong reference.
+    bool getFloatList(const std::string& key, float* out, int count) const;
+
     bool hasKey(const std::string& key) const;
 
-    // Returns false and logs each missing key to stderr.
-    bool validateRequiredKeys(const std::vector<std::string>& requiredKeys) const;
+    // Returns false and logs if any required key is missing or unparseable by its getter.
+    bool validateRequiredKeys(const std::vector<std::string>& floatKeys,
+                              const std::vector<std::string>& intKeys) const;
 
     void printLoadedConfig() const;
 

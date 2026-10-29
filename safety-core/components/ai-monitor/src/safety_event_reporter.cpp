@@ -113,7 +113,7 @@ bool SafetyEventReporter::registerSensor(const std::string& sensorIdentifier,
         // Fail-safe seed: PSS gets SENSOR_INVALID on the next drain pass
         // instead of waiting reinforceInterval_ for the first reinforcement.
         slot->state        = SENSOR_INVALID;
-        snprintf(slot->eventCause, MAX_INDENTIFIER_LENGTH, "%s", SAIM_INIT); // pre-frame fail-safe cause
+        slot->eventCause = CAUSE_SAIM_INIT;  // pre-frame fail-safe cause
         slot->timestamp_ns = monotonic_now_ns();
         slot->confidence   = 1.0f;
         slot->lastEventId  = slot->allocEventId();
@@ -137,7 +137,7 @@ void SafetyEventReporter::update_slot(const std::string& sensorIdentifier,
                                       uint64_t  ts_monotonic_ns,
                                       float     confidence,
                                       uint32_t  eventId,
-                                      const char* eventCause) {
+                                      const EventCause* eventCause) {
     // Safe to dereference `slot` after releasing registryMtx_: sensors_ is
     // append-only (no erase/clear anywhere) and unique_ptr keeps each Slot's
     // address stable.
@@ -156,7 +156,7 @@ void SafetyEventReporter::update_slot_impl(Slot* slot,
                                            uint64_t  ts_monotonic_ns,
                                            float     confidence,
                                            uint32_t  eventId,
-                                           const char* eventCause) {
+                                           const EventCause* eventCause) {
     if (slot == nullptr) return;
     {
         std::lock_guard<std::mutex> slk(slot->mtx);
@@ -177,8 +177,10 @@ void SafetyEventReporter::update_slot_impl(Slot* slot,
         slot->confidence   = confidence;
         slot->lastEventId  = eventId;
         // Copy into the slot's owned buffer; nullptr preserves the current cause.
+        /* nullptr preserves the slot's existing cause -- a pointer, not a
+         * sentinel enum value, so "preserve" can never reach the wire. */
         if (eventCause != nullptr)
-            snprintf(slot->eventCause, MAX_INDENTIFIER_LENGTH, "%s", eventCause);
+            slot->eventCause = *eventCause;
         slot->dirty.store(true, std::memory_order_release);
     }
 
@@ -204,14 +206,13 @@ SafetyEvent SafetyEventReporter::buildEventFromSlotLocked(const std::string& nam
     evt.processed = false;
     snprintf(evt.sensorIdentifier, MAX_INDENTIFIER_LENGTH, "%s", name.c_str());
     // VALID always reports the healthy cause; INVALID keeps its real cause, else SAIM_UNKNOWN (never healthy).
-    const char* cause = s.eventCause;
+    EventCause cause = s.eventCause;
     if (s.state == SENSOR_VALID) {
-        cause = SAIM_SENSOR_HEALTHY;
-    } else if (cause[0] == '\0' ||
-               std::strcmp(cause, SAIM_SENSOR_HEALTHY) == 0) {
-        cause = SAIM_UNKNOWN;
+        cause = CAUSE_SAIM_SENSOR_HEALTHY;
+    } else if (cause == CAUSE_NONE || cause == CAUSE_SAIM_SENSOR_HEALTHY) {
+        cause = CAUSE_SAIM_UNKNOWN;
     }
-    snprintf(evt.ruleIdentifier, MAX_INDENTIFIER_LENGTH, "%s", cause);
+    evt.cause = cause;
     return evt;
 }
 

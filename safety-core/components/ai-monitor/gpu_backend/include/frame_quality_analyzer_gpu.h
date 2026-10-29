@@ -20,8 +20,8 @@
 namespace sai { namespace gpu {
 
 /*
- * Orchestrates per-frame GPU quality analysis: histogram computation,
- * Canny edge detection pipeline, and final scoring via compute_quality_kernel.
+ * Orchestrates per-frame GPU analysis: the per-tile sums, Canny edge
+ * detection, and the 12 frame metrics from compute_quality_kernel.
  * Manages all GPU buffer allocations for the analysis pipeline.
  */
 class FrameQualityAnalyzer : public IFrameQualityAnalyzer {
@@ -30,9 +30,7 @@ public:
     ~FrameQualityAnalyzer() override { cleanup(); }
 
     // Allocates GPU buffers for all intermediate analysis stages.
-    // @param nvdec_hist  True if NVDEC hardware histogram is available (avoids fallback kernel).
-    // @param hw_hist_bins Number of HW histogram bins from decodeCaps (0 if unavailable).
-    bool init(int width, int height, bool nvdec_hist, int hw_hist_bins = 0) override;
+    bool init(int width, int height, LumaLines lines) override;
     void cleanup() override;
 
     /*
@@ -40,31 +38,23 @@ public:
      *
      * @param d_y           Device pointer to the NV12 Y plane.
      * @param y_pitch       Row pitch of the Y plane in bytes.
-     * @param dpHistogram   NVDEC hardware histogram (0 if unavailable).
-     * @param hist_bins     Number of bins in the hardware histogram.
-     * @param counter_bytes Size of each histogram counter (4 or 8 bytes).
-     * @return              Per-frame quality scores.
+     * @return              The frame's metrics and tile sums.
      */
-    FrameQualityResult analyze(
-        const unsigned char* d_y, int y_pitch,
-        CUdeviceptr dpHistogram, int hist_bins, int counter_bytes) override;
+    FrameQualityResult analyze(const unsigned char* d_y, int y_pitch) override;
 
-    void setConfig(const ThresholdConfig& cfg) override { cfg_ = cfg; syncParams(); }
+    void setConfig(const ThresholdConfig& cfg) override { cfg_ = cfg; }
     const ThresholdConfig& config() const override { return cfg_; }
 
-    void setMode(RunMode m) override { mode_ = m; syncParams(); }
-    void setBaseline(const BaselineValues& b) override { baseline_ = b; syncParams(); }
+    void setMode(RunMode m) override { mode_ = m; }
 
-    // Copies the GPU learn accumulator to host and computes averaged baseline values.
+    // Frame count and has_chroma only; the caller's LearnFilter fills mu/sigma.
     BaselineValues getLearnedBaseline() override;
 
-    // Host mirror of GpuLearnAccum::frame_count; avoids a per-frame GPU sync
-    // in the LEARN-stop path.
     uint64_t getLearnFramesProcessed() const override { return learn_frames_processed_; }
 
     // Current LEARN-input dimensions. Callers use these to detect whether a
-    // pending init() will keep or wipe the accumulator (init() preserves it
-    // only when both dimensions match the current values).
+    // pending init() will keep or restart LEARN (init() preserves progress only
+    // when both dimensions match the current values).
     int getWidth()  const noexcept override { return W_; }
     int getHeight() const noexcept override { return H_; }
 
@@ -76,17 +66,12 @@ public:
         report_invalid_ = std::move(fn);
     }
 
+    CUstream stream() const noexcept override { return stream_; }
+
 private:
-    // Returns a device pointer to the histogram for scoring: HW 32-bit
-    // histogram passed through, HW 64-bit converted into d_hist_, or the
-    // fallback kernel run into d_hist_. out_bins is set to actual bin count.
-    const unsigned int* prepareHistogram(const unsigned char* d_y, int y_pitch,
-                                        CUdeviceptr dpHistogram, int hist_bins,
-                                        int counter_bytes, int& out_bins);
     // Gaussian blur -> Scharr gradients -> NMS + double threshold ->
-    // hysteresis linking -> edge pixel count.
+    // hysteresis linking -> per-tile edge pixel counts.
     void runEdgeDetection(const unsigned char* d_y, int y_pitch);
-    void syncParams();
 
     // Shared allocation path used by both init() and tryReinitPipeline().
     // Neither path resets reinit_attempts_; only the constructor's in-class
@@ -100,32 +85,37 @@ private:
     //    succeeds for recoverable failures (resume) or fails for
     //    unrecoverable CUDA errors that poisoned the CUcontext (escalate
     //    to permanent fault for this stream).
+    //  - LEARN progress survives a reinit: the rebuild keeps W_/H_, so the
+    //    frames on either side are one population. Only init() restarts it,
+    //    and only when the stream's resolution changed.
     bool tryReinitPipeline() noexcept;
     void handleFrameFailure(const char* where) noexcept;
 
     bool initialized_ = false;
     int  W_ = 0, H_ = 0;
-    bool use_nvdec_hist_ = false;  // True when NVDEC provides a hardware histogram.
+    LumaLines lines_{};  // the stream's black / white lines, set together with W_ / H_
 
     ThresholdConfig    cfg_;
     RunMode           mode_ = RunMode::ACTIVE;
-    BaselineValues    baseline_{};
-    GpuScoringParams  gpu_params_{};  // Host-side mirror, passed by value to kernel.
 
-    int   hist_bins_     = kSwHistogramBinCount; // Actual histogram bin count (from HW or fallback).
-    uint64_t learn_frames_processed_ = 0;  // Host mirror of GpuLearnAccum::frame_count.
+    uint64_t learn_frames_processed_ = 0;  // Frames accepted into LEARN.
+
+    // No previous frame on the device yet: set by every allocation, cleared
+    // by the first frame that completes.
+    bool first_ = true;
 
     // GPU buffers for the analysis pipeline.
-    void* d_hist_        = nullptr;  // N-bin histogram (uint32), sized to hist_bins_.
+    void* d_acc_         = nullptr;  // GpuTileAccum: every per-frame accumulator, one memset per frame.
     void* d_result_      = nullptr;  // Single FrameQualityResult.
-    void* d_learn_accum_ = nullptr;  // Single GpuLearnAccum.
-    void* d_blurred_     = nullptr;  // Gaussian-blurred Y plane (also reused as hysteresis output).
+    void* d_blurred_     = nullptr;  // Gaussian-blurred Y plane.
     void* d_grad_mag_    = nullptr;  // Scharr gradient magnitude (int16).
     void* d_grad_dir_    = nullptr;  // Quantised gradient direction (uint8, 0-3).
     void* d_edges_       = nullptr;  // NMS + threshold output (uint8).
-    void* d_edgeCount_   = nullptr;  // Scalar edge pixel count (uint32).
-    void* d_chroma_sums_ = nullptr;  // 6 uint64 chroma sums (Cb/Cr/sat sum+sumsq).
-    void* d_lap_sums_    = nullptr;  // 2 uint64 Laplacian sums [sum(L) bits, sum(L^2)].
+    void* d_hyst_labels_ = nullptr;  // Hysteresis union-find parent keys (uint32).
+    void* d_prev_        = nullptr;  // Two W x H planes of Y (motion): the previous frame, and this one being written.
+    unsigned int prev_plane_ = 0U;   // Which plane holds the previous frame (0 or 1); flips when a frame completes.
+    void* d_bandA_       = nullptr;  // W x (H + 2 kBandPad) floats: band scratch, rows blurred at sigma 1.
+    void* d_bandB_       = nullptr;  // W x (H + 2 kBandPad) floats: band scratch, rows blurred at sigma 4.
     // Pinned host buffer for the per-frame D2H result copy. cudaMallocHost lets
     // cudaMemcpyAsync do a direct DMA transfer instead of routing through a
     // pageable staging buffer, which removes a per-frame host-side copy.

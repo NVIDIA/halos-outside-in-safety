@@ -18,6 +18,8 @@
 
 #include "pss_protocol.h"
 #include "proximity_cmd_pkt.h"
+#include "nvpsf_transport.h"
+#include "sdm_reviewed_sensor_set.hpp"
 #include "atl_proximity_pair_fusion.h"
 
 /* Launch the event-driven PSD decision loop.
@@ -34,7 +36,11 @@
  * decisionFreshnessTimeoutMs - max age of a valid DecisionRequest before local safe-state fallback.
  * pairTtlMs - how long a forklift/person pair keeps contributing to the worst case
  *   after its last observation. Must be in
- *   ATLPXC_PAIR_TTL_MS_MIN..ATLPXC_PAIR_TTL_MS_MAX; out-of-range is rejected. */
+ *   ATLPXC_PAIR_TTL_MS_MIN..ATLPXC_PAIR_TTL_MS_MAX; out-of-range is rejected.
+ * gatewayTransport - upstream transport for the gateway link. Startup-only and
+ *   immutable; the caller has already rejected anything unusable, so this
+ *   is never a fallback.
+ * gatewaySocketPath - AF_UNIX path when gatewayTransport is UNIX_SOCKET; ignored otherwise. */
 int  launchAtlProximityControlAlgo(const std::string& gatewayIP,
                                 unsigned int gatewayPort,
                                 const std::string& plcIP,
@@ -44,7 +50,11 @@ int  launchAtlProximityControlAlgo(const std::string& gatewayIP,
                                 std::uint32_t hbStaleMs = 5000U,
                                 std::uint32_t hbPeriodMs = 5500U,
                                 std::uint32_t decisionFreshnessTimeoutMs = 7000U,
-                                std::uint32_t pairTtlMs = ATLPXC_PAIR_TTL_MS_DEFAULT);
+                                std::uint32_t pairTtlMs = ATLPXC_PAIR_TTL_MS_DEFAULT,
+                                NvPSFTransportKind gatewayTransport = NVPSF_TRANSPORT_UNIX_SOCKET,
+                                const std::string& gatewaySocketPath = NVPSF_SOCKET_PATH_PSD_GATEWAY,
+                                const std::string& sensorPipelinesConfigPath =
+                                    SDM_SENSOR_PIPELINES_CONFIG_DEFAULT);
 void shutdownAtlProximityControlAlgo();
 
 void onAtlProximityEventNotificationReceive(const DecisionRequest* request);

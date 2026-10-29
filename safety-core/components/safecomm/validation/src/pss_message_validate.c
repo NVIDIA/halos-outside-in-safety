@@ -68,7 +68,7 @@ static uint32_t validateCommonEventFields(
     float confidenceLevel,
     uint64_t timestamp,
     const char *sensorIdentifier,
-    const char *ruleIdentifier,
+    EventCause cause,
     const EventFusionMetadata *meta)
 {
     uint32_t errors = PSS_VALID;
@@ -91,8 +91,13 @@ static uint32_t validateCommonEventFields(
     if (!isNulTerminated(sensorIdentifier, MAX_INDENTIFIER_LENGTH))
         errors |= PSS_ERR_SENSOR_IDENTIFIER;
 
-    if (!isNulTerminated(ruleIdentifier, MAX_INDENTIFIER_LENGTH))
-        errors |= PSS_ERR_RULE_IDENTIFIER;
+    /* Range only. An in-range value this receiver does not recognise is NOT an
+     * error: the SDMs treat any cause other than CAUSE_SAIM_INIT as a genuine
+     * failure, so an unknown one must reach them and latch rather than being
+     * rejected here. Only a value outside the enum is refused, because that
+     * cannot be interpreted at all. */
+    if ((uint32_t)cause >= (uint32_t)CAUSE_COUNT)
+        errors |= PSS_ERR_EVENT_CAUSE;
 
     for (k = 0; k < 2; k++) {
         if ((int)meta->objectType[k] < 0 ||
@@ -116,7 +121,7 @@ static uint32_t validateFusedEventFields(const FusedSafetyEvent *ev)
     uint32_t errors = validateCommonEventFields(
         ev->type, PSS_EVENTTYPE_MAX, ev->confidenceLevel,
         ev->timestamp,
-        ev->sensorIdentifier, ev->ruleIdentifier, &ev->fusionMetadata);
+        ev->sensorIdentifier, ev->cause, &ev->fusionMetadata);
 
     if (ev->severity > PSS_SEVERITY_LEVEL_MAX)
         errors |= PSS_ERR_SEVERITY;
@@ -217,7 +222,7 @@ uint32_t validateSafetyEvent(const SafetyEvent *event)
     errors |= validateCommonEventFields(
         event->type, PSS_CLIENT_EVENTTYPE_MAX, event->confidenceLevel,
         event->timestamp,
-        event->sensorIdentifier, event->ruleIdentifier,
+        event->sensorIdentifier, event->cause,
         &event->fusionMetadata);
 
     return errors;

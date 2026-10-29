@@ -5,7 +5,7 @@
 # Section 1 (EVENT_0..EVENT_5) is inherited verbatim from
 # atl/event_mapping_atl.pb.txt and drives the unmodified ATL SDM (atl_sdm).
 # Do not renumber these: atl/sdm/ccplex/ATLControl.cpp switches on these exact
-# output_event values, and docs/ATL_Safe_State_Spec.md describes their meaning.
+# output_event values.
 #
 # Section 2 (EVENT_8..EVENT_10) is new. It adds forklift-to-person proximity,
 # modelled on proximity/proximity_event_mapping.pb.txt but re-scoped from the
@@ -13,7 +13,7 @@
 # SDM (atl_proximity_sdm, see sdm/ccplex/AtlProximityControl.cpp). EVENT_6 and
 # EVENT_7 are intentionally unused so the proximity tiers keep the same
 # numbering as the standalone proximity app, which keeps the two deployments
-# comparable when reading pss.log side by side.
+# comparable when reading psf.log side by side.
 #
 # PAIR SCOPING IS ENFORCED HERE.
 # The SDM cross-checks that each proximity event has exactly one person

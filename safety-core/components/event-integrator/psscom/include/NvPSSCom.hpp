@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -17,17 +17,34 @@
 namespace nvpss
 {
 
+/*
+ * psscom's own backend type, and the reason it exists.
+ *
+ * This component used to name its backend with NvPSFTransportKind from
+ * safecomm/transport -- while never calling a single NvPSFTransport* function. It
+ * talks to POSIX message queues directly through safecomm/posix_msg_que, so its
+ * queues were never a "PSF transport" in that component's sense at all; it was
+ * borrowing a type from a component it does not use.
+ *
+ * That borrowed reference was the last thing keeping NVPSF_TRANSPORT_POSIX_MSG_QUE
+ * alive in the shared enum, which made a retired PSF transport look selectable
+ * on links that no longer carry it. Decoupling here
+ * is what let that enumerator go.
+ *
+ * One value, because there is one implementation. If psscom ever gains a second
+ * backend, add it here -- not to the PSF transport enum, unless it genuinely
+ * goes through NvPSFTransport.
+ */
+typedef enum NvPSSComBackend_t
+{
+    NVPSSCOM_BACKEND_POSIX_MSG_QUE = 1
+} NvPSSComBackend;
+
 typedef enum NvPSSComEndpoint_t
 {
     NVPSSCOM_SRC,
     NVPSSCOM_SINK
 }NvPSSComEndpoint;
-
-typedef enum NvPSSComChannelBackend_t
-{
-    POSIX_MSG_QUE=0,
-    NVSCI
-}NvPSSComChannelBackend;
 
 typedef struct NvPSSComDataSrcCbInternal_t
 {
@@ -78,7 +95,7 @@ private:
 
     NvPSSComDataSinkCbInternal sinkCallbacks;
     NvPSSComDataSrcCbInternal srcCallbacks;
-    NvPSSComChannelBackend backend;
+    NvPSSComBackend backend;
 
     std::atomic<NvPSSComSrcState> srcState;
     std::atomic<NvPSSComSinkState> sinkState;
@@ -107,7 +124,7 @@ private:
 public:
     NvPSSCom(std::string writeChannel, std::string readChannel, NvPSSComEndpoint endPt);
     ~NvPSSCom();
-    NvPSSComErr NvPSSComChannelCreate(NvPSSComChannelBackend backend);
+    NvPSSComErr NvPSSComChannelCreate(NvPSSComBackend backend);
     NvPSSComErr NvPSSComSetDataSrcCbs(NvPSSComDataSrcCbInternal srcCallbacks);
     NvPSSComErr NvPSSComSetDataSinkCbs(NvPSSComDataSinkCbInternal sinkCallbacks);
     NvPSSComEndpoint NvPSSComGetChannelEndpt();
@@ -118,7 +135,7 @@ public:
     NvPSSComErr NvPSSComPause();
     NvPSSComErr NvPSSComResume();
     NvPSSComErr NvPSSComStop();
-    NvPSSComErr NvPSSComChannelClose(NvPSSComChannelBackend backend);
+    NvPSSComErr NvPSSComChannelClose(NvPSSComBackend backend);
 };
 
 }

@@ -6,6 +6,14 @@
 #ifndef SAI_COMMON_H
 #define SAI_COMMON_H
 
+// The SAIM safety-event cause vocabulary used to live here as string constants.
+// It is now the EventCause enum in event-integrator/daemon/include/pss_protocol.h,
+// surfaced for SAIM as kSaim* constants in include/safety_event_reporter.h.
+//
+// It is not re-exported here on purpose: this header is included by the
+// gpu_backend CUDA kernels, which have no PSS include path and no business
+// knowing the wire format.
+
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -16,6 +24,9 @@
 #include <atomic>
 #include <ctime>
 #include <cstdio>
+#include <initializer_list>
+
+#include "tile_geometry.h"
 
 #ifdef PROFILE
 #include <nvtx3/nvToolsExt.h>
@@ -45,32 +56,131 @@ struct NvtxRange {
 
 enum class RunMode { LEARN, ACTIVE };
 
-// SAIM event-cause identifiers written into SafetyEvent.ruleIdentifier so PSS
-// logs and the SDMs can attribute why a sensor changed state. The verdict stays
-// in EventType (SENSOR_INVALID/VALID).
-// SENSOR_INVALID causes:
-constexpr const char* SAIM_INPUT_DEGRADED    = "SAIM_INPUT_DEGRADED";    // frame-quality score below threshold
-constexpr const char* SAIM_INTERNAL_ERROR    = "SAIM_INTERNAL_ERROR";    // analyzer init / per-frame compute failure
-constexpr const char* SAIM_STREAM_DISCONNECT = "SAIM_STREAM_DISCONNECT"; // connect-retry exhaustion / reconnect
-constexpr const char* SAIM_FRAME_DROP        = "SAIM_FRAME_DROP";        // FU-A NAL drops
-constexpr const char* SAIM_INIT              = "SAIM_INIT";              // first-registration fail-safe seed (pre-frames)
-constexpr const char* SAIM_UNKNOWN           = "SAIM_UNKNOWN";           // defensive fallback: INVALID with missing/contradictory cause
-// SENSOR_VALID cause:
-constexpr const char* SAIM_SENSOR_HEALTHY    = "SAIM_SENSOR_HEALTHY";    // recovery edge (sustained good streak)
+// The 12 quality metrics, in the one order every metric-indexed array and
+// extract helper uses. Adding a metric means editing this enum, the name table
+// in sai_common.cpp, FrameQualityResult::raw and BaselineValues in the same
+// change, or the layouts fall out of step silently.
+enum QualityMetric {
+    QM_HIST_MEAN = 0,
+    QM_HIST_VAR,
+    QM_RMS_CONTRAST,
+    QM_EDGE_DENSITY,
+    QM_ENTROPY,
+    QM_LAP_VAR,
+    QM_CB_MEAN,
+    QM_CB_VAR,
+    QM_CR_MEAN,
+    QM_CR_VAR,
+    QM_SAT_MEAN,
+    QM_SAT_VAR,
+    QM_COUNT
+};
 
-// Per-frame quality scores (0-100 each). Computed entirely on the GPU.
+// True for the six chroma metrics, which are absent on a monochrome source and
+// are the ones BaselineValues::has_chroma gates.
+constexpr bool sai_metric_is_chroma(int j) noexcept { return j >= QM_CB_MEAN; }
+
+// Metric key names in QualityMetric order. Used for baseline.cfg keys and logs,
+// so the file layout and the enum cannot drift apart.
+extern const char* const kQualityMetricNames[QM_COUNT];
+
+
+constexpr int   kDarkLevel     = 16;     // Y at or below: black, on full range (0-255)
+constexpr int   kBrightLevel   = 239;    // Y at or above: white, on full range (0-255)
+
+// The black and white lines one stream's luma is counted at. A limited-range
+// stream (16-235, which H.264 means when a stream signals no range) carries a
+// full-range level v at 16 + v * 219 / 255: Y <= 29.7 for black and Y >= 221.3
+// for white, 29 and 222 in whole values.
+struct LumaLines {
+    int dark   = kDarkLevel;     // Y at or below: black
+    int bright = kBrightLevel;   // Y at or above: white
+};
+
+constexpr LumaLines lumaLines(bool full_range) noexcept {
+    return full_range ? LumaLines{kDarkLevel, kBrightLevel}
+                      : LumaLines{16 + kDarkLevel * 219 / 255,
+                                  16 + (kBrightLevel * 219 + 254) / 255};
+}
+
+constexpr bool lumaLinesValid(const LumaLines& l) noexcept {
+    return l.dark >= 0 && l.dark < l.bright && l.bright <= 255;
+}
+static_assert(lumaLinesValid(lumaLines(true)) && lumaLinesValid(lumaLines(false)),
+              "luma lines must lie in 0..255 with black below white");
+
+// Radii of the band's sigma 1 and sigma 4 Gaussians, ceil(4 sigma): the cut
+// tails hold under 0.01% of the weight.
+constexpr int kBandR1 = 4;
+constexpr int kBandR4 = 16;
+
+// The 2 r + 1 sampled Gaussian weights, scaled to sum to 1 so a flat area gives a
+// band of exactly 0. Sampling is accurate from sigma 1 up. False when r is not
+// ceil(4 sigma) or not in 1..kBandR4.
+inline bool sai_gauss_taps(double sigma, int r, float* w) noexcept {
+    if (r < 1 || r > kBandR4 || (int)std::ceil(4.0 * sigma) != r) return false;
+    double t[kBandR4];
+    double sum = 0.0;
+    for (int i = 0; i < r; ++i) {
+        const double d = (double)(i - r);
+        t[i] = std::exp(-d * d / (2.0 * sigma * sigma));
+        sum += t[i];
+    }
+    const double mul = 1.0 / (2.0 * sum + 1.0);
+    for (int i = 0; i < r; ++i) w[i] = w[2 * r - i] = (float)(t[i] * mul);
+    w[r] = (float)mul;
+    return true;
+}
+
+// Energy the band G(1) - G(4) keeps per unit variance of white noise in its input:
+// the sum of its squared 2-D weights, (a.a)^2 + (b.b)^2 - 2 (a.b)^2 for the 1-D
+// taps a, b. 0 when the taps cannot be built.
+inline double sai_band_noise_gain() noexcept {
+    float g1[2 * kBandR1 + 1], g4[2 * kBandR4 + 1];
+    if (!sai_gauss_taps(1.0, kBandR1, g1) || !sai_gauss_taps(4.0, kBandR4, g4)) return 0.0;
+    double aa = 0.0, bb = 0.0, ab = 0.0;
+    for (int i = 0; i <= 2 * kBandR4; ++i) {
+        const int k = i - kBandR4 + kBandR1;
+        const double a = (k >= 0 && k <= 2 * kBandR1) ? (double)g1[k] : 0.0;
+        aa += a * a;
+        bb += (double)g4[i] * g4[i];
+        ab += a * g4[i];
+    }
+    return aa * aa + bb * bb - 2.0 * ab * ab;
+}
+
+// Per-tile sums of one frame, the input of the tile checks (tile_scorer.h).
+// L4 is |4p - its 4 neighbours|, 0 on the plane's outer ring. The fine band is
+// G(1) - G(4) of Y, G(s) a Gaussian blur of sigma s pixels (mirror border).
+struct TileSums {
+    double px, cpx;               // luma and chroma pixels per tile
+    double ysum[kTileCount];      // sum Y
+    double dark[kTileCount];      // pixels at or below the stream's LumaLines::dark
+    double bright[kTileCount];    // pixels at or above its LumaLines::bright
+    double ylap[kTileCount];      // sum L4(Y)
+    double motion[kTileCount];    // sum |Y - previous Y|; 0 on the first frame
+    double detail[kTileCount];    // sum of the fine band squared
+    double cb[kTileCount];        // sum Cb
+    double cr[kTileCount];        // sum Cr
+    double cb2[kTileCount];       // sum Cb^2
+    double cr2[kTileCount];       // sum Cr^2
+    double sat[kTileCount];       // sum s, the colorfulness above
+    double sat2[kTileCount];      // sum s^2
+    double cb_abs[kTileCount];    // sum |Cb - 128|
+    double cr_abs[kTileCount];    // sum |Cr - 128|
+    double clap[kTileCount];      // sum L4(Cb) + sum L4(Cr)
+};
+
+// One frame's measurements, produced by the linked backend and passed by value
+// across the plugin boundary. TileScorer scores them.
 struct FrameQualityResult {
-    float histogram_score;       // Brightness/variance health.
-    float contrast_score;        // RMS contrast health.
-    float edge_density_score;    // Edge density health.
-    float entropy_score;         // Histogram (Shannon) entropy health.
-    float laplacian_score;       // Laplacian-variance (sharpness) health.
-    float cb_score;              // Cb (U) chroma health.
-    float cr_score;              // Cr (V) chroma health.
-    float sat_score;             // Saturation (alpha-max-plus-beta-min colorfulness) health.
-    float uv_score;              // Weighted avg: w_cb*cb_score + w_cr*cr_score + w_sat*sat_score.
-    float overall_confidence;    // Worst-of luma and chroma: min(y_score, uv_score).
-    bool  valid;                 // True only when GPU analysis completed without errors.
+    // Whole-frame metric values in the units of BaselineValues::mu, composed
+    // from the per-tile integer accumulators.
+    float raw[QM_COUNT];
+
+    TileSums   tiles;
+
+    bool  valid;                 // True only when backend analysis completed without errors.
 };
 
 // Largest frame dimension any analyzer/pipeline accepts (16K x 16K). Single source
@@ -84,13 +194,19 @@ constexpr int MAX_DIM = 16384;
 constexpr int CANNY_LOW_THRESH  = 50;
 constexpr int CANNY_HIGH_THRESH = 150;
 
-// LEARN-mode FPS fallback when the parser cannot determine stream FPS
-// from the H.264 sequence header (zero/invalid frame_rate fields).
+// Max counter_max value (alert patience, frames).
+// Also caps both quadratic counter steps: max_increment (>= max_decrement) * dist^2
+// ≤ COUNTER_MAX_LIMIT * 99^2 (~9.8e6), fits in int32.
+constexpr int COUNTER_MAX_LIMIT = 1000;
+
+// FPS assumed when the H.264 sequence header carries none (zero/invalid
+// frame_rate fields). Sizes the LEARN target and the ACTIVE tile waits.
 constexpr int LEARN_FPS_FALLBACK = 30;
 
-// Upper bound on stream-reported FPS used to compute the LEARN target. Guards
-// against malformed sequence headers (e.g. frame_rate of 1000+ fps) that would
-// otherwise inflate learn_target_frames_ to an unreachable value.
+// Upper bound on stream-reported FPS used to compute the LEARN target and the
+// ACTIVE tile waits. Guards against malformed sequence headers (e.g. frame_rate
+// of 1000+ fps) that would otherwise inflate learn_target_frames_ to an
+// unreachable value.
 constexpr int LEARN_FPS_MAX = 240;
 
 // Analyzer fault-isolation budget. After this many *consecutive* per-frame
@@ -122,19 +238,19 @@ constexpr unsigned int kPssReportRetryDelayMs = 25U;
 // downstream SafetyEventReporter::update_slot_impl already does this clamp.
 uint64_t monotonic_now_ns();
 
+// Max time a sensor can hold its CAUSE_SAIM_INIT seed, from first NAL.
+// Prevents dead cameras from looking like they're starting up.
+constexpr int kIdrWaitTimeoutSec = 30;  // no keyframe: source fault
+constexpr int kInitSeedGraceSec  = 15;  // keyframe seen, never reached VALID
+
 // LEARN duration default and CLI cap (seconds). Shared so unit tests target
 // the same frame count as the production binary.
 constexpr int DEFAULT_LEARN_DURATION_SEC = 300;
-// Caps learn_target_frames_ at ~LEARN_FPS_MAX * MAX_LEARN_DURATION_SEC,
-// within GpuLearnAccum's uint64_t frame_count.
+// Caps learn_target_frames_ at ~LEARN_FPS_MAX * MAX_LEARN_DURATION_SEC.
 constexpr int MAX_LEARN_DURATION_SEC = 3600;
 
-// SW-fallback luminance histogram bin count; also the analyzer's allocation
-// floor when NVDEC reports fewer (or no) bins.
+// Bins of the frame luma histogram both backends build, one per 8-bit level.
 constexpr int kSwHistogramBinCount = 256;
-
-// NVDEC reports the luma-histogram bin count <= 4096 for up to 12-bit luma.
-constexpr int kMaxHistBins = 4096;
 
 // Minimum frame count required for a baseline's per-metric standard deviation
 // to be statistically meaningful. Baselines saved/loaded with fewer frames are rejected.
@@ -153,6 +269,64 @@ constexpr int kSatAlphaQ7 = 123;                     // 123 = round(0.960433870 
 constexpr int kSatBetaQ7  = 51;                      // 51 = round(0.397824735 * 128)
 constexpr int kSatRoundQ7 = 1 << (kSatShiftQ7 - 1);  // 64: round-to-nearest before >>
 
+// Deviation at which the ACTIVE k-sigma score reaches 0, in units of k: the
+// curve runs 100 at zero deviation, score_at_limit at the k-sigma limit, 0 at
+// k * this. Pass score_at_k_sigma.
+inline float zero_score_sigmas_for(float score_at_limit) noexcept {
+    // validate() pins score_at_k_sigma to [0, 99], so this catches only a
+    // malformed in-memory config. Falling back to 1 puts the zero crossing at
+    // the limit itself: stricter, so the failure direction is fail-safe.
+    if (!std::isfinite(score_at_limit) || score_at_limit < 0.0f ||
+        score_at_limit > 99.0f)
+        return 1.0f;
+    return 100.0f / (100.0f - score_at_limit);
+}
+
+// True for the five variance metrics, which are the ones learned and scored on
+// log(x) rather than raw. Their distributions are strongly right-skewed, so a
+// k*sigma band in raw space either clips normal content variation or widens
+// until it stops discriminating. The other seven metrics stay raw.
+constexpr bool sai_metric_is_var(int j) noexcept {
+    return j == QM_HIST_VAR || j == QM_LAP_VAR || j == QM_CB_VAR ||
+           j == QM_CR_VAR   || j == QM_SAT_VAR;
+}
+
+// Clamp on the log's argument. A flat, black or frozen frame gives a variance
+// of exactly 0, so 0 does reach the transform.
+constexpr float kMetricLogFloor = 1e-6f;
+
+// Negative tolerance on the raw (sum_sq - N*mean^2) subtraction
+constexpr float kMetricCancelEpsilon = 1e-3f;
+
+// Floor on a log-space sigma, replacing |mu| * sigma_floor_fraction: log
+// compresses mu until it says nothing about the spread.
+constexpr float kSigmaFloorLog = 1e-6f;
+
+// Weights may sum to 1 +/- this, so a healthy blended score can reach 101.
+constexpr float kWeightSumTolerance = 0.01f;
+
+inline float sai_safe_log(float x) noexcept {
+    return logf(x > kMetricLogFloor ? x : kMetricLogFloor);
+}
+
+// Means, variances, ratios and counts cannot be non-finite or negative, so either one
+// means corrupt memory. Callers route a false to handleFrameFailure. Zero stays valid:
+// a flat frame reads 0 on all of them, so a corrupt value must not be clamped into one.
+inline bool sai_metrics_valid(std::initializer_list<float> values) noexcept {
+    for (float v : values) {
+        if (!std::isfinite(v) || v < 0.f) return false;
+    }
+    return true;
+}
+
+// Floors only fp rounding error from the subtraction. A larger negative is corruption
+// and passes through unchanged for sai_metrics_valid to reject.
+inline float sai_clamp_nonneg(double v) noexcept {
+    const bool is_rounding = (v < 0.0) &&
+                             (v >= -static_cast<double>(kMetricCancelEpsilon));
+    return static_cast<float>(is_rounding ? 0.0 : v);
+}
+
 // Tunable parameters for the quality analyzer, loaded from a config file.
 // Defaults are safe fallbacks; production values should always come from a config file.
 struct ThresholdConfig {
@@ -170,21 +344,57 @@ struct ThresholdConfig {
     //   floor     = |mu| * sigma_floor_fraction
     //   sigma_eff = max(sigma, floor)
     //   z         = |x - mu| / sigma_eff
-    //   score     = clamp(100 * (1 - z/k), 0, 100)
-    // So z = 0 -> 100, z = k -> 0, z > k stays at 0 (clamped). Larger k = wider
-    // tolerance band before a metric is considered bad; k = 3 lines up with
-    // the 3-sigma rule (~99.7% Gaussian coverage), the Shewhart control-chart convention.
-    float k                       = 3.0f;   // Number of sigmas at which score drops to 0 (~99.7% Gaussian coverage at k=3).
-    float sigma_floor_fraction    = 0.05f;  // Fractional-of-|mu| floor on effective sigma; guards against sigma~0.
+    //   score     = ramp(z, k * zero_score_sigmas_for(score_at_k_sigma), 0)
+    // So z = 0 -> 100, z = k -> score_at_k_sigma, reaching 0 only further out.
+    //
+    // k is the Shewhart control limit: the deviation at which a metric is
+    // declared out of control, not the deviation at which its score bottoms out.
+    // The headroom past the limit is what keeps a mild excursion and gross
+    // corruption distinguishable instead of collapsing both to 0.
+    float k                       = 4.0f;   // Shewhart control limit, in sigmas.
+    // Fractional-of-|mu| floor on the effective sigma. A divide-by-zero guard
+    // for a degenerate (static-scene) sigma, not a tolerance knob: it must stay
+    // far below the smallest sigma/|mu| any metric actually learns, or it
+    // silently replaces the measurement. 0 = use the measured sigma as-is.
+    //
+    // Applies to the seven raw-space metrics only. The five log-space metrics
+    // (sai_metric_is_var) use the absolute kSigmaFloorLog instead, because |mu|
+    // stops tracking the spread once the metric is logged.
+    float sigma_floor_fraction    = 0.0001f;
 
-    // Dual-threshold hysteresis for alert transitions.
-    // Frames below score_low_threshold are INVALID; above score_high_threshold are VALID;
-    // between them: no counter change
-    int score_low_threshold       = 40;     // Below this: frame classified INVALID.
-    int score_high_threshold      = 60;     // Above this: frame classified VALID.
-    int counter_max               = 15;     // Counter cap and INVALID alert threshold.
-    int max_increment             = 3;      // Max counter increment for worst scores.
-    int max_decrement             = 2;      // Max counter decrement for best scores.
+    // Score a metric gets at exactly k sigma, which fixes where the curve
+    // reaches 0. Set it equal to score_high_threshold to make k mean the same
+    // thing to the scorer and to the hysteresis counter below; set it lower to
+    // put the control limit inside the fault region, higher to widen the
+    // tolerance. Optional in thresholds.cfg - absent, it takes
+    // score_high_threshold, the value it was fixed to before the key existed.
+    int score_at_k_sigma          = 55;
+
+    // Dual-threshold hysteresis for alert transitions. Strictly below
+    // score_low_threshold increments toward INVALID, strictly above
+    // score_high_threshold decrements toward VALID, and the closed band
+    // [low, high] freezes the counter. Both comparisons are on the truncated
+    // integer score, so the band includes every score in [low, high + 1).
+    //
+    // The frozen band is deliberate anti-chatter, but note what it costs when
+    // score_at_k_sigma sits inside it: a metric just past its k-sigma limit
+    // lands in the band and never accumulates. Widening the band trades
+    // sensitivity to mild excursions for fewer false positives; narrowing it
+    // does the reverse.
+    //
+    // Both counter steps are quadratic in the distance from the dead band, so
+    // counter_max and max_increment are coupled: the worst score latches in
+    // counter_max / max_increment frames and a score at low - 1 in counter_max.
+    // Their ratio is max_increment, so that is the counter's resolution - the
+    // number of distinguishable urgencies, which reshaping the curve cannot exceed.
+    // max_decrement sets how sparse corruption can be and still alert: the
+    // counter drifts upward above max_decrement / (max_increment + max_decrement)
+    // of frames scoring below the dead band.
+    int score_low_threshold       = 45;     // Below this: frame classified INVALID.
+    int score_high_threshold      = 55;     // Above this: VALID.
+    int counter_max               = 225;    // Counter cap and INVALID alert threshold.
+    int max_increment             = 45;     // Max counter increment for worst scores.
+    int max_decrement             = 9;      // Max counter decrement for best scores.
 
     // Canny edge-detection thresholds. Optional in thresholds.cfg; when absent
     // the compile-time CANNY_*_THRESH defaults are used. In ACTIVE mode these
@@ -201,31 +411,50 @@ struct ThresholdConfig {
     bool validate() const;
 };
 
+// Tile counterparts of the 12 whole-frame metrics (tile_scorer.cpp kTwinOf):
+// log brightness, its mean step to the neighbouring tiles, log fine detail,
+// mean Cb and Cr, mean |Cb - 128| and |Cr - 128|, their mean, and the log
+// spread of Cb, Cr and s inside the tile, formed as the whole-frame spreads are.
+enum TileTwin { TT_LEVEL, TT_CONTRAST, TT_FINE, TT_CB, TT_CR, TT_CB_STRENGTH,
+                TT_CR_STRENGTH, TT_SAT, TT_CB_SPREAD, TT_CR_SPREAD, TT_SAT_SPREAD,
+                TT_COUNT };
+
+// LEARN of one tile series whose check alerts on one side of its mean: the mean,
+// and the sigma on that side only.
+struct TileBand {
+    float mu[kTileCount];
+    float sigma[kTileCount];
+};
+
+// LEARN of the tile checks. Each band is learn_series' summary of one tile's
+// series, or summarize_series' over every frame where it refused it; a series
+// too short for either keeps its mean with a sigma so wide that no value falls
+// outside.
+struct TileBaseline {
+    TileBand grain;                   // log chroma texture over luma texture; sigma above the mean
+    TileBand detail;                  // log fine band energy over brightness squared; sigma below
+    TileBand motion;                  // 5 s mean |luma change| per pixel; sigma above
+    float level[TT_COUNT][kTileCount];  // mean of each twin over every LEARN frame
+    float black[kTileCount];          // mean share of the tile at black
+    float white[kTileCount];          // mean share at white
+};
+
 // Averaged quality metrics from the LEARN phase, used as reference in ACTIVE mode.
 // Stores both the mean (mu) and standard deviation (sigma) of each metric so
 // ACTIVE-mode scoring can use a learned k*sigma tolerance band per camera
 // instead of a static fractional margin.
 struct BaselineValues {
-    // Per-metric means computed across the LEARN window.
-    float hist_mean        = 0.f;
-    float hist_var         = 0.f;
-    float rms_contrast     = 0.f;
-    float edge_density     = 0.f;
-    float entropy          = 0.f;
-    float lap_var          = 0.f;
+    // Whole-frame mean of each metric over the LEARN survivors.
+    float mu[QM_COUNT] = {};
 
-    // Per-metric standard deviations computed across the LEARN window.
-    // Reflect each camera's natural frame-to-frame variability and drive the
-    // k*sigma tolerance band in ACTIVE mode. May be zero on extremely static
-    // scenes; the sigma_floor_fraction in ThresholdConfig handles that case.
-    float hist_mean_std    = 0.f;
-    float hist_var_std     = 0.f;
-    float rms_contrast_std = 0.f;
-    float edge_density_std = 0.f;
-    float entropy_std      = 0.f;
-    float lap_var_std      = 0.f;
-
+    // Spread is carried only by the one-sided pair below; there is no symmetric
+    // per-metric sigma.
     int   total_frames     = 0;
+
+    // Picture size LEARN ran at. The texture metrics are per pixel, so ACTIVE
+    // refuses a stream of any other size.
+    int   frame_width      = 0;
+    int   frame_height     = 0;
 
     // Canny thresholds pinned at LEARN time so ACTIVE reproduces the same
     // edge map regardless of thresholds.cfg drift. Optional in older
@@ -235,79 +464,40 @@ struct BaselineValues {
     int canny_low_thresh  = CANNY_LOW_THRESH;
     int canny_high_thresh = CANNY_HIGH_THRESH;
 
-    // Chroma (UV-plane) baseline: per-frame mean and Bessel-corrected variance
-    // of Cb, Cr, and saturation (alpha-max-plus-beta-min colorfulness).
-    float cb_mean = 0.f,  cb_mean_std = 0.f;
-    float cb_var  = 0.f,  cb_var_std  = 0.f;
-    float cr_mean = 0.f,  cr_mean_std = 0.f;
-    float cr_var  = 0.f,  cr_var_std  = 0.f;
-    float sat_mean = 0.f, sat_mean_std = 0.f;
-    float sat_var  = 0.f, sat_var_std  = 0.f;
+    // Chroma (UV-plane) metrics live in the same mu / std arrays under the
+    // QM_CB_* .. QM_SAT_* indices. This only records whether they were learned:
+    // a monochrome source has none, and scoring must skip them rather than
+    // compare against zeros.
     bool  has_chroma = false;
 
+    /* One-sided sigmas: _lo over the LEARN frames below mu, _hi over those
+     * above, both about that same mu, giving the ACTIVE band
+     * [mu - k*sigma_lo, mu + k*sigma_hi].
+     *
+     * Needed because the variance metrics sit against a floor of 0 and only
+     * content pushes them up: a single sigma averages their tight side with
+     * their loose one, loosening the side a fault travels on.
+     *
+     * LearnFilter floors both by the pooled sigma, which cannot exceed the wider
+     * side, so only the tighter one is ever lifted. That sigma is the floor only
+     * and is not stored.
+     *
+     * Both keys are required: loadFromFile refuses a file missing either and
+     * asks for a re-LEARN, there being no symmetric sigma to fall back on.
+     */
+    float std_lo[QM_COUNT] = {};
+    float std_hi[QM_COUNT] = {};
+
+    TileBaseline tile{};
+
     bool saveToFile(const std::string& path) const;
-    // Loads key=value pairs via SaiConfigParser. Returns false on file/parse error.
+    // Loads key=value pairs via SaiConfigParser. Returns false on file/parse
+    // error, and for a file from before the tile keys (asks for a re-LEARN).
     static bool loadFromFile(const std::string& path, BaselineValues& out);
 
     // Checks that all values (mu and sigma) are finite and non-negative, and
     // that total_frames >= MIN_LEARN_FRAMES_FOR_SIGMA.
     bool validate() const;
-};
-
-// Flat struct passed by value to the GPU scoring kernel (no pointers).
-// Combines analyzer config weights, baseline reference values (mu and sigma
-// per metric), the global k*sigma tuning knobs, and mode flags.
-struct GpuScoringParams {
-    float w_histogram, w_contrast, w_edge, w_entropy, w_laplacian;
-
-    float uv_weight_cb, uv_weight_cr, uv_weight_sat;
-
-    // Statistical thresholding knobs (see ThresholdConfig::k / sigma_floor_fraction).
-    float k;
-    float sigma_floor_fraction;
-
-    // Per-metric baseline means (mu).
-    float baseline_hist_mean, baseline_hist_var;
-    float baseline_rms_contrast, baseline_edge_density;
-    float baseline_entropy, baseline_lap_var;
-
-    // Per-metric baseline standard deviations (sigma); used by ACTIVE-mode
-    // scoring as the divisor in the z-score |x - mu| / sigma_eff.
-    float baseline_hist_mean_std, baseline_hist_var_std;
-    float baseline_rms_contrast_std, baseline_edge_density_std;
-    float baseline_entropy_std, baseline_lap_var_std;
-
-    // Chroma (UV-plane) baseline means (mu) and sigmas.
-    float baseline_cb_mean, baseline_cb_mean_std;
-    float baseline_cb_var,  baseline_cb_var_std;
-    float baseline_cr_mean, baseline_cr_mean_std;
-    float baseline_cr_var,  baseline_cr_var_std;
-    float baseline_sat_mean, baseline_sat_mean_std;
-    float baseline_sat_var,  baseline_sat_var_std;
-
-    int   has_baseline;          // 1 if a learned luma baseline is available.
-    int   has_chroma_baseline;   // 1 if a learned chroma baseline is available.
-    int   is_learn_mode;  // 1 during LEARN mode (accumulates stats instead of scoring).
-    int   total_pixels;   // W * H, used to normalize edge count to density.
-    int   chroma_pixels;  // Nc = (W/2) * (H/2), used to normalize chroma sums.
-    int   lap_pixels;     // W*H, divisor for Laplacian variance.
-};
-
-// Per-metric Welford's online statistics accumulated on the GPU during LEARN.
-struct GpuLearnAccum {
-    double hist_mean_mu,    hist_mean_M2;
-    double hist_var_mu,     hist_var_M2;
-    double rms_contrast_mu, rms_contrast_M2;
-    double edge_density_mu, edge_density_M2;
-    double entropy_mu,      entropy_M2;
-    double lap_var_mu,      lap_var_M2;
-    double cb_mean_mu,  cb_mean_M2;
-    double cb_var_mu,   cb_var_M2;
-    double cr_mean_mu,  cr_mean_M2;
-    double cr_var_mu,   cr_var_M2;
-    double sat_mean_mu, sat_mean_M2;
-    double sat_var_mu,  sat_var_M2;
-    uint64_t frame_count;
 };
 
 constexpr int MAX_PSS_REGISTER_RETRIES = 5;

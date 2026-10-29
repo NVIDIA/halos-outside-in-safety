@@ -18,7 +18,7 @@
 #include "sai_common.h"
 
 constexpr size_t RTSP_BUFFER_SIZE      = 65536;  // Max bytes per TCP/UDP recv call.
-constexpr int    RTSP_RECV_TIMEOUT_SEC = 60;     // Seconds of silence before the RTP receiver gives up.
+constexpr int    RTSP_RECV_TIMEOUT_SEC = 5;      // Seconds of silence before the RTP receiver gives up.
 constexpr size_t MAX_RTSP_HEADER = 32u * 1024;   // 32 KB MAX header size for RTSP
 constexpr size_t MAX_RTSP_BODY = 64u * 1024;            // 64 KB MAX Body size for RTSP
 constexpr int MAX_RTSP_CONNECT_RETRIES = 5; // Maximum number of retries for RTSP/RTP connection.
@@ -91,6 +91,13 @@ public:
     void setFuaDropAlertCallback(std::function<void(uint32_t)> cb,
                                  uint32_t threshold = kDefaultFuaDropAlertThreshold);
 
+    // Called for each NAL to report IDR gate state.
+    // Owner returns false to stop further callbacks.
+    void setGateTickCallback(std::function<bool(bool)> cb) {
+        onGateTick_ = std::move(cb);
+        gateTickWanted_ = static_cast<bool>(onGateTick_);
+    }
+
     /* Human-readable label used in per-stream diagnostic logs (e.g. the
      * periodic FU-A drop-cause histogram). Defaults to "rtsp" if not set;
      * callers typically pass the sensor name. Safe to set before receiveLoop. */
@@ -102,6 +109,9 @@ private:
     std::atomic<bool>* stopFlag_ = nullptr;
     std::atomic<bool> localStop_{false};
     std::string rtspUrl_;
+    // Target for PLAY, keepalive and TEARDOWN: SDP session-level a=control resolved
+    // against DESCRIBE Content-Base (else rtspUrl_); absent or "*" means that base.
+    std::string controlUrl_;
     std::string serverIp_;
     int serverPort_ = DEFAULT_RTSP_PORT;
     std::string sessionId_;
@@ -151,6 +161,16 @@ private:
     // packets instead of every packet. Receive-thread only; uint32_t wrap
     // is harmless (the & 0xFF gate is unaffected).
     uint32_t rxIterSinceHk_ = 0;
+
+    // Discards coded slices until the first random access point (IDR/keyframe)
+    // to avoid decoding frames with missing references (e.g., joining mid-GOP).
+    // The source's keyframe interval bounds how long that takes; the measured
+    // figure lives with the gate in passesIdrGate().
+    bool     idrSeen_        = false;   // A random access point has been seen.
+    uint32_t idrGateDropped_ = 0;
+    std::function<bool(bool)> onGateTick_;
+    bool     gateTickWanted_ = false;   // Cleared once the owner stops asking.
+    bool     passesIdrGate(unsigned char nalType);
 
     uint32_t expectedSSRC_ = 0;      // SSRC of the RTP source, locked on first valid packet.
     bool ssrcLocked_ = false;

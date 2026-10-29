@@ -10,11 +10,8 @@
 #include <csignal>
 #include <cstdint>
 #include <climits>
-#include <cstdlib>
-#include <cstdio>
-#include <set>
 #include "common.hpp"
-#include "EventMappingValidation.hpp"
+#include "EventMapping.hpp"
 #include "MDXClient.hpp"
 #include "NvPSFMsgBus.h"
 #include "NvPSFMsgCodec.h"
@@ -27,126 +24,6 @@ namespace MDXClient {
 
 static std::atomic<bool> s_stopRequested{false};
 
-static std::string getConfigRuleStringField(const NvPSFMsgCodecMsg* rule, const char* field) {
-    NvPSFMsgCodecFieldResult result = NvPSFMsgCodecGetField(rule, field);
-    if (result.type == NvPSF_VALUE_STRING && result.data.s != nullptr) {
-        std::string value(result.data.s);
-        free(const_cast<char*>(result.data.s));
-        return value;
-    }
-    return std::string();
-}
-
-static double getConfigRuleDoubleField(const NvPSFMsgCodecMsg* rule, const char* field) {
-    NvPSFMsgCodecFieldResult result = NvPSFMsgCodecGetField(rule, field);
-    if (result.type == NvPSF_VALUE_DOUBLE) {
-        return result.data.d;
-    }
-    if (result.type == NvPSF_VALUE_FLOAT) {
-        return static_cast<double>(result.data.f);
-    }
-    return 0.0;
-}
-
-static bool getConfigRuleOptionalBoolField(const NvPSFMsgCodecMsg* rule,
-                                           const char* field, bool* value) {
-    if (rule == nullptr || field == nullptr || value == nullptr ||
-        !NvPSFMsgCodecGetFieldPresence(rule, field)) {
-        return false;
-    }
-    const NvPSFMsgCodecFieldResult result = NvPSFMsgCodecGetField(rule, field);
-    if (result.type != NvPSF_VALUE_BOOL) {
-        return false;
-    }
-    *value = result.data.b;
-    return true;
-}
-
-static bool validateEventMappingConfig(const NvPSFMsgCodecMsg* config) {
-    if (config == nullptr) {
-        return false;
-    }
-    const int rulesCount = NvPSFMsgCodecGetRepeatedCount(config, "rules");
-    std::set<std::pair<std::string, double>> proximityThresholds;
-    std::set<std::string> proximityNoViolationPairs;
-    std::set<std::string> proximityRuleIds;
-    for (int ruleIndex = 0; ruleIndex < rulesCount; ++ruleIndex) {
-        NvPSFMsgCodecMsg* rule = nullptr;
-        char rulePath[64];
-        snprintf(rulePath, sizeof(rulePath), "rules[%d]", ruleIndex);
-        if (NvPSFMsgCodecGetSubMsg(config, rulePath, &rule) != NvPSFMSGCODEC_SUCCESS ||
-            rule == nullptr) {
-            if (rule != nullptr) {
-                NvPSFMsgCodecFreeMsg(rule);
-            }
-            NvPSBWriteData(NVPSB_LOG_ERR, "Invalid event mapping rule", "");
-            return false;
-        }
-        const std::string restrictedFilter = getConfigRuleStringField(
-            rule, "restricted_area_violation");
-        const std::string confinedFilter = getConfigRuleStringField(
-            rule, "confined_area_violation");
-        const std::string socialFilter = getConfigRuleStringField(
-            rule, "social_distancing_violation");
-        const std::string messageSource = getConfigRuleStringField(rule, "message_source");
-        const std::string alertType = getConfigRuleStringField(rule, "alert_type");
-        const std::string objectType = getConfigRuleStringField(rule, "object_type");
-        const std::string ruleId = getConfigRuleStringField(rule, "rule_id");
-        const std::string configuredPrimaryType = getConfigRuleStringField(
-            rule, "object_type_primary");
-        const std::string configuredSecondaryType = getConfigRuleStringField(
-            rule, "object_type_secondary");
-        const std::string primaryType = configuredPrimaryType.empty()
-            ? objectType : configuredPrimaryType;
-        const double distanceThreshold = getConfigRuleDoubleField(
-            rule, "distance_threshold_meters");
-        const bool distanceThresholdPresent = NvPSFMsgCodecGetFieldPresence(
-            rule, "distance_threshold_meters");
-        bool proximityViolation = false;
-        const bool proximityViolationPresent = getConfigRuleOptionalBoolField(
-            rule, "proximity_violation", &proximityViolation);
-        const bool hasViolationFilter = !restrictedFilter.empty() ||
-                                        !confinedFilter.empty() ||
-                                        !socialFilter.empty();
-        const bool isPairRule = isProximityPairRule(
-            alertType, configuredPrimaryType, configuredSecondaryType,
-            proximityViolationPresent, distanceThresholdPresent);
-        const bool hasValidPairRule = !isPairRule ||
-            isValidProximityPairRule(messageSource, alertType, primaryType,
-                                     configuredSecondaryType, proximityViolationPresent,
-                                     proximityViolation, distanceThresholdPresent,
-                                     distanceThreshold, hasViolationFilter);
-        const bool hasValidPairRuleId = !isPairRule ||
-            isValidProximityPairRuleId(ruleId);
-        bool hasUniquePairRule = true;
-        bool hasUniquePairRuleId = true;
-        if (hasValidPairRule && hasValidPairRuleId && isPairRule) {
-            hasUniquePairRule = insertUniqueProximityPairRule(
-                &proximityThresholds, &proximityNoViolationPairs, primaryType,
-                configuredSecondaryType, proximityViolation, distanceThreshold);
-            if (hasUniquePairRule) {
-                hasUniquePairRuleId = insertUniqueProximityPairRuleId(
-                    &proximityRuleIds, ruleId);
-            }
-        }
-        const bool valid = isValidViolationFilter(restrictedFilter) &&
-                           isValidViolationFilter(confinedFilter) &&
-                           isValidViolationFilter(socialFilter) &&
-                           isValidViolationRuleScope(restrictedFilter, confinedFilter,
-                                                     socialFilter, messageSource, alertType) &&
-                           isValidRoiClearObjectType(restrictedFilter, confinedFilter,
-                                                     objectType) &&
-                           hasValidPairRule && hasValidPairRuleId &&
-                           hasUniquePairRule && hasUniquePairRuleId;
-        NvPSFMsgCodecFreeMsg(rule);
-        if (!valid) {
-            NvPSBWriteData(NVPSB_LOG_ERR, "Rejected unsafe event mapping rule", "");
-            return false;
-        }
-    }
-    return true;
-}
-
 static void mdxSignalHandler(int sig) {
     (void)sig;
     s_stopRequested.store(true);
@@ -155,28 +32,36 @@ static void mdxSignalHandler(int sig) {
 class MDXClientImpl {
 public:
     explicit MDXClientImpl(const std::string& configPath, const std::string& sensorConfigPath,
-                           bool debugMode = false, const std::string& brokerOverride = "")
+                           bool identityIsPipelines = false,
+                           bool debugMode = false, const std::string& brokerOverride = "",
+                           uint8_t pssInstanceId = 0U)
         : configPath_(configPath), sensorConfigPath_(sensorConfigPath),
+          identityIsPipelines_(identityIsPipelines),
           debugMode_(debugMode),
+          pssInstanceId_(pssInstanceId),
           eventsParser_([this]() { return nextEventId(); }),
           framesParser_([this]() { return nextEventId(); }, debugMode) {
         if (!brokerOverride.empty())
             brokers_ = brokerOverride;
     }
 
+    // Decode the config into mapping_ and release the protobuf handle: the
+    // configuration is static, so nothing past this point needs the codec.
     bool loadConfig() {
-        if (NvPSFMsgCodecDecodeFromFile(configPath_.c_str(), NvPSF_MSG_EVENT_MAPPING, &config_) != NvPSFMSGCODEC_SUCCESS) {
+        NvPSFMsgCodecMsg* config = nullptr;
+        if (NvPSFMsgCodecDecodeFromFile(configPath_.c_str(), NvPSF_MSG_EVENT_MAPPING, &config) != NvPSFMSGCODEC_SUCCESS) {
             NvPSBWriteData(NVPSB_LOG_ERR, "Failed to load config file: " + configPath_, "");
             return false;
         }
-        if (!validateEventMappingConfig(config_)) {
-            NvPSFMsgCodecFreeMsg(config_);
-            config_ = nullptr;
+        const bool compiled = compileEventMapping(config, &mapping_);
+        NvPSFMsgCodecFreeMsg(config);
+        if (!compiled || !validateEventMapping(mapping_)) {
+            mapping_.rules.clear();
+            mapping_.proximityPairGroups.clear();
             return false;
         }
-        int rulesCount = NvPSFMsgCodecGetRepeatedCount(config_, "rules");
         NvPSBWriteData(NVPSB_LOG_INFO, "Loaded event mapping config, " +
-            std::to_string(rulesCount) + " rules", "");
+            std::to_string(mapping_.rules.size()) + " rules", "");
         return true;
     }
 
@@ -192,12 +77,16 @@ public:
             return 1;
         }
 
-        if (!loadConfig() || NvPSFMsgCodecGetRepeatedCount(config_, "rules") == 0) {
+        if (!loadConfig() || mapping_.rules.empty()) {
             NvPSBWriteData(NVPSB_LOG_ERR, "No rules in config or load failed", "");
             NvPSBExit();
             return 1;
         }
-        reporter_.setSensorConfigPath(sensorConfigPath_);
+        reporter_.setSensorIdentityConfig(
+            sensorConfigPath_,
+            identityIsPipelines_ ? SafetyEventReporter::IdentitySource::PipelinesConfig
+                                 : SafetyEventReporter::IdentitySource::CameraConfig);
+        reporter_.setPssInstanceId(pssInstanceId_);
         if (!reporter_.init(debugMode_, s_stopRequested)) {
             NvPSBExit();
             return 1;
@@ -214,9 +103,13 @@ public:
 private:
     std::string configPath_;
     std::string sensorConfigPath_;
+    bool identityIsPipelines_;
     bool debugMode_;
+    uint8_t pssInstanceId_;
     std::string brokers_ = "localhost:9092";
-    NvPSFMsgCodecMsg* config_ = nullptr;
+    // Immutable once loadConfig() succeeds, so both consumer loops read it
+    // concurrently without synchronization.
+    EventMapping mapping_;
     std::atomic<uint32_t> eventCounter_{0};
 
     NvPSFMsgBusHandle* eventsConsumer_ = nullptr;
@@ -265,7 +158,6 @@ private:
     void cleanup() {
         reporter_.shutdown();
         disconnectMsgBus();
-        if (config_) { NvPSFMsgCodecFreeMsg(config_); config_ = nullptr; }
         NvPSBExit();
         NvPSFMsgCodecShutdown();
     }
@@ -296,7 +188,7 @@ private:
             msgBuf.assign(buf, len);
             auto alerts = eventsParser_.parseEventsMessage(msgBuf);
             for (const auto& alert : alerts)
-                reporter_.reportAlert(alert, config_);
+                reporter_.reportAlert(alert, mapping_);
         }
     }
 
@@ -317,17 +209,20 @@ private:
                 continue;
             }
             msgBuf.assign(buf, len);
-            auto alerts = framesParser_.parseFramesMessage(msgBuf, config_);
+            auto alerts = framesParser_.parseFramesMessage(msgBuf, mapping_);
             for (const auto& alert : alerts)
-                reporter_.reportAlert(alert, config_);
+                reporter_.reportAlert(alert, mapping_);
         }
     }
 };
 
 } // namespace MDXClient
 
-int launchMDXClient(const std::string& config_path, const std::string& sensor_config_path,
-                    bool debug_mode, const std::string& broker_override) {
-    MDXClient::MDXClientImpl client(config_path, sensor_config_path, debug_mode, broker_override);
+int launchMDXClient(const std::string& config_path, const std::string& identity_config_path,
+                    bool identity_is_pipelines,
+                    bool debug_mode, const std::string& broker_override,
+                    uint8_t pss_instance_id) {
+    MDXClient::MDXClientImpl client(config_path, identity_config_path, identity_is_pipelines,
+                                    debug_mode, broker_override, pss_instance_id);
     return client.run();
 }

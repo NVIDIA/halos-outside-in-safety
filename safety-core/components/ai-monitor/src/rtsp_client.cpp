@@ -75,6 +75,7 @@ void RTSPClient::resetSessionState() {
     localStop_.store(false);
 
     sessionId_.clear();
+    controlUrl_.clear();
     cseq_              = 0;
     streamBuf_.clear();
 
@@ -104,6 +105,11 @@ void RTSPClient::resetSessionState() {
     sessionTimeoutSec_ = DEFAULT_SESSION_TIMEOUT_SEC;
     lastKeepAlive_     = std::chrono::steady_clock::time_point{};
     lastDataReceived_  = std::chrono::steady_clock::time_point{};
+
+    // Re-armed per session: a reconnect rejoins mid-GOP exactly as the first
+    // connect did, so the gate has to close again.
+    idrSeen_        = false;
+    idrGateDropped_ = 0;
 
     rxIterSinceHk_ = 0;
 
@@ -510,6 +516,13 @@ void RTSPClient::extractServerPorts(const std::string& response) {
 #endif
 }
 
+// Strips leading and trailing spaces/tabs from a parsed header or SDP value.
+static std::string trimWs(const std::string& s) {
+    size_t b = s.find_first_not_of(" \t");
+    if (b == std::string::npos) return "";
+    return s.substr(b, s.find_last_not_of(" \t") - b + 1);
+}
+
 // Parses the SDP body to find the video track's "a=control:" URL for SETUP.
 // videoPos/videoEnd are the pre-computed boundaries of the "m=video" section;
 // videoPos == npos means no video section was found (fallback: any non-"*" control).
@@ -520,7 +533,7 @@ std::string RTSPClient::extractTrackUrl(const std::string& sdp,
         while (ctrlPos != std::string::npos) {
             size_t valStart = ctrlPos + 10;
             size_t valEnd = sdp.find_first_of("\r\n", valStart);
-            std::string ctrl = sdp.substr(valStart, valEnd - valStart);
+            std::string ctrl = trimWs(sdp.substr(valStart, valEnd - valStart));
             if (ctrl != "*") return ctrl;
             ctrlPos = sdp.find("a=control:", valEnd);
         }
@@ -530,7 +543,7 @@ std::string RTSPClient::extractTrackUrl(const std::string& sdp,
     if (ctrlPos == std::string::npos || ctrlPos >= videoEnd) return "";
     size_t valStart = ctrlPos + 10;
     size_t valEnd = sdp.find_first_of("\r\n", valStart);
-    return sdp.substr(valStart, valEnd - valStart);
+    return trimWs(sdp.substr(valStart, valEnd - valStart));
 }
 
 // Extracts base64-encoded SPS/PPS NAL units from the SDP "sprop-parameter-sets"
@@ -640,14 +653,15 @@ bool RTSPClient::setupRTSPSession() {
 
     // Content-Base overrides the request URL for resolving
     // relative a=control: URLs in the SDP (common with proxies/load balancers).
+    // The leading "\n" matches only a whole header name at line start.
     std::string baseUrl = rtspUrl_;
-    size_t cbPos = ci_find(descResp, "content-base:");
+    size_t cbPos = ci_find(descResp, "\ncontent-base:");
     if (cbPos != std::string::npos && sdpStart != std::string::npos && cbPos < sdpStart) {
-        size_t valStart = descResp.find_first_not_of(" \t", cbPos + 13);
+        size_t valStart = descResp.find_first_not_of(" \t", cbPos + 14);
         if (valStart != std::string::npos && valStart < sdpStart) {
             size_t valEnd = descResp.find_first_of("\r\n", valStart);
-            if (valEnd != std::string::npos)
-                baseUrl = descResp.substr(valStart, valEnd - valStart);
+            if (valEnd != std::string::npos && valEnd > valStart)
+                baseUrl = trimWs(descResp.substr(valStart, valEnd - valStart));
         }
     }
 
@@ -668,26 +682,35 @@ bool RTSPClient::setupRTSPSession() {
     }
 
     // Resolve the SDP a=control: URL against baseUrl (RFC 3986 reference resolution):
-    //   empty       → use baseUrl as-is (no track-level control)
+    //   empty or *  → use baseUrl as-is (RFC 2326 C.1.1)
     //   rtsp://...  → absolute URL, use directly
     //   /path       → absolute path, combine with baseUrl's scheme://authority
     //   trackID=1   → relative, append to baseUrl
-    std::string trackUrl = extractTrackUrl(sdpBody, videoPos, videoEnd);
-    std::string setupUrl;
-    if (trackUrl.empty()) {
-        setupUrl = baseUrl;
-    } else if (ci_find(trackUrl, "rtsp://") == 0) {
-        setupUrl = trackUrl;
-    } else if (trackUrl[0] == '/') {
-        size_t authEnd = baseUrl.find('/', baseUrl.find("://") + 3);
-        setupUrl = (authEnd != std::string::npos ? baseUrl.substr(0, authEnd) : baseUrl)
-                   + trackUrl;
-    } else {
-        setupUrl = baseUrl;
-        if (!setupUrl.empty() && setupUrl.back() != '/')
-            setupUrl += '/';
-        setupUrl += trackUrl;
+    auto resolveControl = [&baseUrl](const std::string& ctrl) -> std::string {
+        if (ctrl.empty() || ctrl == "*") return baseUrl;
+        if (ci_find(ctrl, "rtsp://") == 0) return ctrl;
+        if (ctrl[0] == '/') {
+            size_t authEnd = baseUrl.find('/', baseUrl.find("://") + 3);
+            return (authEnd != std::string::npos ? baseUrl.substr(0, authEnd) : baseUrl)
+                   + ctrl;
+        }
+        std::string url = baseUrl;
+        if (!url.empty() && url.back() != '/')
+            url += '/';
+        return url + ctrl;
+    };
+    std::string setupUrl = resolveControl(extractTrackUrl(sdpBody, videoPos, videoEnd));
+
+    // Session-level a=control (before the first m= line) is the aggregate URL for
+    // PLAY, keepalive and TEARDOWN (RFC 2326 C.1.1).
+    std::string sessionCtrl;
+    size_t ctrlPos = sdpBody.find("a=control:");
+    if (ctrlPos != std::string::npos && ctrlPos < sdpBody.find("\nm=")) {
+        size_t valStart = ctrlPos + 10;
+        size_t valEnd = sdpBody.find_first_of("\r\n", valStart);
+        sessionCtrl = trimWs(sdpBody.substr(valStart, valEnd - valStart));
     }
+    controlUrl_ = resolveControl(sessionCtrl);
 
     if (!createUdpSockets()) { std::cerr << "Failed to create UDP sockets\n"; return false; }
     std::string setupReq = "SETUP " + setupUrl + " RTSP/1.0\r\n"
@@ -715,7 +738,7 @@ bool RTSPClient::setupRTSPSession() {
     sessionId_ = extractSessionId(setupResp);
     if (sessionId_.empty()) { std::cerr << "No session ID in SETUP response\n"; return false; }
 
-    std::string playReq = "PLAY " + rtspUrl_ + " RTSP/1.0\r\n"
+    std::string playReq = "PLAY " + controlUrl_ + " RTSP/1.0\r\n"
         "CSeq: " + std::to_string(++cseq_) + "\r\n"
         "User-Agent: RTSPClient\r\n"
         "Session: " + sessionId_ + "\r\n"
@@ -785,10 +808,46 @@ void RTSPClient::sendHolePunch() {
 #endif
 }
 
+bool RTSPClient::passesIdrGate(unsigned char nalType) {
+    static constexpr unsigned char kNalSliceIdr = 5;
+    // ~2 measured keyframe intervals; past this the source itself is suspect.
+    static constexpr uint32_t kIdrGateHoldLogInterval = 600;
+
+    // Advance tick so owner hears from us after gate opens; falls back to bool per NAL.
+    if (gateTickWanted_) gateTickWanted_ = onGateTick_(idrSeen_);
+
+    if (idrSeen_) return true;
+
+    // IDR is the only random access point here: VST serves closed-GOP
+    // passthrough with no intra refresh, so no recovery point SEI is parsed.
+    if (nalType == kNalSliceIdr) {
+        idrSeen_ = true;
+        // Printed even at zero, so the line is proof the gate ran.
+        std::cout << "[" << streamLabel_ << "] IDR gate: opened on IDR, dropped "
+                  << idrGateDropped_ << " undecodable slice(s)\n";
+        return true;
+    }
+
+    // VCL types per H.264 Table 7-1: 1-4 non-IDR slice and its data partitions,
+    // 19-21 auxiliary and scalable/depth extension slices. Everything else
+    // carries no pixels and configures the decoder, so it passes regardless.
+    const bool vcl = (nalType >= 1 && nalType <= 4) ||
+                     (nalType >= 19 && nalType <= 21);
+    if (!vcl) return true;
+
+    // The hold itself is unbounded here; the gate tick above is what puts a
+    // deadline on it. Logged periodically so a holding gate stays diagnosable.
+    if (++idrGateDropped_ % kIdrGateHoldLogInterval == 0)
+        std::cerr << "[" << streamLabel_ << "] IDR gate: still no IDR after "
+                  << idrGateDropped_ << " dropped slice(s)\n";
+    return false;
+}
+
 // Wraps raw NAL bytes with a 4-byte Annex-B start code and enqueues them.
 void RTSPClient::pushNalUnit(const unsigned char* data, size_t len) {
     NVTX_RANGE("RTSP::PushNAL", 0xFF6644CC);
     if (len == 0) return;
+    if (!passesIdrGate((unsigned char)(data[0] & 0x1F))) return;
     NalUnit nal;
     nal.data.reserve(4 + len);
     nal.data.insert(nal.data.end(), NAL_START_CODE, NAL_START_CODE + 4);
@@ -978,7 +1037,7 @@ void RTSPClient::maybeSendKeepAlive() {
     if (elapsed >= (sessionTimeoutSec_ >= 3 ? sessionTimeoutSec_ / 3 : sessionTimeoutSec_)) {
         drainSignalingSocket();
         NVTX_MARK("RTSP::KeepAlive");
-        std::string req = "GET_PARAMETER " + rtspUrl_ + " RTSP/1.0\r\n"
+        std::string req = "GET_PARAMETER " + controlUrl_ + " RTSP/1.0\r\n"
             "CSeq: " + std::to_string(++cseq_) + "\r\n"
             "Session: " + sessionId_ + "\r\n\r\n";
         if (!sendRequest(req))
@@ -1071,10 +1130,8 @@ void RTSPClient::receiveLoop() {
 
         ssize_t n = recv(rtpSockfd_, buf, sizeof(buf), 0);
         if (n > 0) {
-            // Same 256-iteration cadence as housekeeping. Idle timeout is
-            // 60 s, so ~85 ms staleness is irrelevant.
-            if ((rxIterSinceHk_ & 0xFF) == 1)
-                lastDataReceived_ = std::chrono::steady_clock::now();
+            // Per packet: a sparser stamp can be stale enough to trip the 5 s idle timeout.
+            lastDataReceived_ = std::chrono::steady_clock::now();
         } else if (n == 0) {
             continue;  // 0-byte UDP datagram, not a connection close.
         } else {
@@ -1196,7 +1253,7 @@ void RTSPClient::sendTeardown() {
                      "TEARDOWN %s RTSP/1.0\r\n"
                      "CSeq: %d\r\n"
                      "Session: %s\r\n\r\n",
-                     rtspUrl_.c_str(), ++cseq_, sessionId_.c_str());
+                     controlUrl_.c_str(), ++cseq_, sessionId_.c_str());
     if (n <= 0 || static_cast<size_t>(n) >= sizeof(req)) {
         std::cerr << "RTSP TEARDOWN request too large to send (skipping)\n";
         sessionId_.clear();

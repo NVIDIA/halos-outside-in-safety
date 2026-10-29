@@ -38,6 +38,11 @@ enum class AlertCandidateKind : uint8_t {
     kConfinedRoi,
     kFrameSocial,
     kProximityPair,
+    // One object is being carried by another. Like kProximityPair it describes
+    // two physical objects, but it is a judgement over a window of frames rather
+    // than a measurement of the current one, and it is kept separate so a
+    // proximity rule can never consume it or vice versa.
+    kCoMovementPair,
 };
 
 // Internal pair outcome. It is never serialized into the PSS event.
@@ -46,6 +51,15 @@ enum class ProximitySelection : uint8_t {
     kUnknown,
     kNoViolation,
     kThresholdViolation,
+};
+
+// What a co-movement window measured, carried on the candidate for logging.
+// Meaningful only when candidateKind is kCoMovementPair.
+struct CoMovementEvidence {
+    float offsetSd;
+    float carrierTravel;
+    float boxContainment;
+    bool travelWaivedByBox;
 };
 
 // Unified alert message from mdx-events or mdx-frames (same as ATL, with optional violation flags)
@@ -70,6 +84,7 @@ struct AlertMessage {
     AlertCandidateKind candidateKind;
     ProximitySelection proximitySelection;
     double proximityThreshold;      // Valid only when proximitySelection is kThresholdViolation
+    CoMovementEvidence coMovement;  // Valid only when candidateKind is kCoMovementPair
     Coordinate coordinates[MAX_COORDINATES_COUNT];
     int coordCount;
 };

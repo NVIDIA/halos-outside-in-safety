@@ -17,7 +17,7 @@ OUTPUT_DIR=""
 DOCKERFILE=""
 IMAGE_TAG=""
 PLATFORM=""
-VERSION="1.2.1"
+VERSION="1.4.0"
 TARGET_ARCH=""
 
 while [[ $# -gt 0 ]]; do

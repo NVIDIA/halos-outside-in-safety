@@ -5,6 +5,7 @@ set(_safety_core_package_dependencies)
 foreach(_safety_core_target IN ITEMS
     safety_monitor
     saim_gpu
+    nv_perception_monitor
     nvpsb
     nvpssd_interface
     pss_daemon
@@ -20,7 +21,10 @@ foreach(_safety_core_target IN ITEMS
     proximity_sdm
     proximity_sdm_cmd_receiver
     atl_proximity_sdm
-    atl_proximity_sdm_cmd_receiver)
+    atl_proximity_sdm_cmd_receiver
+    crossing_junction_safety_monitor_sdm
+    crossing_junction_safety_monitor_sdm_cmd_receiver
+    nvpsf_transport)
   if(TARGET "${_safety_core_target}")
     list(APPEND _safety_core_package_dependencies "${_safety_core_target}")
   endif()
