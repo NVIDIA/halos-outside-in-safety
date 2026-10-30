@@ -37,9 +37,21 @@ trap cleanup SIGTERM SIGINT
 # Start OPC UA Server (includes UDP receiver)
 echo "[1/2] Starting OPC UA Server + UDP Receiver..."
 cd /app/comm_layer
+ZONE2_ARGS=()
+if [ -n "${UDP_PORT_ZONE2:-}" ]; then
+    echo "  UDP Port zone 2: $UDP_PORT_ZONE2"
+    ZONE2_ARGS=(--zone2-port "$UDP_PORT_ZONE2")
+fi
+PXC_ARGS=()
+if [ -n "${UDP_PORT_PXC:-}" ]; then
+    echo "  UDP Port proximity: $UDP_PORT_PXC"
+    PXC_ARGS=(--pxc-port "$UDP_PORT_PXC")
+fi
 python3 scripts/run_opc_server.py \
     -p $UDP_PORT \
     -e $OPCUA_ENDPOINT \
+    "${ZONE2_ARGS[@]}" \
+    "${PXC_ARGS[@]}" \
     2>&1 | tee /app/logs/opc_server.log &
 
 OPC_PID=$!
@@ -74,6 +86,7 @@ cd /app/ros_bridge
 python3 scripts/run_ros_bridge.py \
     --opcua $OPCUA_ENDPOINT \
     --topic-prefix $ROS_TOPIC_PREFIX \
+    --scenario "${SCENARIO:-}" \
     --rate 10.0 \
     2>&1 | tee /app/logs/ros_bridge.log &
 

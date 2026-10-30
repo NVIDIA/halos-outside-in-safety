@@ -1,0 +1,34 @@
+# Opt-in: ATL and proximity in one PSF container. Use with PSF_APP=both.
+#
+#   docker compose -f compose.yaml \
+#     -f ../closed-loop-testing/safety-core/atl-pxc-override.yaml \
+#     --env-file profiles/sil.env up -d safety-core
+#
+# The image's launcher runs the pair itself (--app atl,pxc): one gateway, one
+# daemon and one mdx_client, and each SDM with its own --sdm-config and its own
+# command port. ATL sends to COMM_UDP_PORT, proximity to COMM_UDP_PORT_PXC, and
+# comm-layer must listen on both. Proximity needs the 3D feed, so set the two
+# 3D lines of the profile as well.
+#
+# mdx_client takes one mapping for both SDMs. atl_pxc_entrypoint.sh writes it
+# when the container starts, from the image's ATL rules followed by the
+# proximity rules of configs/proximity_event_mapping.pb.txt, and then runs the
+# image's own entrypoint.
+#
+# A -f file resolves relative paths against the project directory, not its own,
+# so the mount is spelled from MDX_SAMPLE_APPS_DIR.
+services:
+  safety-core:
+    entrypoint: ["/usr/bin/tini", "-g", "-s", "--", "bash", "/opt/hoisa/atl_pxc_entrypoint.sh"]
+    volumes:
+      - ${MDX_SAMPLE_APPS_DIR:?set MDX_SAMPLE_APPS_DIR to the repo checkout}/closed-loop-testing/safety-core/scripts:/opt/hoisa:ro
+      - ${PSF_LOG_DIR}/atl_sdm.log:/var/log/psf/atl_sdm.log
+    command: >
+      --app atl,pxc
+      --saim-mode ${PSF_LAUNCH_MODE:-skip}
+      --pcm-mode ${PSF_PCM_MODE:-skip}
+      --cmd_rx_ip ${PSF_CMD_RX_IP}
+      --cmd_rx_port ${COMM_UDP_PORT},${COMM_UDP_PORT_PXC:?set COMM_UDP_PORT_PXC for the proximity SDM}
+      --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
+      --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf,/opt/nvidia/psf/bin/pxc_sdm.conf
+      --event-mapping /tmp/event_mapping_atl_pxc.pb.txt

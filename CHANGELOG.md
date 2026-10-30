@@ -1,0 +1,383 @@
+# Changelog
+
+## Unreleased
+
+### VSS Warehouse 3.3
+
+- `hoisa-deploy-profile` targets VSS 3.3.0, the GitHub release `v3.3.0`, deployed with the VSS repo's `vss-build-vision-ai` skill (warehouse profile). `vss_2d_overrides.md` and `vss_3d_overrides.md` give its answers and what SIL needs on top: the release images `nvcr.io/nvidia/vss-core/*:3.3.0`, the Minimal `bp_wh_kafka` variant with the 3-camera dataset in the build's `override.env`, the app data `nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0` and the `--org` its download needs, the skill's data-directory step, and a dataset of your own. The skill's resolve and validators accept these values, and its `resolved.yml` matches the stack the tests ran on. Against `v3.3.0rc0`, the release keeps the loading-dock calibrations and every setting the SIL overrides change; it moves the images from ghcr `develop-*` builds to `nvcr.io/nvidia/vss-core` and the Sparse4D models to the public `nvidia` org, and ships `LLM_MODE=none`.
+- `vss_2d_overrides.md` and the README add `docker login nvcr.io` with the NGC key: unlike the `v3.3.0rc0` ghcr builds, the `nvcr.io/nvidia/vss-core` 3.3.0 images do not pull anonymously.
+- Links into the VSS docs point at their 3.3.0 pages; `docs.nvidia.com/vss` moved them, and the old `latest/...html` URLs only redirect.
+- VSS 3.3 ships the Sparse4D model and the loading-dock BEV calibration: `model_r101.md` and the R101 profile variables are removed, and `calibration_3d.md` covers only a scene of your own.
+- The DeepStream, VST and behavior-analytics overrides are unchanged and still needed on 3.3. `vss_3d_overrides.md` now states the behavior-analytics proximity change `pxc` depends on (`proximityDetectionThreshold` 4, `Forklift` as a center class), which was applied but not documented.
+- `halos_deploy.md`: on a 3D feed every `PSF_APP`, `atl` included, needs the two PSF 3D lines; with the 2D `nvpss.conf` mdx-client drops every event.
+- `troubleshooting.md`: the stale-history fix and the clean redeploy use the VSS skill's teardown and its bind-mounted data cleanup. Kafka and Redis data under `<vss_data>/data_log` are bind-mounted and owned by the containers' users, so `docker volume rm` or a host `rm` left them. The perception recreate names the compose service (`perception-2d` / `perception-3d`), not the container.
+- `vss_3d_overrides.md` no longer claims VST recording is off: the shipped `always_recording: true` was never changed.
+- The Thor profiles (`halos_thor.md`, `halos_hil.md`) and the Brev notebook still deploy VSS 3.2.1: they have not been run on 3.3.
+- SRR runs on VSS 3.3 and Isaac Sim 6.1:
+  - `default_config_ros.yaml.template` declares IRA config 1.7.0. Isaac Sim 6.1 refuses 1.6.0, so the SRR scene shut down at startup.
+  - The scene-ready gate reads `MODE` from the VSS build's `override.env` (`ENV_VSS_PATH`), falling back to the `overrides.env` next to it; on 3.3 a 2D run polled `mdx-bev` and timed out.
+  - The aggregator and `tw_split` read the ROI and tripwire from the top level of a BEV calibration too. VSS 3.3's 3D datasets keep none per sensor: the aggregator raised `IndexError`, and `tw_split` fell back to the legacy tripwire.
+  - The VST workaround registers the cameras again after restarting VST, which could land on Isaac's own registration and leave VST with no sensors.
+  - Perception re-provisioning is the full round (`FLUSHALL`, `sdr-controller`, DeepStream, one registration), as in `restart_isaac.sh`.
+  - The image pins numpy to the base image's own version; pip otherwise tried to replace the Debian numpy and the build failed.
+- Run with `sil`: on `v3.3.0`, ATL with the 2D app (SRR `psf-edge`, 5 min: 12 clips, 9 PASS, 3 NEAR, perception 14.6 fps on each camera); on `v3.3.0rc0`, ATL, `pxc`, `both` (3D app) and `atl-dual` on `warehouse_40x20` (2D app).
+
+### Breaking — PSF image with configured SDMs
+
+The `sil` and `base` configs target the PSF 1.4 image, whose launcher no longer starts an SDM without its event binding. `PSF_IMAGE` is the published 1.4 image, `nv-psf-halos-1.4-6b92731`; the 1.3 image does not run these configs. `sil` and `hil` download `sample-sil-data:v1.4.0`.
+
+- `safety-core.yml` passes `--sdm-config configs/<PSF_APP>_sdm.conf` (`atl_sdm.conf`, `pxc_sdm.conf`) and mounts `sensor_pipelines_config.conf`, the identities events arrive under. The 3D feed sets `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf`: PSF runs `deploymentMode = 3D` with fusion off, and the BEV sensor `bev-sensor-1` is group 4 of cameras 1-3 (`configs/sensor_group_config.conf`). `sensor_config_bev.conf` is gone, and the 2D `nvpss.conf` no longer bypasses `EVENT_12/13/14`.
+- `nvpss.conf` states the now-mandatory `deploymentMode = 2D` and `enableFusion = true`, adds the PSS-to-PSD delivery and queue keys, and drops `PSSDToPSDComBackend`.
+- `safety-core.yml`, `atl-dual-override.yaml` and `atl-pxc-override.yaml` pass `--pcm-mode ${PSF_PCM_MODE:-skip}` next to `--saim-mode`: the 1.4 launcher stops with `Error: --pcm-mode is required` without it. Older 1.4 dev builds refuse the option as unknown.
+- `nvpss.conf` and `nvpss_bev.conf` set the mandatory `required_safety_monitor = 0`, `required_perception_monitor = 0` and `required_mdx_instances = 1`. The launcher refuses a monitor key that does not match its mode, so set the key to `1` when `PSF_LAUNCH_MODE` or `PSF_PCM_MODE` is `active`.
+- Proximity events move from `EVENT_8/9/10` to `EVENT_12/13/14`: `EVENT_0..11` are reserved for ATL.
+- `pxc_sdm.log` is written to `/var/log/psf/pxc_sdm.log` in the container; the host file is unchanged.
+- `PSF_APP=both` runs the image's `--app atl,pxc` (`atl-pxc-override.yaml`) instead of HOISA's 1.3 launcher, which was removed: each SDM gets its own `--sdm-config`, and proximity sends to its own port, `COMM_UDP_PORT_PXC`, which comm-layer also listens on. mdx_client's mapping is the image's ATL rules followed by the proximity rules of `configs/proximity_event_mapping.pb.txt`.
+- The Thor profiles stay on 1.3: `launch_thor_safety.sh` drives the 1.3 `launch_hoisa.sh` and has not been run against the 1.4 aarch64 package.
+
+### ATL per trailer bay (two zones)
+
+- `atl-dual-override.yaml` runs safety-core as `--app atl_dual`: one ATL SDM per bay, zone 2 on `EVENT_6..11` (`configs/atl_sdm_zone2.conf`) and its own port, `COMM_UDP_PORT_ZONE2`.
+- comm-layer listens on that port too and keeps zone 2 in its own OPC UA nodes (`Zone2IsMuted`, `Zone2StateJson`). `/<robot>/safety/is_muted` now carries the zone set by the robot's `safety_indicator.zone` (default 1); `/safety/is_muted` stays zone 1.
+- `robots-40x20.yaml` puts `forklift_b2` on zone 2. Without `COMM_UDP_PORT_ZONE2` it keeps mirroring zone 1, as before, with a WARNING.
+- `nvpss.conf` lets `EVENT_6..11` bypass fusion like zone 1's, so zone 2 no longer reacts about 6 s late.
+- `closed-loop-testing/isaac-sim/sil/calibration/build_vss_calibration.py` builds the VSS 2D dataset of a SIL scene from its cameras config, loading zones and waypoint map; `warehouse_40x20/zones.yaml` gives the two bays (`roi-id-1` / `tripwire-id-1`, `roi-id-2` / `tripwire-id-2`). Run `warehouse_40x20` on the 2D app: there the 3D (Sparse4D) app stops detecting after seconds to minutes.
+
+### Breaking — ROS surface is namespaced per robot
+
+Multi-forklift support renamed the topics, TF frames and node name of the **default single-forklift run**. A deployment that does nothing still works; anything that subscribes by name does not.
+
+| Was | Now |
+|---|---|
+| `/cmd_vel` | `/forklift_b/cmd_vel` |
+| `/odom` | `/forklift_b/odom` |
+| `/planned_path` | `/forklift_b/planned_path` |
+| `/curve_follower/markers` | `/forklift_b/markers` |
+| TF `odom` → `base_link` | TF `forklift_b/odom` → `forklift_b/base_link` |
+| node `robot_controller` | node `forklift_b_controller` |
+
+`forklift_b` is the robot's `name` in the fleet file, which the controller service names as its `ROBOT_ID`; a differently-named robot namespaces under its own name.
+
+**Migrating from 1.3**
+
+- Scripts, RViz configs and dashboards that name any topic above: add the `<robot>/` prefix. RViz users also set the fixed frame to `forklift_b/odom`.
+- Waypoints moved to a per-scene directory: `waypoints/waypoints.json` → `waypoints/<map id>/<ROBOT_ID>.json`. Coordinates are metres in one scene's world frame, so the wrong map drives a lane that was never validated in that warehouse — silently. `deployments/scripts/preflight.py` checks the pairing before Isaac boots.
+
+### Breaking — one scenario id replaces four hand-kept choices
+
+A run used to be described by a compose profile, three command-line flags and an
+env var, each set independently and cross-checked by `preflight.py`. It is now
+one id that Isaac and every controller read, so they cannot be launched against
+different halves of the same run.
+
+```
+SCENARIO=warehouse_20x20_1fl
+```
+
+`closed-loop-testing/isaac-sim/sil/configs/scenarios.yaml` maps each id to its
+IRA config, fleet file, cameras config and waypoint directory. `-c` is now
+optional when a scenario names one; a flag still wins over the scenario.
+
+There is deliberately no environment override for the fleet file alone. One
+would pair a scenario's scene with another scenario's trucks — unnamed, absent
+from the logs, and impossible to ask preflight about. A different fleet is a
+different run, so it gets an id in `scenarios.yaml`; `--robots-config` is still
+there for a one-off not worth naming. `WAYPOINTS_MAP` remains, because a new
+waypoint set for an existing scene is genuinely the same run driven differently.
+
+**Migrating from 1.3**
+
+- **`FORKLIFT_WAYPOINTS_DIR` is removed.** The whole waypoints tree is mounted
+  and the warehouse chosen inside the container, so an old value would nest one
+  level too deep. The controller refuses to start rather than drive an
+  unvalidated lane, and says what to set instead: `SCENARIO`, or `WAYPOINTS_MAP`
+  to override one run.
+- **`FORKLIFT_USE_NAMESPACE` is removed**, and so is the `--no-namespace` flag.
+  The controller now takes its topic names from the robot's own block in the
+  fleet file — `control.cmd_vel_topic` and `odometry.odom_topic`, the same two
+  keys Isaac builds its graphs from — instead of rebuilding the strings from a
+  namespace toggle. One declaration, so the two sides cannot disagree. Setting
+  the toggle to `false` never worked: it pointed the controller at bare `/odom`
+  while Isaac kept publishing the namespaced name, and the truck simply stopped
+  with nothing in any log.
+- **`FORKLIFT_ROBOT_ID` is removed.** Which truck a controller drives is now
+  stated on its compose service, the way the second controller always stated it
+  — one fact, one place, the same for every truck. A fleet whose first robot is
+  not `forklift_b` sets `ROBOT_ID` on the service. Nothing fails silently: the
+  controller refuses to start when its `ROBOT_ID` is not in the fleet file, and
+  says which names that file does declare.
+- **`FORKLIFT_WAYPOINT_FILE` no longer reaches the compose services.** It named
+  one file for the whole fleet, which is only ever right with one truck. The
+  scenario's waypoint directory plus each container's `ROBOT_ID` names the file
+  instead. `WAYPOINT_FILE` still works for `docker_run.sh`, where an environment
+  is per container by construction.
+- Drive knobs (`FORKLIFT_BASE_SPEED`, `FORKLIFT_HEADING_OFFSET`,
+  `FORKLIFT_LOOP_PATH`, `FORKLIFT_ANGULAR_SPEED`, `FORKLIFT_NO_INVERT`,
+  `FORKLIFT_END_TOLERANCE`, `FORKLIFT_END_POSE_COUNT`,
+  `FORKLIFT_SPIRAL_TIMEOUT`) are no longer read from the environment. They were
+  documented nowhere and set in no shipped profile, and one env var would have
+  set every truck in the fleet at once. Per-truck values live in the robots
+  config. `launch_controller.sh` still passes them as flags; `docker_run.sh`
+  mounts no fleet file and so runs on `fleet_config.DRIVE_DEFAULTS`, which hold
+  the same values `robots.yaml` states for `forklift_b`.
+
+### Changed
+
+- `troubleshooting.md` (ATL zone latched in FAULT): with the 2D app the lockout also comes
+  later in a run, from a person crossing out of the trailer that behavior analytics reports
+  when a camera starts a new track near the tripwire. Restarting safety-core after the
+  stream handoff does not prevent it.
+- **The 20x20 scene describes the warehouse and nothing else.** `forklift_b` and
+  its safety disc are declared in `robots.yaml` — a `spawn:` block at
+  `(1, -13.39)` facing 180°, and the `indicator:` size the baked disc used to
+  state as geometry — the way `robots-40x20.yaml` has declared its trucks since
+  they stopped being baked. No scene in `sil/scenes/` carries a forklift prim
+  now, so adding or moving a truck is a config change that can be reviewed as a
+  diff instead of a 35k-line USD edit.
+
+  The `spawn:` block names the `6.1` ForkliftB URL that `robots-40x20.yaml` pins
+  since the Isaac 6.1 move, where the deleted prim named the `5.1` one, so both
+  fleet files now say the same thing. The 6.1 file is not byte-identical to the
+  5.1 one (5.1 and 6.0 are), but what the SIL relies on is: the articulation
+  still authors 16 TGS velocity iterations, so the runtime patch's rebalance is
+  load-bearing, and the `lift_joint` limits and the 0.16 m wheel collider match.
+
+- **Isaac Sim 6.0.0 → 6.1.0.** Both profiles, the compose default and the
+  Dockerfile `ARG` name `nvcr.io/nvidia/isaac-sim:6.1.0`; both IRA configs
+  declare `version: 1.7.0`; and the asset-root override plus the pinned
+  `forklift_b.usd` URL move to `Assets/Isaac/6.1`.
+
+  IRA goes 1.6.7 → 1.7.9 and its config schema is additive over 1.6 —
+  `spawn_positions` / `spawn_orientations` on character and robot groups, and a
+  sensor group that takes `num` on its own. Nothing was renamed or removed, so
+  the shipped configs validate against the 1.7 schema unchanged.
+  `SimulationManager` exposes the same methods, the ROS 2 bridge still ships
+  `jazzy` at the same path, and the 6.1 asset root is a superset of 6.0.
+
+  One behaviour changed without affecting anything shipped here: a relative
+  robot `config_file_path` now resolves against the IRA config's own directory
+  before the IAR sample dir. No config in this repo uses one, but a deployment
+  that does should check which file it is about to pick up.
+
+  Known limitations it touches: the concurrent-DESCRIBE "has no caps" race
+  (NVBug 6478845) is fixed upstream and measured gone — see `troubleshooting.md`.
+  6.1 also carries fixes for RTP delivery being interrupted by another client's
+  DESCRIBE/PAUSE/TEARDOWN (6477478) and for NVENC sessions leaking when
+  compressed annotators detach (6478175); neither original repro (the multi-hour
+  RTSP-over-UDP wedge, UI stop/play on a GeForce 8-session cap) has been rerun, so
+  VST ingest stays on TCP.
+
+  **Needs `up -d --build`** — the `isaac-sim-sil` image rebuilds on the new base.
+
+- **comm-layer derives its mute mirrors from the fleet file.** `COMM_ROBOT_IDS`
+  was a fourth list of robot names kept by hand, and the only way to get it
+  wrong was silent: a truck missing from it listens on a topic nobody publishes,
+  so its disc sits on the alarm colour for the whole run with nothing in any
+  log. comm-layer now mounts the same configs directory the controllers do,
+  reads `SCENARIO`, and mirrors for exactly the robots whose fleet entry asks
+  for a per-robot topic. The variable is gone from both profiles, and
+  `preflight.py` checks three lists rather than four.
+
+  The shipped value was already wrong for the default run: it named two trucks
+  while `robots.yaml` declares one and names the global topic explicitly, so
+  every 20x20 run published two mirrors nobody subscribed to and preflight
+  warned about it each time. Derived, that run asks for none.
+
+  **Needs `up -d --build`** — the comm-layer image changes.
+
+- **Proximity support touches every run, `atl` included.** Re-run `setup.sh`,
+  then `up -d --build`: the controller image now copies `proximity_gate.py`,
+  and without a rebuild the old controller ignores proximity while Isaac, from
+  the mounted tree, subscribes to a state topic nobody publishes.
+  - safety-core always mounts `pxc_sdm.log` and the proximity mapping;
+    `setup.sh` creates the log files and refuses to continue if Docker has
+    already turned one into a directory, and `cleanup_all_datalog.sh` truncates
+    all three instead of deleting two of them.
+  - `nvpss.conf` bypasses fusion for `EVENT_8/9/10` as well.
+  - comm-layer adds the `Proximity*` OPC UA nodes. Of these only
+    `ProximitySafeReleaseRequest` is writable: writing `True` asks the SDM to
+    leave a latched safe state. The receiver no longer sends a release request
+    by itself; `COMM_PXC_STARTUP_RELEASE=1` restores one automatic request,
+    sent only after the SDM has reported a latch.
+  - The forklift-controller publishes `/<robot>/proximity/state`, and
+    `/<robot>/state` gains `proximity`, `proximity_separation_m` and
+    `proximity_fault`. Its proximity gate is on only when `PSF_APP` is `pxc` or
+    `both`, unless the robot's `proximity.enabled` says otherwise.
+  - `PSF_APP` must be `atl`, `pxc` or `both`, exactly; anything else is an
+    error where Isaac and the controller read it, instead of a quiet fallback
+    to ATL.
+
+### Removed
+
+- **The three 5.1 baked `Character` prims and their shared `Biped_Setup` rig,
+  from the 20x20 scene.** They carried no Behavior Tree in the 6.x stack, so
+  every run showed six workers of which three stood still, and
+  `halos_runtime_patches.py` deactivated them on each launch to hide it. The
+  three IRA-spawned characters are unaffected — the patch still moves them to
+  the canonical positions. The navmesh bake is unchanged: the three `Character`
+  prims declared `NavMeshExcludeAPI`, and `Biped_Setup` — which declares no api
+  schemas and does compose real geometry — is `invisible`, carries no collider,
+  and sits on a patch of `scenarios/scenes/navmesh.json` that is already fully
+  walkable.
+
+- **The disabled `forklift_c` prim, from both the 20x20 and 40x20 scenes.** It
+  was `active = false` and `invisible` in both, referencing a
+  `collected-assets` payload nothing loaded, and its only remaining mentions
+  were in the `HALOS_*` bisection lists in `scene_component_isolation.py`.
+
+- **The `warehouse_20x20_2fl` scenario, and the scene, IRA config and fleet file
+  behind it.** It existed because there was no two-truck scene; `warehouse_40x20`
+  is one, and it carries its second truck as a `spawn:` block rather than as a
+  second copy of a warehouse. Gone with it: the 2FL scene USD, its
+  `default_config_ros_2fl.yaml` and `robots-2fl.yaml`, and
+  `waypoints/warehouse_20x20/forklift_b2.json`.
+
+  **What this costs:** `warehouse_40x20` is the only two-truck scenario left, and
+  it is `experimental: true` — no calibration is published for that warehouse, so
+  perception runs 20x20 geometry against a different building. The 20x20 2FL
+  scene shared the 20x20 calibration, so until a 40x20 calibration lands there is
+  no two-truck run whose safety numbers mean anything. Watching two trucks drive,
+  and every ROS-level check, is unaffected.
+
+### Added
+
+- `robots*.yaml` gained a `drive:` block: `speed` and `loop` per truck, and
+  `heading_offset` / `no_invert` / `angular_speed` per model, folded into each
+  robot the same way `control:` and `odometry:` already are. Adding a truck is a
+  block there plus a compose service naming its `ROBOT_ID` — no new env var. The
+  controller logs where each value came from, so an odd run says why in its
+  first ten lines.
+- `SCENARIO` / `scenarios.yaml`, above. `experimental: true` marks a scene with
+  no published calibration, and is printed at launch instead of living in prose.
+
+- Two-forklift deployments via the opt-in `multi-robot` compose profile (`COMPOSE_PROFILES=sil,multi-robot`), which starts a second controller. Isaac is launched with a matching robots config.
+- Forklifts can be spawned from `robots.yaml` `spawn:` blocks instead of being baked into the scene USD. The generated overlay layer is written to `sil/scenes/generated/`, which `setup.sh` creates and hands to the container user.
+- `COMM_ROBOT_IDS` — comm-layer mirrors the mute decision onto `/<robot>/safety/is_muted` for each listed robot. Every mirror carries the same value: the decision is made for a camera-covered zone, not for a named truck.
+- 40x20 two-dock scene and its config trio. **Experimental / internal-only** — no calibration is published with it, so VSS runs 20x20 geometry against it and the safety numbers do not mean anything.
+- `deployments/scripts/preflight.py` — cross-checks the robots config, controller services, waypoint files and `COMM_ROBOT_IDS` before Isaac boots, and compares each waypoint origin against where its truck stands.
+- **Optional `scene:` key in `robots*.yaml`, checked before the stage opens.**
+  A `spawn.position` is world-space, so the 40x20 fleet in the 20x20 warehouse
+  parks `forklift_b2` at y = -21.63, outside the walls, while the prim is
+  authored, the payload loads, the control graph binds and the truck drives its
+  waypoints through it. Until the trucks left the scene USDs this pairing was
+  enforced by accident — a mismatched fleet died on "already authored in …" —
+  and `run_multi.sh` passes no `--robots-config`, so a stale `SCENARIO` is
+  enough to hit it. Same shape and same path-suffix matching as
+  `cameras.yaml`'s own `scene:`; a fleet file that names none keeps working and
+  says so at launch.
+- PSF proximity in the SIL loop (`PSF_APP=pxc`, 3D feed, SIL only). comm-layer decodes the `0xA5` packets onto `/safety/proximity/mode` and `/safety/proximity/pair` (opcodes 0x02/0x07 mean the opposite of ATL's, so nothing touches `/safety/is_muted`). The OPC node keeps the most severe decision visible for 0.3 s, so a STOP followed at once by a NORMAL or a heartbeat still reaches the 10 Hz bridge; unknown opcodes are published as a fault. The forklift-controller caps the truck at `proximity.reduce_speed` on REDUCE and stops it on STOP, each held past the last packet, and stops it with fault `psf_link_stale` when nothing at all (heartbeats included) has arrived for `proximity.stale_s` (10 s). The indicator disk shows the level it applies — green / orange / red, grey before PSF's first decision or with proximity disabled. `proximity_event_mapping.pb.txt` scores Forklift × Person for the 20x20 scene (STOP ≤ 2 m, REDUCE ≤ 3.5 m). A 3D feed also needs `PSF_SENSOR_CONFIG_SRC=./configs/sensor_config_bev.conf`. One truck per decision stream: PSF names no robot, so the controller warns when several obey the same `proximity.pair_topic`. `send_packet.py --proximity` injects 0xA5 packets without PSF.
+- `PSF_APP=both` with `-f closed-loop-testing/safety-core/atl-pxc-override.yaml` (or `COMPOSE_FILE`, see `sil.env`): ATL and proximity in one PSF container — one gateway, one daemon, one `mdx_client` on the two mappings concatenated, and both SDMs (two containers would collide on the gateway port and split mdx_client's fixed Kafka consumer groups). The disk shows red / orange while proximity acts on the truck, otherwise green muted / yellow alarm.
+- `robots.yaml` `proximity_line:` (off by default): Isaac draws the pair of each PSF proximity decision as a line on the floor between the two positions PSF sent, in the decision's colour, with the separation ("1.97 m", white on a plate of that colour) lying flat beside it, facing the first camera in `cameras.yaml` (`label_camera` to pick another). PSF's coordinates are the scene's world frame, so nothing is matched to the stage. Geometry: the streams carry it and perception sees it.
+- `comm-layer/tests/test_proximity_chain.py`: the 0xA5 path from bytes to the bridge — decoder split, ACKs, latch handling, the decision hold, OPC payload. Runs in the comm-layer image (command in the file header).
+
+### Fixed
+
+- `safety-core/configs/sensor_config.conf` pointed at the retired 8553 mediamtx broker and the old `RTSPWriter_*` mount names; it now matches the Isaac 6.1 mounts in `cameras.yaml`. Only read when SAIM runs (`PSF_LAUNCH_MODE=active`).
+- `forklift-controller/entrypoint.sh` defaulted `--heading-offset` to `0` where every other layer says `180`. Masked until now by the Dockerfile `ENV`.
+- The waypoint generator opened the uncalibrated 40x20 map by default.
+- A rename or delete in the waypoint generator's Path Manager lasted only until the page reloaded: only Save wrote the saved paths to localStorage, so the old name came back and a deleted path reappeared. The store now writes the list whenever it changes, whichever action changed it. `npm test` covers save, re-save, rename and delete across a reload.
+- The waypoint generator README advertised drag-and-drop reordering, but the sidebar list only had Move up / Move down. Dragging a list item onto another now moves the waypoint to that item's place, renumbering the list and the drawn path and changing the exported order; the buttons stay. Dragging a point on the map still moves it without reordering.
+- `robots*.yaml` declared `wheel_radius: 0.15`, which matches no dimension of the
+  ForkliftB asset: PhysX rolls the drive wheel on a 0.16 m collider. The control
+  graph commands `cmd_vel / wheel_radius` to the wheel joint, so the truck drove
+  about 6% faster than its `cmd_vel`. Both fleet files and the
+  `forklift_control.py` default now say 0.16. Timing recorded before this is not
+  comparable with timing recorded after (GH-71).
+- comm-layer kept `/safety/is_muted` True through the SDM's safe hold. The hold
+  is UNMUTE then SW_ERROR about 22 µs apart, and the bridge reads only the latest
+  `StateJson` at 10 Hz, so it saw the SW_ERROR alone and kept the MUTE before it;
+  a heartbeat right after an UNMUTE hid it the same way. The OPC server now tracks
+  each zone's state over every packet and writes it to `IsMuted`, `IsAlarm` and
+  `StateJson` (`is_muted`, `is_alarm`): MUTE mutes; UNMUTE, HW_ERROR and SW_ERROR
+  unmute and raise the alarm; a heartbeat keeps the last decision. The bridge
+  publishes that state, and counts an error as UNMUTE when a snapshot lacks it.
+  `IsMuted` no longer drops to False on a heartbeat (NVBug 6966743).
+- `isaac-sim` reported unhealthy on a fresh host while the scene ran. The check it
+  inherits from the Isaac Sim image reads `/isaac-sim/.nvidia-omniverse/logs/Kit`,
+  which Isaac Sim 6.1 no longer writes; where the mounted cache still held an
+  older run's log it passed on that log instead. `isaac-sim.yml` now checks the
+  newest log under `/isaac-sim/kit/logs/Kit`, which is not mounted, for
+  `AppReady`. The Brev notebook's log commands read the same directory
+  (NVBug 6965958).
+- SRR's Phase 1 ground truth did not follow the ATL rule it scores. It expected
+  MUTE with a person inside the trailer, which the trailer side of the tripwire
+  places outside the ROI, while the SDM unmutes for that person; it scored a
+  person on the ROI edge by the GT point, where perception's detection can fall on
+  the other side; and it counted every frame of lag after a transition. Expected
+  MUTE now also requires nobody in the trailer. A frame whose expected state rests
+  only on a person within `--roi-edge-band-m` (0.5 m) of the ROI edge, and a frame
+  within `--settle-allowance-s` (1.0 s) after an expected-state change, is not
+  scored; longer lags still count. A reaction lag is measured within its own
+  expected-state interval, so a later transition no longer answers an earlier,
+  missed one, and missed intervals are listed; an interval begun by a person
+  crossing within the edge band is not timed. Reports keep the raw per-frame match
+  next to the scored one. The two 15 Oct `psf-edge` runs rescore from 4 + 3 PASS to
+  9 + 8 PASS of 13 + 13 clips, with the raw match unchanged; the NEAR clips left are
+  MUTE lags of 1.5–1.9 s. A 3D `psf-edge` clip reported with a missed MUTE and a
+  1.73 s UNMUTE lag rescores from NEAR 81.6 % to PASS with no missed interval: a
+  person stood within 4 cm of the ROI edge.
+- The generated forklift overlay copied the 20x20 scene's
+  `customLayerData.omni_layer.authoring_layer` verbatim — a path relative to the
+  scene's directory, landing in a file one level below it in
+  `scenes/generated/`. Dropped rather than rewritten: it is a Kit hint for which
+  layer the layer editor writes into, and its default is the root layer, which
+  is the overlay. `navmeshSettings` and `defaultPrim`, the two load-bearing
+  entries, are copied as before. First run to reach this would have been the
+  first default 20x20 run after the truck moved out of the scene.
+- Two `HALOS_REMOVE_*` bisection toggles called `stage.RemovePrim` directly and
+  printed `Removed` whatever it returned. Now that the overlay is the root
+  layer, `RemovePrim` deletes the spec in the edit target rather than where the
+  prim is defined, so those two could report success while the prim kept
+  composing. Both go through `_remove_prims`, which checks the return value.
+- `robots*.yaml` `drive:` was the only block in this config family that accepted
+  unknown keys. `robots-40x20.yaml` had already lost the disc's `segments:` and
+  `height_offset:` to it, one indentation level too far — merged, never read,
+  and identical on screen because both values matched the loader's defaults.
+  The loader now names the drive knobs and refuses the rest, saying to check the
+  indentation; `fleet_config` asserts its defaults cover the same list, so the
+  two halves cannot drift.
+- `preflight.py` checked whichever fleet file was named on the command line
+  without asking whether the run would read that one. A wrong `--robots-config`
+  produced a green exit code describing a fleet nobody was launching; it is now
+  an error naming the file the scenario actually selects.
+- `entrypoint.sh` refuses a leftover `FORKLIFT_WAYPOINTS_DIR`, but compose never
+  passed the variable through, so the refusal could not fire on the one path the
+  docs teach. The env anchor now forwards it.
+- Isaac reported the fleet file as coming `from ROBOTS_CONFIG` even when the
+  scenario supplied it and that variable was empty — sending anyone debugging it
+  after the fact to look for a variable no profile sets.
+- `launch_controller.sh` passed `--speed 1` and four other drive knobs as flags.
+  A flag outranks the fleet file, so the repo's own launcher drove the truck at
+  1.0 m/s while `robots.yaml` said 1.5 — the fragmentation this release exists
+  to remove, in the one script a developer runs by hand. It now reads the same
+  fleet file Isaac does; `CONFIGS_DIR` / `ROBOTS_CONFIG` override it.
+- `--no-namespace` was deleted from the parser but `parse_known_args` handed it
+  to `rclpy`, which ignores it: a 1.3 caller's flag did nothing and said
+  nothing. Removed flags are now refused by name, the way `entrypoint.sh`
+  already refuses `FORKLIFT_WAYPOINTS_DIR`. Genuine ROS arguments still pass
+  through untouched.
+- `preflight.py` caught a robot with `control:` enabled and no controller
+  service, but not the reverse: a controller service driving a robot whose
+  `control:` is disabled publishes into a topic Isaac never subscribes, and the
+  truck stands still with neither side logging anything. Both directions are
+  errors now. No shipped config sets `enabled: false`, so this closes a hole
+  rather than fixing an observed failure.
+- `run_sdg.sh` still documented `-c` as required after `--scenario` began
+  supplying the IRA config. The wrapper is a pure passthrough, so only the usage
+  text was wrong; the launch itself already worked without it.
+
+### Changed
+
+- The second controller is no longer a copy of the first: both services share
+  one env anchor and one volume anchor, and differ only by `ROBOT_ID`. Its
+  speed and route come from `robots-40x20.yaml` like every other truck's.
+- **The controller image is again the only source of the code it runs.** The
+  `.:/app:ro` bind that mounted the host checkout over `/app` is gone, so
+  `docker run forklift-controller:latest` behaves like the compose stack.
+  Editing controller source now needs `up -d --build`. Two defects came out of
+  that bind and are fixed with it: `fleet_config.py` was missing from the
+  Dockerfile (the image alone died at import, which only `docker_run.sh` ever
+  hit), and the new `/app/robots` and `/app/isaac` mounts had nowhere to attach
+  under a read-only `/app` — on a fresh clone the container never started at
+  all. Neither was visible to a static check: git does not track empty
+  directories, and the bind hid the missing file.

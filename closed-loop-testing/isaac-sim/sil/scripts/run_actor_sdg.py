@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Isaac Sim 6.0 driver for Halos SIL (run_actor_sdg.py).
+# Isaac Sim 6.1 driver for Halos SIL (run_actor_sdg.py).
 # -----------------------------------------------------------------------
 # Source baseline: Isaac Sim 5.1.
-# Target:          Isaac Sim 6.0.
+# Target:          Isaac Sim 6.1.
 #
 # Summary of changes vs 5.1 driver:
 #   1. SimulationManager() → SimulationManager.get_instance() (singleton)
@@ -15,8 +15,8 @@
 #        → typed access via config = sim_mgr.get_config_file()
 #   5. _do_camera_placement / _read_camera_json / _place_cameras / _place_one_camera DELETED
 #        Camera placement is declarative via sensor.groups.<g>.aim_at_targets in YAML.
-#        --sensor_placement_file CLI arg is INFORMATIONAL ONLY in 6.0 (kept for back-compat).
-#   6. 9 carb settings DROPPED (silently ignored in 6.0):
+#        --sensor_placement_file CLI arg is INFORMATIONAL ONLY in 6.1 (kept for back-compat).
+#   6. 9 carb settings DROPPED (silently ignored in 6.1):
 #        aim_cameras_at_characters, min/max_camera_{distance,height,look_down_angle},
 #        character_focus_height, frame_write_interval.
 #        Values now live in YAML aim_at_targets.* (see default_config_ros.yaml).
@@ -56,10 +56,15 @@ class ActorSDGRunner:
         enable_runtime_patches=True,
         enable_rtsp=True,
         enable_camera_spawn=True,
+        enable_indicator_spawn=True,
+        enable_forklift_spawn=True,
         robots_config_path=None,
         enable_forklift=True,
         enable_clock=True,
         enable_srr_gt=False,
+        postprocessing_config_path=None,
+        enable_postprocessing=True,
+        postprocessing_preset=None,
         vst_register_warmup_sec=1.0,
         vst_register_timeout_sec=1200.0,
     ):
@@ -68,8 +73,8 @@ class ActorSDGRunner:
         self.config_file_path = config_file_path
         self.auto_start = auto_start
         self.setup_only = setup_only
-        # NOTE(IRA 6.0): camera_file_path retained for CLI back-compat but is INFORMATIONAL
-        # ONLY in 6.0. Camera placement is declarative via YAML sensor.groups.<g>.aim_at_targets.
+        # NOTE(IRA 6.1): camera_file_path retained for CLI back-compat but is INFORMATIONAL
+        # ONLY in 6.1. Camera placement is declarative via YAML sensor.groups.<g>.aim_at_targets.
         # Logged at setup time if non-None; otherwise unused.
         self.camera_file_path = camera_file_path
         self.crash_report_path = crash_report_path
@@ -100,6 +105,15 @@ class ActorSDGRunner:
         # Config-driven no-op when no camera carries a spawn block.
         # See sil/scripts/camera_loader.py.
         self.enable_camera_spawn = enable_camera_spawn
+        # Safety-indicator disc geometry from robots.yaml `mesh:` blocks.
+        # Config-driven no-op when no robot carries one (scenes with a baked
+        # disc). See sil/scripts/indicator_loader.py.
+        self.enable_indicator_spawn = enable_indicator_spawn
+        # Forklift prims from robots.yaml `spawn:` blocks, via a generated USD
+        # layer applied BEFORE the stage opens (unlike the two loaders above,
+        # which author into the live stage). Config-driven no-op when no robot
+        # carries a spawn block. See sil/scripts/forklift_overlay.py.
+        self.enable_forklift_spawn = enable_forklift_spawn
 
         # Forklift control/odometry/safety + clock graphs (replace the
         # baked OmniGraphs that used to live in the scene USD). Driven by
@@ -112,8 +126,23 @@ class ActorSDGRunner:
         # --srr-gt; default OFF). See action_graphs/srr_ground_truth.py.
         self.enable_srr_gt = enable_srr_gt
 
+        # In-scenario sensor-anomaly injection (low light, colour cast, flicker,
+        # sensor grain). Not an OmniGraph: RTX consumes post-processing itself,
+        # so a preset lands on the next rendered frame in the viewport, the SDG
+        # RGB output and the RTSP streams alike. Driven by configs/
+        # postprocessing.yaml and hot-reloaded from the run loop.
+        # See sil/scripts/postprocessing/README.md.
+        self.postprocessing_config_path = postprocessing_config_path
+        self.enable_postprocessing = enable_postprocessing
+        # Pins the preset regardless of what `active:` currently says. The
+        # config file is git-tracked but set_preset.sh rewrites it live, so an
+        # unpinned run inherits whatever anomaly the previous operator left
+        # behind — reproduced on two machines. Campaign launchers pass this.
+        self.postprocessing_preset = postprocessing_preset
+        self._postprocessing = None
+
         self.output_path = None
-        # NOTE(IRA 6.0): camera_placements_json, _setup_sim_sub, _setup_sim_succeed removed —
+        # NOTE(IRA 6.1): camera_placements_json, _setup_sim_sub, _setup_sim_succeed removed —
         # all part of the 5.1 callback + manual camera placement paths.
         self._sim_manager = None
         self._settings = None
@@ -128,7 +157,7 @@ class ActorSDGRunner:
         await self._sim_app.app.next_update_async()
 
 
-        # Init SimulationManager (singleton in 6.0).
+        # Init SimulationManager (singleton in 6.1).
         from isaacsim.replicator.agent.core.simulation import SimulationManager
 
         self._sim_manager = SimulationManager.get_instance()
@@ -139,9 +168,9 @@ class ActorSDGRunner:
                 print(f"ERROR: Failed to load config file: {self.config_file_path}", file=sys.stderr)
                 return False
 
-            # Typed config access (6.0). The 5.1 property-bag API
+            # Typed config access (6.1). The 5.1 property-bag API
             # (get_config_file_property_group("replicator", "writer_selection")) is GONE.
-            # `output_dir` is optional in 6.0 — when streaming RTSP only (no offline writer),
+            # `output_dir` is optional in 6.1 — when streaming RTSP only (no offline writer),
             # the IRABasicWriter entry may omit `output_dir`, in which case it will be None.
             config = self._sim_manager.get_config_file()
             self.output_path = self._extract_output_path(config)
@@ -150,26 +179,48 @@ class ActorSDGRunner:
             print(f"Output path: {self.output_path}")
 
             if self.camera_file_path:
-                # 5.1 used this JSON to drive _place_one_camera. In 6.0 it has no functional
+                # 5.1 used this JSON to drive _place_one_camera. In 6.1 it has no functional
                 # effect — placement is declarative via YAML. Log so users notice the change.
                 print(
                     f"NOTE: --sensor_placement_file ({self.camera_file_path}) is informational "
-                    f"only in IRA 6.0. Camera placement is now driven by "
+                    f"only in IRA 6.1. Camera placement is now driven by "
                     f"sensor.groups.<g>.aim_at_targets in the YAML config."
                 )
 
-            # Set up simulation (async; no callback registration needed in 6.0).
-            # IRA 6.0 fires IRAEvents.SET_UP_SIMULATION_DONE_EVENT itself; this coroutine
+            # Before the overlay block below, which rewrites base_stage_asset_path to
+            # the generated .overlay.usda — after that the cameras config is compared
+            # against a file name it could not have named.
+            if self.cameras_config_path:
+                from camera_loader import assert_scene_matches
+                assert_scene_matches(
+                    self.cameras_config_path, config.environment.base_stage_asset_path
+                )
+
+            # Forklifts declared with a `spawn:` block in robots.yaml are added by
+            # a generated layer that sublayers the scene, and the config is pointed
+            # at that layer instead — here, because setup_simulation() opens the
+            # stage and there is no seam inside it. Config-driven no-op when no
+            # robot carries a spawn: block. See sil/scripts/forklift_overlay.py.
+            if self.enable_forklift_spawn and self.robots_config_path:
+                from forklift_overlay import generate_overlay
+                overlay = generate_overlay(
+                    self.robots_config_path, config.environment.base_stage_asset_path
+                )
+                if overlay:
+                    config.environment.base_stage_asset_path = overlay
+
+            # Set up simulation (async; no callback registration needed in 6.1).
+            # IRA 6.1 fires IRAEvents.SET_UP_SIMULATION_DONE_EVENT itself; this coroutine
             # returns after setup completes.
             print("Setting up simulation...")
             await self._sim_manager.setup_simulation()
             print("Simulation setup complete!")
 
             # Post-setup stage modifiers + ActionGraph builders. Order matters:
-            #   1. runtime_patches.apply_halos_runtime_patches deactivates the
-            #      legacy 5.1 baked Character prims and moves IRA-spawned
-            #      chars to deterministic positions. Must run BEFORE Play so
-            #      chars are at canonical positions when BT first ticks.
+            #   1. runtime_patches.apply_halos_runtime_patches moves the
+            #      IRA-spawned chars to deterministic positions. Must run
+            #      BEFORE Play so chars are at canonical positions when BT
+            #      first ticks.
             #   2. action_graphs.build_rtsp_graph wires N RTSP streams on top
             #      of camera prims that already exist on the stage (no dep
             #      on char positions).
@@ -178,7 +229,9 @@ class ActorSDGRunner:
             # Both packages are idempotent.
             if self.enable_runtime_patches:
                 from runtime_patches import apply_halos_runtime_patches
-                apply_halos_runtime_patches()
+                # Pass the robots config so the TGS solver rebalance covers
+                # exactly the robots this launch drives (yaml-only contract).
+                apply_halos_runtime_patches(self.robots_config_path)
             #   2a. camera_loader spawns Camera prims declared with a
             #      `spawn:` block in cameras.yaml. Must run BEFORE
             #      build_rtsp_graph (the RTSP builder fail-fasts on
@@ -189,6 +242,13 @@ class ActorSDGRunner:
             if self.enable_rtsp and self.cameras_config_path:
                 from action_graphs import build_rtsp_graph
                 build_rtsp_graph(self.cameras_config_path)
+            #   2b. indicator_loader authors the safety-indicator discs
+            #      declared with a `mesh:` block in robots.yaml. Must run
+            #      BEFORE build_forklift_graphs (the safety builder
+            #      fail-fasts on a missing disc prim).
+            if self.enable_indicator_spawn and self.robots_config_path:
+                from indicator_loader import spawn_indicators
+                spawn_indicators(self.robots_config_path)
             #   3. action_graphs.build_forklift_graphs wires the per-robot
             #      control + odometry + safety indicator graphs, replacing
             #      ROS_Forklift_Control_Graph / Odometry_Graph /
@@ -201,6 +261,16 @@ class ActorSDGRunner:
             if self.enable_clock and self.robots_config_path:
                 from action_graphs import build_clock_graph
                 build_clock_graph(self.robots_config_path)
+            #   4b. action_graphs.build_proximity_line draws the pair PSF
+            #      proximity scored (robots.yaml `proximity_line:`, default
+            #      off). A debug aid: a failure here is a warning.
+            if self.robots_config_path:
+                try:
+                    from action_graphs import build_proximity_line
+                    build_proximity_line(self.robots_config_path,
+                                         self.cameras_config_path)
+                except Exception as e:
+                    print(f"WARNING: proximity line not drawn ({e})")
             #   5. action_graphs.build_srr_gt_graph publishes /gt/*/tf for the
             #      SRR regression harness (opt-in via --srr-gt, default OFF).
             #      Runs LAST — after IRA spawned the chars + runtime_patches
@@ -208,6 +278,29 @@ class ActorSDGRunner:
             if self.enable_srr_gt:
                 from action_graphs import build_srr_gt_graph
                 build_srr_gt_graph()
+            #   6. postprocessing applies the active RTX preset and then polls
+            #      its config, so an operator can inject or lift a sensor
+            #      anomaly mid-run. Runs after the RTSP graph so a per-camera
+            #      preset can bind to the render products that graph declares.
+            #      A bad preset must not take the SIL loop down with it, so
+            #      failures here are warnings — the run continues undegraded.
+            if self.enable_postprocessing and self.postprocessing_config_path:
+                try:
+                    from postprocessing import PostProcessingController
+
+                    self._postprocessing = PostProcessingController(
+                        self.postprocessing_config_path,
+                        cameras_config_path=self.cameras_config_path,
+                        preset_override=self.postprocessing_preset,
+                    )
+                    self._postprocessing.start()
+                except Exception as e:
+                    print(f"WARNING: post-processing disabled ({e})")
+                    # start() can fail with settings already written, and the
+                    # controller holds the only snapshot that undoes them.
+                    # Dropping the handle without closing it would strand the
+                    # renderer degraded for the rest of the process.
+                    self._close_postprocessing()
 
             # VST Integration: registration is DEFERRED to after Play + render-warm
             # (see the run loop below). Registering here — before the RTSP encoder is
@@ -219,6 +312,7 @@ class ActorSDGRunner:
                 print("Setup complete. Waiting for manual data generation start...")
                 while not self._sim_app.is_exiting():
                     await self._sim_app.app.next_update_async()
+                    self._update_postprocessing()
                 return True
 
             # If auto-start, press Play on the timeline (RTSP + BT start ticking).
@@ -237,6 +331,7 @@ class ActorSDGRunner:
             vst_registered = False
             while not self._sim_app.is_exiting():
                 await self._sim_app.app.next_update_async()
+                self._update_postprocessing()
                 if self.enable_vst and not vst_registered and self._render_is_warm():
                     self._vst_register_cameras()
                     vst_registered = True
@@ -252,6 +347,11 @@ class ActorSDGRunner:
             return False
 
         finally:
+            # Put the renderer back as it was: a preset lives in carb settings
+            # and the session layer, both of which outlive this coroutine when
+            # Kit stays up (UI mode, setup re-entry).
+            self._close_postprocessing()
+
             # VST Integration: Cleanup cameras on exit (fallback for UI / abnormal exit)
             if self.enable_vst and self._vst_manager:
                 try:
@@ -262,10 +362,43 @@ class ActorSDGRunner:
                 except Exception as e:
                     print(f"WARNING: Finally VST cleanup failed: {e}")
 
+    def _update_postprocessing(self):
+        """Re-read the preset config when due and advance any animated effect.
+
+        Runs once per rendered frame, so an exception here would otherwise spam
+        the log at render rate; the first failure retires the controller and the
+        run continues without post-processing.
+        """
+        if self._postprocessing is None:
+            return
+        try:
+            self._postprocessing.update()
+        except Exception as e:
+            print(f"WARNING: post-processing update failed, disabling: {e}")
+            # Retiring the controller means restoring the renderer first: the
+            # settings and session-layer edits an update had already made
+            # outlive the handle, and the handle is what knows how to undo them.
+            self._close_postprocessing()
+
+    def _close_postprocessing(self):
+        """Restore the renderer and drop the controller. Never raises.
+
+        The shutdown path runs it from `finally`, where an escaping exception
+        would skip the VST cleanup that follows.
+        """
+        if self._postprocessing is None:
+            return
+        try:
+            self._postprocessing.close()
+        except Exception as e:
+            print(f"WARNING: post-processing cleanup failed: {e}")
+        finally:
+            self._postprocessing = None
+
     def _extract_output_path(self, config):
         """Extract IRABasicWriter output_dir from typed RootConfig, tolerant of missing keys.
 
-        In 6.0, replicator.writers is a Map[str, WriterEntry] keyed by names matching
+        In 6.1, replicator.writers is a Map[str, WriterEntry] keyed by names matching
         ^(IRABasicWriter|CustomWriter|CosmosIRAWriter|SceneGraphWriter)(_\\d+)?$. Halos SIL
         configs may omit any offline writer entirely (RTSP-only via isaacsim.streaming.rtsp).
         Return None when no offline output is configured.
@@ -279,7 +412,7 @@ class ActorSDGRunner:
             if "IRABasicWriter" in writers:
                 writer_cfg = writers["IRABasicWriter"]
             else:
-                # TODO(verify-6.0): Decide whether to honor non-IRABasicWriter writers
+                # TODO(verify-6.1): Decide whether to honor non-IRABasicWriter writers
                 # (CustomWriter, CosmosIRAWriter, SceneGraphWriter) for output_path
                 # derivation in --save_usd flow.
                 writer_cfg = next(iter(writers.values()), None)
@@ -294,7 +427,7 @@ class ActorSDGRunner:
     def _vst_register_cameras(self):
         """Register RTSP cameras with VST after simulation setup.
 
-        NOTE(IRA 6.0): cameras.yaml schema has changed (per-camera `port` + `mount_path`;
+        NOTE(IRA 6.1): cameras.yaml schema has changed (per-camera `port` + `mount_path`;
         RTSP is now served by the isaacsim.streaming.rtsp extension, not RTSPWriter).
         The VSTSensorManager.add_sensors_from_config() implementation handles the new
         schema. This driver passes the path through unchanged.
@@ -418,7 +551,7 @@ class ActorSDGRunner:
 
         ext_manager = omni.kit.app.get_app().get_extension_manager()
 
-        # Required extensions for Actor SDG on Isaac Sim 6.0.
+        # Required extensions for Actor SDG on Isaac Sim 6.1.
         # Diff vs 5.1:
         #   REMOVE: omni.anim.people (replaced by Open Behavior Tree pipeline)
         #   ADD:    omni.anim.behavior.tree, omni.anim.behavior.core (BT runtime)
@@ -435,7 +568,7 @@ class ActorSDGRunner:
             # Behavior Tree replacements for omni.anim.people:
             "omni.anim.behavior.core",
             "omni.anim.behavior.tree",
-            # IRA core + UI (still required in 6.0).
+            # IRA core + UI (still required in 6.1).
             "isaacsim.replicator.agent.core",
             "isaacsim.replicator.agent.ui",
             "omni.kit.mesh.raycast",
@@ -467,7 +600,7 @@ class ActorSDGRunner:
         self._settings = carb.settings.get_settings()
         self._settings.set("/app/scripting/ignoreWarningDialog", True)
         self._settings.set("/persistent/exts/omni.anim.navigation.core/navMesh/viewNavMesh", False)
-        # NOTE(IRA 6.0): /exts/omni.anim.people/navigation_settings/navmesh_enabled REMOVED —
+        # NOTE(IRA 6.1): /exts/omni.anim.people/navigation_settings/navmesh_enabled REMOVED —
         # omni.anim.people extension is no longer enabled; setting would be ignored anyway.
 
         # NavMesh bake config (dev3 MoveTo-failed regression).
@@ -492,13 +625,13 @@ class ActorSDGRunner:
             self._settings.set(f"{_NAV_CFG}/{_key}", _cm)
             self._settings.set(f"/persistent{_NAV_CFG}/{_key}", _cm)
 
-        # Behavior-core auto-avoidance (recurring `MoveTo failed status=2` on 6.0).
+        # Behavior-core auto-avoidance (recurring `MoveTo failed status=2` on 6.1).
         # omni.anim.behavior.core exposes an "auto avoidance" feature
         # (enableAutoAvoidance): any dynamic object whose mass exceeds
         # defaultAutoAvoidanceMass is auto-registered as a crowd-sim "threat" the
         # character must steer around. Per the behavior.core CHANGELOG this feature
         # was introduced in the 109.x line and refined in 110.0.12 (predictive
-        # time-to-collision); it is default-ON in the Isaac Sim 6.0 behavior.core.
+        # time-to-collision); it is default-ON in the Isaac Sim 6.1 behavior.core.
         # The Isaac Sim 5.1 baseline (behavior.core 107.3.x) had no such setting, so
         # the worker loops were authored for un-obstructed navigation.
         # In the Halos scene the moving forklift_b is registered as a tracked threat
@@ -513,8 +646,8 @@ class ActorSDGRunner:
         self._settings.set("/exts/omni.anim.behavior.core/enableAutoAvoidance", False)
         self._settings.set("/persistent/exts/omni.anim.behavior.core/enableAutoAvoidance", False)
 
-        # NOTE(IRA 6.0): All 9 of the following carb settings are SILENTLY IGNORED in 6.0
-        # (not present in the Isaac Sim 6.0 source). Their values must now live
+        # NOTE(IRA 6.1): All 9 of the following carb settings are SILENTLY IGNORED in 6.1
+        # (not present in the Isaac Sim 6.1 source). Their values must now live
         # in the YAML config under sensor.groups.<g>.aim_at_targets.* — now in
         # default_config_ros.yaml. Removed:
         #   /persistent/exts/isaacsim.replicator.agent/aim_cameras_at_characters
@@ -539,7 +672,7 @@ class ActorSDGRunner:
         self._settings.set("/log/channels/omni.kit.menu.*", "error")
         self._settings.set("/log/channels/omni.kit.property.*", "error")
         self._settings.set("/log/channels/omni.anim.graph.*", "error")
-        # TODO(verify-6.0): Add /log/channels/omni.anim.behavior.* once behavior tree
+        # TODO(verify-6.1): Add /log/channels/omni.anim.behavior.* once behavior tree
         # runtime is loaded; current 5.1 omni.anim.graph filter does NOT cover the new
         # BT extensions and may produce verbose output.
         self._settings.set("/exts/isaacsim.replicator.agent/debug_print", self.debug_print)
@@ -549,7 +682,7 @@ class ActorSDGRunner:
         if self.crash_report_path:
             self._settings.set("/crashreporter/dumpDir", self.crash_report_path)
 
-    # NOTE(IRA 6.0): _setup_sim, _do_camera_placement, _read_camera_json, _place_cameras,
+    # NOTE(IRA 6.1): _setup_sim, _do_camera_placement, _read_camera_json, _place_cameras,
     # _place_one_camera all DELETED:
     #   - _setup_sim: callback-based setup pattern (register_set_up_simulation_done_callback)
     #     replaced by `await SimulationManager.get_instance().setup_simulation()` (inlined
@@ -592,16 +725,22 @@ Examples:
 
   # With VST integration:
   ./python.sh run_actor_sdg.py -c config.yaml --start --enable-vst --cameras-config cameras.yaml
+
+  # Inject a sensor anomaly while the run is live (no restart):
+  ./scripts/postprocessing/set_preset.sh tv_noise
         """,
     )
-    parser.add_argument("-c", "--config_file", required=True, help="Path to IRA config file (yaml)")
+    parser.add_argument("-c", "--config_file",
+                        help="Path to IRA config file (yaml); optional when SCENARIO names one")
+    parser.add_argument("--scenario",
+                        help="Scenario id from configs/scenarios.yaml; fills the ira/robots/cameras trio")
     parser.add_argument("--start", action="store_true", help="Automatically start data generation")
     parser.add_argument("--setup-only", action="store_true", help="Only setup simulation, don't wait for data generation")
     parser.add_argument("--headless", action="store_true", help="Run in headless mode (no GUI window)")
-    # NOTE(IRA 6.0): --sensor_placement_file is INFORMATIONAL ONLY. Camera placement is
+    # NOTE(IRA 6.1): --sensor_placement_file is INFORMATIONAL ONLY. Camera placement is
     # declarative via sensor.groups.<g>.aim_at_targets in the YAML config. Argument kept
     # for CLI back-compat.
-    parser.add_argument("--sensor_placement_file", help="(IRA 6.0: informational only) Path to camera placement JSON file")
+    parser.add_argument("--sensor_placement_file", help="(IRA 6.1: informational only) Path to camera placement JSON file")
     parser.add_argument("--crash_report_path", help="Path to store crash reports")
     parser.add_argument("--debug_print", action="store_true", help="Enable debug output")
     parser.add_argument("--save_usd", action="store_true", help="Save USD scene after generation")
@@ -625,7 +764,7 @@ Examples:
     # See sil/scripts/action_graphs/README.md for what each does.
     parser.add_argument("--no-runtime-patches", dest="enable_runtime_patches", action="store_false",
                         default=True,
-                        help="Skip apply_halos_runtime_patches (legacy char deactivation + IRA char placement)")
+                        help="Skip apply_halos_runtime_patches (IRA char placement + forklift TGS rebalance)")
     parser.add_argument("--no-rtsp", dest="enable_rtsp", action="store_false",
                         default=True,
                         help="Skip build_rtsp_graph (RTSP multi-camera Action Graph build)")
@@ -633,6 +772,13 @@ Examples:
                         default=True,
                         help="Skip camera_loader (dynamic Camera prim spawn from cameras.yaml spawn: blocks)")
     parser.add_argument("--robots-config", help="Path to robots.yaml for forklift control/odom/safety + clock graphs")
+    parser.add_argument("--no-indicator-spawn", dest="enable_indicator_spawn", action="store_false",
+                        default=True,
+                        help="Skip indicator_loader (safety-indicator disc geometry from robots.yaml mesh: blocks)")
+    parser.add_argument("--no-forklift-spawn", dest="enable_forklift_spawn", action="store_false",
+                        default=True,
+                        help="Skip forklift_overlay (forklift prims from robots.yaml spawn: blocks); "
+                             "loads the scene USD as-is")
     parser.add_argument("--no-forklift", dest="enable_forklift", action="store_false",
                         default=True,
                         help="Skip build_forklift_graphs (control + odometry + safety indicator)")
@@ -643,9 +789,87 @@ Examples:
                         default=False,
                         help="Build the SRR ground-truth /gt/*/tf publisher graph "
                              "(default OFF; SRR regression harness only)")
+    parser.add_argument("--postprocessing-config",
+                        help="Path to postprocessing.yaml (RTX sensor-anomaly presets). "
+                             "Defaults to configs/postprocessing.yaml when present")
+    parser.add_argument("--postprocessing-preset",
+                        help="Pin the RTX preset for this run, ignoring `active:` in the config. "
+                             "Campaign launchers should pass 'baseline' so a preset left behind "
+                             "by set_preset.sh cannot degrade the next run. An unknown name is "
+                             "an error, not a fallback")
+    parser.add_argument("--no-postprocessing", dest="enable_postprocessing",
+                        action="store_false", default=True,
+                        help="Skip the RTX post-processing controller (no anomaly injection, "
+                             "no config polling)")
 
     args, _ = parser.parse_known_args()
     return args
+
+
+def _validate_postprocessing_preset(preset, config_path):
+    """Fail the run on a --postprocessing-preset the config cannot honour.
+
+    The controller rejects a bad preset too, but only as a WARNING from its
+    poll loop: the run then streams, finishes and exits 0 with perfectly clean
+    images. A campaign that pinned an anomaly preset and got it wrong would
+    score the clean run as if the fault had been injected, with nothing in the
+    report saying otherwise. Refusing to boot is the only outcome an automated
+    campaign can notice.
+
+    "Wrong" is not only a mistyped name. `version: 2`, a setting key that does
+    not exist, a string where a float belongs, an `animation` block missing
+    `frequency_hz`, a `per_camera` entry that also carries a top-level
+    `cameras:` — every one of those names a preset that IS in the file and
+    still produces a clean run. So this runs the controller's own
+    `_select_preset` and `_validate_preset`, which is why those two are kept
+    free of carb and pxr imports: they are the contract, and a second
+    reimplementation here would drift from it.
+
+    What it still cannot check is camera resolution: `cameras:`/`per_camera:`
+    entries are matched against cameras.yaml and then against the prims on the
+    stage, and neither exists before Kit boots. An unknown camera name is
+    caught by the controller at apply time, where it is rejected without
+    disturbing the running preset.
+    """
+    if not preset.strip():
+        # `--postprocessing-preset "$PRESET"` with PRESET unset. Not "no pin":
+        # falling through to `active:` would hand the run whatever preset
+        # set_preset.sh last committed to the file.
+        print("ERROR: --postprocessing-preset was given an empty value", file=sys.stderr)
+        sys.exit(1)
+
+    if not config_path:
+        # No file to check the name against, and no controller either — say so,
+        # because the pin the operator asked for will not be applied.
+        print(f"WARNING: --postprocessing-preset {preset!r} ignored: no post-processing "
+              "config found", file=sys.stderr)
+        return
+
+    # Both imports are deliberately unguarded. PyYAML is present in the Isaac
+    # image before Kit boots (the SIL launcher and set_preset.sh both use it),
+    # and `postprocessing` sits next to this file, so neither can fail on a
+    # working install. The `except ImportError` that used to wrap the yaml
+    # import degraded this check to a WARNING — turning the hard, campaign-
+    # visible failure the function exists to produce back into exactly the soft
+    # one it exists to replace, and doing so silently.
+    import yaml
+
+    from postprocessing.controller import _select_preset, _validate_preset
+
+    try:
+        with open(config_path) as stream:
+            config = yaml.safe_load(stream) or {}
+    except Exception as exc:
+        print(f"ERROR: Cannot read post-processing config {config_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        name, selected = _select_preset(config, preset)
+        _validate_preset(name, selected)
+    except Exception as exc:
+        print(f"ERROR: --postprocessing-preset {preset!r} cannot be honoured by "
+              f"{config_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -658,27 +882,78 @@ def main():
               file=sys.stderr)
         sys.exit(2)
 
+    # A scenario names the ira/robots/cameras trio for this run. The controllers
+    # read the same SCENARIO, so the simulator and the trucks cannot be launched
+    # against different halves of one run. Any flag still wins over it.
+    _configs_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "configs"))
+    scenario = {}
+    scenario_id = (args.scenario or os.environ.get("SCENARIO", "")).strip()
+    if scenario_id:
+        from action_graphs.forklift_common import load_scenario
+        scenario = load_scenario(_configs_dir, scenario_id)
+        print(f"Scenario: {scenario_id}"
+              f"{'  [EXPERIMENTAL - no published calibration; do not score this run]' if scenario.get('experimental') else ''}")
+
     # Validate config file
+    if not args.config_file and scenario.get("ira"):
+        args.config_file = os.path.join(_configs_dir, scenario["ira"])
+    if not args.config_file:
+        print("ERROR: no IRA config. Pass -c, or set SCENARIO to a scenario that "
+              "names one (configs/scenarios.yaml).", file=sys.stderr)
+        sys.exit(2)
     config_file_path = os.path.abspath(args.config_file)
     if not os.path.isfile(config_file_path):
         print(f"ERROR: Config file not found: {config_file_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Validate sensor placement file if provided. In IRA 6.0 this is informational only —
+    # Validate sensor placement file if provided. In IRA 6.1 this is informational only —
     # we still surface a clear error if the user passes a path that doesn't exist.
     if args.sensor_placement_file and not os.path.isfile(args.sensor_placement_file):
         print(f"ERROR: Sensor placement file not found: {args.sensor_placement_file}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve cameras config path
+    # Checked before SimulationApp boots: an explicitly requested preset file
+    # that does not exist is an operator error worth failing on, and failing here
+    # avoids tearing down a started Kit app.
+    if args.postprocessing_config and not os.path.isfile(args.postprocessing_config):
+        print(f"ERROR: Post-processing config not found: {args.postprocessing_config}", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolved here rather than next to the other config paths further down,
+    # because --postprocessing-preset can only be checked against the file that
+    # will actually be loaded, and that check has to happen before Kit boots.
+    postprocessing_config_path = None
+    if args.enable_postprocessing:
+        if args.postprocessing_config:
+            postprocessing_config_path = os.path.abspath(args.postprocessing_config)
+        else:
+            default_pp_yaml = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "configs", "postprocessing.yaml")
+            )
+            if os.path.isfile(default_pp_yaml):
+                postprocessing_config_path = default_pp_yaml
+
+    if args.enable_postprocessing and args.postprocessing_preset is not None:
+        _validate_postprocessing_preset(args.postprocessing_preset, postprocessing_config_path)
+
+    # Resolve cameras config path, including the default, BEFORE the banner below:
+    # resolving it afterwards made the banner print None on every launch that relied
+    # on the default, so the log did not say which poses the run used — and using the
+    # wrong ones is silent. See camera_loader.assert_scene_matches().
     cameras_config_path = None
     if args.cameras_config:
         cameras_config_path = os.path.abspath(args.cameras_config)
         if not os.path.isfile(cameras_config_path):
             print(f"WARNING: Cameras config file not found: {cameras_config_path}", file=sys.stderr)
+    elif args.enable_rtsp or args.enable_camera_spawn:
+        # Both consumers (RTSP graph build and camera spawn) need it, so either being
+        # enabled resolves the default — mirroring the robots.yaml default below.
+        candidate = os.path.join(_configs_dir, scenario.get("cameras") or "cameras.yaml")
+        if os.path.isfile(candidate):
+            cameras_config_path = candidate
 
     print("=" * 60)
-    print("Actor SDG Runner (IRA 6.0)")
+    print("Actor SDG Runner (IRA 6.1)")
     print("=" * 60)
     print(f"Config file: {config_file_path}")
     print(f"Headless: {args.headless}")
@@ -687,8 +962,8 @@ def main():
     print(f"Debug print: {args.debug_print}")
     print(f"Save USD: {args.save_usd}")
     print(f"VST Integration: {args.enable_vst}")
+    print(f"Cameras config: {cameras_config_path or '<none>'}")
     if args.enable_vst:
-        print(f"  Cameras config: {cameras_config_path}")
         print(f"  VST URL: {os.environ.get('VST_BASE_URL', 'not set')}")
         print(f"  HOST_IP: {os.environ.get('HOST_IP', 'not set')}")
     print("=" * 60)
@@ -715,7 +990,7 @@ def main():
     # last value).
     isaac_asset_root = os.environ.get(
         "ISAAC_ASSET_ROOT",
-        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0",
+        "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.1",
     )
     sys.argv.append(f"--/persistent/isaac/asset_root/default={isaac_asset_root}")
 
@@ -733,36 +1008,38 @@ def main():
     # NOTE: 30 Hz tick gate is implemented as Option B in
     # action_graphs/rtsp_cameras.py via `IsaacSimulationGate(step=2)`.
     # The carb-side `/app/runLoops/main/rateLimitFrequency=30` override is
-    # NOT effective on Isaac Sim 6.0 — leaving it out.
+    # NOT effective on Isaac Sim 6.1 — leaving it out.
 
     # Start SimulationApp
     print("Starting Isaac Sim...")
     print(f"Asset root override: {isaac_asset_root}")
     sim_app = SimulationApp(launch_config=app_config, experience=BASE_EXP_PATH)
 
-    # Default cameras_config_path to the canonical location when the
-    # operator did not pass --cameras-config. Both consumers (RTSP graph
-    # build and camera spawn) need it, so either being enabled resolves
-    # the default — mirroring the robots.yaml default below.
-    if (args.enable_rtsp or args.enable_camera_spawn) and cameras_config_path is None:
-        default_cameras_yaml = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "configs", "cameras.yaml")
-        )
-        if os.path.isfile(default_cameras_yaml):
-            cameras_config_path = default_cameras_yaml
-
     # Resolve robots config path (forklift control/odom/safety + clock).
     # Defaults to the canonical configs/robots.yaml when the operator did
     # not pass --robots-config, mirroring the cameras.yaml default above.
     robots_config_path = None
+    configs_dir = _configs_dir
+    # SCENARIO names the fleet file for this process and for every controller,
+    # so the two halves cannot run against different fleets. The flag still wins.
+    env_robots = scenario.get("robots", "")
+    robots_source = f"SCENARIO={args.scenario or os.environ.get('SCENARIO', '')}"
+
+    wants_robots = args.enable_forklift or args.enable_clock or args.enable_forklift_spawn
     if args.robots_config:
         robots_config_path = os.path.abspath(args.robots_config)
         if not os.path.isfile(robots_config_path):
             print(f"WARNING: Robots config file not found: {robots_config_path}", file=sys.stderr)
-    elif args.enable_forklift or args.enable_clock:
-        default_robots_yaml = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "configs", "robots.yaml")
-        )
+    elif env_robots and wants_robots:
+        robots_config_path = (env_robots if os.path.isabs(env_robots)
+                              else os.path.join(configs_dir, env_robots))
+        if not os.path.isfile(robots_config_path):
+            print(f"WARNING: {robots_source} -> {env_robots} resolves to a missing "
+                  f"file: {robots_config_path}", file=sys.stderr)
+        else:
+            print(f"Robots config from {robots_source}: {robots_config_path}")
+    elif wants_robots:
+        default_robots_yaml = os.path.join(configs_dir, "robots.yaml")
         if os.path.isfile(default_robots_yaml):
             robots_config_path = default_robots_yaml
 
@@ -781,10 +1058,15 @@ def main():
         enable_runtime_patches=args.enable_runtime_patches,
         enable_rtsp=args.enable_rtsp,
         enable_camera_spawn=args.enable_camera_spawn,
+        enable_indicator_spawn=args.enable_indicator_spawn,
+        enable_forklift_spawn=args.enable_forklift_spawn,
         robots_config_path=robots_config_path,
         enable_forklift=args.enable_forklift,
         enable_clock=args.enable_clock,
         enable_srr_gt=args.enable_srr_gt,
+        postprocessing_config_path=postprocessing_config_path,
+        enable_postprocessing=args.enable_postprocessing,
+        postprocessing_preset=args.postprocessing_preset,
         vst_register_warmup_sec=args.vst_register_warmup_sec,
         vst_register_timeout_sec=args.vst_register_timeout_sec,
     )
@@ -813,7 +1095,7 @@ def main():
         elif args.save_usd and not sdg.output_path:
             print(
                 "WARNING: --save_usd requested but no output_dir resolved from config "
-                "(IRA 6.0 replicator.writers may be empty or omit output_dir). Skipping.",
+                "(IRA 6.1 replicator.writers may be empty or omit output_dir). Skipping.",
                 file=sys.stderr,
             )
 

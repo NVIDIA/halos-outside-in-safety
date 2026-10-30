@@ -2,23 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { worldToPixel, pixelToWorld, metersToPixels } from '../utils/coordinates';
+import * as coords from '../utils/coordinates';
 import { generateCurvedPath, generatePathArrows } from '../utils/bezier';
-import calibration from '../config/calibration.json';
 
 const WAYPOINT_RADIUS = 12;
 const ORIGIN_RADIUS = 16;
 const ARROW_LENGTH = 30;
 
-// Forklift dimensions in meters (from calibration.json)
-const FORKLIFT_LENGTH = calibration.forkliftDimensions?.length || 2.8;
-const FORKLIFT_WIDTH = calibration.forkliftDimensions?.width || 1.0;
-const FORK_LENGTH = calibration.forkliftDimensions?.forkLength || 1.0;
+const DEFAULT_FORKLIFT = { length: 2.8, width: 1.0, forkLength: 1.0 };
 
 /**
  * WaypointCanvas - 2D canvas for drawing waypoints on warehouse map
  */
 export default function WaypointCanvas({
+  mapConfig,
   waypoints,
   origin,
   selectedIndex,
@@ -40,7 +37,7 @@ export default function WaypointCanvas({
   const [zoom, setZoom] = useState(0.6);
   const [isPanning, setIsPanning] = useState(false);
   const [lastMouse, setLastMouse] = useState({ x: 0, y: 0 });
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [loadedImagePath, setLoadedImagePath] = useState(null);
   
   // Dragging waypoint state
   const [draggingIndex, setDraggingIndex] = useState(null);
@@ -53,16 +50,43 @@ export default function WaypointCanvas({
   const arrowTextureRef = useRef(null);
   const [texturesLoaded, setTexturesLoaded] = useState(0); // Counter to trigger re-render
 
-  // Load background image and textures
+  // Bound to the active map so the drawing code below reads the same as before,
+  // while the conversions themselves stay explicit about which map they mean.
+  const worldToPixel = useCallback(
+    (worldX, worldY) => coords.worldToPixel(worldX, worldY, mapConfig), [mapConfig]);
+  const pixelToWorld = useCallback(
+    (pixelX, pixelY) => coords.pixelToWorld(pixelX, pixelY, mapConfig), [mapConfig]);
+  const metersToPixels = useCallback(
+    (meters) => coords.metersToPixels(meters, mapConfig), [mapConfig]);
+
+  const forklift = mapConfig.forkliftDimensions || DEFAULT_FORKLIFT;
+  const FORKLIFT_LENGTH = forklift.length ?? DEFAULT_FORKLIFT.length;
+  const FORKLIFT_WIDTH = forklift.width ?? DEFAULT_FORKLIFT.width;
+  const FORK_LENGTH = forklift.forkLength ?? DEFAULT_FORKLIFT.forkLength;
+
+  // Ready only once the image on screen is the one the active map asked for.
+  // Derived rather than a flag, so switching maps blanks the canvas by itself
+  // instead of drawing the new scene's waypoints over the old scene's picture.
+  const imageLoaded = loadedImagePath === mapConfig.imagePath;
+
+  // Load the active map's plan view, reloading when the map changes
   useEffect(() => {
+    let cancelled = false;
     const img = new Image();
-    img.src = '/Top.png';
+    img.src = mapConfig.imagePath;
     img.onload = () => {
+      if (cancelled) return;
       imageRef.current = img;
-      setImageLoaded(true);
+      setLoadedImagePath(mapConfig.imagePath);
     };
-    
-    // Load waypoint spot texture
+    img.onerror = () => {
+      console.error(`Cannot load map image: ${mapConfig.imagePath}`);
+    };
+    return () => { cancelled = true; };
+  }, [mapConfig.imagePath]);
+
+  // Waypoint and arrow textures are the same for every map, so load them once
+  useEffect(() => {
     const spotImg = new Image();
     spotImg.src = '/spot.png';
     spotImg.onload = () => {
@@ -112,7 +136,7 @@ export default function WaypointCanvas({
       }
     }
     return -1;
-  }, [waypoints, origin, zoom]);
+  }, [waypoints, origin, zoom, worldToPixel]);
 
   // Draw everything
   useEffect(() => {
@@ -181,7 +205,10 @@ export default function WaypointCanvas({
       ctx.stroke();
       
       // Draw forklift footprint at origin (showing starting position) - NVIDIA green
-      drawForkliftFootprint(ctx, originPixel.x, originPixel.y, 0, zoom, 'rgba(118, 185, 0, 0.25)', '#76b900');
+      drawForkliftFootprint(
+        ctx, originPixel.x, originPixel.y, origin.theta_deg ?? 0, zoom,
+        'rgba(118, 185, 0, 0.25)', '#76b900'
+      );
     }
     
     // Helper function to draw forklift footprint (simple clean design)
@@ -245,7 +272,10 @@ export default function WaypointCanvas({
       const originWaypoint = {
         x: origin.x,
         y: origin.y,
-        theta_deg: 0, // Origin heading (forklift starts pointing right)
+        // The heading the truck starts at. It aims the first Bezier control
+        // point, so a wrong value bends the opening segment out of the truck's
+        // actual facing.
+        theta_deg: origin.theta_deg ?? 0,
         reverse: false,
       };
       
@@ -509,8 +539,15 @@ export default function WaypointCanvas({
       ctx.stroke();
     }
     
-    // Draw origin preview (when in origin mode)
+    // Draw origin preview (when in origin mode). The body and arrow show the
+    // heading the click is about to commit, so the start pose is not placed
+    // blind and then only discovered in the exported poses.
     if (mode === 'origin' && mousePos.x > 0 && mousePos.y > 0) {
+      drawForkliftFootprint(
+        ctx, mousePos.x, mousePos.y, previewHeading, zoom,
+        'rgba(0, 170, 255, 0.15)', 'rgba(0, 170, 255, 0.6)'
+      );
+
       ctx.strokeStyle = 'rgba(0, 170, 255, 0.6)';
       ctx.lineWidth = 2 / zoom;
       ctx.setLineDash([4 / zoom, 4 / zoom]);
@@ -521,6 +558,18 @@ export default function WaypointCanvas({
         ORIGIN_RADIUS * 2
       );
       ctx.setLineDash([]);
+
+      const originHeadingRad = (previewHeading * Math.PI) / 180;
+      const originArrowLen = ARROW_LENGTH / zoom;
+      ctx.beginPath();
+      ctx.moveTo(mousePos.x, mousePos.y);
+      ctx.lineTo(
+        mousePos.x + Math.cos(originHeadingRad) * originArrowLen,
+        mousePos.y - Math.sin(originHeadingRad) * originArrowLen
+      );
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 2 / zoom;
+      ctx.stroke();
     }
     
     ctx.restore();
@@ -568,7 +617,8 @@ export default function WaypointCanvas({
       ctx.fillText(`θ: ${previewHeading}°`, 18, origin ? 69 : 52);
     }
     
-  }, [waypoints, origin, selectedIndex, pan, zoom, imageLoaded, texturesLoaded, mode, mousePos, previewHeading, draggingIndex]);
+  }, [waypoints, origin, selectedIndex, pan, zoom, imageLoaded, texturesLoaded, mode, mousePos, previewHeading, draggingIndex,
+      worldToPixel, pixelToWorld, metersToPixels, FORKLIFT_LENGTH, FORKLIFT_WIDTH, FORK_LENGTH]);
 
   // Handle mouse down
   const handleMouseDown = (e) => {
@@ -582,7 +632,7 @@ export default function WaypointCanvas({
       
       if (mode === 'origin') {
         const world = pixelToWorld(imagePos.x, imagePos.y);
-        onSetOrigin?.({ x: world.x, y: world.y });
+        onSetOrigin?.({ x: world.x, y: world.y, theta_deg: previewHeading });
       } else if (mode === 'waypoint' && origin) {
         // Check if clicking on existing waypoint
         const wpIndex = findWaypointAt(imagePos.x, imagePos.y);
@@ -662,15 +712,11 @@ export default function WaypointCanvas({
   const handleWheel = (e) => {
     e.preventDefault();
     
-    if (e.shiftKey && mode === 'waypoint') {
-      // Shift + scroll = adjust preview heading
+    if (e.shiftKey && (mode === 'waypoint' || mode === 'origin')) {
+      // Shift + scroll = adjust preview heading (the origin's own start heading
+      // while in origin mode)
       const delta = e.deltaY > 0 ? -10 : 10;
-      onUpdatePreviewHeading?.(prev => {
-        let newHeading = prev + delta;
-        while (newHeading > 180) newHeading -= 360;
-        while (newHeading < -180) newHeading += 360;
-        return newHeading;
-      });
+      onUpdatePreviewHeading?.(coords.normalizeAngle(previewHeading + delta));
     } else {
       // Normal scroll = zoom
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;

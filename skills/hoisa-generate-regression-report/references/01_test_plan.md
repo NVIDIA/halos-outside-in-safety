@@ -17,7 +17,7 @@ If user did not specify, **ask which scenarios** before proceeding (do NOT defau
 
 ## 5 available scenarios
 
-| Name | RECORD_S | Behavior trees (IRA 1.6) |
+| Name | RECORD_S | Behavior trees (IRA 1.7) |
 |---|---:|---|
 | `in-roi`    |  300 | `srr_in-roi_char{0,1,2}.bt.json` |
 | `psf-edge`  |  300 | `srr_psf-edge_char{0,1,2}.bt.json` |
@@ -27,7 +27,7 @@ If user did not specify, **ask which scenarios** before proceeding (do NOT defau
 
 > Plus an opt-in **`fixed`** — a deterministic baseline (hand-authored, always-in-ROI; **excluded from `all` / `full`**, select it explicitly). See `SKILL.md`.
 
-Each scenario is 3 IRA 1.6 behavior trees `srr_<name>_char{0,1,2}.bt.json` at
+Each scenario is 3 IRA 1.7 behavior trees `srr_<name>_char{0,1,2}.bt.json` at
 `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/` (GitHub layout:
 `<halos-repo>/closed-loop-testing/isaac-sim/sil/configs/`), emitted directly by
 `scenarios/tools/randomize_paths.py` (canonical source: `scenarios/behavior-trees/`).
@@ -62,9 +62,9 @@ Verify the SRR multi-test environment is ready:
    and `docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env ps` shows the configured services (safety-core, comm-layer, isaac-sim).
 2. SRR compose dir exists at ${SRR_SERVICE_DIR}/
    and `docker compose ps` shows srr service.
-2b. The SRR `.env` sets `VSS_ROOT_PATH` (so `ENV_VSS_PATH` resolves): the scene-ready
+2b. The SRR `.env` sets `ENV_VSS_PATH` to the VSS build's `override.env`: the scene-ready
    gate reads the VSS deploy MODE from it to pick its topic (2d → mdx-raw, 3d/mv3dt →
-   mdx-bev). On a 2D host WITHOUT `VSS_ROOT_PATH` the gate falls back to mdx-bev — which
+   mdx-bev). On a 2D host WITHOUT it the gate falls back to mdx-bev — which
    carries no data on 2D — and burns the full scene-ready timeout on every scenario.
 3. The selected scenarios' behavior trees exist:
    <list of srr_<name>_char{0,1,2}.bt.json paths>

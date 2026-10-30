@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        ISAAC_SIM_IMAGE: ${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:6.0.0}
+        ISAAC_SIM_IMAGE: ${ISAAC_SIM_IMAGE:-nvcr.io/nvidia/isaac-sim:6.1.0}
     image: isaac-sim-sil:latest
     container_name: isaac-sim
     profiles: ["sil", "hil"]
@@ -24,6 +24,8 @@ services:
       - HOST_IP=${HOST_IP}
       - VST_BASE_URL=${VST_BASE_URL}
       - PERCEPTION_BASE_URL=${PERCEPTION_BASE_URL:-http://localhost:9000}
+      - SCENARIO=${SCENARIO:-}          # names the ira/robots/cameras trio; a flag still wins
+      - PSF_APP=${PSF_APP:-atl}         # which PSF decision the indicator disks show (atl | pxc | both)
       - ROS_DISTRO=jazzy
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.core/jazzy/lib
@@ -44,6 +46,16 @@ services:
           devices:
           - device_ids: ["${ISAAC_GPU_DEVICE:-1}"]
             capabilities: [gpu]
+    # The base image's check reads .nvidia-omniverse/logs, which Isaac Sim 6.1 no
+    # longer writes and which is the mounted cache here, so it fails on a fresh
+    # host and passes on an old run's log elsewhere. kit/logs is not mounted, so
+    # its newest log is this container's.
+    healthcheck:
+      test: ["CMD-SHELL", "latest=$$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log 2>/dev/null | head -1) && [ -n \"$$latest\" ] && grep -q AppReady \"$$latest\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 3
     depends_on:
       comm-layer:
         condition: service_healthy

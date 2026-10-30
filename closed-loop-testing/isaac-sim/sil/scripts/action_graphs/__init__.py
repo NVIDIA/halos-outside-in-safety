@@ -22,8 +22,8 @@ Modules:
        Per-robot IsaacComputeOdometry -> ROS2 odom/tf AG, replacing the
        baked Odometry_Graph.
   - forklift_safety_indicator.py -> build_safety_graph(yaml_path)
-       Per-robot /safety/is_muted -> indicator color AG, replacing the
-       baked Safety_indicator_Graph.
+       Per-robot mute and/or proximity-state topic -> indicator color AG,
+       replacing the baked Safety_indicator_Graph.
   - clock.py -> build_clock_graph(yaml_path)
        ROS 2 /clock publisher AG, replacing the baked
        Clock_Publisher_Graph. Driven by robots.yaml `clock:` block.
@@ -32,6 +32,10 @@ Modules:
        harness /gt/*/tf publisher (/World/SRRGraph). Resolves the
        IRA-spawned characters + forklift from the live stage and pumps
        their Fabric world transforms each frame. No effect on a normal run.
+  - proximity_line.py -> build_proximity_line(yaml_path)
+       OPT-IN (robots.yaml `proximity_line: {enabled: true}`, default OFF).
+       The pair PSF proximity scored, drawn on the floor at the positions
+       it sent, with its separation in metres.
   - (future) <name>.py -> build_<name>_graph(...)
 
 For non-graph stage tweaks (deactivate prims, set xform, etc),
@@ -72,6 +76,7 @@ from .forklift_odometry import build_odometry_graph
 from .forklift_safety_indicator import build_safety_graph
 from .clock import build_clock_graph
 from .srr_ground_truth import build_srr_gt_graph
+from .proximity_line import build_proximity_line
 
 __all__ = [
     "build_rtsp_graph",
@@ -82,4 +87,5 @@ __all__ = [
     "strip_baked_scene_graphs",
     "build_clock_graph",
     "build_srr_gt_graph",
+    "build_proximity_line",
 ]

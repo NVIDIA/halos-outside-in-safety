@@ -13,13 +13,15 @@
 # sil-data (nvidia/halos-outside-in/sample-sil-data) is a SIL-only prerequisite — pull separately.
 #
 # Usage:
-#   ./scripts/setup.sh <base|sil|hil>     # reads ../../deployments/profiles/<profile>.env
+#   ./scripts/setup.sh <profile>          # reads ../../deployments/profiles/<profile>.env
+#                                         # any name; what it sets up follows from
+#                                         # COMPOSE_PROFILES inside that file
 
 set -e
 
 PROFILE="${1:-}"
 if [ -z "$PROFILE" ]; then
-    echo "ERROR: profile required. Usage: ./scripts/setup.sh <base|sil|hil>"
+    echo "ERROR: profile required. Usage: ./scripts/setup.sh <profile>  (e.g. sil)"
     exit 1
 fi
 
@@ -31,14 +33,6 @@ echo "============================================================"
 echo "  Halos Outside-In Safety — setup (profile: $PROFILE)"
 echo "============================================================"
 
-# Which services' data dirs does this profile need?
-case "$PROFILE" in
-    base) NEED_PSF=1 ;;
-    sil)  NEED_PSF=1; NEED_COMM=1; NEED_ISAAC=1 ;;
-    hil)  NEED_COMM=1; NEED_ISAAC=1 ;;
-    *) echo "ERROR: unknown profile '$PROFILE' (base|sil|hil)"; exit 1 ;;
-esac
-
 # Load profile env
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: env file not found: $ENV_FILE"
@@ -46,6 +40,18 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 echo "Loading $ENV_FILE"
 set -a; source "$ENV_FILE"; set +a
+
+# Which services' data dirs to prepare, taken from the profile's own
+# COMPOSE_PROFILES rather than from its file name — so a profile copied to any
+# name is set up for what it will actually start.
+case ",${COMPOSE_PROFILES}," in *,base,*) NEED_PSF=1 ;; esac
+case ",${COMPOSE_PROFILES}," in *,sil,*)  NEED_PSF=1; NEED_COMM=1; NEED_ISAAC=1 ;; esac
+case ",${COMPOSE_PROFILES}," in *,hil,*)  NEED_COMM=1; NEED_ISAAC=1 ;; esac
+if [ -z "${NEED_PSF}${NEED_COMM}${NEED_ISAAC}" ]; then
+    echo "ERROR: COMPOSE_PROFILES in $ENV_FILE is '${COMPOSE_PROFILES:-<empty>}',"
+    echo "       which names none of base|sil|hil, so there is nothing to set up."
+    exit 1
+fi
 
 # Validate MDX_DATA_DIR (catch unedited template)
 if [ -z "$MDX_DATA_DIR" ]; then
@@ -59,12 +65,25 @@ echo ""
 
 sudo mkdir -p "$MDX_DATA_DIR"
 
-# PSF log (base, sil) — safety-core.yml mounts pss.log as a FILE, must pre-exist
+# PSF logs (base, sil) — safety-core.yml mounts each as a FILE, so all three
+# must pre-exist. Docker silently creates a DIRECTORY for a missing bind-mount
+# source, and PSF then fails to open its own log with no useful error.
+# pxc_sdm.log is only written when PSF_APP is pxc or both, and atl_sdm.log only
+# mounted by atl-pxc-override.yaml (PSF_APP=both), but creating them
+# unconditionally costs nothing and keeps the profiles from needing different
+# setup steps.
 if [ -n "$NEED_PSF" ]; then
     PSF_LOG_DIR="${PSF_LOG_DIR:-$MDX_DATA_DIR/psf-log}"
-    echo "PSF: $PSF_LOG_DIR (+ pss.log)"
+    echo "PSF: $PSF_LOG_DIR (+ pss.log, pxc_sdm.log, atl_sdm.log)"
     sudo mkdir -p "$PSF_LOG_DIR"
-    sudo touch "$PSF_LOG_DIR/pss.log"
+    for f in pss.log pxc_sdm.log atl_sdm.log; do
+        if [ -d "$PSF_LOG_DIR/$f" ]; then
+            echo "ERROR: $PSF_LOG_DIR/$f is a directory (Docker created it for a missing bind source)."
+            echo "       Stop safety-core, remove it (sudo rmdir \"$PSF_LOG_DIR/$f\") and re-run setup.sh."
+            exit 1
+        fi
+    done
+    sudo touch "$PSF_LOG_DIR/pss.log" "$PSF_LOG_DIR/pxc_sdm.log" "$PSF_LOG_DIR/atl_sdm.log"
     sudo chmod -R 777 "$PSF_LOG_DIR"
 fi
 
@@ -84,8 +103,17 @@ if [ -n "$NEED_ISAAC" ]; then
         sudo mkdir -p "$ISAAC_CACHE_DIR/$d"
     done
     sudo chown -R 1234:1234 "$ISAAC_CACHE_DIR"
+
+    # forklift_overlay.py writes here on every launch that uses robots.yaml
+    # spawn: blocks. Only this subdir is handed over: write on a directory is
+    # permission to unlink what is in it, and scenes/ holds the tracked USDs.
+    OVERLAY_DIR="${ISAAC_SIL_DIR:-$MDX_SAMPLE_APPS_DIR/closed-loop-testing/isaac-sim/sil}/scenes/generated"
+    echo "forklift overlay: $OVERLAY_DIR (chown 1234:1234)"
+    sudo mkdir -p "$OVERLAY_DIR"
+    sudo chown 1234:1234 "$OVERLAY_DIR"
+
     echo "  NOTE: sil also needs NGC sil-data (Isaac scenes/collected-assets) — pull separately:"
-    echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.3.0"
+    echo "    ngc registry resource download-version nvidia/halos-outside-in/sample-sil-data:v1.4.0"
 
     # collected-assets must be readable/traversable by the isaac-sim container
     # user (UID/GID 1234; see Dockerfile `USER 1234:1234`). isaac-sim.yml mounts

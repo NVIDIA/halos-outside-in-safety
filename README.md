@@ -70,7 +70,7 @@ Published site: [docs.nvidia.com/halos-outside-in](https://docs.nvidia.com/halos
 
 ## Prerequisites
 
-- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys).
+- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys). Log Docker in to `nvcr.io` with it (`docker login nvcr.io`, username `$oauthtoken`): the VSS 3.3.0 images in `nvcr.io/nvidia/vss-core` do not pull anonymously either.
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
 
 Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html).
@@ -79,7 +79,7 @@ Full hardware, software, NGC-access, and calibration requirements for every prof
 
 Requirements depend on the profile:
 
-- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html).
+- **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites).
 - **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html#closed-loop-host).
 
 ## Quickstart Guide
@@ -102,7 +102,7 @@ The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/
 
 **Ideal for:** deploying by hand on your own host or bare-metal instance.
 
-1. Deploy the [NVIDIA VSS Warehouse Blueprint 3.2.1](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) perception backend first. It publishes the detection events the Safety Core consumes.
+1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) 3.3 perception backend first (GitHub release `v3.3.0`, with its [`vss-build-vision-ai`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0/skills/vss-build-vision-ai) skill and the Halos settings in [`vss_2d_overrides.md`](skills/hoisa-deploy-profile/references/vss_2d_overrides.md)). It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
 For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).

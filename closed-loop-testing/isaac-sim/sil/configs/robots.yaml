@@ -1,53 +1,171 @@
-# Halos SIL forklift / robot Action Graph config (6.0).
+# Halos SIL forklift / robot Action Graph config (6.1) — DEFAULT: single robot.
 #
 # Drives the Python OmniGraph builders in
 # sil/scripts/action_graphs/forklift_control.py:
 #   - build_control_graph    (cmd_vel -> swivel IK -> articulation)
-#   - build_odometry_graph   (IsaacComputeOdometry -> /odom + TF tree)
-#   - build_safety_graph     (/safety/is_muted -> indicator disk color)
+#   - build_odometry_graph   (IsaacComputeOdometry -> odom + TF tree)
+#   - build_safety_graph     (/safety/is_muted, or the proximity level under
+#                             PSF_APP=pxc -> indicator disk color)
 #
-# One block per robot. Add a robot = add a block here, no code change.
-# Topic/frame fields left out fall back to the ROS2 bridge node defaults
-# (matching the empty fields in the original baked USD graphs).
+# This file is the default for EVERY profile (sil and hil): one forklift. The
+# 20x20 scene contains no forklift prim — the `spawn:` block below authors it
+# into a generated layer that sublayers the scene, before IRA opens it, and
+# indicator_loader.py authors its safety disc. run_actor_sdg fails fast if a
+# listed articulation prim is missing from the loaded scene.
 #
-# Source of truth this was extracted from (named graphs, pre-refactor):
-#   ROS_Forklift_Control_Graph / Odometry_Graph / Safety_indicator_Graph
-#   in indicator_warehouse_20x20_layout_overflow_test.usd
+# TWO-FORKLIFT runs use configs/robots-40x20.yaml: set SCENARIO=warehouse_40x20
+# and add `multi-robot` to COMPOSE_PROFILES for the second controller container.
+# Keep the `models:` block and the forklift_b block in both files in sync by
+# hand: the model is declared per file so each stays launchable on its own.
+# The parsed values must agree, not the bytes: the comments around them differ.
+
+# Which warehouse the `spawn:` positions below are measured in. Checked against
+# the scene actually loading, before the stage opens (forklift_overlay.py), the
+# same way cameras.yaml declares its own. Worth stating because the pairing used
+# to be enforced by accident: while every scene authored its own truck, a fleet
+# aimed at the wrong warehouse died on "already authored in ...". Nothing authors
+# a truck now, so a mismatch would simply park it in the wrong building.
+scene: sil/scenes/indicator_warehouse_20x20_layout_overflow_test.usd
+
+# What follows from the asset, stated once per file. With a single robot there
+# is nothing to deduplicate here yet; the block exists so this file has the same
+# shape as the others, and so a second truck costs one `model: forklift_b` line
+# instead of a copy of everything below.
+models:
+  forklift_b:
+    # Where the truck comes from. Used by `spawn:` below; a scene with the prim
+    # already baked in ignores it.
+    asset_path: https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.1/Isaac/Robots/IsaacSim/ForkliftB/forklift_b.usd
+
+    # Which control graph gets built — a choice of topology, not a label. The
+    # swivel builder drives one steered wheel and one driven wheel; a
+    # differential-drive robot needs its own builder rather than these numbers
+    # rewritten. An unknown value is refused at load.
+    drive_type: swivel
+    drive_joint: back_wheel_drive     # velocity-controlled wheel joint
+    swivel_joint: back_wheel_swivel   # position-controlled steer joint
+    wheelbase: 1.49                   # constant_double_wheelbase
+    wheel_radius: 0.16                # /SMV_Forklift_B01_01/back_wheel/Sphere collider radius
+    max_steer_deg: 45.0               # SwivelIK MAX_STEER = radians(45)
+    # Frame-convention sign flips (vehicle frame vs ROS frame). The original
+    # baked SwivelIK negated both inputs, so both are true here. Set false
+    # if the robot asset already matches the ROS twist convention.
+    reverse_logic:
+      flip_linear_x: true             # negate cmd_vel linear.x
+      flip_angular_z: true            # negate cmd_vel angular.z
+
+    robot_front: [-1.0, 0.0, 0.0]     # ros2_publish_odometry.inputs:robotFront
+
+    # Safety disc: where it hangs on this model's bodywork, and how big it is.
+    # `indicator_prim` is derived from it as <articulation_prim>/<rel>/safety_indicator,
+    # so the long path is not retyped per truck. Declaring size here is
+    # what makes indicator_loader.py author the disc, and no scene carries a
+    # baked one, so leaving it out means nothing authors the disc and the graph
+    # builder dies on the prim.
+    indicator:
+      parent_prim_rel: body/body
+      radius: 1.5                     # metres, final world-space size
+      segments: 32                    # triangle-fan segments
+      height_offset: 0.0              # world metres above the parent origin
+
+    # --- how the forklift-controller drives this asset ---
+    # Read by the controller, not by any graph builder. What lives here follows
+    # from the asset itself, so every truck of this model shares it; what is a
+    # given truck's own choice goes in its `drive:` block below.
+    drive:
+      heading_offset: 180.0   # degrees — ForkliftB faces -X in its own frame
+      no_invert: false        # true skips the reverse leg
+      angular_speed: 0.4      # rad/s while turning
 
 robots:
   - name: forklift_b
+    model: forklift_b
     # Articulation root prim (was articulation_controller.inputs:targetPrim
     # and isaac_compute_odometry_node.inputs:chassisPrim = /World/forklift_b).
+    # Also where `spawn:` below authors the truck, and what the disc hangs off.
     articulation_prim: /World/forklift_b
 
+    # --- how this truck drives (forklift-controller) ---
+    # Overrides the model's drive: block leaf by leaf. A launch flag outranks
+    # both; no environment variable is read — see fleet_config.py for the order.
+    drive:
+      speed: 1.5              # m/s along the path
+      loop: true              # replay forever; needs a closed path
+
+    # --- prim ---
+    # forklift_overlay.py turns this into the truck's payload + transform. Drop
+    # the block to require a prim baked into the scene instead; declaring it
+    # while the scene already has one is an error, not a silent win.
+    #
+    # This position is also `defaultForkliftStart` in the waypoint generator's
+    # warehouse_20x20 map and the `origin` of every waypoint file under
+    # waypoints/warehouse_20x20/ — the controller subtracts that origin from
+    # every world pose, so moving the truck here without moving them makes it
+    # drive the right shape in the wrong place. preflight.py compares the two.
+    spawn:
+      position: [1.0, -13.39, 0.0]    # metres, world space — faces the dock door
+      yaw_deg: 180.0                  # rotation about Z — ForkliftB's front is -X
+                                      # in its own frame, so this points it at +X
+
+    # --- how this truck answers PSF proximity (forklift-controller, PSF_APP=pxc|both) ---
+    # Read from /safety/proximity/pair (pair_topic:). `enabled:` defaults to on
+    # exactly when PSF_APP is pxc or both. The tiers (which distance means stop /
+    # reduce) are PSF's, in safety-core/configs/proximity_event_mapping.pb.txt;
+    # these say what the truck does about them. PSF names no robot: every truck
+    # on one pair_topic obeys every decision, so a second truck needs its own
+    # pair_topic or `enabled: false`.
+    proximity:
+      reduce_speed: 0.5       # m/s cap while PSF says reduce_speed
+      stop_hold_s: 2.0        # s a STOP outlives the last packet that asked for it
+      reduce_hold_s: 1.0      # s the same for REDUCE
+      stale_s: 10.0           # s with no message (PSF heartbeats every 5 s) before STOP psf_link_stale
+
     # --- control (ROS_Forklift_Control_Graph) ---
+    # Joints and geometry come from the model; what is left is this truck's own.
     control:
       enabled: true
-      cmd_vel_topic: cmd_vel          # ROS2SubscribeTwist.topicName (USD: default)
-      drive_joint: back_wheel_drive   # velocity-controlled wheel joint
-      swivel_joint: back_wheel_swivel # position-controlled steer joint
-      wheelbase: 1.49                 # constant_double_wheelbase
-      wheel_radius: 0.15              # constant_double_WheelRadius
-      max_steer_deg: 45.0             # SwivelIK MAX_STEER = radians(45)
-      # Frame-convention sign flips (vehicle frame vs ROS frame). The original
-      # baked SwivelIK negated both inputs, so both default to true. Set false
-      # if the robot asset already matches the ROS twist convention.
-      reverse_logic:
-        flip_linear_x: true           # negate cmd_vel linear.x
-        flip_angular_z: true          # negate cmd_vel angular.z
+      cmd_vel_topic: forklift_b/cmd_vel # the controller reads this too, so it is stated once
 
     # --- odometry (Odometry_Graph) ---
     odometry:
       enabled: true
-      odom_topic: odom                # ROS2PublishOdometry.topicName (USD: default)
+      odom_topic: forklift_b/odom     # per-robot namespace
       tf_topic: tf                    # ROS2PublishRawTransformTree.topicName (USD: default)
-      robot_front: [-1.0, 0.0, 0.0]   # ros2_publish_odometry.inputs:robotFront
+      # TF frame ids default to <name>/odom -> <name>/base_link, so two trucks do
+      # not publish the same edge onto one /tf. Override with odom_frame_id /
+      # base_frame_id to get the bare ROS names back.
 
     # --- safety indicator (Safety_indicator_Graph) ---
     safety_indicator:
       enabled: true
+      # Explicit on purpose: the default is now the per-robot
+      # /<name>/safety/is_muted, which only exists where comm-layer is told to
+      # mirror it. This scene stays on the global topic.
       muted_topic: /safety/is_muted   # std_msgs/Bool subscriber
-      indicator_prim: /World/forklift_b/body/body/safety_indicator
+      # indicator_prim comes from the model: /World/forklift_b/body/body/safety_indicator
+      #
+      # Under PSF_APP=pxc the disk shows the proximity level instead, and under
+      # PSF_APP=both it shows STOP / REDUCE while proximity acts and the mute
+      # otherwise, with the alarm in yellow (1.0, 0.85, 0.0) unless color_alarm
+      # is set. `source:` follows PSF_APP; set it to mute|proximity|both to pin
+      # it. The proximity level is read from /forklift_b/proximity/state
+      # (proximity.state_topic:), the level the controller is applying, holds
+      # included:
+      color_normal: [0.0, 1.0, 0.0]   # green  full speed
+      color_reduce: [1.0, 0.1, 0.0]   # orange capped at proximity.reduce_speed (linear; 0.3 renders yellow)
+      color_stop: [1.0, 0.0, 0.0]     # red    stopped
+      color_inactive: [0.35, 0.35, 0.35]  # grey no level yet, or proximity disabled
+
+# The pair PSF proximity scored (action_graphs/proximity_line.py): a line on the
+# floor between the two positions of each decision, green / amber / red, with
+# the separation ("1.97 m") on a plate of that colour beside it. PSF_APP=pxc or
+# both. Off by default: it is geometry, so the cameras and perception see it too.
+proximity_line:
+  enabled: false
+  topic: /safety/proximity/pair       # comm-layer's pair topic
+  show_distance: true                 # the "x.xx m" plate
+  # label_camera: /World/Cameras/Camera   # the camera the label faces; default the first in cameras.yaml
+  # color_normal / color_reduce / color_stop: linear [r, g, b] 0..1, emitted
 
 # Global clock publisher (Clock_Publisher_Graph). Not tied to any robot,
 # so it lives in its own builder (action_graphs/clock.py).

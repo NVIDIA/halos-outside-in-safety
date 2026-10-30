@@ -10,6 +10,12 @@ __pycache__/
 **/*.run.env
 deploy/docker/resolved.yml
 
+# Forklift prims generated from the robots.yaml spawn: blocks on every launch.
+# Its own directory, so the bit that makes it writable by the container user
+# never lands on scenes/, which holds the tracked USDs.
+# See closed-loop-testing/isaac-sim/sil/scripts/forklift_overlay.py
+**/scenes/generated/
+
 # Logs / run data
 *.log
 data_log/

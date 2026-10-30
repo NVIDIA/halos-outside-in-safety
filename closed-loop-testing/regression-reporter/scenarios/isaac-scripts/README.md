@@ -10,7 +10,7 @@ These need Isaac Sim's `omni.kit.*` / `pxr.Usd` / `omni.anim.navigation.core` ru
 |---|---|---|
 | Prep a fresh scene for SRR (one-time) | [scene_prep/](scene_prep/) | run all 3 in order |
 | Bake + export NavMesh JSON for waypoint generator | [navmesh/](navmesh/) | `clear_cache_and_rebake.py` → `export_navmesh.py` |
-| Publish `/gt/*` topics (IRA 6.0, runtime) | [srr_pubs/](srr_pubs/) | auto via `run_multi.sh --srr-gt` (builds `action_graphs/srr_ground_truth.py`); `check_srr_prereqs.py` = live diagnostic |
+| Publish `/gt/*` topics (IRA 6.1, runtime) | [srr_pubs/](srr_pubs/) | auto via `run_multi.sh --srr-gt` (builds `action_graphs/srr_ground_truth.py`); `check_srr_prereqs.py` = live diagnostic |
 | NavMesh has a hole / chars stuck | [debug/](debug/) | start with `why_navmesh_hole.py` (with prim selected) |
 
 ## End-to-end workflow for a NEW scene
@@ -33,7 +33,7 @@ These need Isaac Sim's `omni.kit.*` / `pxr.Usd` / `omni.anim.navigation.core` ru
 ```
 
 **Ground truth (`/gt/*/tf`) is built at RUN time, not baked into the scene.** IRA
-6.0 spawns the pedestrians at runtime (asset-dependent `ManRoot` path), so
+6.1 spawns the pedestrians at runtime (asset-dependent `ManRoot` path), so
 `run_multi.sh` launches Isaac with `--srr-gt`; the builder
 `action_graphs/srr_ground_truth.py` discovers each char's `ManRoot` and builds
 `/World/SRRGraph` once they spawn. There is no "paste + Save the graph" step. Use
@@ -66,7 +66,7 @@ read-only diagnostic if GT looks wrong.
 
 | Script | What it does |
 |---|---|
-| `check_srr_prereqs.py` | Read-only **live** diagnostic (IRA 6.0). Paste in the Script Editor while the scene is running: verifies ROS2 bridge enabled + each group's `ManRoot` + the forklift exist, are xformable, and report a non-zero world pose. |
+| `check_srr_prereqs.py` | Read-only **live** diagnostic (IRA 6.1). Paste in the Script Editor while the scene is running: verifies ROS2 bridge enabled + each group's `ManRoot` + the forklift exist, are xformable, and report a non-zero world pose. |
 
 The `/gt/*` publisher graph itself is **not** here — it's built at run time by
 `closed-loop-testing/isaac-sim/sil/scripts/action_graphs/srr_ground_truth.py` when

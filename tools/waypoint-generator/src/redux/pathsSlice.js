@@ -3,6 +3,8 @@
 
 import { createSlice } from '@reduxjs/toolkit';
 
+export const PATHS_STORAGE_KEY = 'waypoint-paths';
+
 const initialState = {
   // List of all saved paths
   paths: [],
@@ -23,10 +25,14 @@ export const pathsSlice = createSlice({
   reducers: {
     // Create a new path
     createPath: (state, action) => {
-      const { name, origin, waypoints } = action.payload;
+      const { name, origin, waypoints, mapId } = action.payload;
       const newPath = {
         id: Date.now().toString(),
         name,
+        // Which map the coordinates were drawn against. Waypoints are metres in
+        // one scene's world frame, so the same numbers land somewhere else
+        // entirely on another map — the path is meaningless without this.
+        mapId: mapId || null,
         origin,
         waypoints: waypoints || [],
         createdAt: new Date().toISOString(),
@@ -51,12 +57,14 @@ export const pathsSlice = createSlice({
 
     // Save current path changes
     savePath: (state, action) => {
-      const { origin, waypoints } = action.payload;
+      const { origin, waypoints, mapId } = action.payload;
       if (state.currentPathId) {
         const pathIndex = state.paths.findIndex(p => p.id === state.currentPathId);
         if (pathIndex !== -1) {
           state.paths[pathIndex] = {
             ...state.paths[pathIndex],
+            // Saving is also how a path predating map tracking gets labelled
+            mapId: mapId || state.paths[pathIndex].mapId || null,
             origin,
             waypoints,
             updatedAt: new Date().toISOString(),
@@ -138,21 +146,20 @@ export const pathsSlice = createSlice({
       });
     },
 
-    // Save to localStorage
-    persistPaths: (state) => {
-      try {
-        localStorage.setItem('waypoint-paths', JSON.stringify(state.paths));
-      } catch (error) {
-        console.error('Failed to persist paths:', error);
-      }
-    },
-
-    // Load from localStorage
+    // Load from localStorage. Writing back is the store's job (store.js).
     loadPaths: (state) => {
       try {
-        const savedPaths = localStorage.getItem('waypoint-paths');
+        const savedPaths = localStorage.getItem(PATHS_STORAGE_KEY);
         if (savedPaths) {
-          state.paths = JSON.parse(savedPaths);
+          // Paths saved before maps were tracked get mapId null rather than a
+          // guess. The tool was retargeted from the 20x20 scene to the 40x20 one
+          // in place, so a stored path could belong to either and nothing in it
+          // says which. Null means "unlabelled", and the UI says so instead of
+          // silently drawing it on whichever map happens to be open.
+          state.paths = JSON.parse(savedPaths).map(path => ({
+            ...path,
+            mapId: path.mapId ?? null,
+          }));
         }
       } catch (error) {
         console.error('Failed to load paths:', error);
@@ -171,7 +178,6 @@ export const {
   newPath,
   closePath,
   importPaths,
-  persistPaths,
   loadPaths,
 } = pathsSlice.actions;
 

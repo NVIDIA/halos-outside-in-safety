@@ -16,13 +16,14 @@ Based on architecture diagram:
 """
 
 import logging
+import re
 import threading
 import time
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from queue import Queue, Empty
-from typing import Optional, Callable
+from typing import Dict, List, Optional, Callable
 
 import sys
 import os
@@ -68,6 +69,10 @@ class SafetyCommand:
     status_name: str
     timestamp: str = ""
     source: str = "unknown"
+    # The zone's state as the OPC server tracked it over every packet; None when
+    # the snapshot predates that field or the command did not come through OPC.
+    tracked_is_muted: Optional[bool] = None
+    tracked_is_alarm: Optional[bool] = None
     
     @property
     def is_muted(self) -> bool:
@@ -78,15 +83,65 @@ class SafetyCommand:
         return self.command_code == 7
 
 
+# Proximity is a separate type from SafetyCommand for the same reason the OPC
+# nodes are separate: `is_muted` above is `command_code == 2`, and 0x02 is STOP
+# in the proximity table. Reusing SafetyCommand would publish is_muted=True for a
+# person in the STOP tier, on a topic whose consumers read it as "loading allowed".
+@dataclass
+class ProximityDecision:
+    """One 0xA5 decision as it arrives from the OPC snapshot."""
+    sequence_number: int
+    command_code: int
+    command_name: str
+    # "stop" | "reduce_speed" | "normal", or None when the packet is a heartbeat,
+    # an error code or a safe-release message. None is NOT "normal".
+    mode: Optional[str] = None
+    separation_m: Optional[float] = None
+    safety_critical: bool = False
+    objects: Optional[List[dict]] = None
+    timestamp: str = ""
+    source: str = "unknown"
+    # The latest packet of ANY kind, heartbeats included: the subscriber's link
+    # watchdog. Changes while `sequence_number` stays on a held decision.
+    heard_sequence: Optional[int] = None
+    heard_at: str = ""
+
+    @property
+    def is_motion_decision(self) -> bool:
+        return self.mode in ("stop", "reduce_speed", "normal")
+
+
 class SafetyRosBridge:
     """
     Safety ROS2 Bridge
     
     Publishes safety commands to ROS2 topics:
-    - /safety/command (String): JSON with full command details
+    - /safety/command (String): JSON with full command details, including a
+      `robot_id` that addresses the command. It is null while PSF decides per
+      covered zone rather than per truck, and null is what tells every controller
+      the decision is theirs; a name would tell all the others to ignore it.
     - /safety/status (Int32): Safety status code (1=MUTED, 2=ACTIVE)
     - /safety/is_alarm (Bool): True if alarm is active
     - /safety/is_muted (Bool): True if safety is muted
+    - /<robot>/safety/is_muted (Bool): same value again, one topic per robot in
+      `robot_ids`. PSF reasons about camera-covered zones, not about named
+      trucks, so these mirrors are about the shape of the interface, not about
+      per-truck decisions — they are all equal to /safety/is_muted. The one
+      exception is a second ATL zone (atl_dual): a robot whose fleet entry says
+      `safety_indicator.zone: 2` carries that zone's mute instead.
+
+    Proximity (0xA5) publishes on its own topics and touches none of the four
+    above, because opcodes 0x02 and 0x07 carry opposite meanings in the two
+    command sets:
+    - /safety/proximity/mode (String): "stop" | "reduce_speed" | "normal".
+      Published ONLY for those three. A heartbeat, an error code or a
+      safe-release message is not a motion decision and must not be turned into
+      one, so nothing is published on this topic for them — a consumer holding
+      the last value is correct, one reading silence as "normal" is not.
+    - /safety/proximity/pair (String): JSON with the full decision, including
+      both ObjectRecords (id, x, y, z, class, empty), the reconstructed
+      separation, the raw opcode and `safety_critical`. This is the topic to
+      read for a fault, and the only place object identity reaches ROS.
     
     Usage:
         # OPC UA mode
@@ -103,7 +158,9 @@ class SafetyRosBridge:
         input_queue: Optional[Queue] = None,
         opc_ua_url: Optional[str] = None,
         topic_prefix: str = "/safety",
-        publish_rate_hz: float = 10.0
+        publish_rate_hz: float = 10.0,
+        robot_ids: Optional[List[str]] = None,
+        robot_zones: Optional[Dict[str, int]] = None
     ):
         """
         Initialize ROS2 bridge
@@ -113,15 +170,27 @@ class SafetyRosBridge:
             opc_ua_url: OPC UA server URL (OPC UA mode)
             topic_prefix: ROS2 topic prefix
             publish_rate_hz: Publish rate in Hz
+            robot_ids: Robots to mirror is_muted to, as /<id><prefix>/is_muted.
+                Empty means only the global topic is published.
+            robot_zones: The same robots with the ATL zone each follows (1 or 2).
+                Takes precedence over robot_ids; robot_ids alone means zone 1.
         """
         self.opc_ua_url = opc_ua_url
         self.topic_prefix = topic_prefix
         self.publish_rate = publish_rate_hz
         self.input_queue = input_queue
+        self.robot_zones = (dict(robot_zones) if robot_zones is not None
+                            else {robot_id: 1 for robot_id in robot_ids or []})
+        self.robot_ids = list(self.robot_zones)
+        self._zone2_is_muted = False
         
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_command: Optional[SafetyCommand] = None
+        self._last_proximity: Optional[ProximityDecision] = None
+        self._prox_last_seq = -1
+        self._prox_last_update = ""
+        self._warned_no_prox_node = False
         self._mode = "unknown"
         
         # Track actual muted/alarm state (persists across "No Operation" commands)
@@ -137,6 +206,7 @@ class SafetyRosBridge:
         
         # Callbacks
         self._command_callbacks = []
+        self._proximity_callbacks = []
     
     def start(self, blocking: bool = False):
         """Start the ROS2 bridge"""
@@ -190,20 +260,148 @@ class SafetyRosBridge:
     def add_command_callback(self, callback: Callable[[SafetyCommand], None]):
         """Add callback for new commands"""
         self._command_callbacks.append(callback)
+
+    def add_proximity_callback(self, callback: Callable[["ProximityDecision"], None]):
+        """Add callback for new proximity decisions"""
+        self._proximity_callbacks.append(callback)
+
+    def publish_proximity(self, decision: "ProximityDecision"):
+        """Publish a proximity decision to its own two topics.
+
+        Publishes the pair unconditionally and the mode only for the three motion
+        levels. The asymmetry is the point: a consumer subscribed to mode may
+        assume every message it receives is a motion decision, and a fault has to
+        be visible somewhere the consumer cannot mistake for permission to move.
+        """
+        # The same decision again, republished because a heartbeat arrived.
+        repeat = (self._last_proximity is not None
+                  and self._last_proximity.sequence_number == decision.sequence_number)
+        self._last_proximity = decision
+
+        for callback in self._proximity_callbacks:
+            try:
+                callback(decision)
+            except Exception as e:
+                logger.error(f"Proximity callback error: {e}")
+
+        if not HAS_ROS2:
+            logger.info(f"[Simulation] Would publish proximity: {decision}")
+            return
+
+        try:
+            pair_json = json.dumps({
+                'sequence': decision.sequence_number,
+                'command': decision.command_code,
+                'command_name': decision.command_name,
+                'mode': decision.mode,
+                'separation_m': decision.separation_m,
+                'safety_critical': decision.safety_critical,
+                'objects': decision.objects or [],
+                # Left null for the same reason as /safety/command: the wire
+                # carries a uint32 VSS fusion id, controllers filter on a string
+                # robot name, and there is no mapping between them. The ids are in
+                # `objects` so a consumer can build attribution from x/y; putting a
+                # guess here would tell every other controller to ignore a STOP.
+                'robot_id': None,
+                'timestamp': decision.timestamp,
+                'heard_sequence': decision.heard_sequence,
+                'heard_at': decision.heard_at,
+                'source': decision.source,
+                'ros_time': datetime.now(timezone.utc).isoformat(),
+            })
+            msg_pair = String()
+            msg_pair.data = pair_json
+            self._publishers['proximity_pair'].publish(msg_pair)
+
+            if decision.is_motion_decision:
+                msg_mode = String()
+                msg_mode.data = decision.mode
+                self._publishers['proximity_mode'].publish(msg_mode)
+            elif decision.safety_critical and not repeat:
+                # HW_ERROR / SW_ERROR. Not mapped to a mode here: choosing what a
+                # faulted PSF means for a moving robot is a safety decision, and it
+                # belongs to the consumer that owns the drive, not to this bridge.
+                logger.warning(
+                    "Proximity fault opcode 0x%02X (%s) — no mode published; "
+                    "read /safety/proximity/pair for the fault",
+                    decision.command_code, decision.command_name
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to publish proximity to ROS2: {e}")
+
+    @property
+    def last_proximity(self) -> Optional["ProximityDecision"]:
+        return self._last_proximity
     
-    def publish_command(self, command: SafetyCommand):
+    def robot_is_muted(self, robot_id: str) -> bool:
+        """The value /<robot_id>/safety/is_muted carries: its zone's tracked mute."""
+        if self.robot_zones.get(robot_id) == 2:
+            return self._zone2_is_muted
+        return self._current_is_muted
+
+    def _robots_in_zone(self, zone: int) -> List[str]:
+        return [robot_id for robot_id, z in self.robot_zones.items() if z == zone]
+
+    def follow_zone1_without_zone2(self):
+        """Point zone 2 robots at zone 1 when the OPC server has no second zone.
+
+        Without a zone 2 port nothing ever writes their mute, and a mirror nobody
+        publishes leaves the indicator on its initial colour for the whole run.
+        """
+        moved = self._robots_in_zone(2)
+        if not moved:
+            return
+        for robot_id in moved:
+            self.robot_zones[robot_id] = 1
+        logger.warning(
+            "%s follow ATL zone 2, but the OPC server has no Zone2StateJson "
+            "(COMM_UDP_PORT_ZONE2 unset); mirroring zone 1 for them instead",
+            ", ".join(moved))
+
+    @staticmethod
+    def _atl_state_after(command: SafetyCommand, prev: tuple) -> tuple:
+        """(is_muted, is_alarm) after one ATL command.
+
+        The OPC server's tracked state wins: it saw every packet, while a poll
+        sees only the latest, so an UNMUTE followed at once by SW_ERROR reaches
+        here as the SW_ERROR alone. Without it, HW_ERROR and SW_ERROR count as
+        the fault safe state, which prevents operation as UNMUTE does, and a
+        heartbeat keeps the last decision.
+        """
+        if command.tracked_is_muted is not None:
+            return (command.tracked_is_muted, bool(command.tracked_is_alarm))
+        if command.command_code == 2:
+            return (True, False)
+        if command.command_code in (1, 3, 7):
+            return (False, True)
+        return prev
+
+    def _publish_zone2(self, command: SafetyCommand):
+        """Second ATL zone: only the mirrors of the robots that follow it."""
+        self._zone2_is_muted, _ = self._atl_state_after(command, (self._zone2_is_muted, False))
+        logger.info("[zone 2] Seq#%s %s | is_muted=%s -> %s", command.sequence_number,
+                    command.command_name, self._zone2_is_muted,
+                    ", ".join(self._robots_in_zone(2)) or "<no robot>")
+        if not HAS_ROS2:
+            return
+        try:
+            msg_muted = Bool()
+            msg_muted.data = self._zone2_is_muted
+            for robot_id in self._robots_in_zone(2):
+                self._publishers[f"is_muted:{robot_id}"].publish(msg_muted)
+        except Exception as e:
+            logger.error(f"Failed to publish zone 2 to ROS2: {e}")
+
+    def publish_command(self, command: SafetyCommand, zone: int = 1):
         """Publish command to ROS2 topics"""
+        if zone == 2:
+            self._publish_zone2(command)
+            return
         self._last_command = command
         
-        # Update tracked state only for actual MUTE/UNMUTE commands (not "No Operation")
-        # Command codes: 2 = MUTE, 7 = UNMUTE + ALARM, 0 = No Operation
-        if command.command_code == 2:  # MUTE
-            self._current_is_muted = True
-            self._current_is_alarm = False
-        elif command.command_code == 7:  # UNMUTE + ALARM
-            self._current_is_muted = False
-            self._current_is_alarm = True
-        # For "No Operation" (code 0), keep previous state
+        self._current_is_muted, self._current_is_alarm = self._atl_state_after(
+            command, (self._current_is_muted, self._current_is_alarm))
         
         # Call callbacks with current tracked state
         for callback in self._command_callbacks:
@@ -224,6 +422,19 @@ class SafetyRosBridge:
         
         try:
             # Publish full command as JSON (use tracked state, not command properties)
+            #
+            # robot_id addresses the command; null means every truck. That is what
+            # robot_controller._command_callback already does with it — a command
+            # naming someone else is dropped, one naming nobody is acted on — so
+            # null is the honest value while PSF decides per covered zone rather
+            # than per named truck. It is spelled out rather than omitted to give
+            # per-truck routing one place to be substituted, needing no controller
+            # change. Do not fill it from self.robot_ids: that list is who mirrors
+            # is_muted, not who a decision is about, and naming one truck here
+            # would make every other controller ignore the decision.
+            #
+            # No traffic routes on it yet either way: `command` below is an integer
+            # opcode, and the controller acts only on string keywords.
             cmd_json = json.dumps({
                 'sequence': command.sequence_number,
                 'command': command.command_code,
@@ -232,6 +443,7 @@ class SafetyRosBridge:
                 'status_name': command.status_name,
                 'timestamp': command.timestamp,
                 'source': command.source,
+                'robot_id': None,
                 'is_muted': self._current_is_muted,
                 'is_alarm': self._current_is_alarm,
                 'ros_time': datetime.now().isoformat()
@@ -259,6 +471,9 @@ class SafetyRosBridge:
             msg_muted.data = self._current_is_muted
             self._publishers['is_muted'].publish(msg_muted)
             
+            for robot_id in self._robots_in_zone(1):
+                self._publishers[f"is_muted:{robot_id}"].publish(msg_muted)
+            
         except Exception as e:
             logger.error(f"Failed to publish to ROS2: {e}")
     
@@ -269,6 +484,16 @@ class SafetyRosBridge:
     @property
     def last_command(self) -> Optional[SafetyCommand]:
         return self._last_command
+    
+    def _robot_muted_topic(self, robot_id: str) -> str:
+        """Per-robot mirror of the global is_muted topic.
+        
+        The prefix is kept so a deployment that renames /safety renames both the
+        global topic and the mirrors together. Isaac derives the same name from
+        the robot's `name` in robots.yaml, so the string is spelled out once on
+        each side and never typed into a config file.
+        """
+        return f"/{robot_id}{self.topic_prefix}/is_muted"
     
     def _setup_ros2(self):
         """Setup ROS2 node and publishers"""
@@ -293,8 +518,48 @@ class SafetyRosBridge:
             self._publishers['is_muted'] = self._node.create_publisher(
                 Bool, f"{self.topic_prefix}/is_muted", 10
             )
+            # Proximity: own namespace, own types. Nothing here mirrors is_muted —
+            # a three-level motion decision has no faithful Bool encoding, and
+            # squeezing REDUCE into one would lose the level that exists to keep a
+            # machine moving slowly rather than stopping it.
+            self._publishers['proximity_mode'] = self._node.create_publisher(
+                String, f"{self.topic_prefix}/proximity/mode", 10
+            )
+            self._publishers['proximity_pair'] = self._node.create_publisher(
+                String, f"{self.topic_prefix}/proximity/pair", 10
+            )
             
             logger.info(f"ROS2 publishers created with prefix: {self.topic_prefix}")
+            
+            # Per-robot mirrors of is_muted. PSF decides for a covered zone, not for a
+            # named truck, so every one of these carries the SAME value as the global
+            # topic. They exist so subscribers can already bind to a per-robot name;
+            # when PSF attributes decisions per truck, this loop is where the per-robot
+            # value is substituted.
+            #
+            # It is the last hop, not the only one. Reaching per-truck attribution also
+            # needs PSF to fill the 64-byte ObjectRecords (proximity mode does; ATL
+            # passes nullptr at every sendDecisionCommand call site), this bridge to
+            # expose command.objects (parsed into CmdPacket.objects today and then
+            # dropped — the OPC UA server has no Objects node and SafetyCommand has no
+            # such field), a per-robot ground-truth pose source to match detections
+            # against (srr_ground_truth.py knows one hardcoded /World/forklift_b), and
+            # an empirical frame fit between the packet's VSS world coordinates and
+            # Isaac world. The per-robot routing itself will land on a robot_id in the
+            # /safety/command JSON below, where the controller-side filter already
+            # waits, rather than on these mirrors.
+            for robot_id in self.robot_ids:
+                topic = self._robot_muted_topic(robot_id)
+                self._publishers[f"is_muted:{robot_id}"] = self._node.create_publisher(
+                    Bool, topic, 10
+                )
+            if self.robot_ids:
+                logger.info(
+                    "Mirroring is_muted to %s — each carries its ATL zone's decision "
+                    "(PSF does not attribute mute per robot)",
+                    ", ".join(f"{self._robot_muted_topic(r)} (zone {z})"
+                              for r, z in self.robot_zones.items())
+                )
             
         except Exception as e:
             logger.error(f"Failed to setup ROS2: {e}")
@@ -339,6 +604,97 @@ class SafetyRosBridge:
             if HAS_ROS2 and self._node:
                 rclpy.spin_once(self._node, timeout_sec=0.001)
     
+    def _poll_proximity(self, opcua_nodes: dict):
+        """Read the proximity snapshot node and publish it if it is new.
+
+        Absence is downgraded to one warning rather than an error, unlike the ATL
+        StateJson check: only an OPC server older than proximity support lacks
+        the node, and that is no reason to stop publishing ATL.
+        """
+        node = opcua_nodes.get('ProximityStateJson')
+        if node is None:
+            if not self._warned_no_prox_node:
+                logger.warning(
+                    "ProximityStateJson OPC node absent — this server predates "
+                    "proximity support; %s/proximity/* will not be published",
+                    self.topic_prefix
+                )
+                self._warned_no_prox_node = True
+            return
+
+        raw = node.read_value()
+        if not raw:
+            return
+        try:
+            st = json.loads(raw)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Skipping malformed ProximityStateJson: {e}")
+            return
+
+        seq = st.get('sequence')
+        if seq is None or st.get('command') is None:
+            logger.warning(
+                f"Skipping incomplete ProximityStateJson: {raw!r}")
+            return
+
+        last_update = st.get('last_update', "")
+        if seq == self._prox_last_seq and last_update == self._prox_last_update:
+            return
+
+        self.publish_proximity(ProximityDecision(
+            sequence_number=seq,
+            command_code=st.get('command'),
+            command_name=st.get('command_name', "Unknown"),
+            mode=st.get('mode'),
+            separation_m=st.get('separation_m'),
+            safety_critical=bool(st.get('safety_critical', False)),
+            objects=st.get('objects') or [],
+            timestamp=st.get('timestamp', ""),
+            source="opcua",
+            heard_sequence=st.get('heard_sequence'),
+            heard_at=st.get('heard_at') or "",
+        ))
+        self._prox_last_seq = seq
+        self._prox_last_update = last_update
+
+    def _publish_snapshot(self, raw, node_name: str, zone: int, last_seen: dict):
+        """Publish one atomic ATL snapshot if it is well formed and new."""
+        if not raw:  # skip the empty initial value
+            return
+        try:
+            st = json.loads(raw)
+        except (ValueError, TypeError) as e:
+            # Fail safe: skip this publish rather than emit a wrong is_muted
+            logger.warning(f"Skipping malformed {node_name}: {e}")
+            return
+        seq = st.get('sequence')
+        # Fail safe: an incomplete snapshot (missing sequence/command) is
+        # skipped rather than published with None fields.
+        if seq is None or st.get('command') is None:
+            logger.warning(
+                f"Skipping incomplete {node_name} (missing sequence/command): {raw!r}"
+            )
+            return
+        key = (seq, st.get('last_update', ""))
+        # Only publish if there's new data
+        if key == last_seen[zone]:
+            return
+        tracked_muted, tracked_alarm = st.get('is_muted'), st.get('is_alarm')
+        has_tracked = isinstance(tracked_muted, bool) and isinstance(tracked_alarm, bool)
+        command = SafetyCommand(
+            sequence_number=seq,
+            command_code=st.get('command'),
+            command_name=st.get('command_name', "Unknown"),
+            status_code=st.get('status'),
+            status_name=st.get('status_name', "Unknown"),
+            timestamp=st.get('timestamp', ""),
+            source="opcua",
+            tracked_is_muted=tracked_muted if has_tracked else None,
+            tracked_is_alarm=tracked_alarm if has_tracked else None,
+        )
+        self.publish_command(command, zone=zone)
+        last_seen[zone] = key
+
     def _run_opcua_loop(self, interval: float):
         """Run loop reading from OPC UA server"""
         logger.info(f"Running OPC UA client loop, connecting to {self.opc_ua_url}...")
@@ -369,13 +725,15 @@ class SafetyRosBridge:
                 opcua_nodes[name] = child
             
             logger.info(f"Found {len(opcua_nodes)} OPC UA nodes")
+            if 'Zone2StateJson' not in opcua_nodes:
+                self.follow_zone1_without_zone2()
             
         except Exception as e:
             logger.error(f"Failed to connect to OPC UA server: {e}")
             return
         
-        last_sequence = -1
-        last_timestamp = ""
+        # Last published (sequence, last_update) per zone.
+        last_seen = {1: (-1, ""), 2: (-1, "")}
         error_count = 0
         max_errors = 5
         warned_no_statejson = False
@@ -399,38 +757,22 @@ class SafetyRosBridge:
                 else:
                     raw = state_val.read_value()
                     error_count = 0
-                    if raw:  # skip the empty initial value
-                        try:
-                            st = json.loads(raw)
-                        except (ValueError, TypeError) as e:
-                            # Fail safe: skip this publish rather than emit a wrong is_muted
-                            logger.warning(f"Skipping malformed StateJson: {e}")
-                            st = None
-                        if st is not None:
-                            seq = st.get('sequence')
-                            # Fail safe: an incomplete snapshot (missing sequence/command) is
-                            # skipped rather than published with None fields.
-                            if seq is None or st.get('command') is None:
-                                logger.warning(
-                                    f"Skipping incomplete StateJson (missing sequence/command): {raw!r}"
-                                )
-                            else:
-                                last_update = st.get('last_update', "")
-                                # Only publish if there's new data
-                                if seq != last_sequence or last_update != last_timestamp:
-                                    command = SafetyCommand(
-                                        sequence_number=seq,
-                                        command_code=st.get('command'),
-                                        command_name=st.get('command_name', "Unknown"),
-                                        status_code=st.get('status'),
-                                        status_name=st.get('status_name', "Unknown"),
-                                        timestamp=st.get('timestamp', ""),
-                                        source="opcua"
-                                    )
-                                    self.publish_command(command)
-                                    last_sequence = seq
-                                    last_timestamp = last_update
-                
+                    self._publish_snapshot(raw, 'StateJson', 1, last_seen)
+
+                zone2_val = opcua_nodes.get('Zone2StateJson')
+                if zone2_val is not None:
+                    self._publish_snapshot(zone2_val.read_value(), 'Zone2StateJson', 2, last_seen)
+
+                # Independent of the ATL block above, and reached whether or not
+                # StateJson had anything: under PSF_APP=pxc ATL is silent, so
+                # gating proximity on ATL traffic would publish nothing. Its own
+                # try: a bad proximity payload must not count towards the
+                # errors that end this loop, or slow ATL polling down.
+                try:
+                    self._poll_proximity(opcua_nodes)
+                except Exception as e:
+                    logger.warning(f"Skipping proximity poll: {e}")
+
                 time.sleep(interval)
                 
                 if HAS_ROS2 and self._node:
@@ -473,6 +815,49 @@ class SafetyRosBridge:
                 rclpy.spin_once(self._node, timeout_sec=0.001)
 
 
+def _parse_robot_ids(raw: str) -> List[str]:
+    """Split the --robot-ids string, rejecting anything that is not a ROS name token.
+    
+    An id that cannot form a valid topic would otherwise become a publisher nobody
+    can reach, which looks exactly like the failure this feature exists to make
+    visible: a subscriber waiting on a topic that is never published. Better to
+    refuse to start.
+    """
+    ids = [token.strip() for token in raw.split(',') if token.strip()]
+    for robot_id in ids:
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', robot_id):
+            raise SystemExit(
+                f"--robot-ids: '{robot_id}' is not a valid ROS name token "
+                f"(letters, digits and underscore; cannot start with a digit)"
+            )
+    duplicates = {robot_id for robot_id in ids if ids.count(robot_id) > 1}
+    if duplicates:
+        raise SystemExit(f"--robot-ids: repeated entries {sorted(duplicates)}")
+    return ids
+
+
+ISAAC_SCRIPTS_DIR = os.environ.get("ISAAC_SCRIPTS_DIR", "/app/isaac")
+
+
+def _mirrors_from_scenario(configs_dir: str, scenario_id: str) -> Dict[str, int]:
+    """Which robots this scenario's fleet wants a mute mirror for, and their ATL zone."""
+    if ISAAC_SCRIPTS_DIR not in sys.path:
+        sys.path.insert(0, ISAAC_SCRIPTS_DIR)
+    try:
+        from action_graphs.forklift_common import (
+            load_and_validate_robots_yaml, load_scenario, mute_mirror_zones)
+    except ImportError as exc:
+        raise SystemExit(
+            f"cannot import the fleet loader from {ISAAC_SCRIPTS_DIR} ({exc}). "
+            f"The comm-layer service mounts the Isaac script tree; check that "
+            f"mount, or set ISAAC_SCRIPTS_DIR."
+        ) from exc
+    entry = load_scenario(configs_dir, scenario_id)
+    robots, _ = load_and_validate_robots_yaml(
+        os.path.join(configs_dir, entry["robots"]))
+    return mute_mirror_zones(robots)
+
+
 def main():
     """Standalone entry point"""
     import argparse
@@ -482,7 +867,25 @@ def main():
     parser.add_argument('--direct', action='store_true', help='Direct mode (start ESL receiver)')
     parser.add_argument('--topic-prefix', default='/safety', help='ROS2 topic prefix')
     parser.add_argument('--rate', type=float, default=10.0, help='Publish rate (Hz)')
+    parser.add_argument('--scenario', default='',
+                        help='Scenario id; its fleet file says which robots want a '
+                             'mirror. Overridden by --robot-ids.')
+    parser.add_argument('--configs-dir', default='/app/robots',
+                        help='Directory holding scenarios.yaml and the robots configs')
+    parser.add_argument('--robot-ids', default='',
+                        help='Comma-separated robots to mirror is_muted to. Overrides '
+                             '--scenario; empty publishes the global topic only.')
     args = parser.parse_args()
+    if args.robot_ids:
+        robot_zones = {robot_id: 1 for robot_id in _parse_robot_ids(args.robot_ids)}
+        source = 'flag'
+    elif args.scenario:
+        robot_zones = _mirrors_from_scenario(args.configs_dir, args.scenario)
+        source = f'SCENARIO={args.scenario}'
+    else:
+        robot_zones, source = {}, 'nothing named a fleet'
+    mirrors = ', '.join(f"{r} (zone {z})" for r, z in robot_zones.items())
+    print(f"[mirrors] {mirrors or '<none>'}  ({source})", flush=True)
     
     print("""
 ╔══════════════════════════════════════════════════════════╗
@@ -502,7 +905,8 @@ def main():
     bridge = SafetyRosBridge(
         opc_ua_url=args.opcua,
         topic_prefix=args.topic_prefix,
-        publish_rate_hz=args.rate
+        publish_rate_hz=args.rate,
+        robot_zones=robot_zones
     )
     
     # Add logging callback (receives tracked state from bridge)
@@ -527,6 +931,20 @@ def main():
         print(f"ROS2: Seq#{cmd.sequence_number:02d} | {cmd_short:6s} | {emoji} is_muted={is_muted} | State: {muted_str}", flush=True)
     
     bridge.add_command_callback(log_command)
+
+    def log_proximity(dec: ProximityDecision):
+        emoji = {"stop": "🔴", "reduce_speed": "🟡", "normal": "🟢"}.get(dec.mode, "⚪")
+        sep = f"{dec.separation_m:.2f}m" if dec.separation_m is not None else "n/a"
+        pair = " ".join(
+            f"{o.get('role')}[{o.get('id')}]" + ("<empty>" if o.get('empty') else
+            f"({o.get('x', 0.0):.2f},{o.get('y', 0.0):.2f})")
+            for o in (dec.objects or [])
+        )
+        mode = dec.mode or "-"
+        print(f"ROS2-PXC: Seq#{dec.sequence_number} | {emoji} mode={mode:12s} "
+              f"| sep={sep:>7s} | {pair}", flush=True)
+
+    bridge.add_proximity_callback(log_proximity)
     
     try:
         bridge.start(blocking=True)

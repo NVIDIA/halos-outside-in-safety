@@ -2,7 +2,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Usage: ./docker_run.sh [waypoints_file]
-# Example: ./docker_run.sh waypoints/waypoints.json
+# Example: ./docker_run.sh waypoints/warehouse_20x20/forklift_b.json
+# Waypoints are per scene (waypoints/<map id>/), because their coordinates are
+# metres in one warehouse's world frame.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,16 +26,9 @@ DOCKER_ARGS=(
     docker run --rm --name "$NAME" --network host
     -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
     -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    -e ROBOT_ID="${ROBOT_ID:-forklift_1}"
-    -e BASE_SPEED="${BASE_SPEED:-1.5}"
-    -e ANGULAR_SPEED="${ANGULAR_SPEED:-0.4}"
-    -e HEADING_OFFSET="${HEADING_OFFSET:-0}"
-    -e USE_NAMESPACE="${USE_NAMESPACE:-false}"
-    -e LOOP_PATH="${LOOP_PATH:-false}"
-    -e NO_INVERT="${NO_INVERT:-true}"
-    -e END_TOLERANCE="${END_TOLERANCE:-1.0}"
-    -e END_POSE_COUNT="${END_POSE_COUNT:-5}"
-    -e SPIRAL_TIMEOUT="${SPIRAL_TIMEOUT:-10.0}"
+    # No fleet file is mounted, so drive knobs fall back to DRIVE_DEFAULTS —
+    # forklift_b's values. Use compose for a real fleet.
+    -e ROBOT_ID="${ROBOT_ID:-forklift_b}"
 )
 
 # Mount waypoints if provided
@@ -44,4 +39,5 @@ if [ -n "$1" ]; then
 fi
 
 echo "Starting $NAME (ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}) ..."
+echo "Note: topic names come from the robot's block in the robots config; without one, they default to /\${ROBOT_ID}/cmd_vel and /\${ROBOT_ID}/odom."
 exec "${DOCKER_ARGS[@]}" "$IMAGE"

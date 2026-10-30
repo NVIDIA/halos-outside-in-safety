@@ -9,7 +9,9 @@ Usage:
     python send_command.py stop                 # Stop/pause
     python send_command.py slow                 # Slow down (30%)
     python send_command.py slow --speed 0.5    # Slow down to 50%
-    python send_command.py proceed --robot forklift_1  # Target specific robot
+    python send_command.py proceed --robot forklift_b2  # Target specific robot (ID = robots.yaml name)
+    python send_command.py stop --min-subs 2   # Multi-robot broadcast: wait for
+                                               # BOTH controllers to be discovered
 """
 
 import rclpy
@@ -23,29 +25,35 @@ import sys
 
 
 class CommandSender(Node):
-    def __init__(self, command_topic: str = "/safety/command"):
+    def __init__(self, command_topic: str = "/safety/command", min_subs: int = 1):
         super().__init__('command_sender')
-        
+
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self.pub = self.create_publisher(String, command_topic, qos)
         self.topic = command_topic
-        
-        # Wait for at least one subscriber to connect (up to 3 seconds)
+        self.min_subs = max(1, min_subs)
+
+        # Wait for subscribers to connect (up to 3 seconds). A RELIABLE/VOLATILE
+        # message only reaches subscribers already discovered at publish time, so
+        # for a broadcast in multi-robot runs pass min_subs = number of controllers.
         self._wait_for_subscribers(timeout=3.0)
-        
+
         self.get_logger().info(f'CommandSender ready on {command_topic}')
-    
+
     def _wait_for_subscribers(self, timeout: float = 3.0):
-        """Wait for at least one subscriber to connect"""
+        """Wait until at least self.min_subs subscribers are connected"""
         start = time.time()
+        count = 0
         while time.time() - start < timeout:
             count = self.pub.get_subscription_count()
-            if count > 0:
+            if count >= self.min_subs:
                 self.get_logger().info(f'Found {count} subscriber(s)')
                 return True
             time.sleep(0.1)
-        
-        self.get_logger().warn(f'No subscribers found on {self.topic} after {timeout}s - sending anyway')
+
+        self.get_logger().warn(
+            f'Only {count}/{self.min_subs} subscriber(s) found on {self.topic} '
+            f'after {timeout}s - sending anyway')
         return False
     
     def send(self, command: str, robot_id: str = None, speed_factor: float = 1.0, reason: str = ""):
@@ -70,7 +78,7 @@ class CommandSender(Node):
 def main():
     parser = argparse.ArgumentParser(description='Send safety commands to robots')
     parser.add_argument('command', type=str, 
-                       choices=['proceed', 'stop', 'slow', 'idle', 'go', 'pause', 'resume'],
+                       choices=['proceed', 'stop', 'slow', 'idle', 'go', 'pause', 'resume', 'reset'],
                        help='Command to send')
     parser.add_argument('--robot', '-r', type=str, default=None,
                        help='Target robot ID (default: all robots)')
@@ -80,7 +88,11 @@ def main():
                        help='Reason for command')
     parser.add_argument('--topic', '-t', type=str, default='/safety/command',
                        help='Command topic')
-    
+    parser.add_argument('--min-subs', type=int, default=1,
+                       help='Wait for at least this many subscribers before sending '
+                            '(default: 1; use 2 for a broadcast in multi-robot runs '
+                            'so a just-started second controller is not missed)')
+
     args = parser.parse_args()
     
     # Normalize command
@@ -101,7 +113,7 @@ def main():
     rclpy.init()
     
     try:
-        sender = CommandSender(args.topic)
+        sender = CommandSender(args.topic, min_subs=args.min_subs)
         sender.send(command, args.robot, speed_factor, args.reason)
         
         # Give time for message to be delivered

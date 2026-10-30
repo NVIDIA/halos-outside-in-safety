@@ -2,9 +2,9 @@
 
 Run for EACH scenario in the plan. **Restart both Halos and SRR compose between scenarios** — Safety Core counter drift carries across runs and corrupts the next scenario's results.
 
-> ⚠️ **Resolve the perception + behavior container names first (VSS 3.2.1).** Every command
+> ⚠️ **Resolve the perception + behavior container names first.** Every command
 > below that says `vss-rtvi-cv` / `vss-behavior-analytics` / `FPS ≥ 5` refers to the
-> resolved container. On VSS Warehouse 3.2.1 perception is **`vss-rtvi-cv`** (Sparse4D 3D,
+> resolved container. On VSS Warehouse 3.3 perception is **`vss-rtvi-cv`** (Sparse4D 3D,
 > FPS ~12–14 → use **≥ 5**) and behavior analytics is **`vss-behavior-analytics`** — the
 > names no longer carry a `-2d`/`-3d` suffix. Resolve once at the top of the run and substitute:
 > ```bash
@@ -13,7 +13,7 @@ Run for EACH scenario in the plan. **Restart both Halos and SRR compose between 
 > case "$PERCEPTION" in vss-rtvi-cv|*-3d) FPS_MIN=5;; *) FPS_MIN=25;; esac
 > ```
 > (See SKILL.md § "Agent autonomy rules" for the same note.) Phase 2 metrics require
-> `mdx-bev` + `mdx-behavior` to be flowing (Sparse4D warehouse) — present on VSS 3.2.1.
+> `mdx-bev` + `mdx-behavior` to be flowing (the 3D app, `MODE=3d`).
 
 ---
 
@@ -126,7 +126,7 @@ Report [ok] if all present, or [missing: <list>] otherwise.
 ${SRR_PIPELINE_DIR}/halos-integration/sync_to_halos.sh ${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil
 ```
 
-This copies the canonical IRA 1.6 behavior trees plus navmesh /
+This copies the canonical IRA 1.7 behavior trees plus navmesh /
 isaac-scripts into the correct SIL subdirs. Idempotent — safe to re-run. See
 `halos-integration/README.md` for the Pattern A (sync) vs Pattern B
 (planned bind-mount) discussion.
@@ -202,7 +202,7 @@ When agent reports [ok], log:
 ## Step 3a.1 — Restart perception (`vss-rtvi-cv`) to clear stale RTSP sources
 
 After every Halos compose cycle, the perception container (`$PERCEPTION` —
-`vss-rtvi-cv` on VSS 3.2.1; legacy `perception-2d`/`-3d`) must be restarted to
+`vss-rtvi-cv`; legacy `perception-2d`/`-3d`) must be restarted to
 drop RTSP source URLs left over from the previous scenario's deleted
 `nvstreamer-default` cams. Skipping this is a silent failure:
 `docker logs "$PERCEPTION"` shows pipeline running, but FPS reports 0.0 and
@@ -218,7 +218,7 @@ shutdown. Stopping Isaac early (e.g. multi-test killing the scenario after
 reliable workaround.
 
 ```bash
-docker restart "$PERCEPTION"   # vss-rtvi-cv (VSS 3.2.1; legacy perception-2d/-3d)
+docker restart "$PERCEPTION"   # vss-rtvi-cv (legacy perception-2d/-3d)
 ```
 
 **Ready signal** — verify via Explore agent:
@@ -249,7 +249,7 @@ curl -sf -o /dev/null -w '%{http_code}\n' "${VST_BASE_URL}/v1/record/streams"
 
 Must return `200`. If `503` / `504` → launch_vst record subsystem hung.
 Run the [VSS reset recipe](../SKILL.md#when-vss-is-corrupted-sensoradd-400-record-api-503)
-and retry. For full VSS Warehouse redeploy (when the local reset recipe doesn't recover), use the **`vss-deploy-profile` skill** teardown/redeploy path (`references/teardown.md`, then the Deployment Flow) — it owns the proper teardown / data-volume wipe / bring-up for VSS, and that procedure is mandated (don't reinvent it here).
+and retry. For full VSS Warehouse redeploy (when the local reset recipe doesn't recover), use the **`vss-build-vision-ai` skill** teardown/redeploy path (`references/teardown.md`, then its warehouse deploy, with the SIL overrides of `hoisa-deploy-profile`) — it owns the proper teardown / data-volume wipe / bring-up for VSS, and that procedure is mandated (don't reinvent it here).
 
 **Check 2 — sensor list cleanliness** (no leftover Camera entries):
 
@@ -303,9 +303,9 @@ Log:
 
 ---
 
-## Step 3c — Select the scenario's behavior trees (IRA 1.6)
+## Step 3c — Select the scenario's behavior trees (IRA 1.7)
 
-Isaac Sim 6.0 / IRA 1.6 removed character command files — each pedestrian is a
+Isaac Sim 6.1 / IRA 1.7 removed character command files — each pedestrian is a
 behavior tree. `default_config_ros.yaml` references three FIXED tree names
 (`srr_char{0,1,2}.bt.json`, one per `character.groups` entry). To select a
 scenario we copy that scenario's three trees onto the fixed names (no YAML edit
@@ -338,7 +338,7 @@ If a scenario tree is missing, re-run
 
 ## Step 3c.1 — Set simulation_duration to cover the scenario
 
-IRA 1.6 uses `simulation_duration` (seconds), replacing the old
+IRA 1.7 uses `simulation_duration` (seconds), replacing the old
 `simulation_length` (frames). Upstream ships a short value that silently kills
 Isaac mid-scenario — symptom: scene exits early, `isaac=3` drops to 0 partway
 through the recording window, parquet ends short.
@@ -380,7 +380,7 @@ flag on `run_actor_sdg.py` (default OFF, so normal runs are unaffected). When se
 in its post-setup block — AFTER IRA has spawned the SRR char groups — which builds
 `/World/SRRGraph` (the `/gt/character_{0,1,2}/tf` + `/gt/forklift/tf` publishers) by
 discovering each char's animated `ManRoot` and pumping their live Fabric transforms
-each frame. There is **no** "paste + Save the graph into the scene" step — IRA 6.0
+each frame. There is **no** "paste + Save the graph into the scene" step — IRA 6.1
 spawns chars at runtime so the targets only exist live. Expect these lines in the
 scenario log:
 ```
@@ -404,7 +404,7 @@ Log:
 ```
 Tail /tmp/isaac-scenario-<TIMESTAMP>-<LABEL>.log inside the host
 (it's a docker exec stdout redirect — should appear on host).
-Confirm the current Isaac-6.0 scene-ready markers in the log:
+Confirm the current Isaac-6.1 scene-ready markers in the log:
   [rtsp-cameras] Loaded 3 cameras from ...
   [rtsp-cameras] Action Graph built at /World/RTSPMultiGraph
   3x "  - <name>: rtsp://<host>:<port><mount>"   (one per camera; ports 8554/8555/8556)
@@ -423,7 +423,7 @@ A count below 3 means the empty-pipeline provisioning race: restart vss-rtvi-cv,
 re-register the sensors (vst_sensor_manager.py --delete-all then
 --add-from-config), and re-check before recording.
 
-Do NOT rely on RTSPWriter_World_Cameras_*_rgb — Isaac 6.0 never emits those.
+Do NOT rely on RTSPWriter_World_Cameras_*_rgb — Isaac 6.1 never emits those.
 
 If first run on this scene: shaders compile takes ~5-7 min — that's normal.
 If subsequent run: streams should appear within ~90 s.
@@ -559,7 +559,7 @@ with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
 
 **On fail**: do NOT call `/srr/record true`. Apply the staged recovery below — escalate only if the cheap step doesn't fix it. This pattern is common: a scenario hits FPS=0 right after a compose restart, and a single `docker restart "$PERCEPTION"` + re-poll recovers without user intervention.
 
-> **`SENSOR_INFO_SOURCE=file` RTSP race (Isaac 6.0 + VSS 3.2.1).** When VSS reads
+> **`SENSOR_INFO_SOURCE=file` RTSP race (Isaac 6.1; the SIL default is `nvstreamer`).** When VSS reads
 > sensor info from the static file that points at Isaac's live RTSP endpoints,
 > VST spams reconnect attempts at those endpoints *while Isaac's stream still
 > "has no caps"* — Isaac then fails to create the SDP (`could not create SDP`),
@@ -582,7 +582,7 @@ with concrete numbers (e.g. "FPS values: 0.0/0.0/0.0").
 
 ```bash
 # Tier 1 — perception restart (covers ~80% of fresh-restart FPS=0 cases)
-docker restart "$PERCEPTION"            # vss-rtvi-cv (VSS 3.2.1; legacy perception-2d/-3d)
+docker restart "$PERCEPTION"            # vss-rtvi-cv (legacy perception-2d/-3d)
 sleep 30
 docker logs --tail 200 "$PERCEPTION" 2>&1 | grep PERF -A1 | tail -5
 # If all 3 FPS values now ≥ $FPS_MIN → re-run the Step 3f.7 gate and continue.
@@ -599,7 +599,7 @@ bash "$HOISA_ROOT_PATH"/closed-loop-testing/scripts/restart_isaac.sh
 # § "Restart the scenario on a live stack".
 
 # Tier 3 — full VSS reset recipe (SKILL.md § "When VSS is corrupted")
-#   or vss-deploy-profile skill teardown/redeploy (references/teardown.md)
+#   or vss-build-vision-ai skill teardown/redeploy (references/teardown.md)
 # Use only after Tier 1 + 2 fail — this rebuilds VSS state and takes 5-10 min.
 ```
 

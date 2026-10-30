@@ -5,8 +5,8 @@
 Robot Controller - Integrates Command Handler, State Machine, and Waypoint Follower
 
 Based on VSS Warehouse Blueprint architecture:
-- RobotController(forklift_1)
-- RobotController(forklift_2)
+- RobotController(forklift_b)
+- RobotController(forklift_b2)
 - etc.
 
 This is the main controller that:
@@ -16,6 +16,7 @@ This is the main controller that:
 4. Publishes cmd_vel with applied speed_factor
 """
 
+import fleet_config
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
@@ -27,6 +28,7 @@ from std_msgs.msg import ColorRGBA
 from rosgraph_msgs.msg import Clock
 
 import json
+import os
 import math
 import time
 import argparse
@@ -35,6 +37,13 @@ from typing import Optional
 from datetime import datetime
 
 from state_machine import StateMachine, RobotState
+from proximity_gate import (ProximityGate, NORMAL as PXC_NORMAL, STOP as PXC_STOP,
+                            INACTIVE as PXC_INACTIVE, DISABLED as PXC_DISABLED)
+from path_resume import nearest_pose
+
+# A truck farther than this from pose 0 when the controller starts is out on its
+# path, and resumes there instead of returning to the start.
+RESUME_FROM_START_M = 1.0
 
 
 class RobotController(Node):
@@ -43,18 +52,22 @@ class RobotController(Node):
     """
     
     def __init__(self,
-                 robot_id: str = "forklift_1",
+                 robot_id: str = "forklift_b",
                  path_file: Optional[str] = None,
                  base_linear_speed: float = 0.5,
                  base_angular_speed: float = 0.4,
                  loop: bool = False,
                  invert_poses: bool = True,
                  heading_offset: float = math.pi,
-                 use_namespace: bool = True,
+                 topics: Optional[dict] = None,
                  end_tolerance: float = 1.5,
                  end_pose_count: int = 3,
-                 spiral_timeout: float = 15.0):
-        super().__init__('robot_controller')
+                 spiral_timeout: float = 15.0,
+                 proximity: Optional[dict] = None):
+        # Node name must be unique per robot: N controller instances (one
+        # container per robot) with the same name collide on parameter
+        # services and rosout.
+        super().__init__(f'{robot_id}_controller')
         
         self.robot_id = robot_id
         self.base_linear_speed = base_linear_speed
@@ -62,7 +75,6 @@ class RobotController(Node):
         self.loop = loop
         self.invert_poses = invert_poses
         self.heading_offset = heading_offset
-        self.use_namespace = use_namespace
         
         # State machine
         self.state_machine = StateMachine(logger=self.get_logger())
@@ -114,19 +126,18 @@ class RobotController(Node):
         )
         
         # ===== Topic names =====
-        # Use namespace if enabled, otherwise use global topics (like curve_follower.py)
-        if use_namespace:
-            odom_topic = f'/{robot_id}/odom'
-            cmd_vel_topic = f'/{robot_id}/cmd_vel'
-            state_topic = f'/{robot_id}/state'
-            path_topic = f'/{robot_id}/planned_path'
-            marker_topic = f'/{robot_id}/markers'
-        else:
-            odom_topic = '/odom'
-            cmd_vel_topic = '/cmd_vel'
-            state_topic = f'/{robot_id}/state'  # Keep state namespaced for monitoring
-            path_topic = '/planned_path'
-            marker_topic = '/curve_follower/markers'
+        # From the robot's own block in the fleet file, which is also where Isaac
+        # reads them: one declaration, so the two sides cannot disagree about
+        # what this truck listens on. Falls back to the namespaced convention
+        # when there is no fleet file (a run started by hand).
+        topics = topics or {}
+        cmd_vel_topic = topics.get('cmd_vel') or f'/{robot_id}/cmd_vel'
+        odom_topic = topics.get('odom') or f'/{robot_id}/odom'
+        proximity_pair_topic = topics.get('proximity_pair') or '/safety/proximity/pair'
+        proximity_state_topic = topics.get('proximity_state') or f'/{robot_id}/proximity/state'
+        state_topic = f'/{robot_id}/state'
+        path_topic = f'/{robot_id}/planned_path'
+        marker_topic = f'/{robot_id}/markers'
         
         # ===== Publishers =====
         self.cmd_pub = self.create_publisher(Twist, cmd_vel_topic, qos)
@@ -145,6 +156,27 @@ class RobotController(Node):
         # Simulation clock (detect stop/play/reset)
         self.clock_sub = self.create_subscription(
             Clock, '/clock', self._clock_callback, 10)
+
+        # PSF proximity (PSF_APP=pxc or both). Unlike /safety/command above, this
+        # one does drive the truck: a proximity decision is a motion level for the
+        # machine next to the person, and the point of the run is to watch the
+        # truck obey it. `proximity` is fleet_config.resolve_proximity()'s output;
+        # None leaves the gate off.
+        self._proximity: Optional[ProximityGate] = None
+        self._last_cmd_linear = 0.0
+        if proximity and proximity['enabled']:
+            self._proximity = ProximityGate(
+                reduce_speed=proximity['reduce_speed'],
+                stop_hold_s=proximity['stop_hold_s'],
+                reduce_hold_s=proximity['reduce_hold_s'],
+                stale_s=proximity['stale_s'])
+            self.proximity_sub = self.create_subscription(
+                String, proximity_pair_topic, self._proximity_callback, qos)
+        # What is applied, for Isaac's indicator disk: a level, or inactive until
+        # PSF first speaks, or disabled when the gate is off.
+        self._proximity_level_seen = PXC_DISABLED if self._proximity is None else PXC_INACTIVE
+        self.proximity_state_pub = self.create_publisher(
+            String, proximity_state_topic, qos)
         
         # ===== Timers =====
         # Control loop (20Hz)
@@ -162,12 +194,21 @@ class RobotController(Node):
         self.get_logger().info(f'RobotController initialized: {robot_id}')
         self.get_logger().info(f'  State: {self.state_machine.state.value}')
         self.get_logger().info(f'  Base speed: {base_linear_speed} m/s')
-        self.get_logger().info(f'  Namespace: {"ON" if use_namespace else "OFF (global topics)"}')
         self.get_logger().info(f'  Command topic: /safety/command')
         self.get_logger().info(f'  Odom topic: {odom_topic}')
         self.get_logger().info(f'  Cmd_vel topic: {cmd_vel_topic}')
         self.get_logger().info(f'  End tolerance: {self.end_tolerance}m for last {self.end_pose_count} poses')
         self.get_logger().info(f'  Spiral timeout: {self._spiral_timeout}s')
+        if self._proximity is not None:
+            self.get_logger().info(
+                f'  Proximity: {self.proximity_sub.topic_name} -> '
+                f'reduce cap {self._proximity.reduce_speed} m/s, '
+                f'stop hold {self._proximity.stop_hold_s}s, '
+                f'reduce hold {self._proximity.reduce_hold_s}s, '
+                f'link stale after {self._proximity.stale_s}s, '
+                f'state on {self.proximity_state_pub.topic_name}')
+        else:
+            self.get_logger().info('  Proximity: disabled (PSF decisions ignored)')
         if self.poses:
             self.get_logger().info(f'  Loaded {len(self.poses)} poses')
         self.get_logger().info(f'═══════════════════════════════════════')
@@ -217,9 +258,9 @@ class RobotController(Node):
         try:
             data = json.loads(msg.data)
             
-            # Check if command is for this robot
+            # Only null broadcasts; "" or 0 is a malformed address, not everyone.
             target_robot = data.get('robot_id', None)
-            if target_robot and target_robot != self.robot_id:
+            if target_robot is not None and target_robot != self.robot_id:
                 return  # Not for us
             
             raw_cmd = data.get('command', '')
@@ -257,6 +298,12 @@ class RobotController(Node):
             
             # Handle reset command directly (not a state machine command)
             if command == 'reset':
+                # The early return below skips state_machine.handle_command, so
+                # apply the speed factor here (params default 1.0 restores full
+                # speed; honors `reset --speed X`). Deliberately NOT inside
+                # _reset_path: that path is shared with the sim-reset/odom-jump
+                # auto-recovery, which must not wipe an operator's `slow` factor.
+                self.state_machine.set_speed_factor(params['speed_factor'])
                 self._reset_path()
                 return
             
@@ -267,6 +314,53 @@ class RobotController(Node):
             self.get_logger().error(f'Invalid command JSON: {e}')
         except Exception as e:
             self.get_logger().error(f'Command error: {e}')
+
+    def _proximity_callback(self, msg: String):
+        """One PSF proximity decision from comm-layer's /safety/proximity/pair."""
+        try:
+            decision = json.loads(msg.data)
+            if not isinstance(decision, dict):
+                raise ValueError(f'expected a JSON object, got {type(decision).__name__}')
+            # robot_id is null today: the wire carries a VSS object id, not a
+            # robot name, so every truck on this topic obeys every decision
+            # (main() warns when more than one does). Honour it once it is set.
+            target = decision.get('robot_id')
+            if target is not None and target != self.robot_id:
+                self._proximity.note_heard()
+                return
+            self._proximity.on_decision(decision)
+        except (ValueError, TypeError) as e:
+            self.get_logger().error(f'Invalid proximity message: {e}')
+            return
+        self._proximity_level()
+
+    def _proximity_level(self) -> str:
+        """The level in force now; logs and publishes each change once."""
+        if self._proximity is None:
+            return PXC_NORMAL
+        level = self._proximity.level() if self._proximity.active else PXC_INACTIVE
+        if level != self._proximity_level_seen:
+            sep = self._proximity.separation_m
+            sep_txt = f'{sep:.2f}m' if sep is not None else 'n/a'
+            if level == PXC_STOP:
+                action = 'speed -> 0'
+            elif level in (PXC_NORMAL, PXC_INACTIVE):
+                action = f'speed -> {self.base_linear_speed:.2f} m/s'
+            else:
+                action = f'speed cap {self._proximity.reduce_speed:.2f} m/s'
+            fault = f' fault={self._proximity.fault}' if self._proximity.fault else ''
+            self.get_logger().info(
+                f'🦺 PXC [{self.robot_id}] {self._proximity_level_seen} -> {level} '
+                f'| sep={sep_txt} | was {abs(self._last_cmd_linear):.2f} m/s, '
+                f'{action}{fault}')
+            self._proximity_level_seen = level
+            self._publish_proximity_state()
+        return level
+
+    def _publish_proximity_state(self):
+        msg = String()
+        msg.data = self._proximity_level_seen
+        self.proximity_state_pub.publish(msg)
     
     def _clock_callback(self, msg: Clock):
         """Monitor /clock to detect simulation stop/play/reset"""
@@ -293,25 +387,15 @@ class RobotController(Node):
         self._sim_running = True
     
     def _reset_path(self):
-        """Reset path following - find nearest heading-compatible pose"""
+        """Reset path following - drive on from the nearest heading-compatible pose"""
         best_idx = 0
 
         if self.odom_received and self.poses:
-            best_score = float('inf')
-            for i, p in enumerate(self.poses):
-                dx = float(p['x']) - self.robot_x
-                dy = float(p['y']) - self.robot_y
-                dist = math.sqrt(dx * dx + dy * dy)
-                heading_diff = abs(self._normalize_angle(float(p['theta']) - self.robot_theta))
-                # Weight: distance + heavy heading penalty (1 radian ~ 3 meters)
-                score = dist + heading_diff * 3.0
-                if score < best_score:
-                    best_score = score
-                    best_idx = i
-
+            nearest, score = nearest_pose(self.poses, self.robot_x, self.robot_y, self.robot_theta)
+            best_idx = nearest + 1
             self.get_logger().info(
-                f'🔁 Path reset: nearest heading-compatible pose = {best_idx} '
-                f'(score={best_score:.2f}, robot=({self.robot_x:.1f},{self.robot_y:.1f},{math.degrees(self.robot_theta):.0f}°))')
+                f'🔁 Path reset: nearest heading-compatible pose = {nearest}, next = {best_idx} '
+                f'(score={score:.2f}, robot=({self.robot_x:.1f},{self.robot_y:.1f},{math.degrees(self.robot_theta):.0f}°))')
         else:
             self.get_logger().info('🔁 Path reset to beginning (no odom)')
 
@@ -366,6 +450,25 @@ class RobotController(Node):
             self.get_logger().info(
                 f'Odom received: ({self.robot_x:.2f}, {self.robot_y:.2f}, '
                 f'{math.degrees(self.robot_theta):.1f}°)')
+            self._resume_on_path()
+
+    def _resume_on_path(self):
+        """A controller started with the truck already out on its path picks it up there.
+
+        Starting at pose 0 instead sends the truck back to the path start, and the
+        skip-ahead below only looks within the first segment, ignoring heading.
+        """
+        if not self.poses or self.current_pose_idx != 0:
+            return
+        start = self.poses[0]
+        from_start = math.hypot(float(start['x']) - self.robot_x, float(start['y']) - self.robot_y)
+        if from_start <= RESUME_FROM_START_M:
+            return
+        nearest, score = nearest_pose(self.poses, self.robot_x, self.robot_y, self.robot_theta)
+        self.current_pose_idx = nearest + 1
+        self.get_logger().warn(
+            f'↪️ Truck is {from_start:.1f} m from the path start: resuming at pose '
+            f'{self.current_pose_idx} (nearest heading-compatible pose {nearest}, score={score:.2f})')
     
     def _on_state_change(self, old_state: RobotState, new_state: RobotState):
         """Callback when state changes"""
@@ -375,6 +478,10 @@ class RobotController(Node):
     
     def _control_loop(self):
         """Main control loop - follows waypoints with speed factor applied"""
+        # Before the early returns, so a hold expiring while the sim is paused
+        # still logs and still reaches the disk.
+        pxc_level = self._proximity_level()
+
         # Check if simulation is running (via /clock)
         if self._last_clock_wall_time > 0:
             clock_age = time.time() - self._last_clock_wall_time
@@ -392,6 +499,16 @@ class RobotController(Node):
             return  # Don't move if paused or idle
         
         if self.completed or not self.poses:
+            return
+
+        if pxc_level == PXC_STOP:
+            # Every tick rather than once: a single zero Twist lost on the way to
+            # Isaac would leave the truck on its last velocity.
+            self._stop_robot()
+            self._last_cmd_linear = 0.0
+            # The spiral timer measures time spent failing to reach a pose; time
+            # held by PSF is not that, and would end the path early.
+            self._pose_start_time = None
             return
         
         if self.current_pose_idx >= len(self.poses):
@@ -589,8 +706,12 @@ class RobotController(Node):
         else:
             if cmd.linear.x < min_forward:
                 cmd.linear.x = min_forward
+
+        if self._proximity is not None:
+            cmd.linear.x, cmd.angular.z = self._proximity.limit(cmd.linear.x, cmd.angular.z)
         
         self.cmd_pub.publish(cmd)
+        self._last_cmd_linear = cmd.linear.x
         
         # Periodic status log (every 2 seconds)
         current_sec = int(self.get_clock().now().nanoseconds / 1e9)
@@ -600,6 +721,7 @@ class RobotController(Node):
                 self.get_logger().info(
                     f'📍 pose={self.current_pose_idx} {"🔙REV" if is_reverse else "▶FWD"} '
                     f'dist={distance:.2f}m cmd=({cmd.linear.x:.2f},{cmd.angular.z:.2f}) '
+                    f'pxc={pxc_level} '
                     f'robot=({self.robot_x:.2f},{self.robot_y:.2f},{math.degrees(self.robot_theta):.0f}°)')
     
     def _get_segment_for_pose(self, pose_idx: int) -> dict:
@@ -637,9 +759,16 @@ class RobotController(Node):
             'pose_idx': self.current_pose_idx,
             'total_poses': len(self.poses),
             'completed': self.completed,
+            'proximity': self._proximity_level_seen,
+            'proximity_separation_m': (self._proximity.separation_m
+                                       if self._proximity is not None else None),
+            'proximity_fault': (self._proximity.fault
+                                if self._proximity is not None else None),
         }
         state_msg.data = json.dumps(state_data)
         self.state_pub.publish(state_msg)
+        # Periodic too, so a disk built after the last change still gets it.
+        self._publish_proximity_state()
     
     def _publish_visualization(self):
         """Publish visualization markers"""
@@ -680,31 +809,99 @@ class RobotController(Node):
 
 def main():
     parser = argparse.ArgumentParser(description='Robot Controller with State Machine')
-    parser.add_argument('--robot-id', type=str, default='forklift_1',
+    parser.add_argument('--robot-id', type=str, default='forklift_b',
                        help='Robot ID for namespacing')
     parser.add_argument('--path', type=str, default=None,
-                       help='JSON file with waypoints/poses')
-    parser.add_argument('--speed', type=float, default=0.5,
+                       help='JSON file with waypoints/poses (overrides --map)')
+    parser.add_argument('--scenario', type=str, default=None,
+                       help='Scenario id; supplies the robots config and map when those are not given')
+    parser.add_argument('--configs-dir', type=str, default='/app/robots',
+                       help='Directory holding scenarios.yaml and the robots configs')
+    parser.add_argument('--robots-config', type=str, default=None,
+                       help='robots.yaml Isaac was launched with; supplies this robot\'s drive: block')
+    parser.add_argument('--waypoints-root', type=str, default='/app/waypoints',
+                       help='Directory holding <map id>/ waypoint sets')
+    parser.add_argument('--map', type=str, default=None,
+                       help='Map id under --waypoints-root, e.g. warehouse_20x20')
+    # Drive knobs default to None so an absent flag is distinguishable from an
+    # explicit one: entrypoint.sh passes a flag only when its env var is set,
+    # which is what lets robots.yaml fill the rest. See fleet_config.py.
+    parser.add_argument('--speed', type=float, default=None,
                        help='Base linear speed (m/s)')
-    parser.add_argument('--angular-speed', type=float, default=0.4,
+    parser.add_argument('--angular-speed', type=float, default=None,
                        help='Base angular speed (rad/s)')
-    parser.add_argument('--loop', action='store_true',
+    parser.add_argument('--loop', action='store_true', default=None,
                        help='Loop the path')
-    parser.add_argument('--no-invert', action='store_true',
+    parser.add_argument('--no-invert', action='store_true', default=None,
                        help='Disable pose inversion')
-    parser.add_argument('--heading-offset', type=float, default=180.0,
+    parser.add_argument('--heading-offset', type=float, default=None,
                        help='Heading offset in degrees')
-    parser.add_argument('--no-namespace', action='store_true',
-                       help='Use global topics (/odom, /cmd_vel) instead of namespaced')
-    parser.add_argument('--end-tolerance', type=float, default=1.5,
-                       help='Position tolerance for last few poses (meters, default: 1.5)')
-    parser.add_argument('--end-pose-count', type=int, default=3,
-                       help='Number of poses from end to use larger tolerance (default: 3)')
-    parser.add_argument('--spiral-timeout', type=float, default=15.0,
-                       help='Timeout (seconds) for spiral auto-complete at final pose (default: 15)')
-    
+    parser.add_argument('--end-tolerance', type=float, default=None,
+                       help='Position tolerance for last few poses (meters)')
+    parser.add_argument('--end-pose-count', type=int, default=None,
+                       help='Number of poses from end to use larger tolerance')
+    parser.add_argument('--spiral-timeout', type=float, default=None,
+                       help='Timeout (seconds) for spiral auto-complete at final pose')
+
     args, unknown = parser.parse_known_args()
-    
+
+    # rclpy ignores what argparse did not recognise, so a removed flag would do
+    # nothing and say nothing. Name it instead.
+    if any(token.split('=', 1)[0] == '--no-namespace' for token in unknown):
+        parser.error(
+            "--no-namespace was removed: topic names come from the robot's block "
+            "in the fleet file (control.cmd_vel_topic / odometry.odom_topic), so "
+            "there is no namespace toggle left to switch off")
+
+    # A scenario names the fleet file and the map; an explicit flag still wins.
+    robots_config, waypoints_map = args.robots_config, args.map
+    if args.scenario:
+        scenario = fleet_config.load_scenario(args.configs_dir, args.scenario)
+        if not robots_config and scenario.get('robots'):
+            robots_config = os.path.join(args.configs_dir, scenario['robots'])
+        waypoints_map = waypoints_map or scenario.get('waypoints')
+        print(f"[scenario] {args.scenario}: robots={scenario.get('robots')} "
+              f"waypoints={scenario.get('waypoints')}"
+              f"{' EXPERIMENTAL' if scenario.get('experimental') else ''}", flush=True)
+
+    # env (flag) > robots.yaml > built-in default, per knob.
+    robot_block = None
+    if robots_config:
+        fleet = fleet_config.load_fleet(robots_config)
+        robot_block = fleet_config.find_robot(fleet, args.robot_id, robots_config)
+    drive, drive_sources = fleet_config.resolve_drive({
+        'speed': args.speed,
+        'angular_speed': args.angular_speed,
+        'heading_offset': args.heading_offset,
+        'loop': args.loop,
+        'no_invert': args.no_invert,
+        'end_tolerance': args.end_tolerance,
+        'end_pose_count': args.end_pose_count,
+        'spiral_timeout': args.spiral_timeout,
+    }, robot_block)
+    print(f"[drive] {fleet_config.format_sources(drive, drive_sources)}", flush=True)
+    proximity, proximity_sources = fleet_config.resolve_proximity(robot_block)
+    print(f"[proximity] {fleet_config.format_sources(proximity, proximity_sources)}",
+          flush=True)
+
+    if robot_block is not None and proximity['enabled']:
+        for topic, names in fleet_config.robots_sharing_proximity_topic(fleet).items():
+            print(f"[proximity] WARNING: {', '.join(names)} all obey {topic}; PSF names "
+                  f"no robot, so each stops for a person next to any of them. Give each "
+                  f"robot its own proximity.pair_topic, or keep one robot on it.",
+                  flush=True)
+
+    topics = fleet_config.resolve_topics(robot_block, args.robot_id)
+    print(f"[topics] cmd_vel={topics['cmd_vel']} odom={topics['odom']} "
+          f"proximity_pair={topics['proximity_pair']} "
+          f"proximity_state={topics['proximity_state']}", flush=True)
+
+    path_file = args.path
+    if not path_file and waypoints_map:
+        path_file = fleet_config.resolve_waypoint_file(
+            args.waypoints_root, waypoints_map, args.robot_id)
+        print(f"[waypoints] {path_file}", flush=True)
+
     rclpy.init(args=unknown)
 
     # Translate SIGTERM (e.g. `docker stop`) into KeyboardInterrupt so the
@@ -719,16 +916,17 @@ def main():
     try:
         node = RobotController(
             robot_id=args.robot_id,
-            path_file=args.path,
-            base_linear_speed=args.speed,
-            base_angular_speed=args.angular_speed,
-            loop=args.loop,
-            invert_poses=not args.no_invert,
-            heading_offset=math.radians(args.heading_offset),
-            use_namespace=not args.no_namespace,
-            end_tolerance=args.end_tolerance,
-            end_pose_count=args.end_pose_count,
-            spiral_timeout=args.spiral_timeout
+            path_file=path_file,
+            base_linear_speed=drive['speed'],
+            base_angular_speed=drive['angular_speed'],
+            loop=drive['loop'],
+            invert_poses=not drive['no_invert'],
+            heading_offset=math.radians(drive['heading_offset']),
+            topics=topics,
+            end_tolerance=drive['end_tolerance'],
+            end_pose_count=drive['end_pose_count'],
+            spiral_timeout=drive['spiral_timeout'],
+            proximity=proximity,
         )
         
         # Auto-start moving

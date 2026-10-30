@@ -39,7 +39,7 @@ services:
       KAFKA_TOPIC:   "${KAFKA_TOPIC:-mdx-events}"
       SRR_OUT_DIR:   "/app/runs"
       SENSORS:       "${SENSORS:-Camera,Camera_01,Camera_02}"
-      # Match Isaac Sim 6.0 + the Halos ROS 2 stack (CycloneDDS). Humble's
+      # Match Isaac Sim 6.1 + the Halos ROS 2 stack (CycloneDDS). Humble's
       # FastRTPS default only partially interops with CycloneDDS: /gt/*/tf
       # samples fail to deserialize ("sequence size exceeds remaining buffer").
       RMW_IMPLEMENTATION: "${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"

@@ -6,12 +6,78 @@ Run the Isaac Sim test scenario (`sil` profile) and monitor safety commands.
 
 ## Run the scenario
 
+The run is named by `SCENARIO` in the profile env, which Isaac and every
+controller read, so the two cannot end up on different halves of one run. It
+supplies the IRA config, the fleet file, the cameras config and the warehouse
+together:
+
 ```bash
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+  ./run_sdg.sh --start --headless --enable-vst'
 ```
+
+Two-forklift variant: set `SCENARIO=warehouse_40x20` in the profile env and add
+`multi-robot` to `COMPOSE_PROFILES` — the profile decides whether the second
+controller container exists, the scenario decides what it drives. Its VSS dataset
+is built locally (see below); run it on the 2D app.
+
+Individual flags (`-c`, `--robots-config`, `--cameras-config`) still win over the
+scenario, for a one-off run against a config the table below does not list.
+
+### Which artifacts go with which scene
+
+Everything below is metres in one warehouse's world frame, and **every mismatch
+here is silent**. Cameras still stream, perception still detects, the controller
+still drives, PSF still issues verdicts — about the wrong building. Pick one row
+and use it whole.
+
+Each row is one `SCENARIO` id. Picking the id picks the whole row —
+`configs/scenarios.yaml` is where the mapping lives, and this table is its
+human-readable form plus the VSS dataset, which the scenario does not name.
+
+| `SCENARIO` | Scene | IRA config | robots | cameras | waypoints | VSS `SAMPLE_VIDEO_DATASET` |
+|---|---|---|---|---|---|---|
+| `warehouse_20x20_1fl` | `indicator_warehouse_20x20_layout_overflow_test.usd` | `default_config_ros.yaml` | `robots.yaml` (1 FL) | `cameras.yaml` | `warehouse_20x20` | `warehouse-loading-dock-3cams-synthetic` |
+| `warehouse_40x20` | `warehouse_40x20_two_loading_dock.usd` | `default_config_ros_40x20.yaml` | `robots-40x20.yaml` (2 FL) | `cameras-40x20.yaml` | `warehouse_40x20` | `warehouse-40x20-two-docks-3cams-synthetic` — **built locally, see below** |
+
+**The 40x20 row is EXPERIMENTAL / internal-only, and its VSS dataset is not
+published: build it.** `closed-loop-testing/isaac-sim/sil/calibration/build_vss_calibration.py`
+writes it from `cameras-40x20.yaml` (exact pinhole poses, nothing estimated), the
+two loading zones in `calibration/warehouse_40x20/zones.yaml` (`roi-id-1` /
+`tripwire-id-1` = `forklift_b`'s bay, `roi-id-2` / `tripwire-id-2` = `forklift_b2`'s)
+and the waypoint map, whose `map.png` becomes `Top.png`:
+
+```bash
+cd closed-loop-testing/isaac-sim/sil/calibration
+DS=warehouse-40x20-two-docks-3cams-synthetic
+PYTHONPATH=<vss>/libs/analytics/spatialai-data-utils python3 build_vss_calibration.py \
+  --cameras ../configs/cameras-40x20.yaml --zones warehouse_40x20/zones.yaml \
+  --map ../../../../tools/waypoint-generator/public/maps/warehouse_40x20/config.json \
+  --out-dir <wh_ops>/warehouse-2d-app/calibration/sample-data/$DS
+# the configurator also needs bootstrap videos under the dataset name
+cp -a $VSS_DATA_DIR/videos/warehouse-loading-dock-3cams-synthetic $VSS_DATA_DIR/videos/$DS
+```
+
+Then set `SAMPLE_VIDEO_DATASET="$DS"` in the VSS build's `override.env`. Both apps run this scene:
+the 3D app ran it for 10 min with both bays deciding. For 3D, also put a calibration with
+the BEV group and the top-level `roi-id-1/2` / `tripwire-id-1/2` under
+`<wh_ops>/warehouse-3d-app/calibration/sample-data/$DS` (`calibration_3d.md`), and set the
+two PSF 3D lines in the profile.
+`spatialai-data-utils` only fills `fieldOfViewPolygon`; without it the field is left out.
+
+The 20x20 dataset is 20x20 geometry: its ROIs and tripwires sit at `scaleFactor`
+49.50985 and translation x 19.291915, while the 40x20 world is 26.829178663553755
+and 35.669746. Pointing VSS at it while Isaac loads the 40x20 scene yields
+verdicts about the wrong building, and nothing logs a warning. Cheap check before
+trusting any result: `scaleFactor` and `translationToGlobalCoordinates.x` in the
+`calibration.json` VSS actually loaded must match
+`tools/waypoint-generator/public/maps/<map id>/config.json`.
+
+Two of these pairings are now checked automatically rather than by reading this
+table: `camera_loader.assert_scene_matches()` refuses a cameras config whose
+`scene:` key does not name the scene being loaded, and `preflight.py` compares
+each waypoint file's `origin` against where its truck actually stands. The
+scene<->calibration pair is the one still asserted by hand.
 
 The container already has `VST_BASE_URL`, `HOST_IP`, and `ROS_DOMAIN_ID` from the
 profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
@@ -20,14 +86,14 @@ profile env; `run_sdg.sh` sets the ROS2 environment and launches the scene.
 1. Loads the warehouse scene
 2. Spawns the forklift + digital humans
 3. Initializes the ROS2 Action Graph (the forklift safety disc subscribes `/safety/is_muted`)
-4. Runs the forklift playback (`segments.json`: forward into trailer → idle → backward → idle)
-5. Starts RTSP streaming — Isaac 6.0 **self-hosts** RTSP per camera (H264):
+4. The forklift-controller drives the truck along `waypoints/<map id>/<ROBOT_ID>.json` (forward into trailer → idle → backward → idle)
+5. Starts RTSP streaming — Isaac 6.1 **self-hosts** RTSP per camera (H264):
    `rtsp://localhost:8554/camera`, `:8555/camera_01`, `:8556/camera_02`
 6. Registers the 3 cameras with VST — `--enable-vst` deletes existing sensors, then adds the Isaac cameras
 
 **First-run note**: Isaac Sim goes quiet for ~5-10 min on first run (scene load + RT
 shader compile, cached afterwards). **Do not gate on a shader-log string** (it does not
-appear in the Isaac 6.0 kit log → poll hangs forever). Gate on the Isaac→VSS stream
+appear in the Isaac 6.1 kit log → poll hangs forever). Gate on the Isaac→VSS stream
 handoff completing. **Gotcha:** the VSS sample-video bootstrap also registers ~3 DeepStream
 streams *before* Isaac, so a bare "3 active streams" can fire early. Bootstrap-immune signal:
 the Isaac kit log — only Isaac emits `RTSP stream started … encoding=h264`. Gate on that
@@ -63,8 +129,18 @@ echo "DeepStream producing FPS on 3 Isaac cameras — handoff complete"
 > it via `troubleshooting.md` → "DeepStream Stuck at ≤2/3 Active Sources (Zombie Source
 > Bins)". A bare `added - removed` count would have hidden this (it stays 3).
 
+> **Right after a fresh VSS deploy the poll above can pass on the sample videos.** The
+> bootstrap registers `Camera` / `Camera_01` / `Camera_02` from the dataset's MP4s at ~30 FPS,
+> under the same names, before Isaac's warm-up gate swaps them for its own streams. Gate on
+> the swap itself, then re-run the FPS poll — Isaac's streams run at the sim rate (~15 FPS on
+> an L40S), not 30:
+> ```bash
+> until docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); \
+>       grep -q "Registered 3/3 camera(s) with VST" "$KL"'; do sleep 15; done
+> ```
+
 > **`--start` runs until externally stopped.** (The 5.1 `simulation_length` frame-count
-> auto-stop no longer applies on Isaac Sim 6.0 — the renamed `simulation_duration` only
+> auto-stop no longer applies on Isaac Sim 6.1 — the renamed `simulation_duration` only
 > extends the timeline end time.) Stopping the run with SIGINT/kill leaves the Isaac VST
 > sensors registered — the next `--enable-vst` run cleans them (it deletes, then re-adds).
 > To restart the scenario on a live stack, use the wrapper in the next section.
@@ -156,12 +232,12 @@ or a 0-FPS camera) — each routes to the zombie-bin recovery in `troubleshootin
 
 The Isaac→VSS handoff logs matching events on **add** (scene start / streaming) and
 **remove** (scene stop / teardown). Use them to confirm the scene is running and to
-detect when it finishes. All signals below were verified on a live VSS 3.2.1 + Halos SIL run.
+detect when it finishes. All signals below were verified on a live VSS 3.3 + Halos SIL run.
 
 | Component | Container | ADD — scene streaming | REMOVE — scene done / teardown |
 |-----------|-----------|-----------------------|--------------------------------|
-| DeepStream (perception) | `vss-rtvi-cv` | `new stream added [<idx>:<uuid>:<Camera>]` ×3 | `new stream removed [<idx>:...]` + `gstnvtracker: Successfully removed stream <idx>` |
-| Isaac RTSP self-hosted (6.0) | `isaac-sim` (kit log) | `[isaacsim.streaming.rtsp.impl.rtsp_writer] RTSP stream started on rtsp://localhost:{8554/camera, 8555/camera_01, 8556/camera_02} (…, encoding=h264)` ×3 (each preceded by `[omni.kit.livestream.rtsp.plugin] Started RTSP server at …`) | no dedicated teardown line (RTSP clients just log `Client disconnected`) — use DeepStream `new stream removed` (row 1) as the authoritative teardown |
+| DeepStream (perception) | `vss-rtvi-cv` | `new stream added [<idx>:<uuid>:<Camera>]` ×3 | `new stream removed [<idx>:<uuid>]` |
+| Isaac RTSP self-hosted (6.1) | `isaac-sim` (kit log) | `[isaacsim.streaming.rtsp.impl.rtsp_writer] RTSP stream started on rtsp://localhost:{8554/camera, 8555/camera_01, 8556/camera_02} (…, encoding=h264)` ×3 (each preceded by `[omni.kit.livestream.rtsp.plugin] Started RTSP server at …`) | no dedicated teardown line (RTSP clients just log `Client disconnected`) — use DeepStream `new stream removed` (row 1) as the authoritative teardown |
 | VST sensor mgr | `vss-vios-sensor` | `"change" : "camera_add"` · `addSensor completed: <Camera>` | `"change" : "camera_remove"` · `delete sensor: <uuid>` |
 
 `<Camera>` = `Camera`, `Camera_01`, `Camera_02`.
@@ -200,7 +276,7 @@ run's MUTE/UNMUTE transition summary.
 ```bash
 docker logs vss-rtvi-cv     2>&1 | grep -E 'new stream (added|removed) \['
 docker logs vss-vios-sensor 2>&1 | grep -E '"change" : "camera_(add|remove)"'
-# Isaac 6.0 self-hosted RTSP: stream-start lines from the kit log
+# Isaac 6.1 self-hosted RTSP: stream-start lines from the kit log
 docker exec isaac-sim bash -lc 'KL=$(ls -t /isaac-sim/kit/logs/Kit/*/*/kit_*.log | head -1); grep -E "RTSP stream started|Started RTSP server" "$KL" | grep -v "Client "'
 ```
 
@@ -236,13 +312,64 @@ tail -n 30 "$MDX_DATA_DIR/psf-log/pss.log"
 - **EVENT_0 / EVENT_1**: tripwire crossings reported by perception (forklift OUT / IN the trailer). The full ATL event map (`EVENT_0`–`EVENT_5` → forklift/person tripwire + person ROI) is documented in `closed-loop-testing/safety-core/configs/nvpss.conf` (the `bypassFusionEvents` block).
 - **DecisionRequest**: the PSF decision-maker is invoked — it produces the corresponding MUTE/UNMUTE command shown in the OPC log above.
 
+### Proximity (`PSF_APP=pxc` / `both`)
+
+PSF events — `EVENT_12` no violation, `EVENT_13` REDUCE tier, `EVENT_14` STOP tier:
+```bash
+grep -a "Safety event reported: EVENT_\(12\|13\|14\) " "$MDX_DATA_DIR/psf-log/pss.log" | tail -5
+grep -a "Sending decision command" "$MDX_DATA_DIR/psf-log/pxc_sdm.log" | tail -3   # NORMAL 0x07 / REDUCE 0x05 / STOP 0x02
+```
+comm-layer decodes each `0xA5` packet with the pair and its separation:
+```
+INFO:udp_receiver.safety_receiver:Proximity: Seq#2591 | REDUCE (SAFE SPEED OPERATION) | machine[id=40 OBJECT] (7.83, -13.45, 0.00) | person[id=13 PERSON] (9.26, -11.66, 0.00) | sep=2.29m | ts=2026-10-01T10:00:00.018852+00:00
+```
+and republishes it on `/safety/proximity/pair` (JSON) and `/safety/proximity/mode`. Nothing
+proximity touches `/safety/is_muted`: opcodes 0x02 and 0x07 mean the opposite of ATL's.
+
+The forklift-controller logs every change of the level it applies (under the `multi-robot`
+profile check `forklift-controller-b2` too):
+```bash
+for c in forklift-controller forklift-controller-b2; do
+  docker logs "$c" 2>&1 | grep "PXC \[" | tail -5
+done
+# 🦺 PXC [forklift_b] inactive -> normal | sep=4.10m | was 1.50 m/s, speed -> 1.50 m/s
+# 🦺 PXC [forklift_b] normal -> reduce_speed | sep=3.33m | was 1.50 m/s, speed cap 0.50 m/s
+# 🦺 PXC [forklift_b] reduce_speed -> stop | sep=1.96m | was 0.50 m/s, speed -> 0
+```
+and publishes it on `/<robot>/proximity/state`, which the disc follows (grey while `inactive`).
+`separation_m` / `sep=` is the 2D (x, y) distance between the two object records; PSF scores
+the pair in 3D, so the two can differ by the height difference.
+
+To see which pair PSF scored, set `proximity_line: {enabled: true}` in `robots.yaml` and
+restart the Isaac scenario. Each motion decision is drawn as a line on the floor between the
+two positions PSF sent (its world frame is the scene's), green / amber / red, with
+the separation ("2.95 m", white on a plate of the same colour) lying flat beside it, on the
+camera's side, facing the first camera in `cameras.yaml`
+(`label_camera:` to pick another); it disappears 1 s after the last decision. It is
+geometry, so the streams carry it and perception sees it: keep it off for measured runs.
+```bash
+docker exec isaac-sim grep -a "pxc-line" /tmp/run_sdg.log | tail -3
+# [pxc-line] armed: topic=/safety/proximity/pair, label=on, label faces /World/Cameras/Camera
+# [pxc-line] REDUCE 2.95 m machine=(7.19, -13.52) person=(6.35, -16.35)
+```
+
+Without PSF or VSS, inject packets straight into comm-layer (`<seq> <ignored cmd> <COMM_UDP_PORT>`;
+give each decision a new sequence number, the controller ignores a repeated one). End on
+`normal`: silence keeps the last level.
+```bash
+SEND="docker exec comm-layer python3 /app/comm_layer/scripts/send_packet.py"
+$SEND 101 0 12346 --proximity stop   --machine 40,7.8,-13.4 --person 13,9.2,-12.1
+$SEND 102 0 12346 --proximity normal --machine 40,7.8,-13.4 --person 13,12.0,-10.5
+```
+
 ---
 
 ## View camera streams
 
 `http://<HOST_IP>:30888/vst/` — live Isaac Sim camera feeds with detection overlays.
-The forklift's safety disc colour follows MUTE/UNMUTE and is visible in the feeds even
-in headless mode.
+The forklift's safety disc colour follows MUTE/UNMUTE (`atl`), the proximity level (`pxc`:
+green / orange / red) or both (`both`: red / orange first, else green / yellow), and is
+visible in the feeds even in headless mode.
 
 ---
 
@@ -256,6 +383,11 @@ The system is working when:
 3. The OPC server log shows MUTE↔UNMUTE transitions (≥10) **after** Isaac started streaming
 4. The PSF log shows ATL decision changes tied to the forklift entering / leaving the trailer
 5. The VST UI shows the camera streams with bounding boxes
+6. (`pxc` / `both`) `pss.log` carries `EVENT_12` / `EVENT_13` / `EVENT_14`, the comm-layer
+   `Proximity:` lines show STOP only at `sep ≤ 2 m` and REDUCE at `2–3.5 m`, and the
+   controller logs `PXC [...] -> reduce_speed` / `-> stop` and back. The three workers on the
+   20x20 scene cross the forklift's lane often: one 16-minute run had 42 REDUCE and 17 STOP
+   episodes, the truck slowed 31% and stopped 10% of the time.
 
 > "Working" means **sim-driven** transitions (the forklift cycle) — not the VSS
 > sample-video bootstrap traffic that appears before Isaac streams come up.
@@ -269,6 +401,12 @@ docker exec comm-layer bash -c \
 - **`Publisher count: 1`** — exactly one (comm-layer). If `2+`, another machine on the
   network shares your `ROS_DOMAIN_ID` — see `troubleshooting.md` → "Safety Indicator
   Flickering (Multi-Machine)".
-- **`Subscription count: 1`** — the Isaac Sim forklift Action Graph has connected and
-  is receiving safety state. `0` means Isaac isn't subscribed yet (scene not fully up,
-  or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`).
+- **`Subscription count: 1`** — one SafetyGraph subscriber per robot with
+  `safety_indicator.enabled` in the robots config (expected = the number of such
+  robot blocks; **1** with the default `robots.yaml` — the count follows the
+  robots config passed to Isaac, not `COMPOSE_PROFILES`; `robots-40x20.yaml`
+  names per-robot topics instead, so the global one reads `0` there). `0` on a
+  20x20 run means Isaac isn't subscribed yet (scene
+  not fully up, or a `ROS_DOMAIN_ID` mismatch between `isaac-sim` and `comm-layer`);
+  a count *below* the expected number means one robot's graph didn't build (check
+  the `run_actor_sdg` log).

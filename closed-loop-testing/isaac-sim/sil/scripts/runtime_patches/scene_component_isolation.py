@@ -33,11 +33,15 @@ _FORKLIFT_PRIMS = [
     "/World/SM_Forklift_B01_Red_01_physics",
     "/World/SM_HeavyDutyPalletTruck_A01_01",
     "/World/ActionGraph",  # script_node_SwivelIK + MakeJointNames (forklift control)
-    # NOTE: /World/forklift_b and /World/forklift_c are the LIVE physics-active
-    # forklifts referenced by /World/ActionGraph/articulation_controller. We do NOT
-    # deactivate them here because doing so triggers omni.physx.tensors.plugin
+    # NOTE: /World/forklift_b is the LIVE physics-active forklift the control graph
+    # drives (spawned from the robots config by forklift_overlay.py). We do NOT
+    # deactivate it here because doing so triggers omni.physx.tensors.plugin
     # "Pattern did not match any articulations" errors at every render tick, which
-    # makes frame duplication worse, not better, so they are left active.
+    # makes frame duplication worse, not better, so it is left active. To run
+    # without a truck at all, declare the robot but leave out its `spawn:` block
+    # and set control, odometry and safety_indicator to `enabled: false`: the
+    # loader rejects an empty `robots:` list, and any enabled section fails on the
+    # prim that was never spawned.
 ]
 _ROS_CONTROLLED_ROBOTS = [
     "/World/Nova_Carter_ROS",
@@ -66,7 +70,16 @@ def _deactivate_prims(stage, paths, label: str) -> int:
 
 
 def _remove_prims(stage, paths, label: str) -> int:
-    """USD-level removal (stronger than SetActive — also tears down OmniGraph refs)."""
+    """USD-level removal (stronger than SetActive — also tears down OmniGraph refs).
+
+    `RemovePrim` removes the spec in the current EDIT TARGET, not wherever the
+    prim was defined. Since the forklift overlay became the root layer (see
+    forklift_overlay.py) the edit target is the overlay, so a prim defined down
+    in the scene sublayer keeps composing and this returns False. Every caller
+    goes through here so that shows up as a printed line rather than as a
+    toggle that quietly does nothing; when it happens, deactivate the prim
+    instead, or set the edit target to the layer that defines it.
+    """
     count = 0
     for path in paths:
         prim = stage.GetPrimAtPath(path)
@@ -151,15 +164,11 @@ def deactivate_optional_scene_components(stage) -> None:
     if _env_flag("HALOS_REMOVE_PHYSICS_SCENE"):
         # Collect-then-remove (iterator invalidation safety)
         paths = [str(p.GetPath()) for p in stage.Traverse() if "PhysicsScene" in str(p.GetTypeName())]
-        for p in paths:
-            stage.RemovePrim(p)
-            print(f"[scene-isolation/physics_scene_remove] Removed {p}")
+        _remove_prims(stage, paths, "physics_scene_remove")
 
     if _env_flag("HALOS_REMOVE_RENDER_SETTINGS"):
         paths = [str(p.GetPath()) for p in stage.Traverse() if "RenderSettings" in str(p.GetTypeName())]
-        for p in paths:
-            stage.RemovePrim(p)
-            print(f"[scene-isolation/render_settings_remove] Removed {p}")
+        _remove_prims(stage, paths, "render_settings_remove")
 
     if _env_flag("HALOS_REMOVE_VIEWPORT_MEASURE"):
         _remove_prims(stage, ["/Viewport_Measure"], "viewport_measure_remove")
@@ -200,7 +209,6 @@ def deactivate_optional_scene_components(stage) -> None:
     if _env_flag("HALOS_REMOVE_FORKLIFT_FULL"):
         full_kill_paths = [
             "/World/forklift_b",
-            "/World/forklift_c",
             "/World/ActionGraph",
             "/World/SM_Forklift_A01_Blue_01",
             "/World/SM_Forklift_A01_Blue_01_physics",
@@ -214,7 +222,6 @@ def deactivate_optional_scene_components(stage) -> None:
     if _env_flag("HALOS_REMOVE_ALL_DYNAMIC"):
         full_kill_paths = [
             "/World/forklift_b",
-            "/World/forklift_c",
             "/World/ActionGraph",
             "/World/SM_Forklift_A01_Blue_01",
             "/World/SM_Forklift_A01_Blue_01_physics",
@@ -249,8 +256,8 @@ def deactivate_optional_scene_components(stage) -> None:
     total = 0
     if _env_flag("HALOS_DEACTIVATE_FORKLIFT"):
         total += _deactivate_prims(stage, _FORKLIFT_PRIMS, "forklift")
-        # Wildcard intentionally omitted: catches forklift_b/forklift_c which we
-        # cannot safely deactivate (breaks articulation_controller — see K1b/c).
+        # Wildcard intentionally omitted: catches forklift_b, which we cannot
+        # safely deactivate (breaks articulation_controller — see K1b/c).
     if _env_flag("HALOS_DEACTIVATE_ROS"):
         total += _deactivate_prims(stage, _ROS_CONTROLLED_ROBOTS, "ros")
         total += _deactivate_prims_by_name_substring(

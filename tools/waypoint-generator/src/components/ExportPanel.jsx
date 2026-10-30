@@ -8,7 +8,7 @@ import { generateCurvedPath } from '../utils/bezier';
 /**
  * ExportPanel - Export waypoints to JSON (with interpolated poses); import JSON or YAML
  */
-export default function ExportPanel({ waypoints, origin, onImport }) {
+export default function ExportPanel({ mapConfig, waypoints, origin, onImport }) {
   const [fileName, setFileName] = useState('waypoints');
   const [showImport, setShowImport] = useState(false);
 
@@ -20,7 +20,7 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
       {
         x: origin.x,
         y: origin.y,
-        theta_deg: origin.theta_deg || 0,
+        theta_deg: origin.theta_deg ?? 0,
         reverse: false,  // Origin is never reverse
       },
       // Then all user waypoints
@@ -38,9 +38,21 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
       : { poses: [], segments: [] };
 
     const data = {
+      // Which warehouse these metres belong to. The controller ignores unknown
+      // keys, but a person reading two exported files cannot otherwise tell them
+      // apart — the two scenes' origins are only a metre away from each other,
+      // so a path from the wrong warehouse looks entirely plausible.
+      map: {
+        id: mapConfig.mapId,
+        scene: mapConfig.scene || null,
+      },
       origin: origin ? {
         world_x: parseFloat(origin.x.toFixed(3)),
         world_y: parseFloat(origin.y.toFixed(3)),
+        // The heading the truck starts at. The controller reads only world_x
+        // and world_y, but this is what shaped the first segment's poses, so
+        // without it re-importing the file would silently redraw them from 0.
+        theta_deg: Math.round(origin.theta_deg ?? 0),
       } : null,
       waypoints: waypoints.map((wp, index) => ({
         // Odom coordinates (relative to origin)
@@ -112,7 +124,7 @@ export default function ExportPanel({ waypoints, origin, onImport }) {
         }
         
         if (data.waypoints && Array.isArray(data.waypoints)) {
-          onImport?.(data);
+          if (onImport?.(data) === false) return;
           setShowImport(false);
           alert(`Imported ${data.waypoints.length} waypoints`);
         } else {

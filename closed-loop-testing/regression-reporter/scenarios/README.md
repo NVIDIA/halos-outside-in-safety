@@ -2,7 +2,7 @@
 
 Test inputs for the SRR rig, grouped by role:
 
-- **Data** that Isaac Sim consumes at run time: `behavior-trees/` (IRA 1.6 character behavior trees) + `scenes/` (exported NavMesh — `navmesh.json`).
+- **Data** that Isaac Sim consumes at run time: `behavior-trees/` (IRA 1.7 character behavior trees) + `scenes/` (exported NavMesh — `navmesh.json`).
 - **Tools** that produce or check that data: `tools/` (behavior-tree generator + validator).
 - **Runtime utilities** that prep scenes or probe live state: `isaac-scripts/` (Script Editor) + `host-scripts/` (host shell).
 
@@ -11,7 +11,7 @@ how `behavior-trees/` and `navmesh.json` plug into the SIL compose stack at run
 time (in short: copied/synced into the Isaac SIL dir `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil` —
 GitHub layout `closed-loop-testing/isaac-sim/sil/` — before Isaac Sim launches).
 
-> **IRA 1.6 note:** Isaac Sim 6.0 dropped the legacy `omni.anim.people` text
+> **IRA 1.7 note:** Isaac Sim 6.1 dropped the legacy `omni.anim.people` text
 > command files. Each pedestrian is now a behavior tree
 > (`srr_<name>_char{0,1,2}.bt.json`); the old `commands/default_command.*.txt`
 > layer and its `command_to_bt.py` converter have been removed.
@@ -22,7 +22,7 @@ GitHub layout `closed-loop-testing/isaac-sim/sil/` — before Isaac Sim launches
 ```
 scenarios/
 ├── README.md                     # you are here
-├── behavior-trees/               # IRA 1.6 *.bt.json — the data Isaac 6.0 consumes
+├── behavior-trees/               # IRA 1.7 *.bt.json — the data Isaac 6.1 consumes
 │   └── srr_<name>_char{0,1,2}.bt.json  # 5 sweep: in-roi, psf-edge, psf-clear, balanced, fast · +fixed (opt-in)
 ├── scenes/                       # exported NavMesh (data)
 │   ├── README.md
@@ -48,7 +48,7 @@ scenarios/
 | To regenerate a scenario's `srr_<name>_char{0,1,2}.bt.json` | [`tools/randomize_paths.py`](tools/randomize_paths.py) |
 | To sanity-check a hand-edited `.bt.json` | [`tools/validate_waypoints.py`](tools/validate_waypoints.py) |
 | To re-bake / export the NavMesh | [`isaac-scripts/`](isaac-scripts/) — paste into Isaac Script Editor |
-| To publish `/gt/*` topics (IRA 6.0 runtime) | auto via `run_multi.sh` `--srr-gt` (builds `action_graphs/srr_ground_truth.py`); `isaac-scripts/srr_pubs/check_srr_prereqs.py` = live diagnostic |
+| To publish `/gt/*` topics (IRA 6.1 runtime) | auto via `run_multi.sh` `--srr-gt` (builds `action_graphs/srr_ground_truth.py`); `isaac-scripts/srr_pubs/check_srr_prereqs.py` = live diagnostic |
 | To verify `/gt/*` ROS topics are alive on the host | [`host-scripts/verify_gt_topics.sh`](host-scripts/verify_gt_topics.sh) |
 | To monitor character motion for 5 min from host | [`host-scripts/monitor_gt_5min.py`](host-scripts/monitor_gt_5min.py) |
 
@@ -160,16 +160,25 @@ If you switch scenes, regenerate ALL behavior trees — waypoints baked into the
 
 | Prim path | Type | Notes |
 |---|---|---|
-| `/World/forklift_b` | Articulation root | Body link is the moving root pose. SRR recorder uses `lookup_transform("world", "body")`. Sub-links (lift, wheels) are static offsets relative to body. |
-| `/World/Characters/Character/DHGen/SkelRoot` | Skeleton | Char_0, published as `/gt/character_0/tf` |
-| `/World/Characters/Character_01/DHGen/SkelRoot` | Skeleton | Char_1 |
-| `/World/Characters/Character_02/DHGen/SkelRoot` | Skeleton | Char_2 |
+| `/World/forklift_b` | Articulation root | Not in the scene USD — spawned from the `spawn:` block in `robots.yaml` by `forklift_overlay.py`. Body link is the moving root pose. SRR recorder uses `lookup_transform("world", "body")`. Sub-links (lift, wheels) are static offsets relative to body. |
+| `/World/Characters/inspect_workers/inspect_workers_0/…/ManRoot` | Skeleton | Char_0, published as `/gt/character_0/tf` |
+| `/World/Characters/gather_workers/gather_workers_0/…/ManRoot` | Skeleton | Char_1 |
+| `/World/Characters/pickup_workers/pickup_workers_0/…/ManRoot` | Skeleton | Char_2 |
 | `/World/Cameras/Camera`, `Camera_01`, `Camera_02` | Camera | 3 RTSP camera streams into VSS perception (via VST) |
 | `/World/ActionGraph` | OmniGraph | Forklift control graph — built at run time by the SIL stack (not baked) |
 | `/World/SRRGraph` | OmniGraph | `/gt/*/tf` publishers — built at run time via `--srr-gt` (`action_graphs/srr_ground_truth.py`) |
 | `/World/Loading_Zone_Objects` | Xform | Pallet stacks (loading-zone props) |
 | `/World/Loading_Zone_Objects_01` | Xform | Loading-dock obstacles |
 | `/World/Navmesh/NavMeshVolume_*` | NavMeshVolume | NavMesh volumes; the stock bake already covers the character zones |
+
+The three characters are spawned by IRA, not baked into the scene, so what `…`
+elides above is zero or more segments of IRA-chosen asset name, varying with the
+spawn seed and differing between the three groups.
+`srr_ground_truth.py` does not hardcode it — it walks each `<group>_0` root looking
+for a prim named `ManRoot` (the 6.0 successor to the 5.1 `SkelRoot`) and raises if
+any group is missing, so a bad spawn fails loudly instead of misaligning the
+`/gt/character_<i>` indices. Group order in `DEFAULT_CHAR_GROUPS` is what fixes
+which character is 0, 1 and 2.
 
 ### Calibration (from `calibration.json`)
 

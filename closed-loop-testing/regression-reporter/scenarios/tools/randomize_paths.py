@@ -2,19 +2,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """
-Generate randomized SRR pedestrian paths as IRA 1.6 behavior trees (Isaac Sim
-6.0). This is the sole scenario generator: it emits srr_<name>_char{0,1,2}.bt.json
+Generate randomized SRR pedestrian paths as IRA 1.7 behavior trees (Isaac Sim
+6.1). This is the sole scenario generator: it emits srr_<name>_char{0,1,2}.bt.json
 directly into scenarios/behavior-trees/ (the canonical source of truth that
 sync_to_halos.sh copies into the Isaac SIL configs/). The legacy omni.anim.people
 command-file layer (and its command_to_bt.py converter) has been removed —
-Isaac 6.0 / IRA 1.6 dropped external command files entirely.
+Isaac 6.1 / IRA 1.7 dropped external command files entirely.
 
 Sampling: uniformly inside per-character polygon zones, with optional rejection
 based on:
   - NavMesh walkability (if --navmesh navmesh.json is supplied)
   - ROI-boundary clearance (if --roi-clearance N is supplied)
 
-  # behavior trees for a new scenario (Isaac 6.0)
+  # behavior trees for a new scenario (Isaac 6.1)
   python3 randomize_paths.py --navmesh ../scenes/navmesh.json --roi-clearance 0.3 \\
       --cycles 150 --name my-scenario
 """
@@ -24,8 +24,8 @@ import random
 from collections import defaultdict
 from pathlib import Path
 
-# --- IRA 1.6 behavior-tree emission (Isaac Sim 6.0) ---------------------------
-# Isaac 6.0 dropped external command files; each pedestrian is a behavior tree.
+# --- IRA 1.7 behavior-tree emission (Isaac Sim 6.1) ---------------------------
+# Isaac 6.1 dropped external command files; each pedestrian is a behavior tree.
 # We build an in-memory waypoint schedule (the `<Name> GoTo/Idle ...` line list
 # below is just an internal representation, not a file) and emit the trees
 # directly. Node mapping: GoTo -> MoveTo, Idle -> Wait.
@@ -428,7 +428,7 @@ def main():
     print(f"[gen] roi-clearance violations:   {bad_clear}")
 
     bt_dir = args.bt_out_dir or (Path(__file__).resolve().parent.parent / "behavior-trees")
-    print(f"[gen] emitting IRA 1.6 behavior trees for scenario '{args.name}' -> {bt_dir}")
+    print(f"[gen] emitting IRA 1.7 behavior trees for scenario '{args.name}' -> {bt_dir}")
     written = write_behavior_trees(sections, args.name, bt_dir)
     print(f"[gen] wrote {len(written)} behavior-tree files")
 

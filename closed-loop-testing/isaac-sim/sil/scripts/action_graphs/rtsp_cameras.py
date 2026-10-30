@@ -19,7 +19,7 @@ fail-fasts otherwise). The Halos SIL warehouse scene no longer bakes
 cameras — run_actor_sdg.py spawns them via camera_loader before calling
 this builder; a standalone Script Editor run must spawn them first too.
 
-YAML schema (Halos SIL cameras.yaml 6.0):
+YAML schema (Halos SIL cameras.yaml 6.1):
 
     cameras:
       - name: Camera

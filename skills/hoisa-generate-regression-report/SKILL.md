@@ -30,7 +30,7 @@ This skill assumes the SIL + SRR stacks are already deployed and healthy on the 
 
 ## Phase 0 — Required reading (ONE-TIME, before any compose work)
 
-SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** and **`vss-deploy-profile`** skills — NOT this skill. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
+SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-data-before-up, ready signals, redeploy procedure) is owned by the **`hoisa-deploy-profile`** skill and the VSS repo's **`vss-build-vision-ai`** skill (warehouse profile) — NOT this skill. SRR has been run on VSS 3.3: `v3.3.0`, 2D app, with `psf-edge`, and `v3.3.0rc0`, 3D app, with one `in-roi` scenario. Before any `docker compose down/up` in Phase 3a or 3b, the agent MUST have read the relevant procedure from those skills, otherwise it will skip mandatory data cleanup and miss ready-signal gates.
 
 **Read these BEFORE running any compose command:**
 
@@ -38,7 +38,7 @@ SRR runs **on top of** the SIL + VSS Warehouse stacks. Their lifecycle (clean-da
 |---|---|
 | `skills/hoisa-deploy-profile/SKILL.md` § Cleanup, § Ready Signals, § Critical Rules (`SETUP_BEFORE_UP`, `VSS_BEFORE_HALOS`, `POLL_NEVER_WAIT`) | Defines `cleanup_all_datalog.sh` mandate before every `docker compose up`, the `sil`-profile ready-signal set (safety-core, comm-layer, isaac-sim), VSS-must-come-up-first ordering |
 | `skills/hoisa-deploy-profile/references/troubleshooting.md` | Failure recipes for "compose up exits but services missing", safety-core stuck, comm-layer dead. Consult before retrying a failed restart |
-| `vss-deploy-profile` skill (Deployment Flow / Tear Down + `references/teardown.md`, `references/warehouse.md`, `references/warehouse-debug.md`) | VSS Warehouse teardown + data-volume wipe, deploy/bring-up flow, and perception ready signals (FPS check on `vss-rtvi-cv`). Needed when VSS is unhealthy and SRR's launch HARD GATE (3a.5 or 3f.7) fails |
+| `vss-build-vision-ai` skill (`references/profiles/warehouse.md`, `references/deployment.md`, `references/teardown.md`, `references/readiness.md`, `references/troubleshooting.md`) + `hoisa-deploy-profile` → `references/vss_3d_overrides.md` | VSS Warehouse teardown + data-volume wipe, deploy/bring-up flow, and perception ready signals (FPS check on `vss-rtvi-cv`). Needed when VSS is unhealthy and SRR's launch HARD GATE (3a.5 or 3f.7) fails |
 
 **Quickly internalize:**
 
@@ -68,7 +68,7 @@ All 6 use the stock scene `indicator_warehouse_20x20_layout_overflow_test.usd` a
 > in the prompt). It's excluded from `all`/`full` because the person is always in
 > ROI (mute untestable → inflates the blended headline).
 
-Scenario waypoints — IRA 1.6 behavior trees (Isaac 6.0 dropped command files):
+Scenario waypoints — IRA 1.7 behavior trees (Isaac 6.1 dropped command files):
 - Canonical trees: `../scenarios/behavior-trees/srr_{name}_char{0,1,2}.bt.json`
   (emitted directly by `../scenarios/tools/randomize_paths.py`)
 - Synced (Isaac reads from here): `${HOISA_ROOT_PATH}/closed-loop-testing/isaac-sim/sil/configs/srr_char{0,1,2}.bt.json`
@@ -116,8 +116,8 @@ User can request any subset, or `all` for the full multi-test (still 5 min each 
 - **Phase 1 (Safety Core decision)** — GT-expected-mute vs actual `is_muted` → `match%`, mute/unmute-correct%, reaction lag, BA ROI/TW event detection.
 - **Phase 2 (perception, 3D)** — GT TF vs `mdx-bev` 3D detections + `mdx-behavior` positions → per-class **detect-fail%** / **tracking-loss%**, precision/recall/F1, position offset-vs-jitter, id-switches, coverage. See [references/06_interpret_report.md](references/06_interpret_report.md) (formula source of truth: `srr-service/srr/aggregator.py` → `compute_phase2_metrics`).
 
-> **Phase 2 depends on Sparse4D 3D detections flowing.** VSS Warehouse 3.2.1 runs
-> Sparse4D in `vss-rtvi-cv` → `mdx-bev` + `vss-behavior-analytics` → `mdx-behavior`,
+> **Phase 2 depends on Sparse4D 3D detections flowing.** The VSS Warehouse 3.3 3D app
+> (`MODE=3d`) runs Sparse4D in `vss-rtvi-cv` → `mdx-bev` + `vss-behavior-analytics` → `mdx-behavior`,
 > enabling Phase 2. A 2D-only feed (only `mdx-events`) gives **Phase 1 only**:
 > `detections_json` is all-null and the Phase 2 section is omitted — expected, not
 > a failure. Availability is keyed off `mdx-bev` decoding detections (Step 3f.7 gate).
@@ -200,8 +200,8 @@ The "Clip N" lines come from the live forklift-TF monitor (`../scripts/live_clip
 
 **Core rule**: never run a `sleep` longer than 60 seconds without an Explore agent actively verifying that progress is happening. If the underlying process stalled (Safety Core crashed, isaac-sim hung, parquet stopped growing), we want to know in ≤60 s, not at the end of the timer.
 
-> ⚠️ **Resolve the perception + behavior container names first (VSS 3.2.1).** On VSS
-> Warehouse 3.2.1 the perception container is **`vss-rtvi-cv`** (Sparse4D 3D warehouse,
+> ⚠️ **Resolve the perception + behavior container names first.** On VSS
+> Warehouse 3.3 the perception container is **`vss-rtvi-cv`** (Sparse4D 3D warehouse,
 > `DS_MODEL_FAMILY=sparse4d-warehouse`; heavier ~12–14 FPS → floor **≥ 5**) and behavior
 > analytics is **`vss-behavior-analytics`** — the container names no longer carry a
 > `-2d`/`-3d` suffix. **Don't hard-code any single name** — resolve once, then pick the FPS floor:
@@ -292,7 +292,7 @@ Each phase ends when its ready signal becomes true. Poll, don't fix-time.
 ```
 - [ ] 0. Required reading (skip on subsequent calls in same conversation):
         hoisa-deploy-profile SKILL.md § Cleanup + Ready Signals + Critical Rules;
-        vss-deploy-profile SKILL.md Deployment Flow / Tear Down (references/teardown.md)
+        vss-build-vision-ai references/profiles/warehouse.md + references/teardown.md
         → see "Phase 0 — Required reading" above
 - [ ] 1. Generate test plan: parse user request → list of scenarios + durations
         → references/01_test_plan.md
@@ -460,7 +460,8 @@ docker compose --env-file ${HOISA_ROOT_PATH}/deployments/profiles/sil.env down &
 ```
 
 For full warehouse lifecycle (NGC artifact download, env config, etc.) see the
-`vss-deploy-profile` skill — Deployment Flow + `references/teardown.md`.
+`vss-build-vision-ai` skill (warehouse profile, `references/teardown.md`) with the SIL
+overrides of `hoisa-deploy-profile` → `references/vss_3d_overrides.md`.
 
 For full Halos lifecycle (safety-core, comm-layer, Isaac scene config) see the
 `hoisa-deploy-profile` skill (`skills/hoisa-deploy-profile/SKILL.md`).

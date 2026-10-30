@@ -1,0 +1,28 @@
+# What to run. One entry per scenario; `SCENARIO=<id>` in the profile env picks
+# one, and Isaac and every controller read the same id. Where to run it — host
+# IP, data paths, GPU — stays in the profile env. A flag wins over a scenario.
+#
+#   ira        IRA config. The scene USD is named inside it, so it is not repeated here
+#   robots     fleet file: which trucks exist and how each drives. Its `scene:`
+#              key is cross-checked against the IRA scene at load
+#   cameras    camera config; its `scene:` key is cross-checked the same way
+#   waypoints  directory under forklift-controller/waypoints/, holding <robot>.json per truck
+#   experimental  true = no published calibration, so perception geometry does not
+#                 match this scene. Run it to watch trucks drive; do not score it.
+
+warehouse_20x20_1fl:
+  ira:       default_config_ros.yaml
+  robots:    robots.yaml
+  cameras:   cameras.yaml
+  waypoints: warehouse_20x20
+
+# Trucks spawned from the robots file rather than baked in. No calibration is
+# published for this warehouse, so VSS runs 20x20 geometry against a different
+# building: cameras stream, perception detects, PSF issues verdicts — about the
+# wrong place, and nothing logs a warning.
+warehouse_40x20:
+  ira:       default_config_ros_40x20.yaml
+  robots:    robots-40x20.yaml
+  cameras:   cameras-40x20.yaml
+  waypoints: warehouse_40x20
+  experimental: true

@@ -5,7 +5,8 @@ Run each check in order. Report pass/fail. Fix before moving to next.
 > **Host setup overlaps VSS Warehouse** (deployed first as the perception backend).
 > The authoritative, detailed host install — pinned Docker, per-platform GPU driver
 > versions, the NVIDIA Container Toolkit, and kernel/sysctl tuning — lives in the VSS
-> prerequisites (the `vss-deploy-profile` skill); run those first. The checks below are
+> prerequisites (the `vss-build-vision-ai` skill's `references/prerequisites.md` in the VSS
+> repo); run those first. The checks below are
 > HOISA's own lightweight gates plus the HOISA-specific additions.
 
 ---
@@ -46,7 +47,7 @@ Suitable: RTX PRO 6000, RTX A6000 Ada, RTX A6000, L40S, L40.
 
 **Fail** (`nvidia-smi` missing or not loaded): the agent does **not** auto-install GPU drivers.
 - Installed but not loaded → load the module, no reboot: `sudo modprobe nvidia && sudo modprobe nvidia_uvm`
-- Missing → the user installs it (cloud / Brev images already ship the driver). Per-platform pinned versions are in the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html) (x86 Ubuntu 24.04 → `580.105.08`, IGX-THOR → `580.00`); download: https://www.nvidia.com/en-us/drivers/
+- Missing → the user installs it (cloud / Brev images already ship the driver). Per-platform pinned versions are in the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) (x86 Ubuntu 24.04 → `580.105.08`, IGX-THOR → `580.00`); download: https://www.nvidia.com/en-us/drivers/
 
 ---
 

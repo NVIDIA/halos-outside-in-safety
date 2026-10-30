@@ -1,6 +1,7 @@
 # Halos Deployment by Profile (Stack 2)
 
-Deploy the Halos stack **after** VSS Warehouse 3.2.1 is up + healthy (Stack 1).
+Deploy the Halos stack **after** VSS Warehouse 3.3 is up + healthy (Stack 1:
+`vss_2d_overrides.md` / `vss_3d_overrides.md`).
 Services and config differ per profile:
 
 | Profile | Services | Notes |
@@ -21,7 +22,7 @@ it too — so with the **default sample scene there is nothing to change** here.
 
 > This requirement is stated in the [Deployment Guide — Safety Core Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html#safety-core-prerequisites)
 > (the calibration *"includes `restrictedObjectTypes:["Person"]` for the ROIs, where relevant"*); the
-> field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/3.2.1/calibration-schema.html).
+> field itself is defined in the [VSS calibration schema](https://docs.nvidia.com/vss/system-components/calibration/calibration-schema).
 
 This check matters only when you bring your **own calibration** (a custom scene / your own
 AMC-generated `calibration.json`, e.g. a partner site). That calibration lives on the VSS side,
@@ -74,6 +75,41 @@ fill the `# change me` placeholders (keep your filled copy local — don't commi
 
 `PSF_IMAGE` and `ISAAC_SIM_IMAGE` are pre-set in the template.
 
+`PSF_LAUNCH_MODE` (SAIM) and `PSF_PCM_MODE` (Perception Monitor) ship `skip`. The mounted
+`nvpss.conf` / `nvpss_bev.conf` must agree: `required_safety_monitor` and
+`required_perception_monitor` are `1` for a monitor in `active`, `0` for `learn` or `skip`.
+Otherwise safety-core exits at start with
+`Error: --saim-mode active conflicts with required_safety_monitor = 0 in /opt/nvidia/psf/bin/nvpss.conf.`
+
+### Safety app — `PSF_APP` (`sil`)
+
+| `PSF_APP` | PSF runs | Forklift | Indicator disc |
+|---|---|---|---|
+| `atl` (default) | ATL: MUTE / UNMUTE for the trailer | keeps driving its loop (stimulus only) | green muted / alarm |
+| `pxc` | Proximity: NORMAL / REDUCE / STOP for a forklift next to a person | capped at `proximity.reduce_speed` on REDUCE, stopped on STOP | green / orange / red |
+| `both` | the two side by side in one container | as `pxc` (ATL does not drive the truck) | red / orange while proximity acts, else green muted / yellow alarm |
+
+What else each needs:
+
+- **`pxc` / `both`** — the proximity mapping is `closed-loop-testing/safety-core/configs/proximity_event_mapping.pb.txt`, mounted over the image's (whose `Forklift` × `Person` tiers stop at 2 / 1 m). It scores `Forklift` × `Person`: STOP ≤ 2 m, REDUCE ≤ 3.5 m, centre to centre, as `EVENT_12/13/14`, which `configs/pxc_sdm.conf` binds to the SDM (`EVENT_0..11` are ATL's). Every threshold must stay ≤ the VSS behavior-analytics `proximityDetectionThreshold`, which the SIL sets to 4 m together with `Forklift` as a center class (VSS ships 2 m and no `Forklift`, `vss_3d_overrides.md` → "Behavior analytics (3D)") — above it mdx-client drops the whole rule group, STOP included, without a log line.
+- **3D (Sparse4D) feed only** — `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf`, for **every** `PSF_APP`, `atl` included: with the 2D `nvpss.conf` on a 3D feed, mdx-client drops every event (`Dropping event: sensor not in sensor_config, so it has no pipelineID: bev-sensor-1`) and no decision is made. PSF then runs `deploymentMode = 3D` with fusion off: the BEV app reports every camera as one sensor, `bev-sensor-1`, which `configs/sensor_group_config.conf` declares as group 4 of the three cameras in `sensor_config.conf`. The SDM decides on the group; SAIM, when on, watches each camera. On a 2D feed each camera's EVENT_12/13/14 would reach the SDM's last-writer-wins batch separately, so one camera's NORMAL could override another's STOP.
+- **SIL only** — `hil` launches PSF through `launch_thor_safety.sh`, which runs `--app atl`; and under `base` the command target is the VST overlay, which expects ATL packets.
+- **`both`** — add the override file to every compose command, or set `COMPOSE_FILE` next to `PSF_APP=both` in the profile, and set `COMM_UDP_PORT_PXC` (see `sil.env`):
+  ```bash
+  docker compose -f compose.yaml -f ../closed-loop-testing/safety-core/atl-pxc-override.yaml \
+    --env-file profiles/<profile>.env up -d --build
+  ```
+  safety-core runs the image's `--app atl,pxc`: one gateway, one daemon and one mdx_client, plus both SDMs, each on its own `--sdm-config` (`atl_sdm.conf`, `pxc_sdm.conf`). ATL sends to `COMM_UDP_PORT` and proximity to `COMM_UDP_PORT_PXC`, and comm-layer listens on both. mdx_client reads the image's ATL rules followed by the proximity rules above, joined when the container starts. Run it on the 3D feed, as `pxc`. Two PSF containers do not work: they collide on the gateway port, and mdx_client's fixed Kafka consumer groups would split the frames between them. SAIM: keep `skip`; `both` has not been run with SAIM on.
+- **Two trailer bays (`atl`, one zone each)** — keep `PSF_APP=atl`, set `COMM_UDP_PORT_ZONE2` and add `../closed-loop-testing/safety-core/atl-dual-override.yaml` to the compose files (see `sil.env`). safety-core runs `--app atl_dual`: zone 1 (`tripwire-id-1` / `roi-id-1`, `EVENT_0..5`) sends to `COMM_UDP_PORT`, zone 2 (`tripwire-id-2` / `roi-id-2`, `EVENT_6..11`, `configs/atl_sdm_zone2.conf`) to `COMM_UDP_PORT_ZONE2`. comm-layer then publishes each robot's `/<robot>/safety/is_muted` from the zone in its `safety_indicator.zone` (default 1; `forklift_b2` in `robots-40x20.yaml` is 2), so each disc follows its own bay. The calibration must define both bays' ROI and tripwire, or zone 2 never sees an event; for `warehouse_40x20` build it with `build_vss_calibration.py` and run the 2D app (`test_scenario.md`). Restart `safety-core` once Isaac's cameras have replaced the VSS sample videos, or a zone can start latched (`troubleshooting.md` → "ATL Zone Latched in FAULT Right After Startup"). Without `COMM_UDP_PORT_ZONE2`, zone 2 robots mirror zone 1 and comm-layer logs a WARNING.
+
+The truck's reaction lives in the robot's `proximity:` block in `robots.yaml` (`reduce_speed`, `stop_hold_s`, `reduce_hold_s`, `stale_s`; `enabled` defaults to on exactly when `PSF_APP` is `pxc` or `both`). A STOP holds `stop_hold_s` past the last packet asking for one, and silence keeps the last level — no person in view means no decision, not NORMAL. The link itself is watched: the SDM heartbeats every 5 s, and `stale_s` (10 s) with no message at all stops the truck with fault `psf_link_stale` until the next decision. The disc is grey until PSF has decided anything, and when the robot's proximity is disabled.
+
+Limits:
+
+- **One truck per decision stream.** PSF names no robot, so every truck on `/safety/proximity/pair` obeys every decision; the controller logs a WARNING when more than one does. A second truck needs its own `proximity.pair_topic` or `enabled: false`.
+- **SRR scores ATL only.** It subscribes to `/safety/command` and `/safety/is_muted`; on a `pxc` run it prints `PSF_FEED_DEAD` and scores every frame as UNMUTED.
+- **Startup safe-latch.** If the SDM comes up latched (SW_ERROR), comm-layer logs it and waits; `COMM_PXC_STARTUP_RELEASE=1` sends one automatic release request instead. A manual release is a write of `True` to the OPC UA node `Safety.ProximitySafeReleaseRequest`.
+
 ### GPU selection (`sil` / `hil`)
 
 Isaac Sim needs a GPU with **RT cores** and **> 20 GB VRAM**:
@@ -108,7 +144,7 @@ Poll until the profile's services are Up (first run builds local images — take
 
 ```bash
 docker ps --format 'table {{.Names}}\t{{.Status}}' | grep -E "safety-core|comm-layer|isaac-sim|forklift-controller"
-# base = safety-core ; sil = + comm-layer + isaac-sim + forklift-controller (4 total)
+# base = safety-core ; sil = + comm-layer + isaac-sim + forklift-controller (4 total; 5 with the opt-in multi-robot profile: + forklift-controller-b2)
 ```
 
 ### Safety overlay (`base`) — enable on the VSS side
@@ -133,6 +169,12 @@ proximity bubble. (`<wh_ops>` = the VSS `warehouse-operations` dir — see `vss_
 ```bash
 until [ -s "$MDX_DATA_DIR/comm-layer/opc_server.log" ]; do sleep 5; done
 echo "PSF → comm-layer wired"
+```
+
+### PSF app came up as configured (`pxc` / `both`)
+```bash
+grep -a "registered client" "$MDX_DATA_DIR/psf-log/pss.log" | tail -2   # both: client 0 AND client 1
+grep -a "Loaded event mapping config" "$MDX_DATA_DIR/psf-log/pss.log" | tail -1   # pxc: 3 rules; both: 9 (6 ATL + 3 proximity)
 ```
 
 ### ROS isolation (`sil` / `hil`) — MUST be 1
@@ -187,7 +229,7 @@ What to clear vs. what to keep:
 |---|---|---|
 | VST postgres volume | sensor registry (uuids, tombstones, ghosts) | **remove** |
 | Redis state | sensor lifecycle event backlog + SDR workload cache | **clear** (`FLUSHALL`, step 3) |
-| TensorRT engine / model store | built perception engine | **KEEP** (rebuild costs 10-20 min) |
+| TensorRT engine / model store | built perception engine | **KEEP** (a rebuild costs minutes) |
 | `isaac-cache/` host dirs | compiled RT shaders | **KEEP** (recompile costs ~10 min) |
 | Images, `sil-data/` | pulled images, scene assets | KEEP (unaffected) |
 
@@ -200,10 +242,9 @@ cd <repo>/deployments && docker compose --env-file profiles/<profile>.env down
 bash ../closed-loop-testing/scripts/cleanup_all_datalog.sh <profile>
 
 # 2. Tear down VSS *with* its state volumes — but selectively.
-#    Follow the vss-deploy-profile skill's teardown reference for the compose
-#    project specifics; the state volume to remove is the VST postgres data
-#    volume (docker volume ls | grep -iE 'pg|postgres').
-#    Do NOT blanket `down -v`: that also removes the TensorRT engine volume.
+#    `down -v` (the vss-build-vision-ai skill's teardown) drops the sensor database
+#    volume vss_vios_pg_data; the models and TensorRT engine live under
+#    VSS_DATA_DIR/models/, not in a volume, and are kept.
 
 # 3. Redeploy in the standard order: VSS Warehouse first (engine and caches are
 #    reused, so this pass is fast), then clear redis (below), then the Halos

@@ -9,13 +9,21 @@ services:
     network_mode: host
     environment:
       - UDP_PORT=${COMM_UDP_PORT}
+      - UDP_PORT_ZONE2=${COMM_UDP_PORT_ZONE2:-}   # second ATL zone's SDM (atl-dual override); empty = one zone
+      - UDP_PORT_PXC=${COMM_UDP_PORT_PXC:-}       # proximity SDM beside ATL (PSF_APP=both); empty = proximity on UDP_PORT
       - OPCUA_ENDPOINT=${COMM_OPCUA_ENDPOINT:-opc.tcp://0.0.0.0:4840/safety/}
       - ROS_TOPIC_PREFIX=${COMM_ROS_TOPIC_PREFIX:-/safety}
+      - SCENARIO=${SCENARIO:-}   # its fleet file says which robots want a /<id>/safety/is_muted mirror
+      - COMM_PXC_STARTUP_RELEASE=${COMM_PXC_STARTUP_RELEASE:-0}   # 1 = answer a startup safe-latch with one automatic release request
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}  # SUBNET=LAN multicast (multi-host/HIL) | LOCALHOST=single-host SIL (set in sil.env) | OFF
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     volumes:
       - ${COMM_LOG_DIR:-${MDX_DATA_DIR}/comm-layer}:/app/logs:rw
+      # The fleet file and the loader that reads it, the same two the
+      # forklift-controller mounts.
+      - ${ISAAC_SIL_DIR:-../isaac-sim/sil}/configs:/app/robots:ro
+      - ${ISAAC_SIL_DIR:-../isaac-sim/sil}/scripts:/app/isaac:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "from asyncua.sync import Client; c=Client('opc.tcp://localhost:4840/safety/'); c.connect(); c.disconnect()"]

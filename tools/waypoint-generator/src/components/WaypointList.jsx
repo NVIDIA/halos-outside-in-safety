@@ -19,6 +19,8 @@ export default function WaypointList({
   const [showWorld, setShowWorld] = useState(true);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editValues, setEditValues] = useState({});
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dropIndex, setDropIndex] = useState(null);
 
   const handleStartEdit = (index, wp) => {
     setEditingIndex(index);
@@ -58,6 +60,24 @@ export default function WaypointList({
     }
   };
 
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  // Dropped on an item, the dragged waypoint takes that item's place.
+  const handleDrop = (index) => {
+    if (dragIndex !== null && dragIndex !== index) {
+      onReorderWaypoint?.(dragIndex, index);
+    }
+    handleDragEnd();
+  };
+
+  const dropClass = (index) => {
+    if (dragIndex === null || dropIndex !== index || dragIndex === index) return '';
+    return dragIndex > index ? 'drop-before' : 'drop-after';
+  };
+
   // Calculate world coords from odom
   const getWorldCoords = (wp) => {
     if (!origin) return null;
@@ -91,7 +111,25 @@ export default function WaypointList({
         {waypoints.map((wp, index) => (
           <div
             key={index}
-            className={`waypoint-item ${selectedIndex === index ? 'selected' : ''} ${wp.reverse ? 'reverse' : ''}`}
+            className={`waypoint-item ${selectedIndex === index ? 'selected' : ''} ${wp.reverse ? 'reverse' : ''} ${dragIndex === index ? 'dragging' : ''} ${dropClass(index)}`}
+            draggable={editingIndex === null}
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move';
+              // Firefox starts a drag only when data is set.
+              e.dataTransfer.setData('text/plain', String(index));
+              setDragIndex(index);
+            }}
+            onDragOver={(e) => {
+              if (dragIndex === null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              setDropIndex(index);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleDrop(index);
+            }}
+            onDragEnd={handleDragEnd}
             onClick={() => onSelectWaypoint?.(index)}
           >
             <div className="waypoint-header">

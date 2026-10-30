@@ -31,6 +31,11 @@ Cameras without a `spawn:` block are left untouched (assumed baked in
 the scene USD) — the loader is a no-op for them, which keeps this file
 backward-compatible during migration.
 
+An optional top-level `scene:` key names the warehouse these poses are
+measured in, checked by `assert_scene_matches()` before the stage opens.
+World-space poses in the wrong scene is a failure nothing downstream
+reports; see that function.
+
 Invoked from `run_actor_sdg.py`'s `SET_UP_SIMULATION_DONE_EVENT`
 callback BEFORE `build_rtsp_graph()` (the RTSP builder fail-fasts on
 missing camera prims, so spawn must run first).
@@ -66,17 +71,68 @@ _REQUIRED_SPAWN_FIELDS = (
 _CLIPPING_RANGE = (1.0, 10000000.0)
 
 
-def _load_cameras_yaml(yaml_path: str) -> list[dict]:
+def _load_cameras_cfg(yaml_path: str) -> dict:
     import yaml
 
     if not os.path.isfile(yaml_path):
         raise FileNotFoundError(f"cameras yaml not found: {yaml_path}")
     with open(yaml_path) as f:
-        cfg = yaml.safe_load(f)
-    cameras = (cfg or {}).get("cameras")
+        return yaml.safe_load(f) or {}
+
+
+def _load_cameras_yaml(yaml_path: str) -> list[dict]:
+    cameras = _load_cameras_cfg(yaml_path).get("cameras")
     if not isinstance(cameras, list) or not cameras:
         raise ValueError(f"{yaml_path}: 'cameras' must be a non-empty list")
     return cameras
+
+
+def assert_scene_matches(config_path: str, base_stage_asset_path: str) -> None:
+    """Refuse a cameras config written for a different warehouse than the one loading.
+
+    A camera pose is world-space, so the 20x20 config in the 40x20 warehouse puts
+    Camera_02 8.6 m from where it belongs. Nothing downstream objects: the prims
+    spawn, RTSP comes up, VST registers, perception produces frames, and the
+    detections are simply about the wrong part of the building. This is the only
+    member of the launch trio that can go wrong quietly — a missing --robots-config
+    dies in verify_prim_exists, while --cameras-config silently defaults.
+
+    Optional `scene:` key, so a config that does not name a scene keeps working:
+
+        scene: sil/scenes/warehouse_40x20_two_loading_dock.usd
+
+    One string, or a list when a set of poses is valid in more than one scene —
+    which is the normal case, not an edge case: the 20x20 1FL and 2FL scenes differ
+    in their trucks and share every camera.
+
+    Matched as a path suffix rather than by basename, so two scenes with the same
+    file name in different directories cannot pass for each other. The same
+    scene<->config binding the waypoint generator's maps/<id>/config.json uses.
+
+    MUST be called before forklift_overlay retargets base_stage_asset_path to the
+    generated .overlay.usda: after that the comparison is against a file name the
+    config could not have named.
+    """
+    declared = _load_cameras_cfg(config_path).get("scene")
+    if not declared:
+        print(f"[camera-loader] {os.path.basename(config_path)} declares no 'scene:' — "
+              f"cannot check it against the scene being loaded", flush=True)
+        return
+    candidates = [declared] if isinstance(declared, str) else list(declared)
+
+    actual = str(base_stage_asset_path).replace("\\", "/")
+    if not any(actual.endswith(str(c).lstrip("./")) for c in candidates):
+        raise RuntimeError(
+            f"[camera-loader] {config_path} is written for "
+            f"{', '.join(str(c) for c in candidates)}, but the launch is loading "
+            f"{base_stage_asset_path}. These are different warehouses and camera "
+            f"poses are world-space, so the cameras would be spawned metres from "
+            f"where the calibration says they are — with RTSP, VST and perception "
+            f"all reporting healthy. Pass the --cameras-config that goes with this "
+            f"scene, or correct the 'scene:' key."
+        )
+    print(f"[camera-loader] cameras config matches the scene: "
+          f"{os.path.basename(actual)}", flush=True)
 
 
 def _is_number(x) -> bool:

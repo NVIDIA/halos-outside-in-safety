@@ -102,14 +102,19 @@ GPU crash dump is successfully written
    docker restart isaac-sim
    # Re-run the test scenario
    docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-     ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-     --start --headless --enable-vst \
-     --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+     ./run_sdg.sh --start --headless --enable-vst'
    ```
 
 ---
 
 ## RTSP Streams "no caps / could not create SDP" (Cold-Start Race)
+
+> **Isaac Sim 6.1 ships the upstream fix for the concurrent-DESCRIBE trigger below**
+> (`omni.kit.livestream.rtsp`, NVBug 6478845). Measured on 6.1.0-rc.26: a boot with the
+> previous run's VST sensors still registered — the churn condition this section describes —
+> logged **0** `could not create SDP` and **0** `no media`, against hundreds and 64-150 per
+> boot on 6.0. The warm-up gate and `restart_isaac.sh` stay in place: they cost about a second
+> and two minutes, and the section remains the recovery path if the symptom comes back.
 
 **Symptom**: after a **cold** Isaac restart on a heavy scene, the perception client
 can't pull Isaac Sim's self-hosted RTSP streams; DeepStream stays at `Active sources : 0`:
@@ -122,7 +127,7 @@ could not create SDP
 The encoder looks idle even though the RTSP server is accepting connections.
 Warmer / lighter scenes that pre-roll quickly don't hit this.
 
-**Cause** (not a network problem): Isaac Sim 6.0 self-hosts RTSP **in-process**, one
+**Cause** (not a network problem): Isaac Sim 6.1 self-hosts RTSP **in-process**, one
 server per camera. Two things provoke "no caps":
 
 1. **Cold pre-roll** — on a cold run the RTX render + encoder pre-roll is slow; the RTSP
@@ -259,8 +264,8 @@ curl -s -X POST http://localhost:9000/api/v1/stream/add -H 'Content-Type: applic
 ```
 
 > ℹ️ **Separate issue** — the Isaac **cold**-DESCRIBE wedge (`Active sources : 0`, "no caps") is
-> the section above; its upstream fix is an Isaac RFE: gate the RTSP server's DESCRIBE response on
-> the **first encoded frame** so caps are cached before VST's concurrent DESCRIBEs arrive.
+> the section above; its concurrent-DESCRIBE trigger is fixed upstream in Isaac Sim 6.1
+> (NVBug 6478845). This zombie-bin gap is on the VSS side and is unaffected by that fix.
 
 ---
 
@@ -289,6 +294,11 @@ docker exec isaac-sim bash -lc 'cd /isaac-sim && \
 # DeepStream reaches N/N in ~30-60 s
 ```
 
+Register the scenario's cameras config (`cameras-40x20.yaml` for `warehouse_40x20`, per
+`configs/scenarios.yaml`). `restart_isaac.sh` runs this round itself when, 2 min after
+Isaac's restart, DeepStream does not hold exactly the sensors VST lists online — a zombie
+source counts as active, so it compares camera ids, not the `Active sources` count.
+
 If a camera STILL never comes up after this, check its Isaac mount directly
 (`ffprobe -rtsp_transport tcp rtsp://localhost:<port>/<mount>` from inside `isaac-sim`) —
 a dead mount is the upstream "no caps" wedge (section above); restart the scenario with
@@ -311,20 +321,11 @@ replaying the **Kafka sensor history**. On a previously-used deploy the topics h
 add/remove history — including stale stream URLs from earlier runs — and every perception
 restart replays it, pushing the stale URLs back in over the live ones.
 
-**Fix** — fresh state before redeploy: tear the VSS stack down and clear the Kafka state.
-
-```bash
-# From the VSS deploy dir: down WITHOUT -v (keeps the TensorRT engine cache + sensor DB)
-docker compose --env-file industry-profiles/warehouse-operations/.env down --remove-orphans
-
-# Remove ONLY the kafka volumes — targeted, NOT `docker volume prune`: with the stack down,
-# prune also deletes the dangling perception engine cache (a 15-20 min rebuild) and the
-# sensor database.
-docker volume ls | grep -i kafka
-docker volume rm <the kafka volumes>
-
-# then bring VSS back up
-```
+**Fix** — fresh state before redeploy: tear VSS down with the `vss-build-vision-ai` skill's
+default teardown, then run its bind-mounted data cleanup (`references/teardown.md` in that
+skill), and redeploy. The Kafka topics live in `<vss_data>/data_log/kafka`, bind-mounted and
+owned by the Kafka container's user: neither `down -v` nor a host `rm` clears them, the
+cleanup's `sudo` does.
 
 Related state rules:
 
@@ -349,9 +350,7 @@ docker ps | grep vst
 
 # Rerun Isaac Sim with --enable-vst
 docker exec -d isaac-sim bash -lc 'cd /isaac-sim/sil/scripts && \
-  ./run_sdg.sh -c /isaac-sim/sil/configs/default_config_ros.yaml \
-  --start --headless --enable-vst \
-  --cameras-config /isaac-sim/sil/configs/cameras.yaml'
+  ./run_sdg.sh --start --headless --enable-vst'
 ```
 
 ---
@@ -418,7 +417,7 @@ AMC-generated calibration** (VSS side, not shipped in this repo), most commonly 
 with no `restrictedObjectTypes` and prints the ids to cross-check against the event map. Add
 the missing field per the ROI schema in `calibration_3d.md`. The AMC / Calibration Toolkit
 does not expose restricted / confined object types as a dedicated field, so set them via its
-**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/3.2.1/autocalib-workflow-steps.html#export-calibration-data)
+**Full Control** JSON editor at the [export step](https://docs.nvidia.com/vss/system-components/calibration/auto-calibration/workflow-steps#export-calibration-data)
 (advanced) or by editing the exported `calibration.json` directly. Then regenerate / re-mount
 the calibration and **recreate** (not restart) the VSS perception + safety-core containers so
 the new `calibration.json` and event mapping are picked up.
@@ -475,7 +474,7 @@ downstream (PSF fusion config, ATL logic, hysteresis) — continue from there.
 ```bash
 # vss-rtvi-cv is a VSS Warehouse container — recreate it from the VSS deploy:
 docker rm -f vss-rtvi-cv
-docker compose up -d vss-rtvi-cv   # run from the VSS Warehouse deploy dir (see vss-deploy-profile)
+docker compose -p vss -f <vss_repo>/_builds/<name>/resolved.yml up -d perception-2d   # perception-3d on the 3D app
 ```
 
 ---
@@ -515,16 +514,64 @@ using the same domain ID.
 
 ---
 
+## ATL Zone Latched in FAULT Right After Startup
+
+**Symptom**: one ATL SDM logs tripwire events (`Forklift entered trailer (TW OUT)`) but
+never another `Sending decision command`; its robot's disc never changes. Earlier in that
+SDM's log (`/var/log/psf/atl_sdm_zone<N>.log` in `safety-core`):
+
+```
+ATL: Person exited trailer but personsInTrailerCount already 0; entering fault-safe lockout
+Sending decision command: FAULT SAFE STATE / ALARM (0x03)
+```
+
+**Cause**: until Isaac's cameras replace them, VSS runs on the dataset's bootstrap videos,
+and behavior analytics projects them with the scene's calibration. A person in those videos
+can cross a tripwire "out" of a trailer nobody entered; the SDM treats the impossible count
+as a fault and holds FAULT SAFE STATE. Seen on `warehouse_40x20`'s second bay, whose
+dataset reuses the 20x20 bootstrap videos.
+
+**Fix**: once `Registered 3/3 camera(s) with VST` is in the Isaac log and DeepStream runs
+Isaac's streams, `docker restart safety-core`. Both SDMs start clean and only see Isaac events.
+
+The same lockout was also seen once about 2 min **after** such a restart, with
+Isaac live: an SDM starts counting people in its trailer at 0, so a person already inside
+when it started produces the same impossible exit. Another `docker restart safety-core`
+cleared it.
+
+With the 2D app it also comes later in a run, with nobody crossing the trailer line: when a
+camera starts a new track near the tripwire, the person's position can sit 1–2 m on the
+trailer side for its first frames, and behavior analytics reports a crossing out of the
+trailer. Person tripwire events reach the SDM per camera, so one camera is enough. A restart
+after the stream handoff does not prevent this one; the fix belongs to behavior analytics.
+
+---
+
+## Kafka Exits With `cluster_id: Permission denied`
+
+**Symptom**: the first VSS `up` stops at `dependency failed to start: container kafka
+exited (1)`; `docker logs kafka` ends with
+`/usr/local/bin/kafka-entrypoint.sh: line 36: /tmp/kafka-data/cluster_id: Permission denied`.
+
+**Cause**: the app-data archive extracts with mode `750`, and Kafka runs as a non-root
+user in its container, so it cannot write `<vss_data>/data_log/kafka`.
+
+**Fix**: run the `vss-build-vision-ai` skill's data-directory gate (`references/data-directory.md`),
+which opens `data_log`, `models` and `videos` to every user, then `up` again.
+
+---
+
 ## Quick Reference
 
 | Error | Fix |
 |-------|-----|
 | PSF Kafka connection | Deploy VSS Warehouse first |
+| safety-core exits at start: `--pcm-mode is required`, `required_safety_monitor is missing`, or `--<x>-mode ... conflicts with required_...` | The PSF 1.4 launcher needs both monitor modes and the `required_*` keys. Use the shipped `safety-core.yml` and `configs/nvpss*.conf`, and keep the keys matching `PSF_LAUNCH_MODE` / `PSF_PCM_MODE` — `halos_deploy.md` §1 |
 | STALE events | Increase `timeWindowSize` in nvpss.conf |
 | Low FPS / flickering | Apply DeepStream SIL override — see `vss_2d_overrides.md` |
 | Isaac Sim crash (VRAM) | Check GPU VRAM, ISAAC_GPU_DEVICE |
 | Isaac Sim Vulkan crash | Update driver >= 580.95.05, or restart (cached shaders) |
-| RTSP "no caps / could not create SDP" | Cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
+| RTSP "no caps / could not create SDP" | Fixed upstream in Isaac Sim 6.1 (NVBug 6478845). On 6.0: cold Isaac + **VST** concurrent DESCRIBE — warm render, re-register VST only when warm (built-in warm-up gate) |
 | DeepStream stuck ≤2/3 active (zombie bins) | Stale-identity: purge the 0-fps zombie (`value.change`, **exact old proxy url**) then add the live uuid via `:9000` |
 | No cameras in VST | Use `--enable-vst` flag |
 | NGC 403 | Re-authenticate NGC + docker login |
@@ -533,3 +580,9 @@ using the same domain ID.
 | CUDA errors on restart | Full container recreate, not restart |
 | Safety flickering (multi-machine) | Assign unique `ROS_DOMAIN_ID` (0-232) per machine |
 | No ROI/tripwire events (detections OK) | `restrictedObjectTypes` missing in `calibration.json`, or roi/tripwire `id` ≠ `rule_id` in the event map — see `halos_deploy.md` §0 |
+| `PSF_APP=pxc`: no `EVENT_12/13/14` at all | Mapping pairs a class the scene lacks, a `distance_threshold_meters` above VSS `proximityDetectionThreshold` (whole group dropped silently), codes that differ from `configs/pxc_sdm.conf`, or a 3D feed without `PSF_NVPSS_CONFIG_SRC=./configs/nvpss_bev.conf` and `PSF_SENSOR_PIPELINES_CONFIG_SRC=./configs/sensor_pipelines_config_bev.conf` — `halos_deploy.md` → "Safety app" |
+| ATL zone sends no decisions, log shows `fault-safe lockout` at startup | Bootstrap-video events latched it — `docker restart safety-core` once Isaac's cameras are live |
+| Any `PSF_APP` on a 3D feed: no decisions, `pss.log` full of `Dropping event: sensor not in sensor_config ... bev-sensor-1` | PSF still on the 2D `nvpss.conf` — set `PSF_NVPSS_CONFIG_SRC` and `PSF_SENSOR_PIPELINES_CONFIG_SRC` (`halos_deploy.md` → "Safety app") |
+| `PSF_APP=pxc` on stock VSS: no Forklift × Person proximity | Behavior analytics ships `proximityDetectionThreshold` `2` without `Forklift` as a center class — `vss_3d_overrides.md` → "Behavior analytics (3D)" |
+| VSS `up`: `container kafka exited (1)`, `cluster_id: Permission denied` | Run the `vss-build-vision-ai` data-directory gate before `up` |
+| `PSF_APP=pxc`: forklift stays stopped after people leave | Expected when they leave the cameras' view: no pair → no decision, and the last level holds. A NORMAL arrives once a person is in view again beyond 3.5 m |
