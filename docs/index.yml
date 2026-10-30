@@ -5,32 +5,221 @@
 navigation:
   - page: Overview
     path: ./index.mdx
+    slug: /
 
   - page: Release Notes
     path: ./release-notes.mdx
+    slug: release-notes
 
-  - folder: ./getting-started
-    title: Getting Started
-    title-source: frontmatter
+  - section: Getting Started
+    skip-slug: true
+    contents:
+      - page: Getting Started
+        path: ./getting-started/index.mdx
+        slug: getting-started
+      - page: Prerequisites
+        path: ./getting-started/prerequisites.mdx
+        slug: getting-started/prerequisites
+      - page: Deploy AI Perception
+        path: ./getting-started/inference-pipeline.mdx
+        slug: getting-started/inference-pipeline
+      - page: Deploy the Safety Core
+        path: ./getting-started/safety-core.mdx
+        slug: getting-started/safety-core
+      - page: Software-in-the-Loop (SIL)
+        path: ./getting-started/sil.mdx
+        slug: getting-started/sil
+      - page: Agentic Deployment
+        path: ./getting-started/agentic-deployment.mdx
+        slug: getting-started/agentic-deployment
+      - page: Deploy on NVIDIA Brev
+        path: ./getting-started/brev-launchable.mdx
+        slug: getting-started/brev-launchable
 
-  - folder: ./deployment
-    title: Deployment Guide
-    title-source: frontmatter
+  - section: Deployment Guide
+    skip-slug: true
+    contents:
+      - page: Deployment Guide
+        path: ./deployment/index.mdx
+        slug: deployment
+      - page: Prerequisites
+        path: ./deployment/prerequisites.mdx
+        slug: deployment/prerequisites
+      - page: Applications
+        path: ./deployment/applications.mdx
+        slug: deployment/applications
+      - page: Quick Deployment
+        path: ./deployment/quick-deployment.mdx
+        slug: deployment/quick-deployment
+      - page: Custom Deployment
+        path: ./deployment/custom-deployment.mdx
+        slug: deployment/custom-deployment
+      - page: Troubleshooting
+        path: ./deployment/troubleshooting.mdx
+        slug: deployment/troubleshooting
 
-  - folder: ./integration
-    title: Integration Guide
-    title-source: frontmatter
+  - section: Integration Guide
+    skip-slug: true
+    contents:
+      - page: Integration Guide
+        path: ./integration/index.mdx
+        slug: integration
+      - page: Install and Run Without Docker
+        path: ./integration/install.mdx
+        slug: integration/install
+      - page: Writing a Decision Maker
+        path: ./integration/writing-a-decision-maker.mdx
+        slug: integration/writing-a-decision-maker
+      - page: Safe-State Model
+        path: ./integration/safe-state-model.mdx
+        slug: integration/safe-state-model
+      - page: Custom Event Sources
+        path: ./integration/custom-event-sources.mdx
+        slug: integration/custom-event-sources
+      - page: SAIM Distortion Injection
+        path: ./integration/saim-distortion-injection.mdx
+        slug: integration/saim-distortion-injection
 
-  - folder: ./testing
-    title: Closed-Loop Testing
-    title-source: frontmatter
+  - section: Safety Core Components
+    skip-slug: true
+    contents:
+      - page: Safety Core Components
+        path: ./integration/components/index.mdx
+        slug: integration/components
+      - page: Sensor Input Processing Pipeline (SIPP)
+        path: ./integration/components/sensor-input-pipeline.mdx
+        slug: integration/components/sensor-input-pipeline
+      - page: Safety AI Monitor (SAIM)
+        path: ./integration/components/ai-monitor.mdx
+        slug: integration/components/ai-monitor
+      - page: Perception Container Monitor (PCM)
+        path: ./integration/components/perception-monitor.mdx
+        slug: integration/components/perception-monitor
+      - page: Safety Event Integrator (SEI)
+        path: ./integration/components/event-integrator.mdx
+        slug: integration/components/event-integrator
+      - page: NvPSD Gateway
+        path: ./integration/components/gateway.mdx
+        slug: integration/components/gateway
+      - page: Safety Decision Maker (SDM)
+        path: ./integration/components/decision-maker.mdx
+        slug: integration/components/decision-maker
+      - page: Safety Black Box (SBB)
+        path: ./integration/components/black-box.mdx
+        slug: integration/components/black-box
+      - page: Safety User Interface (SUI)
+        path: ./integration/components/user-interface.mdx
+        slug: integration/components/user-interface
 
-  - folder: ./reference
-    title: Reference
-    title-source: frontmatter
+  - section: Closed-Loop Testing
+    skip-slug: true
+    contents:
+      - page: Closed-Loop Testing
+        path: ./testing/index.mdx
+        slug: testing
+      - page: Software-in-Loop Testing
+        path: ./testing/sil/index.mdx
+        slug: testing/sil
+      - page: SIL — 2D Perception
+        path: ./testing/sil/sil-2d.mdx
+        slug: testing/sil/sil-2d
+      - page: SIL — 3D Perception
+        path: ./testing/sil/sil-3d.mdx
+        slug: testing/sil/sil-3d
+      - page: SIL Overview
+        path: ./testing/sil/overview.mdx
+        slug: testing/sil/overview
+      - page: SIL Architecture
+        path: ./testing/sil/architecture.mdx
+        slug: testing/sil/architecture
+      - page: Isaac Sim Configuration
+        path: ./testing/sil/components/isaac-sim.mdx
+        slug: testing/sil/components/isaac-sim
+      - page: Isaac Sim Action Graphs
+        path: ./testing/sil/components/action-graph.mdx
+        slug: testing/sil/components/action-graph
+      - page: Forklift Controller
+        path: ./testing/sil/components/forklift-controller.mdx
+        slug: testing/sil/components/forklift-controller
+      - page: Extending the Fleet
+        path: ./testing/sil/extending-the-fleet.mdx
+        slug: testing/sil/extending-the-fleet
+      - page: Hardware-in-the-Loop Testing
+        path: ./testing/hil/index.mdx
+        slug: testing/hil
+      - page: Deploy the HIL Closed Loop
+        path: ./testing/hil/quickstart.mdx
+        slug: testing/hil/quickstart
+      - page: HIL Architecture
+        path: ./testing/hil/architecture.mdx
+        slug: testing/hil/architecture
+      - page: Regression Testing Reporter *(Preview)*
+        path: ./testing/srr/index.mdx
+        slug: testing/srr
+      - page: Overview
+        path: ./testing/srr/overview.mdx
+        slug: testing/srr/overview
+      - page: Quick Start Guide
+        path: ./testing/srr/quickstart.mdx
+        slug: testing/srr/quickstart
+      - page: Architecture
+        path: ./testing/srr/architecture.mdx
+        slug: testing/srr/architecture
+      - page: Test Scenarios
+        path: ./testing/srr/scenarios.mdx
+        slug: testing/srr/scenarios
+      - page: Interpreting the Report
+        path: ./testing/srr/interpret-results.mdx
+        slug: testing/srr/interpret-results
+      - page: Debug Viewer
+        path: ./testing/srr/debug-viewer.mdx
+        slug: testing/srr/debug-viewer
+
+  - section: Reference
+    skip-slug: true
+    contents:
+      - page: Reference
+        path: ./reference/index.mdx
+        slug: reference
+      - page: Launchers and Command-Line Options
+        path: ./reference/launcher.mdx
+        slug: reference/launcher
+      - page: Log Viewer
+        path: ./reference/log-viewer.mdx
+        slug: reference/log-viewer
+      - page: SEI Configuration (nvpss.conf)
+        path: ./reference/sei-configuration.mdx
+        slug: reference/sei-configuration
+      - page: Sensor Files
+        path: ./reference/sensor-files.mdx
+        slug: reference/sensor-files
+      - page: Event Mapping Configuration
+        path: ./reference/event-mapping-configuration.mdx
+        slug: reference/event-mapping-configuration
+      - page: Causes and Records
+        path: ./reference/causes-and-records.mdx
+        slug: reference/causes-and-records
+      - page: Runtime Profile
+        path: ./reference/runtime-profile.mdx
+        slug: reference/runtime-profile
+      - page: Glossary
+        path: ./reference/glossary.mdx
+        slug: reference/glossary
 
   - page: Known Limitations
     path: ./known-limitations.mdx
+    slug: known-limitations
 
   - page: End-User License Agreement
     path: ./eula.mdx
+    slug: eula
+
+  - section: API Documentation
+    path: ./api-documentation.mdx
+    slug: api-documentation
+    contents:
+      # Generated by tools/c-api/generate_pages.sh: one page per published header.
+      - folder: ./c-api
+        title: Header Reference
+        title-source: frontmatter
+        skip-slug: true

@@ -20,7 +20,7 @@ HIL exercises the digital-twin path on the right: Isaac Sim runs on the x86 stim
 
 ### 1. Isaac Sim (x86)
 
-Built on `nvcr.io/nvidia/isaac-sim:6.0.0` (the `ISAAC_SIM_IMAGE` value in `hil.env`) and run with `network_mode: host`. It renders the warehouse scene and self-hosts one in-process RTSP server per camera — `:8554/camera`, `:8555/camera_01`, and `:8556/camera_02` — with no relay in front of them. It publishes `/odom` and `/clock`, consumes `/cmd_vel`, and its safety-indicator Action Graph subscribes to `/safety/is_muted`.
+Built on `nvcr.io/nvidia/isaac-sim:6.1.0` (the `ISAAC_SIM_IMAGE` value in `hil.env`) and run with `network_mode: host`. It renders the warehouse scene and self-hosts one in-process RTSP server per camera — `:8554/camera`, `:8555/camera_01`, and `:8556/camera_02` — with no relay in front of them. It publishes `/forklift_b/odom` and `/clock`, consumes `/forklift_b/cmd_vel`, and its safety-indicator Action Graph subscribes to `/safety/is_muted`.
 
 ### 2. Communication layer (x86)
 
@@ -28,7 +28,7 @@ Binds UDP `12346` on `0.0.0.0` with no source-address filter and acknowledges ev
 
 ### 3. Forklift controller (x86)
 
-A stimulus generator. It consumes `/odom` and publishes `/cmd_vel`, driving the forklift around a fixed 41-pose loop. It does **not** consume the safety opcodes on `/safety/command`: the decision is visualized by the in-scene safety indicator, not by the forklift changing its behavior.
+A stimulus generator. It consumes `/forklift_b/odom` and publishes `/forklift_b/cmd_vel`, driving the forklift around a fixed 41-pose loop. It does **not** consume the safety opcodes on `/safety/command`: the decision is visualized by the in-scene safety indicator, not by the forklift changing its behavior.
 
 ### 4. VSS Warehouse perception (IGX Thor)
 
@@ -36,7 +36,7 @@ VST is the RTSP **client**: it pulls the three x86 mounts and re-serves each one
 
 ### 5. Safety Core (IGX Thor)
 
-The `nv-psf` container plus a host-side Safety Decision Maker (SDM) binary, started by the launch script installed by the Thor package rather than by Docker Compose. The NvPSD Gateway and the SDM exchange over UDP on `127.0.0.1:50000`, with the SDM re-registering roughly every 30 seconds; see [Integration Guide](/integration) for the gateway protocol. The target is selected by `SDM_TARGET`, and the profile ships `ccplex`: the SDM runs as a host process (`atl_sdm`) on the Thor application cores. Running it on the Functional Safety Island instead needs gated-access packages and is described in [SDM on FSI](/deployment#sdm-on-fsi) in the [Deployment Guide ](/deployment).
+The `nv-psf` container plus a host-side Safety Decision Maker (SDM) binary, started by the launch script installed by the Thor package rather than by Docker Compose. With the Safety Core 1.3 Thor package this profile pins, the NvPSD Gateway and the SDM exchange over UDP on `127.0.0.1:50000`, with the SDM re-registering roughly every 30 seconds. From 1.4 the link is the local socket `/run/nvpsf/nvpsd_gateway`; see [NvPSD Gateway](/integration/components/gateway). The target is selected by `SDM_TARGET`, and the profile ships `ccplex`: the SDM runs as a host process (`atl_sdm`) on the Thor application cores. Running it on the Functional Safety Island instead needs gated-access packages and is described in [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi) in the Deployment Guide.
 
 ## Data flow
 
@@ -69,7 +69,7 @@ ROS 2 and its DDS discovery never cross the host boundary — all three ROS part
 
 ## Safety command packet
 
-The command and its acknowledgment are both 64 bytes: the magic identifier `0xA2`, a `uint16` sequence number, the opcode, a UTC seconds and microseconds timestamp, a CRC-32 computed over bytes 0-19 and 24-63, and two 20-byte object records. For the byte-by-byte layout, see [Deployment Guide](/deployment).
+The command and its acknowledgment are both 64 bytes: the magic identifier `0xA2`, a `uint16` sequence number, the opcode, a UTC seconds and microseconds timestamp, a CRC-32 computed over bytes 0-19 and 24-63, and two 20-byte object records. For the byte-by-byte layout, see [Decision Maker](/integration/components/decision-maker).
 
 The communication layer echoes the full packet back to the sender with a fresh timestamp and a recomputed CRC. The SDM warns when a packet has gone unacknowledged for more than three seconds, and does not retry. Occasional sequence-number gaps are benign, because the decision state is re-emitted idempotently; sustained loss is not.
 
@@ -85,7 +85,7 @@ The opcodes the `hil` profile emits:
 | `SW_ERROR` | `0x03` | Software fault reported by the decision maker |
 | `UNMUTE` | `0x07` | Prevent operation |
 
-The decision maker can also latch a safe state and use three further opcodes on this channel to clear it; refer to [Clearing a Latched Safe State](/deployment#safe-release) in the [Deployment Guide](/deployment).
+The decision maker can also latch a safe state and use three further opcodes on this channel to clear it; see [Release a latched safe state](/deployment/quick-deployment#release-a-latched-safe-state).
 
 ## Configuration surface
 
@@ -104,7 +104,7 @@ Three values must mirror each other across the two files. When they do not, the 
 `ROS_AUTOMATIC_DISCOVERY_RANGE` ships as `SUBNET` in `hil.env`, where `sil.env` ships `LOCALHOST`. `LOCALHOST` pins DDS peers to the loopback address while the selected interface stays the physical NIC, so on a multi-interface host the three containers never discover each other and the forklift never moves. `SUBNET` uses LAN-wide multicast instead, so `ROS_DOMAIN_ID` must be nonzero when other ROS hosts share the subnet, and all three containers must carry the same value. Both variables are baked in at container creation, so a change takes effect only when the containers are recreated.
 
 `PSF_LAUNCH_MODE` selects whether the Safety Core starts the Safety AI Monitor. The profile ships `skip`, which does not; `active` does, and reads the sensor configuration file, so its stream URLs and identifiers must be filled in from the live VST sensor list first. See
-[Sensor configuration file](/deployment#sensor-configuration-file) for the format.
+[Sensor files](/reference/sensor-files#sensor_config) for the format.
 
 `VST_BASE_URL` and `PERCEPTION_BASE_URL` are derived from `PEER_HOST_IP` and need no edit. The preflight check reads them from the x86 host, and the alternative Isaac-side sensor-registration path uses them; the documented bring-up registers sensors on the safety host, so nothing else on the x86 host calls them.
 
@@ -120,8 +120,8 @@ Three values must mirror each other across the two files. When they do not, the 
 - `psf.log` — fusion, and the `DecisionRequest` lines that show perception is feeding events.
 - `atl_sdm.log` — decisions sent and acknowledgments received, paired by sequence number.
 
-For the full safety-host log set, see [Deployment Guide](/deployment#safety-core-logs) in the
-[Deployment Guide ](/deployment).
+For the full safety-host log set, see [Logs](/deployment/troubleshooting#logs) in the
+Deployment Guide.
 
 With the SDM on the safety island, its internal state and logs are not reachable from the host and its packets carry an epoch-zero timestamp. The communication layer log is then the only postmortem record of the decision stream, and latency must be computed receive-side.
 

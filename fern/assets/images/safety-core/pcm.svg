@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1140" width="2000" height="1140" font-family="'JetBrains Mono','Fira Code','DejaVu Sans Mono','Liberation Mono',monospace" role="img" aria-label="PCM (nv_perception_monitor): container health over the Docker socket, decision-data validation of mdx-frames, the debounced pipeline verdict and the SEI client">
+<title>PCM (nv_perception_monitor): container health over the Docker socket, decision-data validation of mdx-frames, the debounced pipeline verdict and the SEI client</title>
+<defs>
+<pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#14212d"/></pattern>
+<marker id="arrow-data" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#53d6b6"/></marker>
+<marker id="arrow-safety" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#f2859f"/></marker>
+<marker id="arrow-plain" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#7f9aad"/></marker>
+<marker id="arrow-config" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#a996f5"/></marker>
+</defs>
+<rect width="2000" height="1140" fill="#0a1520"/>
+<rect width="2000" height="1140" fill="url(#grid)"/>
+<rect x="510" y="20" width="960" height="1010" rx="16" fill="#111a24" fill-opacity="0.55" stroke="#e3c34f" stroke-width="2" stroke-dasharray="14 6 3 6"/>
+<rect x="518" y="29" width="350.0" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="525" y="49" fill="#e3c34f" font-size="16" font-weight="700">PCM process (nv_perception_monitor)</text>
+<rect x="1020" y="395" width="420" height="610" rx="16" fill="none" fill-opacity="0.55" stroke="#f2859f" stroke-width="2" stroke-dasharray="10 7"/>
+<rect x="1028" y="968" width="167.6" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="1035" y="988" fill="#f2859f" font-size="16" font-weight="700">Pipeline verdict</text>
+<rect x="550" y="60" width="370" height="180" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="570" cy="80" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="117.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Monitor Config</text>
+<text x="735.0" y="147.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">pcm_monitor.cfg, read in ACTIVE</text>
+<text x="735.0" y="170.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">[monitors] [fault_aggregator]</text>
+<text x="735.0" y="193.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">[data_validation] [health_monitor]</text>
+<text x="735.0" y="224" text-anchor="middle" fill="#a996f5" font-size="13.5">bad config: exit 2 before register</text>
+<rect x="60" y="300" width="370" height="180" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="320" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="374.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Perception Containers</text>
+<text x="245.0" y="404.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">Docker Engine API</text>
+<text x="245.0" y="427.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">/var/run/docker.sock</text>
+<rect x="550" y="300" width="370" height="180" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="570" cy="320" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="357.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Container Health Check</text>
+<text x="735.0" y="387.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">allow-listed containers, by name</text>
+<text x="735.0" y="410.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">polled about once a second</text>
+<text x="735.0" y="433.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">judged only once seen this run</text>
+<text x="735.0" y="464" text-anchor="middle" fill="#f2859f" font-size="13.5">stopped (any exit), unhealthy, gone: bad</text>
+<rect x="60" y="540" width="370" height="180" rx="10" fill="#262a30" stroke="#f3a65a" stroke-width="2.5"/>
+<circle cx="80" cy="560" r="5" fill="none" stroke="#f3a65a" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="603.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Kafka mdx-frames</text>
+<text x="245.0" y="633.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">own consumer group</text>
+<text x="245.0" y="656.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">nv_perception_monitor_dvm</text>
+<text x="245.0" y="679.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">starts at newest message</text>
+<rect x="550" y="540" width="370" height="180" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="570" cy="560" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="597.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Data Validation Monitor</text>
+<text x="735.0" y="627.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">known camera, freshness, frame rate</text>
+<text x="735.0" y="650.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">decision data for the SDMs</text>
+<text x="735.0" y="673.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">10 undecodable messages: bad</text>
+<text x="735.0" y="704" text-anchor="middle" fill="#f2859f" font-size="13.5">1 s windows, counted per camera</text>
+<rect x="60" y="780" width="370" height="180" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="80" cy="800" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="848.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Mapping and SDM Configs</text>
+<text x="245.0" y="878.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">--event-mapping, --sdm-config</text>
+<text x="245.0" y="901.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">select ROI and proximity rules</text>
+<text x="245.0" y="944" text-anchor="middle" fill="#a996f5" font-size="13.5">mapping changed: re-run LEARN</text>
+<rect x="550" y="780" width="370" height="180" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="570" cy="800" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="837.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">DVM Baseline</text>
+<text x="735.0" y="867.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">pcm_baseline.cfg, all cameras</text>
+<text x="735.0" y="890.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">fps, frame age, decision contract</text>
+<text x="735.0" y="913.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">templates for 3 demo cameras</text>
+<text x="735.0" y="944" text-anchor="middle" fill="#a996f5" font-size="13.5">written atomically by LEARN</text>
+<rect x="1040" y="420" width="370" height="180" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="440" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="477.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Verdict Aggregator</text>
+<text x="1225.0" y="507.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">any bad check: bad tick</text>
+<text x="1225.0" y="530.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">INVALID after 4 bad ticks</text>
+<text x="1225.0" y="553.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">VALID after 4 (first) or 8 good</text>
+<text x="1225.0" y="584" text-anchor="middle" fill="#f2859f" font-size="13.5">verdict re-sent every 5 s</text>
+<rect x="1040" y="780" width="370" height="180" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="800" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="837.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Client and Heartbeat</text>
+<text x="1225.0" y="867.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">register: 6 tries, 5 s apart</text>
+<text x="1225.0" y="890.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">heartbeat every 5 s</text>
+<text x="1225.0" y="913.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">no re-register after SEI restart</text>
+<text x="1225.0" y="944" text-anchor="middle" fill="#f2859f" font-size="13.5">one PCM per SEI</text>
+<rect x="1530" y="780" width="370" height="180" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="1550" cy="800" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="859.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Daemon</text>
+<text x="1715.0" y="889.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">CLIENT_PERCEPTION_MONITOR</text>
+<text x="1715.0" y="944" text-anchor="middle" fill="#8db4c8" font-size="13.5">/run/nvpsf/nvpssd</text>
+<path d="M 735.0 240.0 L 735.0 300.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 430.0 390.0 L 550.0 390.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 430.0 630.0 L 550.0 630.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 735.0 780.0 L 735.0 720.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 430.0 870.0 L 550.0 870.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 430.0 820.0 L 490.0 820.0 L 490.0 670.0 L 550.0 670.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 920.0 390.0 L 980.0 390.0 L 980.0 480.0 L 1040.0 480.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 920.0 630.0 L 980.0 630.0 L 980.0 540.0 L 1040.0 540.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1225.0 600.0 L 1225.0 780.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1410.0 870.0 L 1530.0 870.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<rect x="1380.8" y="751" width="178.4" height="21" rx="4" fill="#0a1520"/>
+<text x="1470" y="766" text-anchor="middle" fill="#f2859f" font-size="13.5">pipeline verdict</text>
+<text x="1530" y="100" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">LEARN runs the DVM only, writes</text>
+<text x="1530" y="124" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">pcm_baseline.cfg and does not</text>
+<text x="1530" y="148" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">register with the SEI.</text>
+<text x="1530" y="196" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">Every SDM latches its safe state</text>
+<text x="1530" y="220" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">on AI_PIPELINE_INVALID.</text>
+<text x="1530" y="268" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">A setup problem turns a check off;</text>
+<text x="1530" y="292" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">it never sends INVALID.</text>
+<text x="70" y="1070" fill="#e9eef3" font-size="20" font-weight="700">Legend</text>
+<rect x="70" y="1088" width="30" height="20" rx="4" fill="#1d2550" stroke="#a996f5" stroke-width="2"/>
+<text x="110" y="1104" fill="#9fb4c5" font-size="16">Configuration / state</text>
+<rect x="350" y="1088" width="30" height="20" rx="4" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2"/>
+<text x="390" y="1104" fill="#9fb4c5" font-size="16">External</text>
+<rect x="500" y="1088" width="30" height="20" rx="4" fill="#24222f" stroke="#f2859f" stroke-width="2"/>
+<text x="540" y="1104" fill="#9fb4c5" font-size="16">Safety check</text>
+<rect x="690" y="1088" width="30" height="20" rx="4" fill="#262a30" stroke="#f3a65a" stroke-width="2"/>
+<text x="730" y="1104" fill="#9fb4c5" font-size="16">Transport</text>
+<line x1="850" y1="1098" x2="890" y2="1098" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-config)"/>
+<text x="902" y="1104" fill="#9fb4c5" font-size="16">reads configuration</text>
+<line x1="1120" y1="1098" x2="1160" y2="1098" stroke="#53d6b6" stroke-width="2.6" marker-end="url(#arrow-data)"/>
+<text x="1172" y="1104" fill="#9fb4c5" font-size="16">data flow</text>
+<line x1="1290" y1="1098" x2="1330" y2="1098" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-safety)"/>
+<text x="1342" y="1104" fill="#9fb4c5" font-size="16">validated / safety handoff</text>
+</svg>

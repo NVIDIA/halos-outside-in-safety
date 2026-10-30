@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1010" width="2000" height="1010" font-family="'JetBrains Mono','Fira Code','DejaVu Sans Mono','Liberation Mono',monospace" role="img" aria-label="SAIM (safety_monitor): per-camera RTSP intake, NVDEC decode, frame scoring against the learned baseline, debounced verdicts and the SEI client">
+<title>SAIM (safety_monitor): per-camera RTSP intake, NVDEC decode, frame scoring against the learned baseline, debounced verdicts and the SEI client</title>
+<defs>
+<pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#14212d"/></pattern>
+<marker id="arrow-data" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#53d6b6"/></marker>
+<marker id="arrow-safety" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#f2859f"/></marker>
+<marker id="arrow-plain" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#7f9aad"/></marker>
+<marker id="arrow-config" viewBox="0 0 12 12" refX="10.5" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0 0 L12 6 L0 12 z" fill="#a996f5"/></marker>
+</defs>
+<rect width="2000" height="1010" fill="#0a1520"/>
+<rect width="2000" height="1010" fill="url(#grid)"/>
+<rect x="510" y="20" width="1460" height="820" rx="16" fill="#111a24" fill-opacity="0.55" stroke="#e3c34f" stroke-width="2" stroke-dasharray="14 6 3 6"/>
+<rect x="518" y="29" width="532.4" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="525" y="49" fill="#e3c34f" font-size="16" font-weight="700">SAIM process (safety_monitor), one pipeline per camera</text>
+<rect x="1020" y="315" width="930" height="495" rx="16" fill="none" fill-opacity="0.55" stroke="#f2859f" stroke-width="2" stroke-dasharray="10 7"/>
+<rect x="1028" y="773" width="254.0" height="28" rx="4" fill="#0a1520" fill-opacity="0.85"/>
+<text x="1035" y="793" fill="#f2859f" font-size="16" font-weight="700">Per-camera trust decision</text>
+<rect x="60" y="80" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="100" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="133.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Camera Streams</text>
+<text x="245.0" y="163.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">RTSP, usually the VST proxy</text>
+<text x="245.0" y="186.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">H.264 only</text>
+<text x="245.0" y="214" text-anchor="middle" fill="#8db4c8" font-size="13.5">no authentication</text>
+<rect x="550" y="80" width="370" height="150" rx="10" fill="#262a30" stroke="#f3a65a" stroke-width="2.5"/>
+<circle cx="570" cy="100" r="5" fill="none" stroke="#f3a65a" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="133.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">RTSP Client</text>
+<text x="735.0" y="163.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">TCP control, RTP/UDP media</text>
+<text x="735.0" y="186.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">ACTIVE: retry every 5 s, no limit</text>
+<text x="735.0" y="214" text-anchor="middle" fill="#f3a65a" font-size="13.5">over 5 s without packets ends a session</text>
+<rect x="1040" y="80" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="1060" cy="100" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="139.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">NVDEC Decoder</text>
+<text x="1225.0" y="169.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">H.264 on the GPU</text>
+<text x="1225.0" y="192.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">frames before the first IDR dropped</text>
+<rect x="1530" y="80" width="370" height="150" rx="10" fill="#11313a" stroke="#53d6b6" stroke-width="2.5"/>
+<circle cx="1550" cy="100" r="5" fill="none" stroke="#53d6b6" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="133.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Frame Analyzer</text>
+<text x="1715.0" y="163.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">12 frame metrics + 15x15 tile sums</text>
+<text x="1715.0" y="186.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">GPU (x86-64) or PVA (aarch64)</text>
+<text x="1715.0" y="214" text-anchor="middle" fill="#53d6b6" font-size="13.5">1920x1080 or 3840x2160 only</text>
+<rect x="60" y="340" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="80" cy="360" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="393.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Sensor Config</text>
+<text x="245.0" y="423.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">sensor_config.conf</text>
+<text x="245.0" y="446.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">pipelineId, sensorName, rtspUrl</text>
+<text x="245.0" y="474" text-anchor="middle" fill="#a996f5" font-size="13.5">--sensor-config</text>
+<rect x="1040" y="340" width="370" height="150" rx="10" fill="#1d2550" stroke="#a996f5" stroke-width="2.5"/>
+<circle cx="1060" cy="360" r="5" fill="none" stroke="#a996f5" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="393.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Baselines and Thresholds</text>
+<text x="1225.0" y="423.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">&lt;sensor&gt;_baseline.cfg or .cfg.default</text>
+<text x="1225.0" y="446.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">with tile profile; thresholds.cfg</text>
+<text x="1225.0" y="474" text-anchor="middle" fill="#a996f5" font-size="13.5">LEARN writes the baselines</text>
+<rect x="1530" y="340" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1550" cy="360" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="393.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Frame Scorer (CPU)</text>
+<text x="1715.0" y="423.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">lowest of luma, colour, area</text>
+<text x="1715.0" y="446.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">tile vote; area alarm at 2.5%</text>
+<text x="1715.0" y="474" text-anchor="middle" fill="#f2859f" font-size="13.5">below 45 bad, above 55 good</text>
+<rect x="60" y="600" width="370" height="150" rx="10" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2.5"/>
+<circle cx="80" cy="620" r="5" fill="none" stroke="#8db4c8" stroke-width="1.5" opacity="0.8"/>
+<text x="245.0" y="664.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Daemon</text>
+<text x="245.0" y="694.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">CLIENT_SAFETY_MONITOR</text>
+<text x="245.0" y="734" text-anchor="middle" fill="#8db4c8" font-size="13.5">/run/nvpsf/nvpssd</text>
+<rect x="550" y="600" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="570" cy="620" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="735.0" y="653.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">SEI Client and Heartbeat</text>
+<text x="735.0" y="683.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">register: 6 tries, 5 s apart</text>
+<text x="735.0" y="706.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">heartbeat every 5 s</text>
+<text x="735.0" y="734" text-anchor="middle" fill="#f2859f" font-size="13.5">ACTIVE only; one SAIM per SEI</text>
+<rect x="1040" y="600" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1060" cy="620" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1225.0" y="653.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Verdict Reporter</text>
+<text x="1225.0" y="683.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">SENSOR_INVALID or VALID + cause</text>
+<text x="1225.0" y="706.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">every verdict re-sent every 30 s</text>
+<text x="1225.0" y="734" text-anchor="middle" fill="#f2859f" font-size="13.5">every camera starts at SAIM_INIT</text>
+<rect x="1530" y="600" width="370" height="150" rx="10" fill="#24222f" stroke="#f2859f" stroke-width="2.5"/>
+<circle cx="1550" cy="620" r="5" fill="none" stroke="#f2859f" stroke-width="1.5" opacity="0.8"/>
+<text x="1715.0" y="653.0" text-anchor="middle" fill="#e9eef3" font-size="21" font-weight="700">Debounce Counter</text>
+<text x="1715.0" y="683.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">0 to 225 per camera</text>
+<text x="1715.0" y="706.0" text-anchor="middle" fill="#9fb4c5" font-size="15.5">INVALID at 225, VALID at 0</text>
+<text x="1715.0" y="734" text-anchor="middle" fill="#f2859f" font-size="13.5">starts at 225: untrusted</text>
+<path d="M 430.0 155.0 L 550.0 155.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 920.0 155.0 L 1040.0 155.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1410.0 155.0 L 1530.0 155.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1715.0 230.0 L 1715.0 340.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1715.0 490.0 L 1715.0 600.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1530.0 675.0 L 1410.0 675.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 1040.0 675.0 L 920.0 675.0" fill="none" stroke="#53d6b6" stroke-width="2.6" stroke-linejoin="round" marker-end="url(#arrow-data)"/>
+<path d="M 550.0 675.0 L 430.0 675.0" fill="none" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-safety)"/>
+<rect x="442.4" y="645" width="95.2" height="21" rx="4" fill="#0a1520"/>
+<text x="490" y="660" text-anchor="middle" fill="#f2859f" font-size="13.5">verdicts</text>
+<path d="M 430.0 415.0 L 735.0 415.0 L 735.0 230.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<path d="M 1410.0 415.0 L 1530.0 415.0" fill="none" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" stroke-linejoin="round" marker-end="url(#arrow-config)"/>
+<text x="60" y="880" text-anchor="start" fill="#9fb4c5" font-size="15" font-weight="400">LEARN reads each camera for --learn-duration seconds, writes &lt;sensor&gt;_baseline.cfg and does not register with the SEI.</text>
+<text x="70" y="940" fill="#e9eef3" font-size="20" font-weight="700">Legend</text>
+<rect x="70" y="958" width="30" height="20" rx="4" fill="#1a2c3b" stroke="#8db4c8" stroke-width="2"/>
+<text x="110" y="974" fill="#9fb4c5" font-size="16">External</text>
+<rect x="220" y="958" width="30" height="20" rx="4" fill="#262a30" stroke="#f3a65a" stroke-width="2"/>
+<text x="260" y="974" fill="#9fb4c5" font-size="16">Transport</text>
+<rect x="380" y="958" width="30" height="20" rx="4" fill="#11313a" stroke="#53d6b6" stroke-width="2"/>
+<text x="420" y="974" fill="#9fb4c5" font-size="16">Backend</text>
+<rect x="520" y="958" width="30" height="20" rx="4" fill="#1d2550" stroke="#a996f5" stroke-width="2"/>
+<text x="560" y="974" fill="#9fb4c5" font-size="16">Configuration / state</text>
+<rect x="800" y="958" width="30" height="20" rx="4" fill="#24222f" stroke="#f2859f" stroke-width="2"/>
+<text x="840" y="974" fill="#9fb4c5" font-size="16">Safety check</text>
+<line x1="990" y1="968" x2="1030" y2="968" stroke="#53d6b6" stroke-width="2.6" marker-end="url(#arrow-data)"/>
+<text x="1042" y="974" fill="#9fb4c5" font-size="16">data flow</text>
+<line x1="1160" y1="968" x2="1200" y2="968" stroke="#f2859f" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-safety)"/>
+<text x="1212" y="974" fill="#9fb4c5" font-size="16">validated / safety handoff</text>
+<line x1="1500" y1="968" x2="1540" y2="968" stroke="#a996f5" stroke-width="2.6" stroke-dasharray="9 7" marker-end="url(#arrow-config)"/>
+<text x="1552" y="974" fill="#9fb4c5" font-size="16">reads configuration</text>
+</svg>

@@ -1,6 +1,6 @@
 ---
 title: "Prerequisites"
-description: ""
+description: "Hardware, software and access requirements for every Halos Outside-In Safety bring-up."
 ---
 Hardware, software, and access requirements for every Halos Outside-In Safety
 bring-up, gathered in one place. Work through this page once before you start:
@@ -46,8 +46,7 @@ profile:
 | IGX-THOR | 7 | 1 |
 | DGX-SPARK | 7 | 1 |
 
-For the full list, see [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html) and the
-[Warehouse Quickstart](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Quickstart-Guide.html).
+For the full list, see [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) and the [Warehouse Quickstart](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart).
 
 ### Closed-loop host
 
@@ -146,9 +145,7 @@ succeeds, so the failure surfaces only at the pull. Pin to 28.3.3 if needed.
 
 ## Runtime environment settings
 
-The VSS Blueprint expects a set of host settings that are not defaults. Follow
-[VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html) for the
-commands; the checklist below is only so you can confirm nothing was skipped.
+The VSS Blueprint expects a set of host settings that are not defaults. Follow [VSS Warehouse Blueprint Prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for the commands; the checklist below is only so you can confirm nothing was skipped.
 
 | Setting | Applies to | VSS section |
 | --- | --- | --- |
@@ -188,14 +185,13 @@ If you use the VSS Agent, Kibana or Phoenix UIs, they are served on TCP port
 The Safety Core container image, the Debian packages, and the SIL data tarball
 are published under `nvidia/halos-outside-in` and need no entitlement or
 enrollment. Pulling them still requires a signed-in account: sign in at
-https://ngc.nvidia.com with any NVIDIA account, accept the terms on the [Halos Outside-In Safety resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety)
+https://ngc.nvidia.com with any NVIDIA account, accept the terms on the [Halos Outside-In Safety resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/halos-outside-in/containers/outside-in-safety)
 when prompted, and authenticate Docker with an API key.
 
 <Note>
-One package is still gated: the FSI firmware under
-`nvidia/outside-in-safety`, which is only needed to run the Safety Decision
-Maker on the Functional Safety Island. Everything the `base`, `sil`, and
-`hil` profiles use is public.
+One package is still gated: the FSI firmware package, `psf-tegra-fsi`, which
+is only needed to run the Safety Decision Maker on the Functional Safety
+Island. Everything the `base`, `sil`, and `hil` profiles use is public.
 </Note>
 
 Create an NGC API key at https://ngc.nvidia.com → Account → Setup → API Keys →
@@ -216,9 +212,10 @@ starting a deployment:
 ```bash
 export NGC_CLI_API_KEY='<NGC API key>'
 
-ngc registry resource list "nvidia/vss-warehouse/*"
-ngc registry resource list "nvidia/vss-core/*"
-ngc registry image list "nvidia/vss-core/*"
+# The VSS 3.3.0 sample data
+ngc registry resource info \
+  "nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0" \
+  --org nvidia --team vss-warehouse
 ```
 
 <Note>
@@ -230,18 +227,20 @@ was generated against. Regenerate the key with the intended org selected.
 ### Docker authentication
 
 Docker must be authenticated to `nvcr.io` or protected image pulls fail with
-`401 Unauthorized`. NGC CLI authentication alone is not enough.
+`401 Unauthorized`. NGC CLI authentication alone is not enough. The login covers
+the Safety Core image and the VSS 3.3.0 images in `nvcr.io/nvidia/vss-core`.
 
 ```bash
-export PSF_IMAGE=nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.3-6932895
-
-docker login nvcr.io
-# Username: $oauthtoken
+docker login nvcr.io --username '$oauthtoken'
 # Password: <NGC API key>
-
-# Validate Docker registry access before deployment.
-docker pull "${PSF_IMAGE}"
 ```
+
+To pull the Safety Core image and confirm access, see
+[Docker login and image pull](/deployment/prerequisites#docker-login) in the Deployment Guide.
+
+<Note>
+The 1.4 `sil` and `base` configurations need the PSF 1.4 Safety Core image, `nv-psf-halos-1.4-6b92731`, which `sil.env` and `base.env` pin: its launcher starts every decision maker from its own event-binding configuration. The 1.3 image does not run these configurations.
+</Note>
 
 ### NGC CLI authentication
 
@@ -255,17 +254,8 @@ ngc config set
 ## Perception and calibration
 
 The Safety Core consumes perception events, so the perception stack has to be
-up and correctly calibrated before it starts:
-
-- VSS stack containers (analytics, UI, recorders, and so on) are running and
-  reachable.
-- The calibration file for the monitored region is deployed and includes
-  `"restrictedObjectTypes":["Person"]` for the ROIs, where relevant.
-- For dual-camera configurations, all camera streams are synchronized and named
-  accurately.
-
-See [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the
-[Deployment Guide](/deployment).
+up, publishing on Kafka and correctly calibrated before the Safety Core starts. The checks start
+at [AI Perception is running](/deployment/prerequisites#ai-perception) in the Deployment Guide.
 
 ## Per-profile additions
 
@@ -273,8 +263,8 @@ See [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the
 
 [SIL — 3D Perception](/testing/sil/sil-3d) assumes familiarity with:
 
-- [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-profile.html)
-- [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/3D-multi-camera-detection-and-tracking-Sparse4D.html)
+- [VSS Warehouse Blueprint - 3D Vision AI Profile](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3-d-vision-ai-profile)
+- [Sparse4D 3D multi-camera detection](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3-d-multi-camera-detection-and-tracking-sparse-4-d)
 
 ### Agentic deployment
 

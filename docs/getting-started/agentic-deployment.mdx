@@ -17,7 +17,7 @@ The skill ships **in the repo you cloned**, at `skills/hoisa-deploy-profile/`. I
 The `base` data path:
 
 ```text
-VSS Warehouse 3.2.1 (perception)
+VSS Warehouse 3.3 (perception)
   -> Kafka (mdx-events)
     -> Safety Core (MUTE / UNMUTE)
       -> UDP 64-byte packet (port 12345)
@@ -30,18 +30,18 @@ VSS Warehouse 3.2.1 (perception)
 - The Halos Outside-In Safety repo cloned on the host.
 - An NGC API key. `nvidia/halos-outside-in` is public — it carries the PSF image and the sil-data tarball for `sil` — but the pull still needs an authenticated account.
 - Docker 28.3.3 or later but below 29.5.0, with Compose. Docker Engine 29.5.0 and later breaks NGC image pulls, so pin to 28.3.3 if needed.
-- Hardware depends on the profile: `base` follows the [VSS Warehouse hardware requirements](https://docs.nvidia.com/vss/3.2.1/warehouse-docs/Prerequisites.html), with no RT-core GPU needed since there is no Isaac Sim, `sil` adds an Isaac Sim GPU, and `hil` adds an IGX Thor safety host (see [Prerequisites](/getting-started/prerequisites)).
-- The VSS calibration must include the monitored ROIs (see [Safety Core prerequisites](/deployment#safety-core-prerequisites) in the [Deployment Guide ](/deployment)).
+- Hardware depends on the profile: `base` follows the [VSS Warehouse hardware requirements](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites), with no RT-core GPU needed since there is no Isaac Sim, `sil` adds an Isaac Sim GPU, and `hil` adds an IGX Thor safety host (see [Prerequisites](/getting-started/prerequisites)).
+- The VSS calibration must include the monitored ROIs (see [Prerequisites](/deployment/prerequisites) in the Deployment Guide).
 
 Log in to NGC and clone the repository:
 
 ```bash
 docker login nvcr.io -u '$oauthtoken' -p "$NGC_CLI_API_KEY"
-git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.4.0
 cd halos-outside-in-safety
 ```
 
-The perception backend is deployed first, either by the `vss-deploy-profile` skill on the agentic route or by you, from the public [VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization). Use the VSS Warehouse 3.2.1 2D Vision AI profile, with Kafka enabled.
+The perception backend is deployed first, either by the VSS repository's `vss-build-vision-ai` skill (warehouse profile) on the agentic route or by you, from the public [VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) (see [Deploy AI Perception](/getting-started/inference-pipeline)). Use VSS Warehouse 3.3.0 (GitHub release `v3.3.0`), 2D Vision AI profile, with Kafka enabled; `hoisa-deploy-profile` gives the answers the skill needs for Halos.
 
 ## Install (recommended: ask your coding agent)
 
@@ -54,12 +54,13 @@ for this host by symlinking its folder into the host's skills directory:
   - Codex:          ~/.codex/skills/<name>/
   - agentskills.io: ~/.agents/skills/<name>/
 Symlink the folder rather than copying it, so a git pull here keeps installs
-current. Also install the vss-deploy-profile skill from the VSS Blueprint
-repository; the perception backend is deployed first. When done, list the
-skills you registered and the directory you used.
+current. Also install the vss-build-vision-ai skill from the VSS Blueprint
+repository at v3.3.0 (skills/vss-build-vision-ai); the perception backend
+is deployed first. When done, list the skills you registered and the
+directory you used.
 ```
 
-Verify with `/skills` in your agent: `hoisa-deploy-profile` (and `vss-deploy-profile`) should be listed.
+Verify with `/skills` in your agent: `hoisa-deploy-profile` and `vss-build-vision-ai` should be listed.
 
 <Note>
 Prefer to do it by hand? Symlink the skill into your agent's skills directory yourself, using the absolute path to your checkout (`ln -s` resolves the target from the link's directory, not your current directory). Substitute the skills directory your agent reads, such as `~/.claude/skills`, `~/.codex/skills`, or `~/.agents/skills`:
@@ -82,7 +83,7 @@ Ask your agent in natural language. Pick the profile you want.
 
 ```text
 Deploy the Halos Outside-In Safety base profile on this machine: bring up VSS
-Warehouse 3.2.1 as the perception backend, deploy the base profile, and confirm
+Warehouse 3.3 as the perception backend, deploy the base profile, and confirm
 the halo_safety overlay reacts.
 ```
 
@@ -90,18 +91,17 @@ the halo_safety overlay reacts.
 
 ```text
 Deploy the Halos Outside-In Safety sil profile on this machine: set up the VSS
-Warehouse 3.2.1 perception backend, deploy the closed-loop stack, run the test
+Warehouse 3.3 perception backend, deploy the closed-loop stack, run the test
 scenario, and show me the safety command output.
 ```
 
-`sil` on the 3D backend — same Halos stack, different perception. Say so, because the
-model and the calibration change with it:
+`sil` on the 3D backend — same Halos stack, different perception. Say so, because the perception app and the Safety Core's 3D configuration change with it:
 
 ```text
 Deploy the Halos Outside-In Safety sil profile with the 3D perception backend:
-set up VSS Warehouse 3.2.1 with the Sparse4D 3D profile including the R101 model
-and the 3-camera BEV calibration, deploy the closed-loop stack, run the test
-scenario, and show me the safety command output.
+set up VSS Warehouse 3.3 with the Sparse4D 3D app, deploy the closed-loop stack
+with the 3D Safety Core configuration, run the test scenario, and show me the
+safety command output.
 ```
 
 `hil` (two-host closed loop, Safety Core on IGX Thor):
@@ -113,7 +113,7 @@ and the Safety Core on the IGX Thor, and show me the safety command output on th
 communication layer.
 ```
 
-On an IGX Thor the `base` prompt is unchanged: the skill detects the platform and brings the Safety Core up through its launch script rather than Docker Compose, with the decision maker on the CCPLEX.
+On an IGX Thor the `base` prompt is unchanged: the skill detects the platform and brings the Safety Core up through its launch script rather than Docker Compose, with the decision maker on the CCPLEX. The IGX Thor profiles (`hil`, `base` on Thor) still run VSS Warehouse 3.2.1 and the PSF 1.3 Thor package; they have not been run on VSS 3.3.
 
 Deployment is long-running (NGC image pulls, the perception TensorRT engine build, and for `sil` the Isaac Sim shader compile), so use a high-context model at maximum effort. The agent pauses for host-level input it cannot do for you: `sudo` / system installs, the NGC API key, and the GPU / profile choice. If it has been silent for more than two minutes, scroll up; there is a question waiting.
 
@@ -137,7 +137,7 @@ This port must match `COMM_UDP_PORT` (x86) or `PSF_CMD_RX_PORT` (Thor) in the pr
 
 ### Deploy on x86
 
-Fill `deployments/profiles/base.env` (`HOST_IP`, `MDX_DATA_DIR`, `DOCKER_GID`; `PSF_IMAGE` and `COMM_UDP_PORT` are pre-set), then create the log directory and start the one service:
+Fill `deployments/profiles/base.env` (`HOST_IP`, `MDX_DATA_DIR`, `DOCKER_GID`; `PSF_IMAGE`, the PSF 1.4 Safety Core image, and `COMM_UDP_PORT` are pre-set), then create the log directory and start the one service:
 
 ```bash
 cd deployments
@@ -159,23 +159,23 @@ ngc registry resource download-version "$PSF_TEGRA_RESOURCE"
 sudo dpkg -i */psf-tegra.deb
 ```
 
-Point the Safety Core at this host's VST streams by filling `sensor_config_thor.conf`. Its format is described in [Create the sensor configuration file](/deployment#sensor-configuration-file) in the [Deployment Guide ](/deployment). Then launch:
+Point the Safety Core at this host's VST streams by filling `sensor_config_thor.conf`. Its format is described in [Sensor files](/reference/sensor-files#sensor_config). Then launch:
 
 ```bash
 bash closed-loop-testing/scripts/launch_thor_safety.sh base-thor
 ```
 
-`launch_thor_safety.sh` reads `base-thor.env` and invokes `launch_hoisa.sh` with the matching flags. For the `launch_hoisa.sh` modes and flags, see [Quick Start with launch_hoisa.sh](/deployment#launch-hoisa-quickstart) in the [Deployment Guide ](/deployment).
+`launch_thor_safety.sh` reads `base-thor.env` and invokes `launch_hoisa.sh` with the matching flags. For the `launch_hoisa.sh` modes and flags, see [`launch_hoisa.sh`](/reference/launcher#launch_hoisa-options) in the Reference.
 
-To run the decision-maker on the FSI instead, set `SDM_TARGET=fsi` in `base-thor.env`. The one-time FSI firmware reflash and the `nvFsiCom` bridge are described in [Option C: SDM on FSI](/deployment#sdm-on-fsi) in the [Deployment Guide ](/deployment).
+To run the decision-maker on the FSI instead, set `SDM_TARGET=fsi` in `base-thor.env`. The one-time FSI firmware reflash and the `nvFsiCom` bridge are described in [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi) in the Deployment Guide.
 
 ### Verify
 
-Open the VST UI at `http://<HOST_IP>:30888/vst/` and confirm the `halo_safety` overlay reacts to the feed: "Standard Mode" when safety is active and "Efficient Mode" when loading is allowed, with a proximity bubble around the forklift. The Safety Core logs each decision: on x86 (compose) at `$MDX_DATA_DIR/psf-log/pss.log`; on IGX Thor (host binaries) under `/var/log/psf/`, see [Deployment Guide](/deployment#safety-core-logs) in the [Deployment Guide ](/deployment).
+Open the VST UI at `http://<HOST_IP>:30888/vst/` and confirm the `halo_safety` overlay reacts to the feed: "Standard Mode" when safety is active and "Efficient Mode" when loading is allowed, with a proximity bubble around the forklift. The Safety Core logs each decision: on x86 (compose) at `$MDX_DATA_DIR/psf-log/pss.log`; on IGX Thor (host binaries) under `/var/log/psf/`, see [Logs](/deployment/troubleshooting#logs) in the Deployment Guide.
 
 ### Troubleshooting
 
-See [Deployment Guide](/deployment#safety-core-troubleshooting) in the [Deployment Guide ](/deployment).
+See [Troubleshooting](/deployment/troubleshooting) in the Deployment Guide.
 
 ## Next Steps
 

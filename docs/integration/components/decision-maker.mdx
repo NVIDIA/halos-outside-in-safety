@@ -1,44 +1,356 @@
 ---
 title: "Safety Decision Maker (SDM)"
-description: ""
+description: "The reference decision makers shipped with Safety Core, their configuration and command packets, the command receivers, and running an SDM on the FSI."
 ---
-SDM receives **safety events** identified and fused by SEI, then produces
-**actionable control signals**. It may also incorporate additional inputs —
-hardware or software error signals, supplementary sensors — to refine decisions.
+A Safety Decision Maker (SDM) receives `DecisionRequest`s from the
+[NvPSD Gateway](/integration/components/gateway) and turns them into commands for the machine it
+protects. It sends each command as a 64-byte UDP packet to a command endpoint: a PLC, a
+controller, or one of the reference command receivers. When it detects a fault in the safety
+path, it latches a safe state that only an operator can release.
 
-SDM logic is deployment-specific; integrators implement their own behavior.
-The HOISA framework provides:
+SDM logic depends on the use case. Safety Core ships reference SDMs for two use cases. To write
+your own, follow [Writing a decision maker](/integration/writing-a-decision-maker). The latch
+causes and the release handshake are described in
+[Safe-state model](/integration/safe-state-model).
 
-- **NvPSD Gateway** — a UDP-based gateway through which the SDM registers for
-  safety event types and receives fused `DecisionRequest` messages from the SEI
-- **Reference implementations** — forklift ATL and Proximity Monitoring use-cases
+The diagram shows the structure of a reference SDM on the CCPLEX. The forklift safety function
+(`atl_sdm`) is shown; the other reference SDMs share the structure.
 
-## Deployment placement
+![CCPLEX SDM process: gateway client, envelope validator, decision dispatcher, liveness monitors, fault causes, lockout latch, release validator and output arbiter](/assets/images/safety-core/ccplex-sdm.svg)
 
-The SDM can run in either of two places, and the choice does not change the
-decision logic or the command protocol:
+## Reference decision makers
 
-- **On the CCPLEX**, as the `atl_sdm` or `proximity_sdm` process. It talks
-  to the NvPSD Gateway directly and sends decisions to the command receiver
-  itself.
-- **On the FSI**, in the hardware-isolated island of an IGX Thor platform. The
-  CCPLEX SDM binary is not started; `fsicom-agent` bridges the FSI-hosted SDM
-  to the NvPSD Gateway and relays the decisions coming back from the island to
-  the command receiver. This mode requires the FSI firmware from
-  `psf-tegra-fsi` and the platform `nvFsiCom` daemon.
+| Binary | Use case | Commands | Packet identifier | Configuration |
+| --- | --- | --- | --- | --- |
+| `atl_sdm` | Forklift safety function | Mute or unmute the forklift's safety function | `0xA2` | `--config`, required |
+| `proximity_sdm` | Proximity Monitoring | Normal, reduce speed or stop, per machine–person pair | `0xA5` | `--config`, required |
+| `atl_proximity_sdm` | Forklift–person proximity, run beside `atl_sdm` | Normal, reduce speed or stop | `0xA5` | None; fixed bindings |
 
-Two differences are visible to an integrator in FSI mode. The decision packet
-timestamp is left at zero rather than filled in, so receivers log
-`UTC epoch: 0.000000`; and SDM logs appear on the FSI UART shell rather than
-in the CCPLEX log files. Command opcodes, sequence numbers, acknowledgements,
-and the safe-release handshake are identical in both placements.
+The Debian package installs each SDM with its command receiver under `/opt/nvidia/psf/apps/atl/`,
+`/opt/nvidia/psf/apps/proximity/` and `/opt/nvidia/psf/apps/atl_proximity/`. The configuration
+templates are `/opt/nvidia/psf/bin/atl_sdm_zone1.conf.sample`, `atl_sdm_zone2.conf.sample`,
+`pxc_sdm_forklift.conf.sample` and `pxc_sdm_robots.conf.sample`. The source of the SDMs and the
+receivers is in the development package; see [Install](/integration/install).
 
-<Info>
-- Application development and SDM integration guide:
-  [Integration Guide](/integration) Section 4
-- Deployment and launch instructions:
-  [Deployment Guide](/deployment) Sections 2.2 and 2.3
-- Clearing a latched safe state: [Clearing a Latched Safe State](/deployment#safe-release)
-- `fsicom-agent` options and startup output:
-  [Deployment guide, SDM on FSI](/deployment#fsicom-agent-options)
-</Info>
+### Running several SDMs
+
+Up to 10 SDMs can register with one gateway. Each has its own subscription, command port,
+configuration and log, and each latches and is released on its own.
+
+| Launcher | `--app` values |
+| --- | --- |
+| `launch_hoisa.sh` | `atl`, `pxc`, `atl,atl`, `atl,pxc`, `pxc,atl`, `pxc,pxc`, `atl_dual` |
+| Container entrypoint | The same, plus `atl_proximity` |
+
+- Give one configuration (`--sdm-config`) and one command port (`--cmd-rx-port`) per SDM, in
+  `--app` order. Two SDMs need different ports, and their configurations must not bind the same
+  event. `atl_dual` runs two `atl_sdm`s for two zones.
+- `launch_hoisa.sh` starts the SDMs on the host. The container entrypoint starts them inside
+  the container, unless it is given `--sdm-external`. Both pass `--decision_interval_ms 0`,
+  `--hb_stale_ms 5000` and `--hb_period_ms 5500`, and write each SDM's log to `/var/log/psf/`
+  (`atl_sdm.log`, `pxc_sdm.log`, or per-zone names for two SDMs of one type).
+- Multiple SDMs, `atl_dual` and `atl_proximity` run on the CCPLEX only.
+
+All launcher options are in [Launcher](/reference/launcher). The runner steps are in
+[Custom deployment](/deployment/custom-deployment#multiple-decision-makers).
+
+## Behaviour common to the CCPLEX SDMs
+
+| Item | Behaviour |
+| --- | --- |
+| Gateway link | `/run/nvpsf/nvpsd_gateway`. The SDM must run with the gateway's primary group; see [Shared process group](/integration#shared-process-group). If the gateway is not up, the SDM waits; a lost link is retried every 500 ms. |
+| Registration | At start, on reconnect, and every 30 s after. A refusal is logged as `SDM: the gateway refused this SDM's registration; reason=<reason>`. |
+| Request checks | Each request's envelope, sequence and content are validated. A sequence gap latches the safe state. |
+| Ignored events | Stale events, events marked unhealthy or untrusted, and sensor health events are logged and not used for decisions. |
+| Decision freshness | If no valid request, including a status no-op, arrives for `--decision_freshness_timeout_ms` (default 7000), the SDM latches. The timer starts at launch. |
+| Gateway heartbeat | The SDM answers the gateway's heartbeats and watches them. With the defaults it holds the safe state after about 32.5 s without one and latches at about 54.5 s. |
+| Reviewed sensor set | Read at startup from `--sensor_pipelines_config` (default `/opt/nvidia/psf/bin/sensor_pipelines_config.conf`). A missing or malformed file stops the SDM. When every sensor in the set has failed, the SDM latches. See [Sensor files](/reference/sensor-files#sensor_pipelines_config). |
+| Other latch causes | `SW_FAIL` of any cause (`atl_sdm` skips a stale one), SEI in `ERROR` mode, a lost or never-registered source, and `AI_PIPELINE_INVALID`. |
+| Command link | UDP from an ephemeral local port to `--cmd_rx_ip`:`--cmd_rx_port`. A `CMD_HEARTBEAT` goes out every 5 s. A command not acknowledged within 3 s is logged as a warning; no other action follows. Packets from any other endpoint, or with the wrong identifier or CRC, are dropped. |
+| Safe-release | Accepted only from the command endpoint, and denied while any latch cause is still active. |
+| Log | `--log_file`, relative to the working directory. Messages also go to the console. |
+
+### Command line
+
+`atl_sdm` and `proximity_sdm` take the same options, plus the Proximity Monitoring halo
+options. Each option takes its value as a separate argument.
+
+| Option | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| `--config <path>` | — | — | Event binding. Required. |
+| `--log_file <path>` | `atl_sdm.log`, `pxc_sdm.log` | — | Log file. |
+| `--cmd_rx_ip <IPv4>` | `127.0.0.1` | — | Command endpoint address. |
+| `--cmd_rx_port <port>` | `12345` | 1–65535 | Command endpoint port. |
+| `--max_hb_failures <N>` | `10` | 1–255 | Gateway heartbeat misses before the latch. |
+| `--decision_interval_ms <ms>` | `5000` | 0, or 100–36000 | Re-send the current command periodically. `0` turns it off; the launchers pass `0`. |
+| `--hb_stale_ms <ms>` | `5000` | 100–600000 | Time without a gateway heartbeat before the first miss. |
+| `--hb_period_ms <ms>` | `5500` | 100–600000 | Time per further miss. |
+| `--decision_freshness_timeout_ms <ms>` | `7000` | 50–300000 | Decision freshness timeout. |
+| `--sensor_pipelines_config <path>` | see above | — | Reviewed sensor set. |
+| `--halo_ip <IP>`, `--halo_port <port>` | off, `12346` | — | `proximity_sdm` only. See [Safety User Interface](/integration/components/user-interface#proximity-monitoring-halo-overlay). |
+
+A missing `--config` prints `error: --config is required` and exits 1. Other bad values print
+an error and exit with a non-zero status. `atl_sdm` treats the retired gateway options
+(`--gateway_ip`, `--gateway_port`, `--gateway_transport`) as unknown and exits 1;
+`proximity_sdm` accepts `--gateway_ip` and `--gateway_port` and ignores them.
+
+## Command packet
+
+Every command and every acknowledgement is a packed 64-byte UDP packet. Multi-byte fields are in
+the host's byte order.
+
+| Bytes | Field | Type |
+| --- | --- | --- |
+| 0 | Identifier: `0xA2` (forklift safety function) or `0xA5` (Proximity Monitoring) | `uint8` |
+| 1–2 | Sequence number, shared by every command the SDM sends, wraps at 65535 | `uint16` |
+| 3 | Command opcode | `uint8` |
+| 4–11 | UTC time, seconds since the epoch. `0` from an SDM on the FSI. | `uint64` |
+| 12–19 | UTC time, microseconds part. `0` from an SDM on the FSI. | `uint64` |
+| 20–23 | CRC-32 over bytes 0–19 and 24–63 | `uint32` |
+| 24–43 | Object record 0 | 20 bytes |
+| 44–63 | Object record 1 | 20 bytes |
+
+An object record holds `object_id` (`uint32`), `x`, `y`, `z` (`float`) and `metadata`
+(`uint32`, the object type). The CRC is CRC-32 with the reflected polynomial `0xEDB88320`,
+initial value `0xFFFFFFFF` and final XOR `0xFFFFFFFF`. The headers `atl_cmd_pkt.h` and
+`proximity_cmd_pkt.h` in the development package define the packet and the CRC.
+
+The reference receivers answer each command except `CMD_HEARTBEAT` with an acknowledgement:
+the same sequence number and opcode, their own timestamp, the same object records and a new CRC.
+The SDM logs a warning for a command that is not acknowledged within 3 s.
+
+## Forklift safety function (`atl_sdm`)
+
+A forklift loads and unloads pallets in a trailer. Its safety function may be turned off
+(muted) only while the forklift is inside the trailer, nobody is in the trailer, and nobody is
+in the restricted ROI at the trailer gate. In every other case the safety function stays on. The
+scenario is described in [Applications](/deployment/applications#forklift-safety-function).
+
+**State.** `atl_sdm` keeps three values, set by six bound events:
+
+| Config key | Effect | Shipped `atl_sdm_zone1.conf` | Shipped mapping rule |
+| --- | --- | --- | --- |
+| `forklift_entered` | Forklift is in the trailer | `EVENT_0` | Forklift crosses the tripwire, `OUT` |
+| `forklift_exited` | Forklift is not in the trailer | `EVENT_1` | Forklift crosses the tripwire, `IN` |
+| `person_entered` | Person count + 1 | `EVENT_2` | Person crosses the tripwire, `OUT` |
+| `person_exited` | Person count − 1 | `EVENT_3` | Person crosses the tripwire, `IN` |
+| `roi_violation` | Restricted-area violation set | `EVENT_4` | Person in the restricted ROI |
+| `roi_cleared` | Restricted-area violation cleared | `EVENT_5` | Restricted ROI clear |
+
+The mapping rules are in the shipped `event_mapping_atl.pb.txt`; see
+[Event mapping configuration](/reference/event-mapping-configuration). The second zone template,
+`atl_sdm_zone2.conf`, binds `EVENT_6` to `EVENT_11`.
+
+**Decision.** On every change of state, `atl_sdm` sends:
+
+- `CMD_MUTE` when the forklift is in the trailer, the person count is 0 and there is no
+  restricted-area violation;
+- `CMD_UNMUTE` otherwise.
+
+A person count that would exceed 10000, or a person exit while the count is 0, latches the safe
+state. The safe hold is `CMD_UNMUTE` followed by `CMD_SW_ERROR`. It is sent when the latch is
+entered and in place of every later decision while the latch is held. An accepted release resets
+the forklift, person and ROI state.
+
+**Configuration file.** The file has exactly the six keys above, each set once, as
+`key = value`. `#` starts a comment, also after a value. Each value is an event from `EVENT_0` to
+`EVENT_23`, and the six must differ. `SW_FAIL` cannot be bound; it is always subscribed and
+handled as a fault. The reviewed sensor set is not in this file; a `safety_pipelines` line is
+rejected. Any error stops `atl_sdm` with `error: --config <path>: <reason>`.
+
+**Opcodes**
+
+| Opcode | Value | Meaning |
+| --- | --- | --- |
+| `CMD_HEARTBEAT` | `0x00` | Liveness, every 5 s |
+| `CMD_HW_ERROR` | `0x01` | Hardware error |
+| `CMD_MUTE` | `0x02` | Turn the safety function off: allow operation in the trailer |
+| `CMD_SW_ERROR` | `0x03` | Software fault; sent with `CMD_UNMUTE` as the safe hold |
+| `CMD_UNMUTE` | `0x07` | Keep the safety function on |
+| `CMD_SAFE_RELEASE_REQUEST` | `0x08` | Release request from the command endpoint |
+| `CMD_SAFE_RELEASE_ACK` | `0x09` | Release accepted |
+| `CMD_SAFE_RELEASE_DENIED` | `0x0A` | Release denied |
+
+Object record 0 carries the last forklift seen; object record 1 is zero.
+
+## Proximity Monitoring (`proximity_sdm`)
+
+`proximity_sdm` slows or stops a machine when a person comes too close to it. The distance
+thresholds are applied by the MDX client's event mapping, which reports one of three events per
+machine–person pair: no violation, warning or critical. `proximity_sdm` maps them to commands
+and sends the worst one in each request:
+
+| Tier | Command | Precedence |
+| --- | --- | --- |
+| Critical | `CMD_STOP` | Highest |
+| Warning | `CMD_REDUCE` | |
+| No violation | `CMD_NORMAL` | Lowest |
+
+In the shipped `proximity_event_mapping.pb.txt`, a pair at 1 m or closer is critical, a pair at
+2 m or closer is a warning, and other pairs report no violation.
+
+**Configuration file.** The file binds the three events of each pair group:
+
+| Pair group | Keys | `pxc_sdm_forklift.conf` | `pxc_sdm_robots.conf` |
+| --- | --- | --- | --- |
+| `forklift_person` | `forklift_person_normal`, `_reduce`, `_stop` | `EVENT_12`, `13`, `14` | — |
+| `humanoid_person` | `humanoid_person_normal`, `_reduce`, `_stop` | — | `EVENT_15`, `16`, `17` |
+| `transporter_person` | `transporter_person_normal`, `_reduce`, `_stop` | — | `EVENT_18`, `19`, `20` |
+| `fourier_humanoid_person` | `fourier_humanoid_person_normal`, `_reduce`, `_stop` | — | `EVENT_21`, `22`, `23` |
+
+- `pair_groups = <group>[,<group>…]` selects the groups. Every key of a selected group is
+  required, and a key of an unselected group is an error.
+- Without `pair_groups`, the `humanoid_person`, `forklift_person` and `transporter_person` keys
+  are required.
+- Values are `EVENT_0` to `EVENT_23` and must all differ.
+
+**Opcodes**
+
+| Opcode | Value | Meaning |
+| --- | --- | --- |
+| `HEARTBEAT` | `0x00` | Liveness, every 5 s |
+| `HW_ERROR` | `0x01` | Hardware error |
+| `CMD_STOP` | `0x02` | Emergency stop |
+| `SW_ERROR` | `0x03` | Software fault; sent with `CMD_STOP` as the safe hold |
+| `CMD_REDUCE` | `0x05` | Reduce speed |
+| `CMD_NORMAL` | `0x07` | Normal operation |
+| `SAFE_RELEASE_REQUEST` | `0x08` | Release request from the command endpoint |
+| `SAFE_RELEASE_ACK` | `0x09` | Release accepted; followed by `CMD_NORMAL` |
+| `SAFE_RELEASE_DENIED` | `0x0A` | Release denied |
+
+Object record 0 carries the machine and object record 1 the person.
+
+## Forklift–person proximity (`atl_proximity_sdm`)
+
+`atl_proximity_sdm` runs beside `atl_sdm` when the container entrypoint is started with
+`--app atl_proximity`; `launch_hoisa.sh` does not offer it. It subscribes to `EVENT_8`
+(no violation), `EVENT_9` (warning) and `EVENT_10` (critical) from
+`event_mapping_atl_proximity.pb.txt`, and uses the Proximity Monitoring packet and opcodes.
+
+- It keeps up to 128 forklift–person pairs. Within a pair the newest report wins; across pairs
+  the worst tier wins. A pair expires after `--pair_ttl_ms` (default 2000, range 200–60000).
+- It has no `--config` and no `--log_file`; its log is `atl_proximity_sdm.log`. Its default
+  `--cmd_rx_port` is `12346`, which must differ from `atl_sdm`'s port.
+- Its receiver is `atl_proximity_sdm_cmd_receiver`. The receiver's default port is 12345, so
+  start it with `-p` set to the SDM's port.
+
+## Command receivers
+
+`atl_sdm_cmd_receiver` and `proximity_sdm_cmd_receiver` are reference command endpoints. They
+stand in for the machine's controller: they check and acknowledge each command, show the
+safe-state on the console, and let an operator release a latched safe state. The launchers do
+not start them; run them on the controller side.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-p <port>` | `12345` | UDP listen port, 1–65535. Must equal the SDM's `--cmd_rx_port`. |
+| `--sdm_ip <IPv4>` | `127.0.0.1` | Accept packets only from this address. |
+| `--sdm_port <port>` | any | Accept packets only from this source port. The SDM sends from an ephemeral port, so leave it unset. |
+| `--max_hb_failures <N>` | `10` | Missed SDM heartbeats before the receiver stops, 1–255. |
+| `--vst_ip <IPv4>`, `--vst_port <port>` | off | Relay accepted commands to VST. Both are required together. See [Safety User Interface](/integration/components/user-interface). |
+| `--log-file <path>` | `/tmp/cmdrx.log` | Per-packet log. If it cannot be opened, the lines stay on the console. |
+| `--no-log-file` | — | Keep per-packet lines on the console. |
+
+**Packet handling.** The receiver drops a packet that is not exactly 64 bytes, comes from
+another sender, carries another identifier or fails its CRC. It does not check sequence numbers
+or timestamps. It acknowledges every accepted command except `CMD_HEARTBEAT`.
+
+**Heartbeat watchdog.** The SDM sends `CMD_HEARTBEAT` every 5 s. The receiver counts the first
+miss 5 s after the last heartbeat and each further miss after another 5.5 s. At
+`--max_hb_failures` misses, about 54.5 s with the default of 10, it prints
+`cmd_rx: upstream CMD_HEARTBEAT fault latched (tier 3) — local fail-safe, no PSS — stopping` and
+**exits** with status 0. The watchdog starts when the receiver starts, so a receiver whose SDM
+never sends a heartbeat also exits after about 54.5 s. Restart the receiver after a restart of
+its SDM.
+
+**Release.** Writing `release` to the receiver's standard input sends
+`CMD_SAFE_RELEASE_REQUEST`. `r`, `safe-release`, `y` and `yes` work too. Input is ignored until
+the SDM has sent `CMD_SW_ERROR` or a denial. Automated runs can `echo release` into the
+receiver's standard input or a FIFO.
+
+**Automatic release on first contact.** 500 ms after the first valid packet from its SDM, the
+receiver sends one release request on its own and prints
+`Startup: peer connected — sending safe-release to clear any pre-existing latch`. The SDM checks
+it like any other request: it is denied while a latch cause is active. With no latch held,
+`atl_sdm` still answers and resets its forklift, person and ROI state, and `atl_proximity_sdm`
+clears its pair table.
+
+**Console and log.** The console shows the latch (`*** FSI SAFE-STATE LATCHED ***`, also for an
+SDM on the CCPLEX), denials and the clear (`>>> safe-state CLEARED <<<`), and the release prompt.
+Per-packet lines go to the log file.
+
+**Proximity Monitoring evaluation.** `proximity_sdm_cmd_receiver` evaluates the commands it
+received every 100 ms and applies the most conservative:
+
+| Commands in the window | Action |
+| --- | --- |
+| Any `SW_ERROR` | Fault safe state and alarm |
+| Any `CMD_STOP` or `HW_ERROR` | Emergency stop |
+| Any `CMD_REDUCE` | Slow down |
+| Only `CMD_NORMAL` | Normal operation |
+| None | Previous action held |
+
+It prints each result as an `[EVAL] Action:` line on the console.
+
+**Known behaviour.**
+
+- The receivers acknowledge `SAFE_RELEASE_ACK` and `SAFE_RELEASE_DENIED`. The SDMs do not accept
+  those opcodes, so each release response adds `SDM: dropping PLC packet with unsupported command`
+  to the SDM log. It does not affect the safe state.
+- When the receiver cannot bind its port, it prints `Error binding socket: <error>`, stops, and
+  exits with status 0.
+
+## SDM on the FSI
+
+On IGX Thor, the forklift safety function and Proximity Monitoring SDMs can run on the
+Functional Safety Island (FSI) instead of the CCPLEX. The SEI daemon, the gateway and the MDX
+client stay on the CCPLEX. `fsicom-agent` replaces the CCPLEX SDM binary: it registers with the
+gateway, checks each request's envelope and sequence, and forwards the request to the FSI over
+NvFsiCom channel 6. It relays the FSI SDM's command packets to the command receiver over UDP and
+forwards release requests back. Its options are in
+[Launcher](/reference/launcher#fsicom-agent-options).
+
+**Packages and firmware.** The `psf-tegra-fsi` package holds:
+
+| File | Use |
+| --- | --- |
+| `/opt/nvidia/psf/etc/fsi-fw/atl/fsi-ffw-t264.bin` | Firmware for the forklift safety function SDM |
+| `/opt/nvidia/psf/etc/fsi-fw/proximity/fsi-ffw-t264.bin` | Firmware for the Proximity Monitoring SDM |
+| `/opt/nvidia/psf/bin/fsicom-agent` | The bridge |
+
+**Setting up the FSI.**
+
+1. Flash the IGX Thor BSP and the Safety Extension Package (SEP) on the target. Refer to the IGX
+   Safety Extension Package documentation.
+2. On the host the target is connected to, extract the package:
+   `dpkg -x psf-tegra-fsi.deb <extraction_path>`.
+3. Reflash the target's FSI with the firmware for your application, from
+   `<extraction_path>/opt/nvidia/psf/etc/fsi-fw/atl/` or `…/fsi-fw/proximity/`. This replaces the
+   default SEP firmware.
+4. Reset or reboot the board, so the FSI boots the new firmware. Do this before starting the
+   platform's `nvFsiCom` daemon or `fsicom-agent`.
+5. Start the platform's `nvFsiCom` daemon before `fsicom-agent`. Without it, `fsicom-agent` stops
+   after `[INIT] Initializing FSI communication...` and prints
+   `Ensure nvfsicom daemon is running`.
+
+With the launcher, select the FSI with `launch_hoisa.sh --sdm-target fsi`; it starts
+`fsicom-agent` on the host. Under `--runtime docker` it starts the agent with the container user's
+group; see [Host processes and the container's group](/reference/launcher#host-processes-and-the-container-group).
+The steps for starting the Safety Core container directly are in
+[Custom deployment](/deployment/custom-deployment#sdm-on-fsi).
+
+**Differences from the CCPLEX SDMs.**
+
+| Item | On the FSI |
+| --- | --- |
+| Event bindings | Compiled in: `EVENT_0`–`EVENT_5` for the forklift safety function; `EVENT_12`–`EVENT_23` for the four Proximity Monitoring pair groups. No configuration file. |
+| Reviewed sensor set | Compiled in: `1, Camera`, `2, Camera_01`, `3, Camera_02`, the 2D reference cameras. It cannot be changed without rebuilding the firmware. |
+| Decision freshness | Fixed at 7000 ms. |
+| Packet timestamp | Always 0, so receivers log `UTC epoch: 0.000000`. |
+| Logs | On the FSI UART, not in `/var/log/psf`. |
+| Watchdog | A task watchdog latches the safe state when the SDM task stalls for 2 s. The fault stays active until the FSI restarts, so every release is denied until then. |
+| Launcher | One SDM only. Multiple SDMs, `atl_dual` and `atl_proximity` are not available on the FSI. |
+
+Opcodes, sequence numbers, acknowledgements and the release handshake are the same as on the
+CCPLEX. The firmware checks the request schema version, so the firmware and the CCPLEX packages
+must come from the same release.

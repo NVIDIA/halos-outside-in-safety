@@ -18,7 +18,7 @@ Isaac Sim publishes ground truth; VSS + the Safety Core produce the MUTE / UNMUT
 
 ## Step 1: Prerequisites
 
-The SIL stack (VSS Warehouse 3.2.1 + the Halos `sil` profile) must be **deployed and healthy** before you run the Regression Testing Reporter. If it is not up yet, deploy it first:
+The SIL stack (VSS Warehouse 3.3 + the Halos `sil` profile) must be **deployed and healthy** before you run the Regression Testing Reporter. If it is not up yet, deploy it first:
 
 - [SIL — 2D Perception](/testing/sil/sil-2d) — manual SIL bring-up, or
 - [Agentic Deployment](/getting-started/agentic-deployment) — agent-driven bring-up.
@@ -46,6 +46,8 @@ Host tooling: Docker + Compose (usable without `sudo`), `jq` (for the VST API ch
 
 <Note>
 Phase 2 (perception scoring) requires the 3D pipeline (`mdx-bev` + `mdx-behavior`, i.e. Sparse4D) to be flowing. A 2D-only feed still works and gives Phase 1 (the safety decision) only — that is expected, not a failure.
+
+The Regression Testing Reporter scores the ATL decision only: it subscribes to `/safety/command` and `/safety/is_muted`. Run it with `PSF_APP=atl`; on a `pxc` run it prints `PSF_FEED_DEAD` and scores every frame as UNMUTED.
 </Note>
 
 ## Step 2: Get the repo
@@ -61,7 +63,7 @@ Regression Testing Reporter lives inside the Halos Outside-In Safety repo, which
 If you are on a fresh machine and don't have it yet:
 
 ```bash
-git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.3.0
+git clone https://github.com/NVIDIA/halos-outside-in-safety.git -b v1.4.0
 cd halos-outside-in-safety
 ```
 
@@ -91,11 +93,12 @@ HOISA_ROOT_PATH=/path/to/halos-outside-in-safety
 # MODE probe below both derive from it.
 VSS_ROOT_PATH=/path/to/video-search-and-summarization
 
-# VSS warehouse env — source of MODE (2d|3d|mv3dt). The scene-ready gate reads
-# it to auto-pick its perception topic (2d -> mdx-raw, 3d/mv3dt -> mdx-bev), so
-# the same run works on a 2D or 3D host with no extra config. Pre-filled from
-# VSS_ROOT_PATH; leave as-is unless your VSS layout differs.
-ENV_VSS_PATH=${VSS_ROOT_PATH}/deploy/docker/industry-profiles/warehouse-operations/.env
+# VSS env that sets MODE (2d|3d|mv3dt): the vss-build-vision-ai build's
+# override.env. The scene-ready gate reads MODE from it to auto-pick its
+# perception topic (2d -> mdx-raw, 3d/mv3dt -> mdx-bev), so the same run works
+# on a 2D or 3D host with no extra config. Without a build directory, it falls
+# back to the overrides.env next to the named file.
+ENV_VSS_PATH=${VSS_ROOT_PATH}/_builds/<name>/override.env
 
 # REQUIRED (both 2D and 3D): VSS calibration JSON (mounts into the srr
 # container). tw_split reads the tripwire X to split clips; the aggregator
@@ -128,7 +131,7 @@ Isaac Sim reads the scenario behavior trees + navmesh from its bind-mounted `sil
 # (with no argument it derives the SIL dir from HOISA_ROOT_PATH in .env)
 ```
 
-This copies the IRA 1.6 behavior trees + `navmesh.json` into `sil/configs/`, the Script-Editor utilities into `sil/scripts/isaac/`, and installs the Regression Testing Reporter `default_config_ros.yaml` template. It is idempotent — safe to re-run.
+This copies the IRA 1.7 behavior trees + `navmesh.json` into `sil/configs/`, the Script-Editor utilities into `sil/scripts/isaac/`, and installs the Regression Testing Reporter `default_config_ros.yaml` template (IRA config `1.7.0`: Isaac Sim 6.1 refuses `1.6.0`, and the scene shuts down at startup). It is idempotent — safe to re-run.
 
 Re-run it after cloning on a new machine, or after regenerating behavior trees. See [Test Scenarios](/testing/srr/scenarios) for the scenario fixtures and how to regenerate them.
 
@@ -284,7 +287,7 @@ What the headline metrics mean:
 
 | Metric | Meaning | Healthy |
 | --- | --- | --- |
-| **match%** | Frame-by-frame agreement (expected mute == actual mute) at 30 Hz | mean ≥ 90%, median ≥ 95% |
+| **match%** | Frame-by-frame agreement (expected mute == actual mute) at 30 Hz. Not scored: frames whose expected state rests only on a person within 0.5 m of the ROI edge, and the first 1.0 s after each expected-state change | mean ≥ 90%, median ≥ 95% |
 | **Mute correct%** | Of frames GT said to mute, fraction the system muted | ≥ 90% |
 | **Unmute correct%** | Of frames GT said not to mute, fraction the system unmuted | ≥ 95% (safety-critical) |
 | **BA ROI / TW IN / TW OUT** | Per-event detection rate for person-in-ROI / forklift trailer crossings | ≥ 95% ROI, 100% TW |
@@ -345,7 +348,7 @@ Either the recording is too short to contain a forklift trailer crossing (use �
 
 ### VST record API returns 503, or `sensor/add` gets 400
 
-Stale VST state. Delete leftover online `Camera*` sensors, and if the record API is still 503 run the VSS reset recipe (see the `hoisa-generate-regression-report` skill's "When VSS is corrupted" section, or the `vss-deploy-profile` skill teardown).
+Stale VST state. Delete leftover online `Camera*` sensors, and if the record API is still 503 run the VSS reset recipe (see the `hoisa-generate-regression-report` skill's "When VSS is corrupted" section, or the `vss-build-vision-ai` skill teardown).
 
 ### Container runs stale code
 

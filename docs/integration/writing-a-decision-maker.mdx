@@ -1,0 +1,562 @@
+---
+title: "Writing a Decision Maker"
+description: "The contract a custom Safety Decision Maker must meet to receive fused safety events from the NvPSD Gateway and command a PLC safely."
+---
+
+A Safety Decision Maker (SDM) is a process that receives fused safety events from the NvPSD
+Gateway, decides what the machine may do, and sends that decision to a PLC or command receiver.
+This page states the contract every SDM must meet, whatever its use case. The reference SDMs
+implement it, and their use-case specifics are listed at the end:
+
+- `atl_sdm`: the forklift safety function (ATL).
+- `proximity_sdm`: Proximity Monitoring (PXC).
+- `atl_proximity_sdm`: the forklift-to-person proximity half of the combined ATL and PXC
+  application.
+
+The gateway's own behaviour is described on [NvPSD Gateway](/integration/components/gateway).
+The latch, its causes and the release protocol are described in the
+[safe-state model](/integration/safe-state-model). The numeric cause values are in
+[Causes and Records](/reference/causes-and-records). The structure of a reference SDM is shown
+on [Safety Decision Maker (SDM)](/integration/components/decision-maker).
+
+## The contract
+
+An SDM must do all of the following. Each item has its own section below.
+
+| # | Obligation |
+| --- | --- |
+| 1 | Run with the same primary group as the NvPSD Gateway. See [Shared process group](/integration#shared-process-group). |
+| 2 | Connect to the gateway socket, and reconnect for as long as it runs. It must never exit because the gateway is missing. |
+| 3 | Register (`REGR`) on every connect, then again every 30 seconds. Handle a refusal (`RGNK`). |
+| 4 | Answer every gateway heartbeat (`HBPG`) with an acknowledgement (`HBPC`), and supervise the gateway heartbeat itself. |
+| 5 | Validate every decision packet: size, header, schema, CRC, fields and sequence. Drop anything that fails. |
+| 6 | Enter the safe state on a sequence gap, on loss of fresh decisions, and on every fault cause it receives. |
+| 7 | Never base a decision on an entry that is `STALE`, unhealthy, untrusted, or a health or trust report. |
+| 8 | Latch the safe output. Release it only through a validated request from the PLC, and only while no cause is active. |
+| 9 | Command the PLC with an integrity-checked packet, and track acknowledgements. |
+
+## Build inputs
+
+The development package installs the headers an SDM needs under `/opt/nvidia/psf/include`.
+See [Install](/integration/install#building-the-reference-applications) for the package contents
+and the build, and [API Documentation](/api-documentation) for what each header declares.
+
+| Header | What it defines |
+| --- | --- |
+| `pss_protocol.h` | `DecisionRequest`, `SensorData`, `FusedSafetyEvent`, `EventType`, `EventCause`, the presence bits and `PSS_SCHEMA_VERSION`. |
+| `NvPSDGatewayProtocol.h` | The wire constants: `REGR`, `HBPG`, `HBPC`, `RGNK` and its reason codes, and the `NvPSDGatewayDecisionRequestPacket` envelope with its validation helpers. |
+| `NvPSDGatewayContract.hpp` | The gateway's registration rules: the 32-type limit, the mandatory types, and the refusal classifier (C++). |
+| `nvpsf_transport.h` | The transport API used to open the gateway link, and the socket path `NVPSF_SOCKET_PATH_PSD_GATEWAY`. |
+| `pss_message_validate.h` | `pssDecisionRequestVerifyCRC()`, `validateDecisionRequest()` and the `PSS_ERR_*` flags. Its implementation, `pss_message_validate.c`, ships next to each reference SDM's source. |
+
+The transport is the shared library `libnvpsf_transport.so` in `/opt/nvidia/psf/lib`.
+
+## Connect to the gateway
+
+| Property | Value |
+| --- | --- |
+| Socket | `/run/nvpsf/nvpsd_gateway`, `AF_UNIX`, `SOCK_SEQPACKET`. There is no UDP or TCP option. |
+| Server | `nvpsd_gateway`. The SDM is the client. |
+| Socket file mode | `0660`, set by the gateway after it binds. |
+| Credential check | Both ends compare the peer's primary GID, read with `SO_PEERCRED`, with their own `getgid()`. A peer that has the group only as a supplementary group is refused. |
+| Message size | One decision packet is `sizeof(NvPSDGatewayDecisionRequestPacket)`: 1621 bytes. |
+| Buffer floor | The client requests receive and send buffers for 516 decision packets and refuses a smaller grant. The kernel must allow it; see [Kernel socket buffers](/integration/install#kernel-socket-buffers). |
+
+Open the link with the transport library, the same way the reference SDMs do:
+
+```cpp
+#include "nvpsf_transport.h"
+#include "NvPSDGatewayProtocol.h"
+#include <unistd.h>
+
+NvPSFTransportCfg cfg = {};
+cfg.kind            = NVPSF_TRANSPORT_UNIX_SOCKET;
+cfg.role            = NVPSF_ROLE_CLIENT;
+cfg.link            = NVPSF_LINK_GATEWAY_TO_SDM;
+cfg.maxPeers        = 1U;
+cfg.maxMessageBytes = sizeof(NvPSDGatewayDecisionRequestPacket);
+cfg.minQueueDepth   = NvPSFGatewaySdmMinQueueDepth();   /* 516 */
+cfg.recvTimeoutMs   = 50U;
+cfg.sendTimeoutMs   = 0U;
+cfg.unixPath        = NVPSF_SOCKET_PATH_PSD_GATEWAY;    /* /run/nvpsf/nvpsd_gateway */
+cfg.unixMode        = 0;                                /* unused by a client */
+cfg.allowedGid      = getgid();                         /* the gateway must share it */
+
+NvPSFTransport* gw = nullptr;
+NvPSFPeerId     peer = NVPSF_PEER_INVALID;
+if (NvPSFTransportOpen(&cfg, &gw) == NVPSF_TRANSPORT_OK &&
+    NvPSFTransportSolePeer(gw, &peer) == NVPSF_TRANSPORT_OK) {
+    /* connected: send REGR next */
+}
+```
+
+What the open returns, and what the SDM must do:
+
+| Result | Meaning | What to do |
+| --- | --- | --- |
+| `NVPSF_TRANSPORT_OK` | Connected. The gateway's credential was accepted. | Send `REGR` at once. |
+| `NVPSF_TRANSPORT_PEER_GONE` | The socket does not exist yet, or nothing is listening. | Retry. The reference SDMs retry every 500 ms with no limit. |
+| `NVPSF_TRANSPORT_WOULD_BLOCK` | The gateway's listen backlog is full. | Retry. |
+| `NVPSF_TRANSPORT_DENIED` | The gateway runs with a different primary GID. The transport prints `nvpsf_transport: server credential rejected; refusing to treat the connection as trusted`. | Retry, and fix the process group. See [Shared process group](/integration#shared-process-group). |
+| `NVPSF_TRANSPORT_FAIL` | Any other error. A buffer shortfall prints `nvpsf_transport: SO_RCVBUF granted <n> bytes but <m> are required for 516 messages of 1621 bytes; raise net.core.rmem_max` (or `SO_SNDBUF` and `wmem_max`). | Retry, and fix the host. |
+
+The gateway opens `/run/nvpsf/nvpsd_gateway` only after it has connected to `nvpss_daemon` and
+registered with it. Each step is retried up to 60 times at 500 ms intervals, so the socket can be
+missing for up to about a minute after the gateway starts. If `nvpss_daemon` never comes up, the
+gateway exits. An SDM started first must wait, not exit. The reference SDMs log
+`SDM: psdGateway transport not available at launch (UNIX_SOCKET); waiting for the gateway`
+and keep retrying.
+
+When the link drops, `NvPSFTransportPoll()` reports `NVPSF_EVENT_PEER_GONE` or
+`NvPSFTransportRecv()` returns `NVPSF_TRANSPORT_PEER_GONE`. Close the handle, reconnect, and send
+`REGR` again before doing anything else. A reconnected link with no registration receives
+nothing, and the SDM then enters the safe state on lost freshness. The reference SDMs log
+`SDM: gateway upstream link lost; reconnecting`, then
+`SDM: gateway upstream link re-established after <n> attempt(s)`.
+
+## Register
+
+### The REGR packet
+
+| Bytes | Field |
+| --- | --- |
+| 0–3 | Magic `REGR` (`NVPSD_GATEWAY_REG_MAGIC`), 4 ASCII bytes. |
+| 4 | Number of event types, `uint8_t`, 1 to 32. |
+| 5 onwards | One `uint32_t` per event type, in network byte order. |
+
+```cpp
+#include <arpa/inet.h>
+#include <cstring>
+#include "NvPSDGatewayProtocol.h"
+
+static const EventType kSubscribed[] = { EVENT_0, EVENT_1, EVENT_2, SW_FAIL };
+static const uint8_t   kCount = sizeof(kSubscribed) / sizeof(kSubscribed[0]);
+
+char buf[4 + 1 + kCount * sizeof(uint32_t)];
+std::memcpy(buf, NVPSD_GATEWAY_REG_MAGIC, 4);
+buf[4] = static_cast<char>(kCount);
+for (uint8_t i = 0; i < kCount; ++i) {
+    const uint32_t v = htonl(static_cast<uint32_t>(kSubscribed[i]));
+    std::memcpy(buf + 5 + i * sizeof(uint32_t), &v, sizeof(uint32_t));
+}
+NvPSFTransportSend(gw, peer, buf, sizeof(buf));   /* WOULD_BLOCK: retry shortly */
+```
+
+### What the gateway does with it
+
+- **Subscribable types.** `EVENT_0` to `EVENT_23` and `SW_FAIL`, plus the four trust reports
+  `SENSOR_INVALID`, `SENSOR_VALID`, `AI_PIPELINE_INVALID` and `AI_PIPELINE_VALID`. Any other
+  value is dropped without notice.
+- **Mandatory types.** Once at least one requested type is valid, the gateway adds six types to
+  the subscription: `SW_FAIL`, `PSS_STATUS_NOOP`, `SENSOR_INVALID`, `SENSOR_VALID`,
+  `AI_PIPELINE_INVALID` and `AI_PIPELINE_VALID`. Every SDM therefore receives all six and must
+  handle them, whatever it asked for.
+- **Routing.** Each SDM receives only the entries whose type it subscribed to, in the order the
+  SEI daemon produced them. A request with no entry for this SDM is not sent to it. Two SDMs on
+  one gateway that subscribe to the same `EVENT_n` both receive it.
+- **No positive reply.** A successful registration is not answered. The first `HBPG` heartbeat is
+  the confirmation, because the gateway sends heartbeats only to registered SDMs.
+- **Admission deadline.** A connection that has not sent a valid `REGR` within 5000 ms is
+  dropped, and the gateway logs `PSD-Gateway: dropped a connection that never registered`.
+- **Capacity.** At most 10 SDMs can be registered at once (`nvpsd_gateway --num_clients`,
+  1 to 10, default 10). The `fsicom-agent` bridge counts as one.
+- **Re-registration.** A `REGR` on an already registered connection replaces its subscription
+  set and resets its heartbeat miss count. It keeps the connection's decision epoch and sequence
+  number, so it causes no sequence gap.
+- **Rate limit.** By default the gateway accepts 4 `REGR` per connection in a 10-second window.
+  See [NvPSD Gateway](/integration/components/gateway) for the two flags that change this.
+
+Send `REGR` on every connect, then again every 30 seconds. The periodic `REGR` lets a restarted
+gateway rediscover the SDM. The reference SDMs keep sending it while latched.
+
+### Refusal (RGNK)
+
+The gateway answers a refused `REGR` with a 5-byte message: `RGNK` followed by one reason byte.
+Parse it with `NvPSDGatewayParseRegReject()` and name it with
+`NvPSDGatewayRegRejectReasonName()`.
+
+| Reason byte | Name | Cause | What happens next |
+| --- | --- | --- | --- |
+| 1 | `malformed` | Shorter than 5 bytes, a count of 0 or more than 32, or fewer type values than the count says. | Not registered. Fix the packet. |
+| 2 | `no_valid_event_types` | No requested type is subscribable. | Not registered. Fix the type list. |
+| 3 | `table_full` | Every SDM slot is taken. | The connection stays unregistered and is dropped after 5000 ms. |
+| 4 | `rate_limited` | Too many `REGR` from this connection in the window. Only the first refusal in each window is answered; later ones are ignored without a reply. | The `REGR` was not read. Wait for the window to pass. |
+| other | `unknown` | A reason this build does not know. | Treat it as a refusal. |
+
+A refused SDM receives no heartbeats and no decisions, so its gateway-heartbeat supervision and
+its freshness timeout put it in the safe state. Log the reason once per distinct value. The
+reference SDMs log
+`SDM: the gateway refused this SDM's registration; reason=<name> -- not registered, no decisions will arrive`
+and keep sending the periodic `REGR`.
+
+## Heartbeats
+
+| Direction | Message |
+| --- | --- |
+| Gateway to SDM | 8 bytes: `HBPG`, then a `uint32_t` sequence number in network byte order. |
+| SDM to gateway | 8 bytes: `HBPC`, then the same sequence number, echoed. |
+
+Echo every `HBPG` at once, on the same link:
+
+```cpp
+if (n == NVPSD_GATEWAY_HB_MSG_SIZE &&
+    std::memcmp(rx, NVPSD_GATEWAY_HB_MAGIC_GATEWAY, 4) == 0) {
+    char ack[NVPSD_GATEWAY_HB_MSG_SIZE];
+    std::memcpy(ack, NVPSD_GATEWAY_HB_MAGIC_CLIENT, 4);
+    std::memcpy(ack + 4, rx + 4, 4);                  /* echo the sequence number */
+    NvPSFTransportSend(gw, peer, ack, sizeof(ack));
+    lastGatewayHeartbeat = std::chrono::steady_clock::now();
+}
+```
+
+### How the gateway supervises the SDM
+
+The gateway sends one `HBPG` per cycle: it waits 2000 ms, sends, waits 1300 ms for the
+acknowledgement, then checks. A cycle therefore takes about 3.3 seconds. A cycle without an
+acknowledgement newer than the last one counts as a miss; an older or repeated acknowledgement
+does not reset the count. A new SDM counts as missed until its first acknowledgement.
+
+With `M` = `nvpsd_gateway --max_hb_failures` (1 to 255, default 10) and `W` = `M / 2`, rounded
+down:
+
+| Misses | Tier | Gateway behaviour |
+| --- | --- | --- |
+| 1 to `W` | Warn | Logs `no HB ACK from client <c> seq=<s> miss=<m>/<M> [warn tier]`. Nothing else changes. |
+| `W + 1` to `M - 1` | Degraded | Stops forwarding decision packets to this SDM, including `SW_FAIL` and recovery records. Heartbeats continue. Withheld packets use no sequence numbers, so they cause no gap. |
+| `M` | Reclaim | Frees the slot, drops the connection and forgets the SDM's epoch and sequence. The SDM must reconnect and register again. |
+
+With the default of 10, misses 1 to 5 warn, 6 to 9 are degraded, and the tenth miss reclaims
+the SDM, about 33 seconds after its last acknowledgement. With `M` set to 1 the first miss
+reclaims; with `M` set to 2 there is no degraded tier.
+
+### How the SDM supervises the gateway
+
+The SDM must also watch the gateway, because a silent gateway sends nothing that could carry a
+fault. The reference SDMs derive a miss count `m` from the time since the last `HBPG`:
+
+- `m` is 0 while the elapsed time is at most `--hb_stale_ms` (default 5000 ms).
+- After that, `m` is 1 plus the number of whole `--hb_period_ms` periods (default 5500 ms)
+  beyond `--hb_stale_ms`, capped at `--max_hb_failures` (default 10).
+- Both timings accept 100 to 600000 ms. `--max_hb_failures` accepts 1 to 255.
+
+With `W` = `--max_hb_failures / 2`, rounded down:
+
+| Tier | Condition | Reference behaviour | Time from last `HBPG`, defaults |
+| --- | --- | --- | --- |
+| 1, warn | `m` from 1 to `W` | Logs `HB-PSD: gateway HB warn tier miss_count=<m>/<M> elapsed_ms=<e>`. | after 5 s |
+| 2, active fault | `m` above `W` and below `M` | Sends the safe hold and keeps it. Not latched: it lifts when `m` falls back to `W` or below. A release request is denied while it holds. `REGR` retries are limited to `M - W - 1`. | from 32.5 s |
+| 3, latched | `m` reaches `M` | Latches the safe state: `HB-PSD: gateway HB fault latched (tier 3) — local fail-safe, no PSS connection`. | at 54.5 s |
+
+The watchdog is armed at start-up, so a gateway that never appears still trips it. When
+heartbeats return, the reference SDMs log
+`HB-PSD: gateway HB recovered; safe-state latch awaits PLC release`. The tier lifts, but a tier-3
+latch stays until a validated release.
+
+## Receive and validate decisions
+
+Each message on the link is exactly one of these, told apart by size and magic:
+
+| Size | Content | Handling |
+| --- | --- | --- |
+| 8 bytes, magic `HBPG` | Heartbeat | Echo it (see above). |
+| 5 bytes, magic `RGNK` | Registration refusal | Log it (see above). |
+| 1621 bytes | `NvPSDGatewayDecisionRequestPacket` | Validate, then process. |
+| Any other size | Not a valid message | Drop it. The reference SDMs log `SDM: received partial packet (<n> bytes, expected 1621)`. A message larger than the buffer returns `NVPSF_TRANSPORT_TRUNCATED` and is already discarded. |
+
+### The envelope
+
+The packet is packed, and its header fields are in host byte order.
+
+| Field | Type | Valid values |
+| --- | --- | --- |
+| `magic` | `char[4]` | `DRPG` |
+| `version` | `uint16_t` | `1` (`NVPSD_GATEWAY_DECISION_PACKET_VERSION`) |
+| `headerSize` | `uint16_t` | `20`, the offset of `request` |
+| `gatewayEpoch` | `uint64_t` | Not 0 and not `UINT64_MAX`. A new value for each new connection. |
+| `gatewayTxSeq` | `uint32_t` | 1 to `UINT32_MAX - 1`, one higher for each packet to this SDM. After `UINT32_MAX - 1` it wraps to 1. |
+| `request` | `DecisionRequest` | Validated in the next step. |
+
+### Validation steps
+
+Run these in order. Drop the packet at the first failure, and do not let a dropped packet
+refresh freshness.
+
+1. **Header.** `NvPSDGatewayDecisionPacketHeaderIsValid()` checks the magic, version, header size,
+   epoch and sequence range. The reference SDMs log
+   `SDM: Gateway DecisionRequest packet header validation failed — dropping`.
+2. **Payload.** `validateDecisionRequest()` returns `PSS_VALID` (0) or a bitmask of `PSS_ERR_*`
+   flags. It checks the schema version (`PSS_SCHEMA_VERSION`, 5), the CRC-32, the entry count
+   (at most 8; 0 only for the stop sentinel described below), the mode, and every entry's type,
+   cause, severity, confidence, timestamp, status, sensor name and object types. The reference
+   SDMs log `SDM: DecisionRequest validation failed (flags=0x<hex>) — dropping`.
+3. **Sequence.** Track `gatewayEpoch` and `gatewayTxSeq` per link:
+
+   | Observation | Result | Reference action |
+   | --- | --- | --- |
+   | First packet, or a new epoch | Accepted. Becomes the new baseline. | Process. |
+   | `gatewayTxSeq` equal to or below the last one | Duplicate or stale | Drop it. |
+   | Out of the valid range | Invalid | Drop it. |
+   | Higher than last + 1 | Gap: packets were lost | **Enter the safe state and latch**, then process this packet. |
+   | Last + 1 | Accepted | Process. If a gap fault was active, it clears; the latch stays. |
+
+The gateway allocates a sequence number before it sends, and a failed send does not return it.
+A gap therefore always means a packet meant for this SDM was not delivered, so it must latch.
+The shared header `sdm_gateway_decision_sequence.hpp` in the reference sources implements this
+table.
+
+The `requestId` inside `DecisionRequest` is the SEI daemon's audit identifier. It is not the
+delivery sequence; use `gatewayTxSeq` for that.
+
+### Freshness
+
+Every accepted packet refreshes freshness, including a status no-op. The SEI daemon sends a
+status no-op every `status_noop_interval_ms` (5000 ms in the shipped `nvpss.conf`), and the gateway
+delivers it to every SDM, so a healthy link never goes quiet for long.
+
+The reference SDMs check freshness every 500 ms. If no accepted packet has arrived for longer
+than `--decision_freshness_timeout_ms` (default 7000 ms, range 50 to 300000), they latch and log
+`<app>: DecisionRequest freshness timeout; entering safe hold, elapsed_ms=<e>`. The timer is armed
+at start-up, so an SDM that never receives a packet latches after about 7 seconds. Keep the
+timeout above the status no-op interval.
+
+Freshness is also how an SDM learns that the SEI daemon has crashed: when the daemon's link to
+the gateway drops, the gateway sends the SDMs nothing until it has reconnected.
+
+## Decide
+
+### The DecisionRequest
+
+| Field | Meaning |
+| --- | --- |
+| `requestId` | SEI audit identifier. `UINT32_MAX` with mode `ERROR` and no entries is the gateway's stop sentinel (see below). |
+| `sensorDataSummarySize` | Number of valid entries, 0 to 8. |
+| `sensorDataSummary[i].event` | A `FusedSafetyEvent`: `type`, `cause`, `severity` (`OPERATIONAL` 0 or `CRITICAL` 1, set by the SEI daemon), `timestamp`, `confidenceLevel`, `status` (`FUSED`, `PASSTHROUGH`, `STALE`, `UNKNOWN`), `sensorIdentifier` and `fusionMetadata` (pipeline, client, object ids, types and trajectory). |
+| `sensorDataSummary[i].isHealthy` | `false` while a `SENSOR_INVALID` verdict stands for this entry's pipeline. |
+| `sensorDataSummary[i].isTrustedSource` | `false` while an `AI_PIPELINE_INVALID` verdict stands. The verdict covers the whole perception pipeline. |
+| `pssStatus.mode` | `NORMAL`, `DEGRADED` or `ERROR`. |
+| `integrity` | Schema version and CRC-32, checked during validation. |
+
+### Rules for every request
+
+Apply these before any use-case logic. They are the same in all reference SDMs.
+
+1. **Trust and health reports first.** Apply every `AI_PIPELINE_INVALID`, `AI_PIPELINE_VALID`,
+   `SENSOR_INVALID` and `SENSOR_VALID` in the request, and the presence and input-state report
+   carried by a status no-op, before any early return. These are reported on change, so one that
+   is skipped may not be sent again until the SEI daemon's next re-assertion.
+2. **Mode `ERROR`.** Enter the safe state. Apply every `SW_FAIL` in the request too, then stop.
+3. **Status no-op only.** A request whose only entry is `PSS_STATUS_NOOP` refreshes freshness and
+   carries no physical event. Apply what it reports, then stop.
+4. **`SW_FAIL`.** Enter the safe state for every `SW_FAIL` in the request, whatever its position
+   and whatever the mode.
+5. **Per-entry filter.** Skip an entry that is `STALE`, that is a health or trust report, whose
+   `isHealthy` is `false`, or whose `isTrustedSource` is `false`. The gateway forwards `STALE`
+   entries; the SDM must drop them.
+6. **One command per request.** A request carries up to 8 entries. Resolve them all to one
+   decision and send it once, after the loop. A command per entry lets a later benign entry
+   overwrite an earlier critical one on the wire.
+
+The [safe-state model](/integration/safe-state-model) says which of these causes latch, and what
+clears each one.
+
+### The stop sentinel
+
+When the gateway loses its own heartbeat to the SEI daemon, it sends every SDM it is still
+forwarding to a request with `requestId` `UINT32_MAX`, mode `ERROR` and no entries.
+`validateDecisionRequest()` accepts zero entries only in this form. Treat it like any other
+`ERROR` request.
+
+## Enter the safe state and latch
+
+Every cause is held in a fault-safe lockout latch. While the latch is set, the SDM sends its safe
+output instead of its decision, and keeps re-sending it on each request and on its periodic
+repeat. The causes a reference SDM latches on are:
+
+| Cause | Raised by | Cleared (the cause, not the latch) by |
+| --- | --- | --- |
+| Gateway heartbeat | Tier 3 of the SDM's own gateway-heartbeat supervision. Tier 2 holds the output without latching. | Heartbeats resuming. |
+| SEI fault | Mode `ERROR`, any `SW_FAIL`, a source reported lost or missing, or a source whose reports are rejected. Each has its own sub-cause. | Its own evidence only. See the [safe-state model](/integration/safe-state-model). |
+| Decision freshness | No accepted packet for longer than the timeout. | The next accepted packet. |
+| Gateway sequence | A gap in `gatewayTxSeq`. | The next in-order packet. |
+| All reviewed sensors failed | Every pipeline in the reviewed sensor set is failed. | Any one of them recovering. |
+| AI pipeline invalid | A non-`STALE` `AI_PIPELINE_INVALID`. | `AI_PIPELINE_VALID`. |
+
+The reviewed sensor set comes from `sensor_pipelines_config.conf`
+(`--sensor_pipelines_config`, default `/opt/nvidia/psf/bin/sensor_pipelines_config.conf`). A
+missing or malformed file stops the reference SDMs at start-up. Its format is on
+[Sensor files](/reference/sensor-files#sensor_pipelines_config).
+
+A cause clearing does not clear the latch. Only an accepted release does. For the full table of
+`SW_FAIL` causes and record numbers, see [Causes and Records](/reference/causes-and-records).
+
+<a id="release-the-latch"></a>
+
+## Release the latch
+
+The PLC or command receiver asks for a release with a `SAFE_RELEASE_REQUEST` packet. The SDM
+must validate it and decide it under the same lock it holds while processing a decision packet.
+Otherwise a release could land between one packet's clear and the same packet's new fault, and
+be accepted in a state that never existed upstream.
+
+### Validate the request
+
+The reference SDMs drop a packet from the PLC unless all of these hold, in this order. The log
+lines are `atl_sdm`'s; the other SDMs word some of them differently.
+
+| Check | Rule | `atl_sdm` log on failure |
+| --- | --- | --- |
+| Size | 64 bytes. A shorter datagram is ignored. A longer one is cut to its first 64 bytes, which must then pass the checks below. | none |
+| Source | The configured receiver address and port (`--cmd_rx_ip`, `--cmd_rx_port`). | `SDM: dropping PLC packet from unexpected endpoint` |
+| Identifier | The application's identifier byte. | `SDM: dropping PLC packet with invalid identifier` |
+| CRC | The CRC-32 over bytes 0–19 and 24–63 matches. | `SDM: dropping PLC packet with invalid CRC` |
+| Opcode | One the SDM accepts from the PLC: `HEARTBEAT`, the application's decision opcodes, `HW_ERROR`, `SW_ERROR` or `SAFE_RELEASE_REQUEST`. | `SDM: dropping PLC packet with unsupported command` |
+
+No sequence-number or timestamp check is applied to a release request. A packet that passes is
+either a release request or an acknowledgement, matched to the pending command by its sequence
+number.
+
+### Decide the request
+
+| State | SDM response |
+| --- | --- |
+| Any cause active, including a tier-2 heartbeat hold | Send `SAFE_RELEASE_DENIED` (`0x0A`), then the safe output. Log `<app>: PLC safe-release denied; active safe-state fault source remains, active_causes=<bitmask>`. |
+| Latched, no cause active | Send `SAFE_RELEASE_ACK` (`0x09`), then the application's normal command. Clear the latch only if both sends succeeded and no new cause arrived meanwhile. Then reset the decision state. |
+| Not latched | Send `SAFE_RELEASE_ACK` and the normal command anyway, and reset the decision state. Within 1000 ms of the last successful release only the log line changes; the response is still sent. |
+
+If a cause arrives while the response is in flight, the reference SDMs log
+`<app>: safe-release response sent but latch retained due to concurrent fault` and send the safe
+output again. If a send fails, they log `<app>: safe-release response TX failed; latch retained and state not reset`.
+
+## Command the PLC
+
+The reference SDMs and receivers exchange 64-byte packets over UDP. The SDM binds an ephemeral
+port on all interfaces and sends to `--cmd_rx_ip`:`--cmd_rx_port`. Acknowledgements and release
+requests arrive on the same socket. A custom SDM may use another PLC protocol, but it must
+provide the same properties: an integrity check, an identifier, a sequence number, and
+acknowledgement tracking.
+
+### Packet layout
+
+The packet is packed. Multi-byte fields are written in host byte order.
+
+| Bytes | Field | Type | Content |
+| --- | --- | --- | --- |
+| 0 | Identifier | `uint8_t` | `0xA2` for ATL, `0xA5` for PXC and the combined proximity SDM. |
+| 1–2 | Sequence number | `uint16_t` | One counter per process, starting at 0 and wrapping. Every packet, heartbeats included, takes the next value. |
+| 3 | Command | `uint8_t` | Opcode (see below). |
+| 4–11 | Timestamp seconds | `uint64_t` | UTC seconds since the epoch, from the wall clock. |
+| 12–19 | Timestamp microseconds | `uint64_t` | Microsecond part. |
+| 20–23 | CRC-32 | `uint32_t` | Reflected polynomial `0xEDB88320`, initial value and final XOR `0xFFFFFFFF`, computed over bytes 0–19 and 24–63. |
+| 24–43 | Object record 0 | 20 bytes | `uint32_t object_id`, `float x`, `float y`, `float z`, `uint32_t metadata`. |
+| 44–63 | Object record 1 | 20 bytes | Same layout. |
+
+![Command and acknowledgement packet: identifier, sequence number, command, timestamp seconds, timestamp microseconds, CRC-32 and two 20-byte object records](/assets/images/Packet-Structure-64B.png)
+
+### Opcodes
+
+| Code | ATL (`atl_cmd_pkt.h`) | PXC (`proximity_cmd_pkt.h`) |
+| --- | --- | --- |
+| `0x00` | `CMD_HEARTBEAT` | `CMD_HEARTBEAT` |
+| `0x01` | `CMD_HW_ERROR` | `CMD_HW_ERROR` |
+| `0x02` | `CMD_MUTE`: allow operation | `CMD_STOP`: emergency stop |
+| `0x03` | `CMD_SW_ERROR`: fault safe state, alarm | `CMD_SW_ERROR`: fault safe state, alarm |
+| `0x05` | — | `CMD_REDUCE`: safe speed |
+| `0x07` | `CMD_UNMUTE`: prevent operation | `CMD_NORMAL`: normal operation |
+| `0x08` | `CMD_SAFE_RELEASE_REQUEST`, PLC to SDM | `CMD_SAFE_RELEASE_REQUEST`, PLC to SDM |
+| `0x09` | `CMD_SAFE_RELEASE_ACK`, SDM to PLC | `CMD_SAFE_RELEASE_ACK`, SDM to PLC |
+| `0x0A` | `CMD_SAFE_RELEASE_DENIED`, SDM to PLC | `CMD_SAFE_RELEASE_DENIED`, SDM to PLC |
+
+### Timing in the reference SDMs
+
+| Behaviour | Value |
+| --- | --- |
+| `CMD_HEARTBEAT` to the PLC | Every 5 s, also while latched. Not acknowledged. |
+| Acknowledgement timeout | 3 s. The SDM logs `WARNING: No acknowledgment received for command: <name> (SeqNo: <n>) after 3 seconds`. No safe-state action follows; the PLC side must supervise the SDM. |
+| Periodic repeat of the current decision | `--decision_interval_ms`: 0 turns it off; otherwise 100 to 36000 ms. The binaries default to 5000 ms; both launchers pass 0, so a decision is sent when a request produces one and is not repeated. While latched, the repeat sends the safe output. |
+
+<a id="the-reference-command-receivers"></a>
+
+### The reference command receivers
+
+`atl_sdm_cmd_receiver` and `proximity_sdm_cmd_receiver` stand in for the PLC. They validate each
+packet (exactly 64 bytes, the expected sender, identifier and CRC), acknowledge it with the same
+sequence number and command, and supervise the SDM's `CMD_HEARTBEAT`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `-p <port>` | `12345` | Listen port, 1 to 65535. |
+| `--sdm_ip <IPv4>` | `127.0.0.1` | Expected SDM address. Packets from elsewhere are dropped. |
+| `--sdm_port <port>` | any | Expected SDM source port. The SDM sends from an ephemeral port, so leave it unset. |
+| `--max_hb_failures <N>` | `10` | Upstream heartbeat misses, 1 to 255. The first miss is counted 5 s after the last `CMD_HEARTBEAT` and each further miss 5.5 s later. At `N` the receiver prints `cmd_rx: upstream CMD_HEARTBEAT fault latched (tier 3) — local fail-safe, no PSS — stopping` and **exits**: about 54.5 s at the default. |
+| `--vst_ip <IPv4>` and `--vst_port <port>` | off | ATL receiver only: relay each validated decision command to a VST display destination. Give both or neither; an invalid value stops the receiver at start-up. A relay send failure affects only the display. The PXC receiver rejects both options with `error: unknown option (see --help)`. |
+| `--log-file <path>` | `/tmp/cmdrx.log` | Per-packet log. The console shows only latch, clear and release events. |
+| `--no-log-file` | off | Keep the per-packet log on the console. |
+
+How a receiver drives the release, and what the operator sees, is in the
+[safe-state model](/integration/safe-state-model#the-release-protocol-from-the-controller-side).
+
+## Use-case specifics
+
+<a id="atl-specifics"></a>
+
+### Forklift safety function (`atl_sdm`)
+
+| Item | Value |
+| --- | --- |
+| Configuration | `--config <file>` is required. It binds six situations to six distinct codes from `EVENT_0` to `EVENT_23`: `forklift_entered`, `forklift_exited`, `person_entered`, `person_exited`, `roi_violation`, `roi_cleared`. Every key is mandatory. The shipped `atl_sdm_zone1.conf` binds `EVENT_0` to `EVENT_5`. |
+| Registration | The six codes plus `SW_FAIL`: 7 types. |
+| Decision | `CMD_MUTE` (allow) only while the forklift is in the trailer, no person is in the trailer and no restricted-area violation is set. Otherwise `CMD_UNMUTE` (prevent). |
+| Safe output | `CMD_UNMUTE` then `CMD_SW_ERROR`. |
+| Release response | `CMD_SAFE_RELEASE_ACK` then `CMD_UNMUTE`. The trailer state resets to empty: no forklift, no persons, no violation. |
+| Extra latch | A person leaving while the count is 0, or entering while it is at its cap of 10000, latches the safe state. This cause has no external source, so it does not block a release. |
+| Other options | `--log_file` (default `atl_sdm.log` in the working directory), `--cmd_rx_ip` (default `127.0.0.1`), `--cmd_rx_port` (default `12345`). Two `atl_sdm` on one gateway must not share an event code. |
+
+<a id="pxc-specifics"></a>
+
+### Proximity Monitoring (`proximity_sdm`)
+
+| Item | Value |
+| --- | --- |
+| Configuration | `--config <file>` is required. `pair_groups` selects machine-to-person pair groups; each selected group binds three distinct codes for its normal, reduce and stop tiers. The shipped `pxc_sdm_forklift.conf` binds forklift-to-person to `EVENT_12`, `EVENT_13` and `EVENT_14`; `pxc_sdm_robots.conf` binds three robot groups to `EVENT_15` to `EVENT_23`. |
+| Decision | The worst tier across the request wins: `CMD_STOP`, then `CMD_REDUCE`, then `CMD_NORMAL`. One command per request. |
+| Safe output | `CMD_STOP` then `CMD_SW_ERROR`. |
+| Release response | `CMD_SAFE_RELEASE_ACK` then `CMD_NORMAL`. |
+| Other options | `--log_file` (default `pxc_sdm.log`), `--cmd_rx_ip` (default `127.0.0.1`), `--cmd_rx_port` (default `12345`). `--halo_ip <IPv4>` also sends every decision command to a VST halo overlay listener at that address and `--halo_port` (default `12346`), best effort; it is off unless `--halo_ip` is given. |
+
+The PXC command receiver evaluates the commands it received every 100 ms and applies the most
+conservative: any `SW_ERROR` gives the fault safe state, then any `STOP` or `HW_ERROR` gives an
+emergency stop, then any `REDUCE` gives a slow-down, and only all-`NORMAL` gives normal
+operation. An empty window keeps the previous action.
+
+<a id="atl-proximity-specifics"></a>
+
+### Combined forklift and proximity (`atl_proximity_sdm`)
+
+The combined application runs `atl_sdm` and `atl_proximity_sdm` against one gateway.
+`atl_proximity_sdm` has no `--config`: it registers `EVENT_8`, `EVENT_9`, `EVENT_10` and
+`SW_FAIL`, keeps the worst live forklift-to-person pair (pairs expire after `--pair_ttl_ms`,
+default 2000 ms, range 200 to 60000), and speaks the PXC packet with identifier `0xA5`. Its
+default `--cmd_rx_port` is `12346`, so it does not collide with `atl_sdm` on `12345`.
+
+<a id="sdm-on-the-fsi"></a>
+
+## SDM on the FSI
+
+On IGX Thor the SDM can run on the Functional Safety Island (FSI) instead of the CCPLEX. The
+`fsicom-agent` bridge then takes the SDM's place on the gateway link.
+
+| Item | Behaviour |
+| --- | --- |
+| Gateway link | `fsicom-agent` is an ordinary SDM client: same socket, same group rule, same heartbeats. It registers `EVENT_0` to `EVENT_23` and `SW_FAIL` (25 types), re-sends `REGR` every 30 s, and retries the connect every 500 ms with no limit. |
+| Validation | It validates the envelope and sequence as above, then forwards the raw `DecisionRequest`, without the envelope, to the FSI over NvFsiCom channel 6. |
+| Sequence gap | It forwards a `SW_FAIL` with cause `CAUSE_GATEWAY_SEQUENCE_GAP` (9) ahead of the packet that showed the gap, so the FSI SDM latches. |
+| Full FSI queue | The queue holds 100 messages. A dropped request is followed by the same cause-9 `SW_FAIL`. |
+| Return path | The FSI SDM returns its command packet. With `--relay-fsi-resp` the agent sends it over UDP to `--ip`:`--port`, and sends `CMD_HEARTBEAT` there every 5 s. |
+| Release | The agent forwards a release request to the FSI only if it comes from exactly that address and port, carries the `--cmd-identifier` value and has a valid CRC. At most one per 1000 ms. |
+| FSI SDM causes | The same causes as the CCPLEX SDMs, with two differences: the CCPLEX heartbeat on channel 6 replaces the gateway heartbeat, and an FSI task watchdog fault latches and cannot be cleared without restarting the FSI. Freshness is fixed at 7000 ms. Until the first decision and the first CCPLEX heartbeat arrive after a cold boot, the safe output is held without latching. |
+| Limits | ATL and PXC only. 2D deployments only: the FSI SDMs carry a compiled reviewed sensor set (pipelines 1 `Camera`, 2 `Camera_01`, 3 `Camera_02`) instead of reading `sensor_pipelines_config.conf`. |
+
+The agent's options are on [Launcher](/reference/launcher#fsicom-agent-options). The firmware and
+the agent ship in the `psf-tegra-fsi` package; see
+[Install](/integration/install#fsi-package). Running it is covered in
+[Custom Deployment](/deployment/custom-deployment#sdm-on-fsi).

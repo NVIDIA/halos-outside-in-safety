@@ -1,303 +1,938 @@
 ---
-title: "`launch_hoisa.sh`"
-description: ""
+title: "Launchers and command-line options"
+description: "Every option of launch_hoisa.sh, the Safety Core container entrypoint and fsicom-agent, and the command lines of each Safety Core binary."
 ---
-`launch_hoisa.sh`
+The Safety Core is started in one of three ways:
 
-## 1. Overview
+| Launcher | Where it runs | What it starts |
+| --- | --- | --- |
+| [`launch_hoisa.sh`](#launch_hoisa-options) | On the host. Installed by the `psf-desktop` and `psf-tegra` Debian packages at `/opt/nvidia/psf/bin/launch_hoisa.sh` | The whole stack: the Safety Core container (or the same processes on the host), the SDMs or `fsicom-agent`, SAIM and PCM |
+| [The container entrypoint](#container-options) | Inside the Safety Core container (`/opt/nvidia/psf/bin/launch_psf.sh`) | The SEI daemon, the NvPSD Gateway, the MDX client, SAIM, PCM and, unless told otherwise, the SDMs |
+| [The binaries directly](#binary-command-lines) | Wherever you start them | One process each |
 
-`launch_hoisa.sh` is the reference launcher for the full HOISA (Halos Outside-In Safety) Safety
-Core stack. It orchestrates:
+The [Deployment Guide](/deployment/quick-deployment) starts the container directly, with the SDMs
+inside it; see [Container options](#container-options). `launch_hoisa.sh` runs the SDMs on the
+host instead; see [What runs where](#what-runs-where).
 
-- The **Safety Core Docker container** (running the NvPSD Gateway, the
-  SEI daemon, and the event-ingestion pipeline).
-- The **Safety Decision Maker** on the host — either the CCPLEX SDM
-  binary (`atl_sdm` / `proximity_sdm`) or the `fsicom-agent` bridge
-  when SDM is offloaded to the FSI.
-- The **Safety AI Monitor** (`safety_monitor`) in either `LEARN` or
-  `ACTIVE` mode. Under the default Docker runtime it runs inside the
-  Safety Core container; with `--runtime host` it runs directly on the
-  host.
-- The **Perception Monitor** (`nv_perception_monitor`), which runs by
-  default in `LEARN` and `ACTIVE` modes. It is not launched in
-  `skip` mode and can be disabled explicitly with `--skip-pcm`.
+Both launchers take the mode of each AI monitor on the command line, `--saim-mode` and
+`--pcm-mode`. When they start the control plane, they check those modes against
+`required_safety_monitor` and `required_perception_monitor` in `nvpss.conf`, and they read the
+deployment topology from `deploymentMode`. They never change `nvpss.conf`. See
+[Monitor modes](#monitor-modes) and [SEI Configuration](/reference/sei-configuration).
 
-It also prepares the filesystem state the stack depends on — the
-`/var/log/psf/` log directory, the runtime IPC directory used for
-host ↔ container communication, the threshold configuration at a stable
-well-known path, and the bind-mount of `nvpss.conf` into the container.
+<a id="launch_hoisa-options"></a>
 
-The launcher is installed by the `psf-desktop` / `psf-tegra` Debian
-packages at:
+## `launch_hoisa.sh`
 
 ```bash
-/opt/nvidia/psf/bin/launch_hoisa.sh
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode <learn|active|skip> --pcm-mode <learn|active|skip> [options]
 ```
 
-The recommended execution directory is `/opt/nvidia/psf/bin`:
+### Requirements
+
+- **Root or passwordless `sudo`.** The launcher uses `sudo -n` to create `/var/log/psf`, its log
+  files, the baseline directories of a learning monitor and `/run/nvpsf`, and to start the host
+  processes of a control-plane run. Without it the launcher stops with
+  `Error: cannot create /var/log/psf; run as root or configure passwordless sudo`.
+- **Docker access** for `--runtime docker` (the default). A control-plane run checks that Docker is
+  installed, that a `docker` group exists and that the user can reach the Docker daemon, and stops
+  with `Error: docker is not installed or not in PATH`, `Error: 'docker' group does not exist` or
+  `Error: cannot connect to the Docker daemon (is the user in the 'docker' group?)`. A learning run
+  checks only that Docker is installed.
+- **A readable `nvpss.conf`** in a control-plane run, with `deploymentMode`,
+  `required_safety_monitor` and `required_perception_monitor`. The launcher parses the two
+  required-monitor keys as strictly as the daemon does, before it starts anything. A learning run
+  does not read the file.
+- **`/run/nvpsf`**, in a control-plane run. The launcher creates it if it is missing and sets mode
+  1777. It refuses a symlink and a directory it cannot write. Under `--runtime docker` the
+  directory must also be writable by other users, because the container writes to it as a
+  different user. A mode other than 1777 is a warning only.
+- **One primary group for every Safety Core process** (see
+  [Shared process group](/integration#shared-process-group)). With `--runtime host` every
+  connecting process runs as root. With `--runtime docker` the launcher starts the SDMs and
+  `fsicom-agent` with the container user's group; see
+  [Host processes and the container's group](#host-processes-and-the-container-group). For that, a
+  control-plane run with `--runtime docker` also needs:
+  - `setpriv`, from `util-linux`, runnable through passwordless `sudo`, or the launcher stops with
+    `Error: 'sudo -n setpriv' is not available; install util-linux and allow setpriv for passwordless sudo, so host PSF processes can start with the container's group`;
+  - Docker without user-namespace remapping and not in rootless mode, or the launcher stops with
+    `Error: Docker user-namespace remapping/rootless mode is not supported: host PSF processes must share the container's GID`.
+    It reads this from `docker info`, and stops with
+    `Error: cannot read the Docker security options (docker info)` if it cannot.
+
+  The launcher checks both before it starts anything.
+- **Kernel socket buffers** large enough for the gateway link. See
+  [Kernel socket buffers](/integration/install#kernel-socket-buffers).
+- **For `--sdm-target fsi`:** the FSI firmware flashed and the `nvFsiCom` daemon running. The
+  launcher does not start `nvFsiCom`. See [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi).
+
+<a id="monitor-modes"></a>
+
+### Monitor modes
+
+`--saim-mode` and `--pcm-mode` are both required, and each selects one monitor only.
+
+| Mode | What the monitor does |
+| --- | --- |
+| `learn` | Records baselines for `--learn-duration` seconds, then exits. It never switches to active. SAIM writes one `<sensorName>_baseline.cfg` per camera into `--baseline-dir`. PCM writes one `pcm_baseline.cfg` for the whole camera set into `--pcm-baseline-dir`. A learning monitor does not register with the SEI daemon. |
+| `active` | Registers with the SEI daemon and reports its verdicts, using the saved baselines. |
+| `skip` | Not started. Its configuration and baselines are not checked. |
+
+The two modes together decide what kind of run it is:
+
+| Modes | Run | What runs |
+| --- | --- | --- |
+| At least one monitor `active`, or both `skip` | Control-plane run | The SEI daemon, the NvPSD Gateway, the MDX client, the SDMs or `fsicom-agent`, and every monitor that is not skipped. A monitor in `learn` stops when its baselines are written; the rest keeps running until you stop the launcher. |
+| Only `learn` and `skip` | Learning run | The learning monitors only. No SEI daemon, NvPSD Gateway, MDX client or SDM starts, and `nvpss.conf` is not read. The launcher exits when every learning monitor has finished. |
+
+**Required sources.** A monitor in `learn` or `skip` reports nothing to the SEI daemon, so the
+daemon must not require it. In a control-plane run the launcher checks:
+
+| Key in `nvpss.conf` | Value for `active` | Value for `learn` or `skip` |
+| --- | --- | --- |
+| `required_safety_monitor` | `1` | `0` |
+| `required_perception_monitor` | `1` | `0` |
+
+A mismatch stops the launcher before anything starts, for example:
+
+```text
+Error: --pcm-mode skip conflicts with required_perception_monitor = 1 in /opt/nvidia/psf/bin/nvpss.conf.
+       Set required_perception_monitor = 0 for this mode, or select the mode matching the deployment's required sources.
+```
+
+A missing key gives `Error: <key> is missing from <file>.`, a repeated key
+`Error: <key> is defined more than once in <file>. Keep exactly one.`, and any value other than
+`0` or `1` `Error: <key> = '<value>' in <file> is not 0 or 1.` When the keys match, the launcher
+prints `Required sources: safety_monitor=<n> perception_monitor=<n> (from <file>)`. To change
+what a site requires, edit the file named by `--nvpss-conf`; the launcher never rewrites it.
+
+**Missing or invalid mode.** `Error: --saim-mode is required and must be learn, active, or skip`,
+or the same with `--pcm-mode`.
+
+### Options
+
+"Applies to" names the runs in which the option has an effect. A control-plane run and a learning
+run are defined in [Monitor modes](#monitor-modes).
+
+| Option | Applies to | Default | Values and effect |
+| --- | --- | --- | --- |
+| `--saim-mode <learn\|active\|skip>` | every run | none, required | SAIM's mode. See [Monitor modes](#monitor-modes). |
+| `--pcm-mode <learn\|active\|skip>` | every run | none, required | PCM's mode. See [Monitor modes](#monitor-modes). |
+| `--mode <learn\|active\|skip>` | every run | none | Deprecated alias for `--saim-mode`. It never sets PCM's mode. Prints `Warning: --mode is deprecated; use --saim-mode (PCM requires its own --pcm-mode)`. A different `--saim-mode` on the same line: `Error: --mode conflicts with --saim-mode`. |
+| `--skip-pcm` | every run | off | Deprecated alias for `--pcm-mode skip`. Prints `Warning: --skip-pcm is deprecated; use --pcm-mode skip`. With another `--pcm-mode`: `Error: --skip-pcm conflicts with --pcm-mode <mode>`. |
+| `--sensor-config <file>` | control-plane runs, and runs where SAIM is not skipped | none | The camera list (`pipelineId, sensorName, rtspUrl`). Required in those runs: `Error: --sensor-config is required`, or `Error: sensor config file '<file>' not found`. SAIM reads it. Under `--runtime docker` it is mounted into the container at `/opt/nvidia/psf/bin/sensor_config.conf`; with `--runtime host` it is also passed to the MDX client in 2D. See [`sensor_config.conf`](/reference/sensor-files#sensor_config). |
+| `--docker-image <image:tag>` | every run with `--runtime docker` | none | Required with `--runtime docker`, also in a learning run: `Error: --docker-image <image:tag> is required with --runtime docker (use --runtime host to run on the host)`. Ignored with a warning under `--runtime host`. |
+| `--runtime <docker\|host>` | every run | `docker` | Where the SEI daemon, NvPSD Gateway, MDX client, SAIM and PCM run. See [What runs where](#what-runs-where). Any other value: `Error: --runtime must be 'docker' or 'host'`. |
+| `--app <value>` | control-plane runs; learning runs with PCM | `atl` | Control-plane run: the decision maker or makers to run, in instance order. See [Applications](#applications). Learning run: the application whose shipped event mapping PCM records rules from, when `--app` or `--sdm-config` is given. Give the same value as in the active run; see [PCM baselines](#pcm-baselines). |
+| `--cmd-rx-ip <ip>` | control-plane runs | none, required | Address of the command receiver (the PLC). Passed to every SDM, or to `fsicom-agent` as `--ip`. Missing: `Error: --cmd-rx-ip is required in active mode`. Ignored with a warning in a learning run. |
+| `--cmd-rx-port <port[,port]>` | control-plane runs | none, required | One command receiver port per SDM, in `--app` order, each 1–65535. Two SDMs need different ports. Missing: `Error: --cmd-rx-port is required in active mode`. Ignored with a warning in a learning run. |
+| `--sdm-config <file[,file]>` | control-plane runs; learning runs with PCM | none | One SDM configuration file per SDM, in `--app` order. Host paths, also with `--runtime docker`, because the SDMs run on the host. Required for every CCPLEX ATL or Proximity SDM. Not accepted with `--sdm-target fsi`. When PCM runs, the files are also given to PCM, which records or checks the event codes they bind; under `--runtime docker` they are mounted read-only into the container as `/opt/nvidia/psf/bin/pcm_sdm_<n>.conf`, `<n>` counting from 0. See [SDM configuration files](#sdm-configuration-files) and [PCM baselines](#pcm-baselines). |
+| `--sdm-log-file <file[,file]>` | control-plane runs | `<app>_sdm.log` per SDM | One log file per SDM, in `--app` order. A relative path is placed under `/var/log/psf`. See [Logs](#logs). |
+| `--event-mapping <file>` | control-plane runs; learning runs with PCM | the application's shipped mapping | Overrides the MDX client event mapping. PCM reads the same mapping. With `--runtime docker` the file is mounted read-only into the container. See [Event Mapping Configuration](/reference/event-mapping-configuration). |
+| `--atl-zone1-conf <file>` | control-plane runs; learning runs with PCM | none | Older form of `--sdm-config` for the first ATL SDM. Cannot be combined with `--sdm-config`. |
+| `--atl-zone2-conf <file>` | control-plane runs; learning runs with PCM | none | Older form of `--sdm-config` for the second ATL SDM (`--app atl_dual` or `atl,atl`). |
+| `--zone2-cmd-rx-port <port>` | control-plane runs | none | Older form of the second port in `--cmd-rx-port`, for `--app atl_dual` or `atl,atl`. Cannot be combined with a port list. |
+| `--sdm-target <ccplex\|fsi>` | control-plane runs | `ccplex` | `ccplex`: run the SDM binaries on the host. `fsi`: run `fsicom-agent` instead; the SDM runs on the Functional Safety Island. FSI supports a single `atl` or `pxc` SDM only. Ignored with a warning in a learning run. |
+| `--sensor-pipelines-config <file>` | control-plane runs | the SDMs' default, `/opt/nvidia/psf/bin/sensor_pipelines_config.conf` | The reviewed sensor set. Optional, although the help text lists it under "Required". When given, it is passed to every CCPLEX SDM, and to the MDX client in 3D with `--runtime host`. In 3D the launcher checks that the file, or the default, is readable. See [`sensor_pipelines_config.conf`](/reference/sensor-files#sensor_pipelines_config). |
+| `--nvpss-conf <file>` | control-plane runs | `/opt/nvidia/psf/bin/nvpss.conf` | The `nvpss.conf` the launcher checks and the daemon uses. With `--runtime docker` it is mounted read-only over `/opt/nvidia/psf/bin/nvpss.conf` in the container. With `--runtime host` it is passed to `nvpss_daemon` as `--conf`. A non-default value is ignored with a warning in a learning run. |
+| `--threshold-config <file>` | runs with SAIM `active` | `/opt/nvidia/psf/bin/thresholds.cfg` | SAIM thresholds. With `--runtime host`, passed to SAIM. With `--runtime docker`, a file other than the default is mounted read-only over the image's `/opt/nvidia/psf/bin/thresholds.cfg`; otherwise the image's copy is used. |
+| `--baseline-dir <dir>` | runs where SAIM is not skipped | `/opt/nvidia/psf/bin/saim_baseline` | Host directory of SAIM's per-camera baselines. A learning run creates it with mode 0755 and refuses a path that resolves through a symlink; under `--runtime docker` the container then makes it owned by its `nvidia` user. With `--runtime docker` it is mounted as SAIM's working directory, writable for `learn` and read-only for `active`. Use the same directory in both runs. See [Default baselines](#default-baselines-running-active-mode-without-learn). |
+| `--pcm-baseline-dir <dir>` | runs where PCM is not skipped | `/opt/nvidia/psf/bin/pcm_baseline` | Host directory of PCM's baselines. A learning run creates it as it creates `--baseline-dir`. It must be a readable directory: `Error: PCM baseline dir '<dir>' is not readable; install defaults or run LEARN`. With `--runtime docker` it is mounted at `/opt/nvidia/psf/bin/pcm_baseline`, writable for `learn` and read-only for `active`. Use the same directory in both runs. |
+| `--pcm-config <file>` | runs with PCM `active` | `/opt/nvidia/psf/bin/pcm_monitor.cfg` | PCM's monitor configuration (containers to check, which checks run, timing). With `--runtime host`, or when the option is given, the file must be readable: `Error: PCM config '<file>' not found or not readable`. With `--runtime docker`, a file given with this option is mounted read-only over `/opt/nvidia/psf/bin/pcm_monitor.cfg` in the container; without it the image's copy is used. See [Perception Monitor](/integration/components/perception-monitor). |
+| `--learn-duration <seconds>` | runs with a learning monitor | `300` | How long each learning monitor records. Integer 1–3600, checked in every run: `Error: --learn-duration must be an integer in [1, 3600]`. |
+| `--gpu <id>` | runs where SAIM is not skipped | none: streams are spread across the visible GPUs | Pins every SAIM stream to one GPU. With `--runtime docker` only `0` works; see [Known Limitations](/known-limitations#saim-gpu-selection-in-docker). |
+| `--kafka-broker <host:port>` | control-plane runs; learning runs with PCM | the MDX client and PCM defaults | Passed to the MDX client as `--broker` and to PCM as `--kafka-broker`. Under `--runtime docker` it is passed to the container as `--broker`, which gives it to both. In a learning run with PCM skipped it is ignored with a warning. |
+| `--container-name <name>` | every run with `--runtime docker` | `nv-psf` | Name of the Safety Core container, in learning and control-plane runs. An existing container of that name is removed first. Ignored under `--runtime host`. |
+| `--decision_interval_ms <ms>` | control-plane runs | `0` (off) | Period at which a CCPLEX SDM repeats its last decision to the PLC. `0`, or an integer 100–36000. Ignored with a warning for `--sdm-target fsi` and in a learning run. |
+| `--hb_stale_ms <ms>` | control-plane runs | `5000` | NvPSD Gateway heartbeat stale grace of the CCPLEX SDMs. Integer 100–600000. Ignored with a warning for `--sdm-target fsi`. |
+| `--hb_period_ms <ms>` | control-plane runs | `5500` | NvPSD Gateway heartbeat miss period of the CCPLEX SDMs. Integer 100–600000. Ignored with a warning for `--sdm-target fsi`. |
+| `--halo-ip <ip>` | control-plane runs | none (off) | When set, `proximity_sdm` also sends every decision command to a VST halo-overlay listener at this address. Needs exactly one Proximity SDM (`pxc`, `atl,pxc` or `pxc,atl`): `Error: --halo-ip/--halo-port require one PXC instance`. |
+| `--halo-port <port>` | control-plane runs | `12346` | Port of the halo-overlay listener, 1–65535. |
+| `--gateway-ip <ip>` | — | `127.0.0.1` | No effect. See [Options with no effect](#options-with-no-effect). |
+| `--gateway-port <port>` | — | `50000` | No effect, but must be 1–65535. See [Options with no effect](#options-with-no-effect). |
+| `-h`, `--help` | — | — | Prints the usage text and exits with status 0. |
+
+Every option that takes a value rejects a missing value, or a value starting with `--`, with
+`Error: <option> requires an argument`. An unknown option prints `Error: unknown option '<option>'`
+and the usage text, and the launcher exits with status 1. An option ignored in a learning run
+prints a warning of the form `Warning: <option> is ignored in learn mode`.
+
+The environment variables `PCM_BASELINE_CONFIG` (its directory part) and `PCM_MONITOR_CONFIG`, when
+set in the launcher's environment, replace the defaults of `--pcm-baseline-dir` and
+`--pcm-config`.
+
+<a id="options-with-no-effect"></a>
+
+### Options with no effect
+
+`--gateway-ip` and `--gateway-port` are parsed, and `--gateway-port` is range-checked, but neither
+value reaches any process. The NvPSD Gateway listens on no IP address or UDP port: every SDM
+connects to it through `/run/nvpsf/nvpsd_gateway`. A non-default value makes the launcher print a
+warning that mentions a "preflight UDP port check"; no such check runs. Leave both options out.
+
+<a id="applications"></a>
+
+### Applications
+
+| `--app` | SDMs started on the host (CCPLEX), in instance order | Default MDX mapping | Default SDM logs | FSI |
+| --- | --- | --- | --- | --- |
+| `atl` (default) | `atl_sdm` | `/opt/nvidia/psf/apps/atl/event_mapping_atl.pb.txt` | `atl_sdm.log` | yes |
+| `pxc` | `proximity_sdm` | `/opt/nvidia/psf/apps/proximity/proximity_event_mapping.pb.txt` | `pxc_sdm.log` | yes |
+| `atl,pxc` | `atl_sdm`, then `proximity_sdm` | `proximity_event_mapping.pb.txt` | `atl_sdm.log`, `pxc_sdm.log` | no |
+| `pxc,atl` | `proximity_sdm`, then `atl_sdm` | `proximity_event_mapping.pb.txt` | `pxc_sdm.log`, `atl_sdm.log` | no |
+| `atl,atl` | two `atl_sdm`, one per zone | `event_mapping_atl.pb.txt` | `atl_sdm_zone1.log`, `atl_sdm_zone2.log` | no |
+| `atl_dual` | the same as `atl,atl` | `event_mapping_atl.pb.txt` | `atl_sdm_zone1.log`, `atl_sdm_zone2.log` | no |
+| `pxc,pxc` | two `proximity_sdm` | `proximity_event_mapping.pb.txt` | `pxc_sdm_zone1.log`, `pxc_sdm_zone2.log` | no |
+
+All the SDMs of one launch share one NvPSD Gateway and one MDX client. Any other value is refused
+with `Error: unsupported app '<value>'`. `launch_hoisa.sh` has no `atl_proximity` value; the
+combined forklift and proximity application is started through the
+[container entrypoint](#container-options) only. Multi-SDM values are refused with
+`--sdm-target fsi`: `Error: multi-SDM combinations support --sdm-target ccplex only`.
+
+<a id="sdm-configuration-files"></a>
+
+### SDM configuration files
+
+Every CCPLEX ATL and Proximity SDM needs a configuration file that binds its situations to event
+codes. The package installs editable templates in `/opt/nvidia/psf/bin/`:
+
+| Template | For | Binds |
+| --- | --- | --- |
+| `atl_sdm_zone1.conf.sample` | the first (or only) ATL SDM | `EVENT_0`–`EVENT_5` |
+| `atl_sdm_zone2.conf.sample` | the second ATL SDM | `EVENT_6`–`EVENT_11` |
+| `pxc_sdm_forklift.conf.sample` | a single Proximity SDM, or the Proximity SDM next to ATL | forklift–person pairs, `EVENT_12`–`EVENT_14` |
+| `pxc_sdm_robots.conf.sample` | the second Proximity SDM | robot–person pairs, `EVENT_15`–`EVENT_23` |
+
+Copy a template, edit it, and pass the copy with `--sdm-config`. The event codes must match the
+`output_event` values of the mapping the MDX client runs. The launcher checks that each file is
+readable (`Error: SDM <n> config '<path>' is not a readable file`), that the list has one entry
+per SDM (`Error: --sdm-config needs <n> value(s), in the same order as --app`), and that two SDMs
+do not share an event code
+(`Error: SDM configs overlap on EVENT_<n>; use distinct application event codes`). The SDM binary
+validates the keys inside each file at startup; see [Binary command lines](#binary-command-lines).
+In a learning run with PCM, an unreadable file gives
+`Error: PCM SDM config '<path>' is not readable`.
+
+<a id="what-runs-where"></a>
+
+### What runs where
+
+| Process | `--runtime docker` | `--runtime host` |
+| --- | --- | --- |
+| `nvpss_daemon`, `nvpsd_gateway`, `mdx_client` (control-plane runs) | In the container, as its user `nvidia` | On the host, as root |
+| `atl_sdm` and `proximity_sdm`, or `fsicom-agent` (control-plane runs) | On the host, as root, with the container user's group as primary group | On the host, as root |
+| `safety_monitor` (SAIM), unless skipped | In the container | `active`: on the host, as root. `learn`: on the host, as the user running the launcher. Both in `--baseline-dir` |
+| `nv_perception_monitor` (PCM), unless skipped | In the container | `active`: on the host, as root. `learn`: on the host, as the user running the launcher |
+
+Under `--runtime docker`, a learning run starts one container in the foreground, with `--rm`, for
+both learning monitors, and the launcher returns when that container exits. A control-plane run
+starts the container in the background; the monitors start inside it after its control plane.
+Under `--runtime host`, a learning monitor needs write access to its baseline directory as the
+user running the launcher, or the launcher stops with
+`Error: <SAIM|PCM> baseline dir '<dir>' is not writable for LEARN; grant write access or run LEARN under sudo`.
+
+Every host process that the launcher starts with `sudo -n` runs as root. Under `--runtime host`
+they run with group ID 0, and every connecting process is such a host process, so they all share
+one primary group. Under `--runtime docker` the processes in the container run as the container
+user `nvidia`, with that user's group, and the launcher starts the SDMs and `fsicom-agent` on the
+host with that group; see [Host processes and the container's group](#host-processes-and-the-container-group).
+
+<a id="host-processes-and-the-container-group"></a>
+
+### Host processes and the container's group
+
+In a control-plane run with `--runtime docker`, once the container is running and before it starts
+any SDM or `fsicom-agent`, the launcher reads the group ID of the container user with
+`docker exec <container-name> id -g nvidia` and prints:
+
+```text
+Host PSF processes run with the container's GID <gid> (user nvidia in <container-name>)
+```
+
+It then starts each SDM, or `fsicom-agent`, as
+`sudo -n setpriv --regid <gid> --keep-groups -- env ...`. The process keeps root's user ID and
+supplementary groups; only its primary group changes. `--runtime host` is unchanged: it starts
+the control plane, the SDMs or `fsicom-agent`, and a monitor in `active` with `sudo -n env ...`,
+and a monitor in `learn` as the user running the launcher. A learning run with `--runtime docker`
+starts no process on the host.
+
+The launcher stops, and removes the container, before any host process starts, if it cannot use
+the group ID:
+
+| Message | Cause |
+| --- | --- |
+| `Error: cannot read the GID of user nvidia in container <container-name>` | `docker exec` failed, or the image has no `nvidia` user |
+| `Error: container <container-name> runs PSF processes with GID '<gid>', which cannot be used for host peers` | The group ID is not a number from 1 to 4294967294, or it is the kernel's overflow group ID (`/proc/sys/kernel/overflowgid`, usually 65534). Group 0 would admit every root process, and the overflow ID is what a process with an unmapped group reports |
+
+It then checks whether host accounts share the container user's IDs, and warns without stopping:
+
+```text
+Warning: GID <gid> of the Safety Core container is also used on this host by a group with <m> member(s) and as the primary group of <k> user(s).
+         Accounts that can run with GID <gid> can connect to, or stand in for,
+         the Safety Core sockets in /run/nvpsf. List them with: getent group <gid>; getent passwd | awk -F: '$4 == <gid>'
+Warning: UID <uid> of the Safety Core container belongs to <j> host account(s).
+         They own the Safety Core sockets in /run/nvpsf on this host and can
+         delete them. List them with: getent passwd <uid>
+```
+
+The first warning names only the clauses that apply: a host group with the ID, users whose primary
+group it is, or both. A group count it cannot compute is shown as `?`. If the user ID cannot be read, the
+launcher prints `Warning: cannot read the UID of user nvidia in container <container-name>; UID overlap not checked`.
+The warnings give counts and lookup commands, never account or group names. What the overlap
+allows, and how to remove it, is described in
+[Host accounts with the container's group](/integration#host-accounts-with-the-container-group).
+
+In a control-plane run the launcher starts, in order: the container (or, with `--runtime host`,
+the SEI daemon, then the NvPSD Gateway, then the MDX client), the SDMs or `fsicom-agent`, and,
+with `--runtime host`, the monitors that are not skipped. It waits 1 s after each SDM and each
+host control-plane process and stops with `Error: failed to start <process>` if the process has
+already exited. It waits 2 s after starting the container and stops with
+`Error: Docker container <name> failed to start`, followed by the container's output, if the
+container is no longer running. Under `--runtime docker` it then prints
+`Monitors run inside <name>: SAIM=<mode>, PCM=<mode>`. A host monitor prints
+`<SAIM|PCM> started in <LEARN|ACTIVE> mode with PID <pid>`, or `Skipping <SAIM|PCM> (--<saim|pcm>-mode skip)`.
+The MDX client is started as instance 1. In 2D it gets the camera list; in 3D it gets the
+reviewed sensor set.
+
+With `--sdm-target fsi` the launcher starts `fsicom-agent` as:
 
 ```bash
-cd /opt/nvidia/psf/bin
-sudo ./launch_hoisa.sh ...
+fsicom-agent --heartbeat --relay-fsi-resp --ip <cmd-rx-ip> --port <cmd-rx-port> \
+    --cmd-identifier <0xA2 for atl, 0xA5 for pxc>
 ```
 
-SAIM's per-sensor baseline files are stored in a dedicated host baseline
-directory. This directory is chosen with the `launch_hoisa.sh`
-`--baseline-dir` argument: when the argument is omitted, the default
-`/opt/nvidia/psf/bin/saim_baseline` is used; when it is supplied, the
-path provided is used instead. Under the default Docker runtime the
-directory is bind-mounted into the container as SAIM's working directory,
-so baselines learned in `learn` mode persist for `active` mode.
+### What it mounts into the container
 
-### Default baselines (running active mode without learn)
+Control-plane run, `--runtime docker`:
 
-SAIM ships default baseline templates so that `active` mode can run even
-before a `learn` pass has been performed. The package includes three
-templates for the **loading-dock reference scenario**:
-`Camera_baseline.cfg.default`, `Camera_01_baseline.cfg.default`, and
-`Camera_02_baseline.cfg.default`. For each configured sensor, SAIM first
-looks for a learned baseline (`<sensorName>_baseline.cfg`) in the baseline
-directory; if that file is not present, it falls back to the matching shipped
-template (`<sensorName>_baseline.cfg.default`). The fallback matches
-`sensorName` exactly, so a site whose sensor names differ from the three
-above gets no template and must run `learn` mode. `active` mode fails
-only when neither a learned baseline nor a default template is found for a
-sensor.
-
-<Note>
-The default templates are tuned for the loading-dock reference cameras.
-For any other camera or scene, run `learn` mode to generate
-site-specific baselines; relying on the defaults elsewhere can produce
-inaccurate trust verdicts.
-</Note>
-
-## 2. Operating Modes
-
-The launcher has three mutually exclusive modes selected via
-`--mode <learn|active|skip>`:
-
-| Mode | What runs | When to use |
-| --- | --- | --- |
-| **learn** | `safety_monitor` and the Perception Monitor, in `LEARN` mode. | One-time baseline-learning pass. `safety_monitor` captures a per-sensor camera baseline into `--baseline-dir` and the Perception Monitor captures its DVM baseline. No threshold config or SDM application is required. Under the default Docker runtime, `--docker-image` must be supplied. |
-| **active** | Safety Core container + host SDM + `safety_monitor` (ACTIVE) + Perception Monitor. | Full production stack. Default deployment. Reads the SAIM baseline files from the baseline directory (`--baseline-dir`). |
-| **skip** | Safety Core container + host SDM. **No** SAIM and no Perception Monitor. | AI-trust path validated separately, or no GPU/decoder budget available for SAIM. Useful for event-ingestion-only deployments. |
-
-## 3. Command-Line Interface
-
-### 3.1 Required Arguments
-
-| Argument | Description |
+| `docker run` argument | Purpose |
 | --- | --- |
-| `--mode <learn\|active\|skip>` | Operating mode (see Section 2). |
-| `--sensor-config <file>` | Sensor configuration file in CSV form (`pipelineId, sensorName, rtspUrl` — one sensor per line). Consumed by `safety_monitor` and, in `active` / `skip` modes, bind-mounted into the Safety Core container. Each `rtspUrl` must be directly playable by `ffprobe` or `gst-launch-1.0`; VST registration or online status alone does not prove the stream is usable by HOISA. |
+| `-v <--sensor-config>:/opt/nvidia/psf/bin/sensor_config.conf:ro` | The camera list |
+| `-v <--nvpss-conf>:/opt/nvidia/psf/bin/nvpss.conf:ro` | The SEI configuration |
+| `-v /run/nvpsf:/run/nvpsf` | The socket directory shared by every Safety Core process |
+| `-v /var/log/psf/psf.log:/var/log/psf/psf.log` | The container's syslog stream |
+| `-v /var/run/docker.sock:/var/run/docker.sock` and `--group-add <docker gid>` | The host's Docker daemon, which PCM's container-health check queries |
+| `--network=host` | The container shares the host network, for example to reach a Kafka broker on the host |
+| `--ipc=host` | Not needed by the Safety Core |
+| `-v /var/log/psf/saim.log:/var/log/psf/saim.log` | SAIM output, unless SAIM is skipped |
+| `-v <--baseline-dir>:/opt/nvidia/psf/bin/saim_baseline:ro` (`:rw` for SAIM `learn`) | SAIM baselines, unless SAIM is skipped |
+| x86-64: `--gpus all`. aarch64: `--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all`, plus `--group-add` for the host `video` and `render` groups | GPU, decoder and PVA access for SAIM, unless SAIM is skipped |
+| `-e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video` | The same |
+| `-v <--threshold-config>:/opt/nvidia/psf/bin/thresholds.cfg:ro` | Only when SAIM is `active` and `--threshold-config` names a non-default file |
+| `-v /var/log/psf/pcm.log:/var/log/psf/pcm.log` | PCM output, unless PCM is skipped |
+| `-v <--pcm-baseline-dir>:/opt/nvidia/psf/bin/pcm_baseline:ro` (`:rw` for PCM `learn`) | PCM baselines, unless PCM is skipped |
+| `-v <--pcm-config>:/opt/nvidia/psf/bin/pcm_monitor.cfg:ro` | Only when PCM is `active` and `--pcm-config` is given |
+| `-v <--sdm-config n>:/opt/nvidia/psf/bin/pcm_sdm_<n>.conf:ro` | The SDM configurations, read by PCM, unless PCM is skipped |
+| `-v <--event-mapping>:/opt/nvidia/psf/bin/sdm_event_mapping.pb.txt:ro` | Only when `--event-mapping` is given |
 
-### 3.2 Arguments Required in `active` / `skip` Modes
+The container arguments are `--app <app>`, then, for ATL and Proximity applications,
+`--sdm-external --cmd_rx_port <ports>`, then `--cmd_rx_ip <ip>`,
+`--sensor-config /opt/nvidia/psf/bin/sensor_config.conf`,
+`--saim-mode <mode> --pcm-mode <mode> --learn-duration <seconds>`, plus `--event-mapping`,
+`--sdm-config`, `--broker`, `--pcm-baseline-dir`, `--baseline-dir` and `--gpu` when they apply.
+SAIM and PCM therefore do not cross the container boundary; the SDMs and `fsicom-agent` on the host
+do, through `/run/nvpsf`, with the container user's group (see
+[Host processes and the container's group](#host-processes-and-the-container-group)).
 
-| Argument | Description |
-| --- | --- |
-| `--docker-image <image:tag>` | Fully-qualified image reference for the Safety Core container. Required whenever the Docker runtime is used (the default), including `learn` mode; not needed with `--runtime host`. |
-| `--cmd-rx-ip <ip>` | IP address of the SDM command receiver (PLC or reference command receiver application). |
-| `--cmd-rx-port <port>` | UDP port of the SDM command receiver. |
+Learning run, `--runtime docker`: the launcher runs the container in the foreground with `--rm`,
+and `--network=host`. For a learning SAIM it adds the GPU arguments above, the camera
+list, the SAIM baseline directory (writable) and `saim.log`. For a learning PCM it adds the PCM
+baseline directory (writable) and `pcm.log`, and, when PCM records event bindings, the event
+mapping as `/opt/nvidia/psf/bin/pcm_event_mapping.pb.txt` and each SDM configuration as
+`/opt/nvidia/psf/bin/pcm_sdm_<n>.conf`, all read-only. It passes
+`--saim-mode <mode> --pcm-mode <mode> --learn-duration <seconds>` and the matching container
+paths. A learning run mounts neither `nvpss.conf` nor the Docker socket, and prints
+`Launching learners: SAIM=<mode>, PCM=<mode> (Docker)`.
 
-<Note>
-`--app <atl|pxc>` is optional and defaults to `atl`. Both
-`--cmd-rx-ip` and `--cmd-rx-port` are required in `active` and
-`skip` modes.
-</Note>
+The container does not receive `sensor_pipelines_config.conf` or the 3D sensor group file. See
+[Known Limitations](/known-limitations#3d-files-are-not-mounted-into-the-container).
 
-### 3.3 Optional Arguments
+<a id="logs"></a>
 
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--runtime <docker\|host>` | `docker` | How the Safety Core components and SAIM are launched. `docker` runs them inside the `nv-psf` container; `host` runs the binaries directly on the host (no Docker required). |
-| `--sdm-target <ccplex\|fsi>` | `ccplex` | `ccplex` launches the CCPLEX SDM binary on the host. `fsi` launches `fsicom-agent` instead; the SDM itself runs on the Functional Safety Island (see Section 5). |
-| `--threshold-config <file>` | `/opt/nvidia/psf/bin/thresholds.cfg` | SAIM threshold configuration, used in `active` mode only (`learn` mode does not read it). With `--runtime host` the file is read directly; with the Docker runtime it is bind-mounted read-only over the image's default, and if omitted the image default is used. |
-| `--learn-duration <seconds>` | 300 | LEARN-mode duration. Accepted range: `[1, 3600]`. |
-| `--gpu <id>` | unset | Pin all SAIM streams to this GPU index. Without this flag, SAIM distributes streams across visible GPUs. |
-| `--baseline-dir <dir>` | `/opt/nvidia/psf/bin/saim_baseline` | Host folder holding SAIM's per-sensor baseline files. When omitted, the default `/opt/nvidia/psf/bin/saim_baseline` is used; when supplied, the given path is used instead. Under the Docker runtime it is bind-mounted as SAIM's working directory, so baselines learned in `learn` mode persist into `active` mode. If a sensor has no learned `<sensorName>_baseline.cfg` here, SAIM falls back to the shipped `<sensorName>_baseline.cfg.default` template (see [Default baselines (running active mode without learn)](/reference/launcher#default-baselines-running-active-mode-without-learn)). |
-| `--kafka-broker <address>` | unset | Kafka broker endpoint for the event-ingestion client inside the container in `active` / `skip` modes, and for the Perception Monitor's `LEARN` pass in `learn` mode. Ignored in `learn` mode only when `--skip-pcm` is also given; without it, omitting this option leaves the Perception Monitor on `localhost:9092`. |
-| `--container-name <name>` | `nv-psf` | Docker container name. Change when running multiple instances side-by-side. Ignored with `--runtime host`. |
-| `--decision_interval_ms <ms>` | 0 (off) | CCPLEX-SDM periodic decision-repeat interval in milliseconds. `0` disables periodic repeats (decisions remain event-driven). Non-zero values must be in `[100, 36000]`. Not applicable when `--sdm-target fsi`. |
-| `--gateway-ip <ip>` | `127.0.0.1` | Bind address for `nvpsd_gateway`. With `--runtime host`, the launcher forwards it to the gateway, SDM, and FSI bridge. With the Docker runtime, a non-default value is used only for the preflight check and is not forwarded to the in-container gateway. |
-| `--gateway-port <port>` | `50000` | UDP port for `nvpsd_gateway`. Valid range: `[1, 65535]`. With `--runtime host`, the launcher forwards it to the gateway, SDM, and FSI bridge. With the Docker runtime, a non-default value is used only for the preflight check and is not forwarded to the in-container gateway. |
-| `--hb_stale_ms <ms>` | `5000` | Gateway-heartbeat stale grace period for the CCPLEX ATL and Proximity SDMs. Valid range: `[100, 600000]`. Ignored for FSI SDM. |
-| `--hb_period_ms <ms>` | `5500` | Gateway-heartbeat miss period for the CCPLEX ATL and Proximity SDMs. Valid range: `[100, 600000]`. Ignored for FSI SDM. |
-| `--skip-pcm` | unset | Do not launch `nv_perception_monitor` in `learn` or `active` mode. The Perception Monitor is enabled by default in those modes and is always omitted in `skip` mode. |
-| `--nvpss-conf <file>` | `/opt/nvidia/psf/bin/nvpss.conf` | Host path to the SEI daemon configuration. Bind-mounted read-only into the container. Use this to point at a per-site variant without editing the default. **Docker runtime only**: under `--runtime host` there is no bind mount, the daemon reads `/opt/nvidia/psf/bin/nvpss.conf` directly, and this flag is ignored with a warning. Copy the override to that path instead. |
-| `-h`, `--help` | — | Show the inline usage banner and exit. |
+### Logs
 
-<Note>
-In `learn` mode, arguments that apply only to `active` / `skip`
-(`--cmd-rx-ip`, `--cmd-rx-port`, `--sdm-target`,
-`--decision_interval_ms`, `--nvpss-conf`, `--gateway-ip`,
-`--gateway-port`) are
-accepted but ignored, and the launcher emits a
-"Warning: ... is ignored in learn mode" line for transparency.
-`--docker-image` is required in `learn` mode under the default
-Docker runtime (it is only ignored with `--runtime host`).
-</Note>
-
-## 4. Runtime State and Logs
-
-### 4.1 Logs
-
-Logs are written to `/var/log/psf/`:
+All files are under `/var/log/psf/`. The launcher creates `psf.log` and the SDM logs in a
+control-plane run, and `saim.log` and `pcm.log` for each monitor that is not skipped, all with mode
+0666. SAIM and PCM output is appended to `saim.log` and `pcm.log` across runs.
 
 | File | Contents |
 | --- | --- |
-| `/var/log/psf/psf.log` | Safety Core container components (gateway, SEI daemon, event-ingestion client). |
-| `/var/log/psf/saim.log` | `safety_monitor` when `--runtime host` is used. With the Docker runtime, use `docker logs <container-name>` for SAIM output. |
-| `/var/log/psf/pcm.log` | `nv_perception_monitor` (LEARN or ACTIVE, unless `--skip-pcm` is supplied). |
-| `/var/log/psf/atl_sdm.log` | ATL SDM (`--app atl`). |
-| `/var/log/psf/pxc_sdm.log` | Proximity SDM (`--app pxc`). |
+| `psf.log` | `--runtime docker`: the container's syslog stream, which holds the records of the SEI daemon, the NvPSD Gateway and the MDX client. `--runtime host`: the console output of those three processes. In both runtimes, also the console output of the CCPLEX SDMs. |
+| `pss.log` | `--runtime host` only: the syslog records of the SEI daemon, the NvPSD Gateway and the MDX client, written by the package's rsyslog rule. |
+| `atl_sdm.log`, `pxc_sdm.log`, `atl_sdm_zone1.log`, … | Each CCPLEX SDM's own log (`--sdm-log-file`). With `--sdm-target fsi`, the first of these holds the output of `fsicom-agent`, and the SDM itself logs to the FSI UART. |
+| `saim.log` | SAIM output, in both runtimes |
+| `pcm.log` | PCM output, in both runtimes |
 
-To follow logs live:
+With `--runtime docker`, `docker logs <container-name>` also shows the container's syslog stream
+and the console output of every process in the container, including SAIM and PCM. The launcher
+removes the container when it stops, and its output with it; the files above remain.
 
-```bash
-tail -f /var/log/psf/psf.log
-tail -f /var/log/psf/saim.log  # --runtime host only
-tail -f /var/log/psf/atl_sdm.log   # or pxc_sdm.log
-```
+<a id="supervision-shutdown-and-exit-status"></a>
+
+### Supervision, shutdown and exit status
+
+While a control-plane run is up, the launcher checks every 2 s that each host process and each
+host monitor is alive and, under `--runtime docker`, that the container is still running. The
+first failure stops the run:
+
+| Failure | Message |
+| --- | --- |
+| A host SDM, `fsicom-agent` or host control-plane process exited | `Host process <pid> exited unexpectedly` |
+| The container stopped, for example because a process in it exited | `Error: PSF Docker container exited unexpectedly` |
+| A host monitor in `active` exited, with any status | `Error: <SAIM\|PCM> exited (status <n>)` |
+| A host monitor in `learn` exited with a non-zero status | `Error: <SAIM\|PCM> exited (status <n>)` |
+| A host monitor's log file can no longer be written | `Error: <SAIM\|PCM> log writer exited (status <n>)` |
+
+A learning monitor that exits with status 0 prints `<SAIM|PCM> completed LEARN successfully` and
+the run continues. A host learning run that succeeds prints
+`All selected monitors completed LEARN successfully`.
+
+`SIGINT` (Ctrl-C) or `SIGTERM` stops the host monitors and every host process with `SIGTERM`,
+waits up to 10 s, sends `SIGKILL` to any that remain, then stops and removes the container. The
+launcher prints `Cleanup complete` last.
+
+| Exit status | When |
+| --- | --- |
+| `0` | `--help`, or a learning run in which every learning monitor succeeded |
+| `1` | A validation or prerequisite failure, a failed learning monitor, or any failure in the table above |
+| `130` | Interrupted by `SIGINT` |
+| `143` | Terminated by `SIGTERM` |
+
+<a id="default-baselines-running-active-mode-without-learn"></a>
+
+### Default baselines (running active mode without learn)
+
+**SAIM.** The package installs three SAIM baseline templates in `/opt/nvidia/psf/bin/saim_baseline`,
+tuned for the loading-dock reference scene: `Camera_baseline.cfg.default`,
+`Camera_01_baseline.cfg.default` and `Camera_02_baseline.cfg.default`.
+
+In active mode SAIM looks, for each camera, for `<sensorName>_baseline.cfg` in its working
+directory (the baseline directory). If that file is missing, it uses
+`<sensorName>_baseline.cfg.default` and prints
+`Notice: baseline '<file>' not found for sensor '<name>'; falling back to default '<file>.default'`.
+If neither exists, SAIM stops with
+`Error: baseline file '<file>' (or '<file>.default') not found for sensor '<name>'.`
+The fallback matches `sensorName` exactly, so a site whose camera names differ from the three
+above must learn SAIM baselines. The templates were learned at 1920×1080, so they also need
+cameras of that size, and they are tied to the release: under the Docker runtime the container
+reads the host's templates, so install the package of the same release as the image.
+
+When SAIM is `active`, the launcher checks, before it starts anything, that the baseline
+directory holds at least one `*_baseline.cfg` or `*_baseline.cfg.default` file:
+`Error: no SAIM baselines found in '<dir>'; run --saim-mode learn first`. The container entrypoint
+checks again before it starts SAIM:
+`Error: no SAIM baselines (*_baseline.cfg or *_baseline.cfg.default) found in '<dir>'`.
+
+<a id="pcm-baselines"></a>
+
+**PCM.** A learning PCM writes one `pcm_baseline.cfg` into `--pcm-baseline-dir`. Besides the
+cameras it saw on `mdx-frames` and their timing, the file records the decision contract: the ROI
+and proximity rules of the event mapping that the SDM configurations select. With `--app` but no
+SDM configuration, as for `--sdm-target fsi`, PCM records every rule of the application's mapping.
+With none of `--app`, `--sdm-config` and `--event-mapping`, it records cameras and timing only.
+
+An active PCM compares the recorded contract with the contract of its own run and does not use a
+baseline whose contract differs, logging
+`DVM: decision mapping changed for <camera>; baseline not used, re-run LEARN`. When the run has a
+contract, as an ATL or Proximity application does, a `pcm_baseline.cfg` record learned without one is
+not used either; older per-camera baseline files are still used. With no usable baseline
+PCM runs without its data check; it does not report the AI pipeline invalid for this. Learn PCM
+baselines with the same `--app`, `--sdm-config` (or `--atl-zone*-conf`) and `--event-mapping` as
+the active run.
+
+The package installs reference templates in `/opt/nvidia/psf/bin/pcm_baseline`:
+`pcm_Camera_baseline.cfg.default`, `pcm_Camera_01_baseline.cfg.default` and
+`pcm_Camera_02_baseline.cfg.default`. They were learned on the loading-dock reference scene with
+`proximity_event_mapping.pb.txt`, `atl_sdm_zone1.conf` and `pxc_sdm_forklift.conf`, so they fit
+`--app atl,pxc` with unchanged copies of those two configurations, on the reference cameras, and
+only while no learned `pcm_baseline.cfg` is in the directory. Any other application needs a
+learning run. How PCM chooses between the learned file and the templates is described in
+[Perception Monitor](/integration/components/perception-monitor#baselines).
+
+PCM logs what it loaded at startup, as
+`DVM: baseline loaded, cameras=<n>, decision-data profiles=<n> (from <dir>)` and
+`checks: container_health=<on|off> (...) data_validation=<on|off> (...)`.
 
 <Note>
-These paths apply when the launcher runs on the host. When it runs inside
-the Safety Core container, components log to stdout instead, so the files
-above can be empty or stale while the container is healthy — follow
-`docker logs -f <container-name>` in that case.
+The baseline templates fit the loading-dock reference cameras only. For any other camera or scene,
+learn SAIM and PCM baselines: the defaults can produce wrong trust verdicts elsewhere.
 </Note>
 
-### 4.2 Privilege Requirements
+### Examples
 
-The launcher must be run as **root**, or the invoking user must have
-passwordless `sudo` access. It invokes privileged operations with
-`sudo -n` to prepare the runtime log and IPC directories and to launch
-the host-side SDM process (and SAIM under `--runtime host`).
-
-Membership in the `docker` group is additionally required in any mode
-that uses the default Docker runtime, including `learn`.
-
-## 5. SDM on FSI
-
-When `--sdm-target fsi` is supplied, the launcher does **not** start
-the CCPLEX SDM binary. Instead it starts `fsicom-agent` on the
-CCPLEX, which bridges the FSI-hosted SDM to the NvPSD Gateway.
-
-Prerequisites (unchanged from the manual deployment flow — see
-[Deployment Guide](/deployment) §2.2.2 / §2.3.2):
-
-1. IGX-Thor BSP + Safety Extension Package flashed on the target.
-2. HOISA-specific FSI firmware reflashed onto the FSI, matching the
-   application under test (`fsi-fw/atl` or `fsi-fw/proximity`), and the
-   board reset afterwards so the island boots that firmware.
-3. `nvFsiCom` daemon running on the CCPLEX. The launcher does **not**
-   start `nvFsiCom`; it must be started before `launch_hoisa.sh`.
-
-<Info>
-If `nvFsiCom` is not running, `fsicom-agent` stalls at
-`[INIT] Initializing FSI communication...` and no decision ever reaches
-the command receiver, even though the rest of the stack starts cleanly.
-Confirm it with `pgrep -af nvFsiCom` before launching. For the agent's own
-options and expected startup output, see
-[the fsicom-agent option reference](/deployment#fsicom-agent-options).
-</Info>
-
-Example:
+Learn both monitors in the container, then run the forklift safety function with the control
+plane and the monitors in the container and the SDM on the host:
 
 ```bash
-cd /opt/nvidia/psf/bin
-sudo /opt/nvidia/ccplex_sf/fsi_ccplex_com/nvFsiCom &
-
-sudo ./launch_hoisa.sh --mode active --app atl --sdm-target fsi \
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode learn --pcm-mode learn --app atl \
     --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
-    --docker-image <PSF_DOCKER_IMAGE> \
-    --cmd-rx-ip <IP> --cmd-rx-port <Port>
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --docker-image nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
+    --learn-duration 300
+
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode active --app atl \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --docker-image nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
+    --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port 12345
 ```
 
-SDM logs are observable on the FSI UART shell (use `tcu_muxer` to
-discover the device node). `/var/log/psf/atl_sdm.log` /
-`pxc_sdm.log` carry only the `fsicom-agent` bridge output in this
-mode.
+The same run with every process on the host:
 
-<Note>
-`--decision_interval_ms` is applicable only to the CCPLEX SDM
-binary. The launcher warns if a non-default value is combined with
-`--sdm-target fsi`.
-</Note>
+```bash
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode active --runtime host --app atl \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port 12345
+```
 
-## 6. SEI Daemon Configuration (`nvpss.conf`)
+Forklift safety function and Proximity Monitoring together, on the host. On the reference cameras,
+with unchanged copies of the templates and no learned `pcm_baseline.cfg`, PCM uses the reference
+baselines:
 
-The SEI daemon reads its configuration from `nvpss.conf`. The launcher
-bind-mounts the host's `nvpss.conf` read-only into the container so
-operator edits on the host are authoritative without rebuilding the
-image.
+```bash
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode active --runtime host --app atl,pxc \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf,/opt/nvidia/psf/bin/pxc_sdm_forklift.conf \
+    --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port 12345,12346
+```
 
-- Default host source: `/opt/nvidia/psf/bin/nvpss.conf` (populated by
-  the Debian package).
-- Override: `--nvpss-conf /etc/psf/site-a/nvpss.conf` to use a
-  per-site variant without editing the default file.
+Forklift safety function with the SDM on the FSI, on the host:
 
-The launcher validates that the host file exists and is readable before
-starting the container.
+```bash
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode active --runtime host --app atl --sdm-target fsi \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port 12345
+```
 
-Full parameter reference: see [SEI Configuration](/reference/sei-configuration).
+Forklift safety function without PCM, on the host, where `<nvpss-conf>` is a copy of
+`nvpss.conf` with `required_perception_monitor = 0`:
 
-## 7. Shutdown and Exit Status
+```bash
+sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode skip --runtime host --app atl \
+    --nvpss-conf <nvpss-conf> \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port 12345
+```
 
-Sending `SIGINT` (Ctrl-C) or `SIGTERM` to the launcher triggers a
-graceful shutdown of all managed processes followed by removal of the
-Safety Core container. Any process that does not exit gracefully within
-a short grace period is force-terminated.
+`<cmd-rx-ip>` is the address of the host running the command receiver. The configuration files
+named here are copies of the `.sample` templates.
 
-Exit codes:
+<a id="container-options"></a>
 
-- `0`   — `--help`, or a `learn` run that completed its capture
-  window.
-- `1`   — configuration or prerequisite validation failure, or one of
-  the supervised processes died unexpectedly.
-- `130` — process interrupted by SIGINT.
-- `143` — process terminated by SIGTERM.
+## Container options
 
-## 8. Troubleshooting
+The Safety Core image runs `tini`, then an entrypoint that starts `cron` and `rsyslog` as root,
+then runs `/opt/nvidia/psf/bin/launch_psf.sh` as the container user `nvidia` with the arguments
+given to `docker run`.
 
-### 8.1 Permission error preparing `/var/log/psf`
+### Container environment
 
-The invoking user does not have the privileges required to create the
-log directory. Re-run the launcher as root, or configure passwordless
-`sudo` for the invoking user.
+| Variable | Effect |
+| --- | --- |
+| `PCM_BASELINE_CONFIG` | Its directory part replaces the default of `--pcm-baseline-dir`. |
+| `PCM_MONITOR_CONFIG` | Replaces the default of `--pcm-config`. |
 
-### 8.2 Safety Core container fails to start
+Every process in the container runs as the container user `nvidia`, with that user's primary
+group. Its group ID is set when the image is built; read it with
+`docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 -g nvidia`.
+A Safety Core process on the host that connects to the container (`fsicom-agent` with
+`--sdm-on-fsi`, or the SDMs with `--sdm-external`) must run with that group ID as its primary
+group, for example `sudo setpriv --regid <gid> --keep-groups -- <command>`, and the container must
+mount the host's `/run/nvpsf` with `-v /run/nvpsf:/run/nvpsf`. See
+[Shared process group](/integration#shared-process-group).
 
-The launcher dumps the container's initial logs to stderr. Common
-causes:
+### Options
 
-- Docker image not available locally and not reachable on the registry.
-- Another container already bound to the same name.
-- `nvpss.conf` removed between validation and container start.
+| Option | Default | Values and effect |
+| --- | --- | --- |
+| `--saim-mode <learn\|active\|skip>` | none, required | SAIM's mode, as for `launch_hoisa.sh`; see [Monitor modes](#monitor-modes). Missing or invalid: `Error: --saim-mode is required and must be learn, active, or skip`. |
+| `--pcm-mode <learn\|active\|skip>` | none, required | PCM's mode. Missing or invalid: `Error: --pcm-mode is required and must be learn, active, or skip`. |
+| `--skip-pcm` | off | Deprecated alias for `--pcm-mode skip`, with the same warning and conflict error as `launch_hoisa.sh`. |
+| `--app <value>` | none | Required in a control-plane run: `Error: --app parameter is required`. `atl`, `pxc`, `atl,pxc`, `pxc,atl`, `atl,atl`, `atl_dual`, `pxc,pxc`, or `atl_proximity`. See [Container applications](#container-applications). In a learning run it only selects the default event mapping for PCM. |
+| `--sensor-config <file>` | none | Required in a control-plane run and whenever SAIM is not skipped. The camera list, as a path inside the container. It must be readable: `Error: sensor config file '<file>' not found or not readable`. |
+| `--sdm-config <file[,file]>` | none | One SDM configuration per SDM, as container paths of read-only mounts. Required when the SDMs run in the container. With `--sdm-external`, accepted only when PCM is not skipped, and given to PCM only. Not accepted with `--sdm-on-fsi`: `Error: SDM configs must be supplied to the launcher that starts the SDMs`. In a learning run, given to PCM, which then needs `--app` or `--event-mapping`: `Error: PCM SDM configs require --app or --event-mapping`. |
+| `--sdm-log-file <file[,file]>` | `<app>_sdm.log` per SDM | One log file per SDM. A relative path is placed under `/var/log/psf`. |
+| `--event-mapping <file>` | the application's shipped mapping | Overrides the MDX client event mapping. PCM reads the same mapping. In a learning run, given to PCM: `Error: PCM event mapping '<file>' is not readable` if it cannot be read. |
+| `--atl-zone1-conf <file>`, `--atl-zone2-conf <file>` | none | Older form of `--sdm-config` for ATL SDMs. `--atl-zone1-conf` is required for `--app atl_proximity`. |
+| `--cmd_rx_ip <ip>` | the SDM default, `127.0.0.1` | Command receiver address, passed to every SDM. |
+| `--cmd_rx_port <port[,port]>` | `12345` for a single SDM | One port per SDM. For `atl_proximity`, the ATL SDM's port. |
+| `--zone2_cmd_rx_port <port>` | none | Older form of the second ATL port, for `atl_dual` or `atl,atl`. |
+| `--proximity_cmd_rx_port <port>` | `12346` | `atl_proximity` only: the port of `atl_proximity_sdm`. Must differ from the ATL SDM's port. |
+| `--pair_ttl_ms <ms>` | the SDM default | `atl_proximity` only: passed to `atl_proximity_sdm`. |
+| `--sdm-external` | off | Start the control plane and the monitors only. The SDMs run outside the container, as `launch_hoisa.sh` runs them, and must run with the container user's primary group, through a mounted `/run/nvpsf` (see [Container environment](#container-environment)). ATL and Proximity applications only. |
+| `--sdm-on-fsi` | off | Start the control plane and the monitors only; the SDM runs on the FSI and `fsicom-agent` must run on the host, with the container user's primary group, through a mounted `/run/nvpsf`. A single `atl` or `pxc` SDM only. Cannot be combined with `--sdm-external`. See [SDM on FSI](/deployment/custom-deployment#sdm-on-fsi). |
+| `--broker <host:port>` | `localhost:9092` | Kafka broker for the MDX client (as `--broker`) and PCM (as `--kafka-broker`). Without it, the MDX client uses `MDX_MSGBUS_BROKERS` when that is set in the container, and PCM always uses `localhost:9092`, so use `--broker` rather than the variable. |
+| `--hb_stale_ms <ms>`, `--hb_period_ms <ms>` | `5000`, `5500` | Gateway heartbeat timing of the SDMs started in the container. Integers 100–600000. |
+| `--baseline-dir <dir>` | `/opt/nvidia/psf/bin/saim_baseline` | SAIM's working directory. It must exist. For `active` it must hold at least one baseline or template. For `learn` the entrypoint makes it owned by `nvidia` and stops if it is still not writable: `Error: SAIM baseline folder '<dir>' is not writable for LEARN`. |
+| `--pcm-baseline-dir <dir>` | `/opt/nvidia/psf/bin/pcm_baseline` | PCM's baseline directory. It must be readable: `Error: PCM baseline folder '<dir>' is not readable (bind-mount it or pass --pcm-baseline-dir)`. For `learn` the entrypoint makes a dedicated directory owned by its user and stops if it is still not writable: `Error: PCM baseline folder '<dir>' is not writable for LEARN`. |
+| `--pcm-config <file>` | `/opt/nvidia/psf/bin/pcm_monitor.cfg` | PCM's monitor configuration, read when PCM is `active`. It must be readable: `Error: PCM config '<file>' not found or not readable`. |
+| `--learn-duration <seconds>` | `300` | How long each learning monitor records. Integer 1–3600. |
+| `--gpu <id>` | none | Passed to SAIM as `--gpu`, and also exported as `CUDA_VISIBLE_DEVICES`. Only `0` works; see [Known Limitations](/known-limitations#saim-gpu-selection-in-docker). |
+| `-h`, `--help` | — | Prints the usage text and exits with status 0. |
 
-### 8.3 Host process exits immediately after launch
+An unknown option prints `Error: Unknown option '<option>'` and the usage text, and the container
+exits with status 1. The container has no `--mode` option.
 
-If `atl_sdm` / `proximity_sdm` / `safety_monitor` exit within a
-second of starting, the launcher aborts with
-`Error: failed to start <label>`. Inspect the corresponding log in
-`/var/log/psf/` for the root cause.
+The entrypoint has no option for these files. Mount your own copy over the path in the image:
 
-### 8.4 `safety_monitor` exits with baseline file not found
+| File | Path in the container |
+| --- | --- |
+| SEI configuration | `/opt/nvidia/psf/bin/nvpss.conf` |
+| SAIM thresholds | `/opt/nvidia/psf/bin/thresholds.cfg` |
+| Reviewed sensor set | `/opt/nvidia/psf/bin/sensor_pipelines_config.conf` |
+| 3D sensor group file | The path named by `sensorGroupConfig` in `nvpss.conf` |
 
-`active` mode reads SAIM's per-sensor baseline files from the baseline
-directory (`--baseline-dir`, default `/opt/nvidia/psf/bin/saim_baseline`),
-so pass the same `--baseline-dir` to `learn` and `active`. For the full
-diagnosis and the `learn` command that regenerates site-specific baselines,
-refer to [6.3 Safety AI Monitor exits with baseline file not found](/deployment#saim-baseline-missing).
+<a id="container-applications"></a>
 
-### 8.5 VST RTSP URL returns `DESCRIBE` or `PLAY` 404
+### Container applications
 
-Every `rtspUrl` in `sensor_config.conf` must be validated before the
-launcher is started in `learn` or `active` mode. For the validation
-commands and the VST-side fix, refer to [6.4 VST sensor is online but RTSP playback fails](/deployment#vst-rtsp-playback).
+In a control-plane run the entrypoint reads `deploymentMode` from
+`/opt/nvidia/psf/bin/nvpss.conf` and checks `required_safety_monitor` and
+`required_perception_monitor` against the monitor modes, as described in
+[Monitor modes](#monitor-modes), before it starts anything. In 3D it checks that
+`/opt/nvidia/psf/bin/sensor_pipelines_config.conf` is readable. A learning run reads neither file
+and starts only the learning monitors.
 
-## 9. Reference
+| `--app` | Processes, in start order |
+| --- | --- |
+| `atl`, `pxc`, `atl,pxc`, `pxc,atl`, `atl,atl`, `atl_dual`, `pxc,pxc` | `nvpss_daemon`, `nvpsd_gateway`, the SDMs (unless `--sdm-external` or `--sdm-on-fsi`), `mdx_client`, then SAIM and PCM unless skipped |
+| `atl_proximity` | `nvpsd_gateway`, `nvpss_daemon`, `atl_sdm` (with `--atl-zone1-conf`), `atl_proximity_sdm`, `mdx_client` with `/opt/nvidia/psf/apps/atl_proximity/event_mapping_atl_proximity.pb.txt`, then SAIM and PCM unless skipped. No FSI variant: `--sdm-on-fsi` is refused. |
 
-Related documents:
+The SDMs started in the container get `--decision_interval_ms 0`. The MDX client is started as
+instance 1, with `--sensor-config` in 2D or with
+`--sensor-pipelines-config /opt/nvidia/psf/bin/sensor_pipelines_config.conf` in 3D.
 
-- [Deployment Guide](/deployment)
-- [SEI Configuration](/reference/sei-configuration)
+PCM is started with `--baseline-config <pcm-baseline-dir>/pcm_baseline.cfg`, with
+`--kafka-broker` when `--broker` is given, and, for the ATL and Proximity applications and in a
+learning run that has them, with the event mapping and each SDM configuration. A PCM in `active`
+reaches the host's Docker daemon through `/var/run/docker.sock` when it is mounted. The switch to
+the `nvidia` user drops the groups that `docker run --group-add` adds, so when that user cannot
+read and write the socket, the entrypoint starts PCM with the socket's group added
+(`sudo -n setpriv ... --groups <groups>,<socket gid>`). Without the socket mount, PCM's container
+check stays off and PCM logs
+`Docker socket unreachable; container health is NOT checked until Docker answers again`.
+
+The entrypoint supervises what it started. If a control-plane process exits, or a monitor fails as
+described in [Supervision, shutdown and exit status](#supervision-shutdown-and-exit-status), it
+stops the others (`SIGTERM`, then `SIGKILL` after 10 s) and the container exits with status 1. In
+a learning run it prints `All selected monitors completed LEARN successfully` and exits with
+status 0 when every learning monitor succeeded.
+
+Inside the container, SAIM output goes to `/var/log/psf/saim.log` and PCM output to
+`/var/log/psf/pcm.log`, and both also to the container output. The SDMs started in the container
+write their own logs to `/var/log/psf/<app>_sdm.log`. The syslog records of the SEI daemon, the
+NvPSD Gateway and the MDX client go to `/var/log/psf/psf.log`. Everything also appears in
+`docker logs <container>`.
+
+<a id="plain-docker-run-examples"></a>
+
+### Plain `docker run` examples
+
+Forklift safety function with the SDM, SAIM, PCM and the control plane in the container, on x86-64.
+Every Safety Core process then runs with the container user's group, so the container needs no
+`/run/nvpsf` mount:
+
+```bash
+docker run -d --name nv-psf --network=host --gpus all \
+    -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /opt/nvidia/psf/bin/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro \
+    -v /opt/nvidia/psf/bin/nvpss.conf:/opt/nvidia/psf/bin/nvpss.conf:ro \
+    -v /opt/nvidia/psf/bin/atl_sdm_zone1.conf:/opt/nvidia/psf/bin/atl_sdm_zone1.conf:ro \
+    -v /opt/nvidia/psf/bin/pcm_monitor.cfg:/opt/nvidia/psf/bin/pcm_monitor.cfg:ro \
+    -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
+    -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
+    nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
+    --app atl --saim-mode active --pcm-mode active \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
+    --cmd_rx_ip <cmd-rx-ip> --cmd_rx_port 12345
+```
+
+The PCM baselines in the mounted directory must have been learned with the same `--app` and
+`--sdm-config`. To learn them with the container, run it in the foreground; it exits when both
+monitors have finished:
+
+```bash
+docker run --rm --name nv-psf-learn --network=host --gpus all \
+    -e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
+    -v /opt/nvidia/psf/bin/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro \
+    -v /opt/nvidia/psf/bin/atl_sdm_zone1.conf:/opt/nvidia/psf/bin/atl_sdm_zone1.conf:ro \
+    -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
+    -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
+    nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
+    --saim-mode learn --pcm-mode learn --learn-duration 300 --app atl \
+    --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
+    --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf
+```
+
+On aarch64, replace `--gpus all` with `--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all`. The
+entrypoint gives SAIM the groups of the GPU and PVA device nodes itself, so `--group-add` is not
+needed. Add `--broker <host:port>` to either command when Kafka is not at `localhost:9092`. Follow
+the output with `docker logs -f nv-psf`. The mounted `nvpss.conf` must require the monitors that
+run, as described in [Monitor modes](#monitor-modes).
+
+**Logs on the host.** Without a log mount the logs stay in the container and are lost when it is
+removed. To keep them, add `-v /var/log/psf:/var/log/psf`, and first create on the host every log
+file the container writes, with mode 666: `psf.log`, `saim.log` and `pcm.log`, and each SDM log
+(see [Applications](#applications)). The container user can write to those files but cannot
+create files in the host directory; a missing file stops the container with
+`Error: monitor log is not writable: /var/log/psf/<saim|pcm>.log` or
+`Error: cannot create SDM log '<file>'`. [Quick Deployment](/deployment/quick-deployment) uses
+this mount.
+
+**A process on the host.** With `--sdm-on-fsi` or `--sdm-external`, add
+`-v /run/nvpsf:/run/nvpsf` and start the process on the host as described in
+[Container environment](#container-environment). The procedures are in
+[Decision maker on the host](/deployment/custom-deployment#sdm-on-host) and
+[SDM on FSI](/deployment/custom-deployment#sdm-on-fsi).
+
+<a id="fsicom-agent-options"></a>
+
+## `fsicom-agent`
+
+`fsicom-agent` runs on the CCPLEX when the SDM runs on the Functional Safety Island. It connects
+to the NvPSD Gateway like an SDM, forwards each `DecisionRequest` to the FSI over the FSI
+communication channel, and relays the FSI SDM's commands to the command receiver over UDP. It is
+installed by the `psf-tegra-fsi` package at `/opt/nvidia/psf/bin/fsicom-agent`, and must run as
+root with the `nvFsiCom` daemon already running.
+
+```bash
+sudo /opt/nvidia/psf/bin/fsicom-agent --heartbeat --relay-fsi-resp \
+    --ip <cmd-rx-ip> --port <cmd-rx-port> --cmd-identifier <0xA2|0xA5>
+```
+
+`fsicom-agent` accepts both `--option value` and `--option=value`.
+
+| Option | Default | Values and effect |
+| --- | --- | --- |
+| `--relay-fsi-resp` | off | Relay the commands that the FSI SDM sends back to the command receiver over UDP, and forward the receiver's safe-release requests to the FSI. Requires `--ip`, `--port` and `--cmd-identifier`: `[ERROR] --relay-fsi-resp requires --ip option`, `[ERROR] --relay-fsi-resp requires --port option`, or `[ERROR] --cmd-identifier is required with --relay-fsi-resp (wire identifier of the app being served)`. |
+| `--ip <IPv4>` | none | Address of the command receiver. Otherwise `[ERROR] Invalid IP address: <value>`. Without `--relay-fsi-resp` it only produces a warning. |
+| `--port <port>` | none | The command receiver's listen port (its `-p`), 1–65535. Otherwise `[ERROR] Invalid port number: <value> (must be 1-65535)`. |
+| `--cmd-identifier <byte>` | none | The packet identifier of the application on the FSI, 1–255. Decimal, hexadecimal (`0xA2`) and octal are accepted. Use `0xA2` for the forklift safety function and `0xA5` for Proximity Monitoring. The agent stamps it on every relayed command and requires it on safe-release requests. |
+| `--heartbeat` | off | Send heartbeat pings to the FSI and track its keepalives and pongs. If no FSI keepalive arrives for more than 3 s, the agent logs `[HB] WARNING: No FSI keepalive for <s> s`. |
+| `--heartbeat-interval <ms>` | `2000` | Ping interval, 100–60000. Otherwise `[ERROR] Invalid heartbeat interval: <value> (must be 100-60000 ms)`. No effect without `--heartbeat`. |
+| `--debug` | off | Print every packet. |
+| `-h`, `--help` | — | Prints the usage text and exits with status 0. |
+
+`--gw-transport`, `--gw-socket`, `--gw-ip` and `--gw-port` are retired. Passing one prints an
+"unrecognized option" error and the usage text, and the agent exits with status 1. The link to the
+NvPSD Gateway is always `/run/nvpsf/nvpsd_gateway`.
+
+**Behaviour.**
+
+- **Gateway link.** If the gateway is not up yet, the agent logs
+  `[GW] Awaiting NvPSDGateway (UNIX_SOCKET)...` and retries every 500 ms without limit, so it can
+  start before or after the Safety Core. It registers for `EVENT_0` to `EVENT_23` and `SW_FAIL`,
+  and re-registers every 30 s. A refusal is logged once per reason:
+  `[GW] The gateway refused this agent's registration; reason=<reason> -- not registered, no decisions will reach the FSI SDM`.
+- **Gateway heartbeat.** If no gateway heartbeat arrives for 8 s, the agent logs
+  `[GW-WD] PSDGateway heartbeat lost for <ms> ms`. It takes no other action; the FSI SDM detects
+  the loss through its own decision-freshness check.
+- **Command receiver.** With `--relay-fsi-resp`, the agent sends a heartbeat command to the
+  receiver every 5 s. It forwards a safe-release request to the FSI only when the request comes
+  from the exact `--ip` and `--port`, carries the `--cmd-identifier`, and has a valid CRC, and at
+  most once per second.
+- **Socket buffers.** The agent's gateway socket needs `net.core.rmem_max` and
+  `net.core.wmem_max` of at least 5283840 bytes. While they are lower, every connection attempt
+  fails with `nvpsf_transport: SO_RCVBUF granted <n> bytes but <m> are required ...; raise net.core.rmem_max`,
+  and the agent keeps retrying.
+- **FSI channel.** The device tree must have the `nvidia,tegra-fsicom-bufdemo-10k` node with
+  `channelid_list = <6>`; otherwise the agent stops with
+  `[ERROR] Reading channel configuration failed`. If FSI communication cannot be initialised, the
+  agent prints `[ERROR] FSI COM initialization failed: <code>` with hints and stops. When
+  `nvFsiCom` is not running, the agent does not get past `[INIT] Initializing FSI communication...`.
+
+A healthy start prints these lines, in order:
+
+```text
+[INIT] ✓ FSI communication initialized
+[TRANSPORT] gateway upstream: UNIX_SOCKET
+[GW] Connected to gateway 127.0.0.1:50000 — link established (first packet received)
+[HB] First keepalive received (seq=<n>) — FSI heartbeat link up
+[HB] First pong received (seq=<n>) — FSI responding to pings
+```
+
+The address in the `[GW] Connected to gateway` line is a leftover and is not used: the link is
+the local socket.
+
+The agent logs to stdout and stderr only. `launch_hoisa.sh` appends both to the first SDM log
+(`atl_sdm.log` or `pxc_sdm.log`). The SDM on the FSI logs to the FSI UART; use the `tcu_muxer`
+utility to find its device node.
+
+<a id="binary-command-lines"></a>
+
+## Binary command lines
+
+All binaries except `fsicom-agent` take options only in the form `--option value`:
+`--option=value` is rejected as an unknown option. Each binary prints its usage text with `-h` or
+`--help`, except `safety_monitor`, which has no help option.
+
+| Binary | Installed at |
+| --- | --- |
+| `nvpss_daemon`, `nvpsd_gateway`, `safety_monitor`, `nv_perception_monitor` | `/opt/nvidia/psf/bin/` |
+| `mdx_client` | `/opt/nvidia/psf/apps/mdx-client/` |
+| `atl_sdm`, `atl_sdm_cmd_receiver` | `/opt/nvidia/psf/apps/atl/` |
+| `proximity_sdm`, `proximity_sdm_cmd_receiver` | `/opt/nvidia/psf/apps/proximity/` |
+| `atl_proximity_sdm`, `atl_proximity_sdm_cmd_receiver` | `/opt/nvidia/psf/apps/atl_proximity/` |
+
+### `nvpss_daemon` (SEI)
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--conf <path>` | `/opt/nvidia/psf/bin/nvpss.conf` | Everything else comes from this file. See [SEI Configuration](/reference/sei-configuration). |
+
+Any other argument: `error: unexpected argument (see --help)`, exit status 1.
+
+### `nvpsd_gateway` (NvPSD Gateway)
+
+All options are optional. Both launchers start the gateway with none, so the defaults apply.
+
+| Option | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `--num_clients <n>` | `10` | 1–10 | Maximum number of registered SDMs (and `fsicom-agent`). |
+| `--max_hb_failures <n>` | `10` | 1–255 | Missed SDM heartbeats before the gateway frees the SDM's slot. The gateway uses the same limit for its own heartbeat to the SEI daemon. |
+| `--regr_max_per_window <n>` | `4` | 1–64 | Registrations accepted from one connection per window. |
+| `--regr_window_ms <ms>` | `10000` | 1000–600000 | Length of that window. |
+
+`--transport`, `--sdm_socket`, `--sdm_ip`, `--sdm_port` and `--sdm_allow` are retired: they get
+`error: unknown option (see --help)` and exit status 1. A missing or out-of-range value prints an
+`error:` line and exits with status 1. The gateway opens no TCP or UDP port; SDMs connect to
+`/run/nvpsf/nvpsd_gateway`. At startup it connects to the SEI daemon (60 attempts, 500 ms apart)
+and exits with status 1 if that fails.
+
+### `mdx_client` (MDX client)
+
+| Option | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `-c`, `--config <file>` | yes | none | The event mapping. A first positional argument is also taken as the mapping. See [Event Mapping Configuration](/reference/event-mapping-configuration). |
+| `-s`, `--sensor-config <file>` | one of `-s` or `-g` | none | 2D: the camera list, which maps Kafka sensor names to `pipelineId`. |
+| `-g`, `--sensor-pipelines-config <file>` | one of `-s` or `-g` | none | 3D: the reviewed sensor set, which maps the BEV group name to its `pipelineId`. |
+| `-i`, `--instance-id <n>` | no | none (anonymous) | 1–8. The instance number the SEI daemon tracks and that `required_mdx_instances` refers to. The launchers pass `1`. |
+| `-b`, `--broker <host:port>` | no | `MDX_MSGBUS_BROKERS`, else `localhost:9092` | Kafka broker. |
+| `-d`, `--debug` | no | off | Print matched events instead of reporting them. The client does not register with the SEI daemon in this mode. |
+
+Giving both `-s` and `-g` prints
+`error: -s/--sensor-config and -g/--sensor-pipelines-config are mutually exclusive; supply exactly one.`
+Giving neither prints
+`error: a sensor identity file is required: -s/--sensor-config for 2D, or -g/--sensor-pipelines-config for 3D/BEV.`
+Both exit with status 1. The client logs to syslog with the tag `nv_mdx_client`. If 10
+consecutive heartbeats to the SEI daemon fail (about 50 s), it logs
+`PSS heartbeat ACK failure limit reached — PSS presumed dead, exiting` and exits.
+
+### `atl_sdm` (forklift safety function)
+
+| Option | Required | Default | Range |
+| --- | --- | --- | --- |
+| `--config <file>` | yes | none | The event binding: six keys, `forklift_entered`, `forklift_exited`, `person_entered`, `person_exited`, `roi_violation` and `roi_cleared`, each set to a distinct `EVENT_0`–`EVENT_23`. See the `atl_sdm_zone1.conf.sample` template. |
+| `--cmd_rx_ip <ip>` | no | `127.0.0.1` | IPv4 address of the command receiver |
+| `--cmd_rx_port <port>` | no | `12345` | 1–65535 |
+| `--log_file <path>` | no | `atl_sdm.log` in the working directory | One per SDM when several run together |
+| `--sensor_pipelines_config <file>` | no | `/opt/nvidia/psf/bin/sensor_pipelines_config.conf` | The file itself is mandatory: a missing or malformed file stops the SDM. |
+| `--max_hb_failures <n>` | no | `10` | 1–255. NvPSD Gateway heartbeat misses before the latch. |
+| `--hb_stale_ms <ms>` | no | `5000` | 100–600000. Time without a gateway heartbeat before the first miss. |
+| `--hb_period_ms <ms>` | no | `5500` | 100–600000. Time per further miss. |
+| `--decision_freshness_timeout_ms <ms>` | no | `7000` | 50–300000. Time without an accepted `DecisionRequest` before the SDM latches. |
+| `--decision_interval_ms <ms>` | no | `5000` | `0` (off) or 100–36000. The launchers pass `0`. |
+
+The `--config` file is validated strictly: a missing, repeated, unknown or invalid key stops the
+SDM with `error: --config <path>: <reason>`. A `safety_pipelines` line from an earlier release is
+rejected by name; the reviewed sensor set comes from `--sensor_pipelines_config`. `--events` is
+retired and rejected by name. `--gateway_ip` and `--gateway_port` are not accepted
+(`error: unknown option (see --help)`). Command-line errors exit with status 1; a startup failure
+after parsing (for example an unloadable reviewed sensor set) exits with status 255.
+
+### `proximity_sdm` (Proximity Monitoring)
+
+`proximity_sdm` takes the same options as `atl_sdm`, with these differences:
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--config <file>` | none, required | The pair groups to monitor and their event codes: optional `pair_groups = <group>[,<group>]`, then `<group>_normal`, `<group>_reduce` and `<group>_stop` for each selected group. Groups: `forklift_person`, `humanoid_person`, `transporter_person`, `fourier_humanoid_person`. Without `pair_groups`, the first three are selected. See the `pxc_sdm_forklift.conf.sample` and `pxc_sdm_robots.conf.sample` templates. |
+| `--log_file <path>` | `pxc_sdm.log` in the working directory | |
+| `--halo_ip <ip>` | none (off) | Also send every decision command to a VST halo-overlay listener. Setting it alone enables the halo on the default port. |
+| `--halo_port <port>` | `12346` | No effect without `--halo_ip`. |
+| `--gateway_ip <ip>`, `--gateway_port <port>` | `127.0.0.1`, `50000` | Still accepted, with no effect. |
+
+### `atl_proximity_sdm` (forklift safety function with forklift–person proximity)
+
+Started only by the container entrypoint with `--app atl_proximity`, next to an `atl_sdm`. It takes
+no `--config`, `--log_file` or instance option, and always logs to `atl_proximity_sdm.log` in its
+working directory.
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--cmd_rx_ip <ip>` | `127.0.0.1` | |
+| `--cmd_rx_port <port>` | `12346` | Must differ from the `atl_sdm` port. |
+| `--pair_ttl_ms <ms>` | `2000` | 200–60000. How long a forklift–person pair is kept without a new observation. |
+| `--sensor_pipelines_config <file>`, `--max_hb_failures`, `--hb_stale_ms`, `--hb_period_ms`, `--decision_freshness_timeout_ms`, `--decision_interval_ms` | as for `atl_sdm` | |
+| `--gateway_ip <ip>`, `--gateway_port <port>` | `127.0.0.1`, `50000` | Still accepted, with no effect. |
+
+### Command receivers
+
+`atl_sdm_cmd_receiver`, `proximity_sdm_cmd_receiver` and `atl_proximity_sdm_cmd_receiver` are the
+reference PLC endpoints. They take the same options:
+
+| Option | Default | Range and effect |
+| --- | --- | --- |
+| `-p <port>` | `12345` | Local UDP listen port, 1–65535. Set it to the SDM's `--cmd_rx_port`. For `atl_proximity_sdm` that is `12346`, not the default. |
+| `--sdm_ip <ipv4>` | `127.0.0.1` | Accept packets only from this sender address. |
+| `--sdm_port <port>` | any | Accept packets only from this sender port, 1–65535. The SDMs send from an ephemeral port, so leave it unset. |
+| `--max_hb_failures <n>` | `10` | 1–255. Missed SDM heartbeats before the receiver stops (see below). |
+| `--vst_ip <ipv4>`, `--vst_port <port>` | off | Also relay each command packet to a VST display listener. Give both or neither: `error: --vst_ip and --vst_port must be used together`. |
+| `--log-file <path>` | `/tmp/cmdrx.log` | Verbose per-packet log. The console shows only latch, clear and release events. Two receivers left on the default share one file. |
+| `--no-log-file` | off | Send the verbose log to the console. |
+
+- **Heartbeat watchdog.** The receiver counts a miss once 5 s pass without an SDM heartbeat, and
+  one more every 5.5 s after that. At `--max_hb_failures` misses (about 54.5 s at 10) it prints
+  `cmd_rx: upstream CMD_HEARTBEAT fault latched (tier 3) — local fail-safe, no PSS — stopping`
+  and exits with status 0. The watchdog starts when the receiver starts, so a receiver whose SDM
+  never comes up also stops.
+- **Release on first contact.** 500 ms after the first valid packet from the SDM, the receiver
+  sends one safe-release request, logged as
+  `Startup: peer connected — sending safe-release to clear any pre-existing latch`. The SDM still
+  denies it while a fault is active.
+- **Interactive release.** After the SDM reports a latched safe state, typing `release` (or `r`,
+  `safe-release`, `y`, `yes`) sends a safe-release request.
+- If the receiver cannot bind its port, it prints `Error binding socket: <error>` and exits with
+  status 0.
+
+### `safety_monitor` (SAIM)
+
+| Option | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `--mode <LEARN\|ACTIVE>` | no | `ACTIVE` | Upper case only. |
+| `--sensor-config <file>` | yes | none | One RTSP stream per row. |
+| `--threshold-config <file>` | no | `thresholds.cfg` in the working directory | Active mode only. A missing or invalid file is not fatal: SAIM prints `WARNING: threshold config <path> is missing or invalid; using built-in defaults`. |
+| `--learn-duration <seconds>` | no | `300` | 1–3600. Learn mode only. |
+| `--gpu <id>` | no | streams spread across the visible GPUs | Must be below the number of visible GPUs: `Error: --gpu <id> is out of range (0-<n>)`. |
+
+SAIM reads and writes its baselines as `<sensorName>_baseline.cfg` in its working directory; see
+[Default baselines](#default-baselines-running-active-mode-without-learn). The accelerator
+backend is fixed at build time: the GPU on x86-64, and the PVA in the shipped aarch64 build. SAIM
+tries to register with the SEI daemon 6 times, 5 s apart, then exits with
+`Failed to register with PSS daemon after 6 attempts. Exiting.` It logs to stdout and stderr only.
+An unknown argument prints `Error: unknown argument: <argument>`, and SAIM exits with status 1.
+
+### `nv_perception_monitor` (PCM)
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `--mode <LEARN\|ACTIVE>` | `ACTIVE` | Either case. LEARN records a baseline and does not register with the SEI daemon. |
+| `--learn-duration <seconds>` | `300` | 1–3600. Learn mode only. |
+| `--baseline-config <file>` | `$PCM_BASELINE_CONFIG`, else `/opt/nvidia/psf/bin/pcm_baseline/pcm_baseline.cfg` | Only the directory part is used. LEARN writes `pcm_baseline.cfg` there; see [PCM baselines](#pcm-baselines). |
+| `--kafka-broker <host:port>` | `localhost:9092` | Kafka broker for the `mdx-frames` topic. |
+| `--event-mapping <file>` | none | The MDX event mapping whose rules PCM records (LEARN) or checks (ACTIVE). At most once. |
+| `--sdm-config <file>` | none | One SDM configuration; repeat the option for each SDM. Selects which rules of the mapping apply. Needs `--event-mapping`. |
+
+In active mode PCM reads `/opt/nvidia/psf/bin/pcm_monitor.cfg` (or `$PCM_MONITOR_CONFIG`), whose
+`[monitors]` section enables `container_health` and `data_validation`. Both are on by default.
+PCM reaches Docker through `/var/run/docker.sock`. It registers with the SEI daemon in 6 attempts,
+5 s apart, and exits if that fails. An argument error, an unusable `pcm_monitor.cfg` in active
+mode, or an event mapping or SDM configuration it cannot use exits with status 2. PCM logs to
+stdout and stderr only, as lines starting `[<date> <time>] [PCM][INFO|WARNING|ERR]`; both launchers
+copy both streams to `/var/log/psf/pcm.log`. The checks and the configuration keys are on
+[Perception Monitor](/integration/components/perception-monitor).
