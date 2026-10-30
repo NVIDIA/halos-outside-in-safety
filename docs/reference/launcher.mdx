@@ -468,13 +468,13 @@ plane and the monitors in the container and the SDM on the host:
 sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode learn --pcm-mode learn --app atl \
     --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
     --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
-    --docker-image nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+    --docker-image nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
     --learn-duration 300
 
 sudo /opt/nvidia/psf/bin/launch_hoisa.sh --saim-mode active --pcm-mode active --app atl \
     --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
     --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
-    --docker-image nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+    --docker-image nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
     --cmd-rx-ip <cmd-rx-ip> --cmd-rx-port 12345
 ```
 
@@ -537,7 +537,7 @@ given to `docker run`.
 
 Every process in the container runs as the container user `nvidia`, with that user's primary
 group. Its group ID is set when the image is built; read it with
-`docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> -g nvidia`.
+`docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 -g nvidia`.
 A Safety Core process on the host that connects to the container (`fsicom-agent` with
 `--sdm-on-fsi`, or the SDMs with `--sdm-external`) must run with that group ID as its primary
 group, for example `sudo setpriv --regid <gid> --keep-groups -- <command>`, and the container must
@@ -645,7 +645,7 @@ docker run -d --name nv-psf --network=host --gpus all \
     -v /opt/nvidia/psf/bin/pcm_monitor.cfg:/opt/nvidia/psf/bin/pcm_monitor.cfg:ro \
     -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
     -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-    nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+    nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
     --app atl --saim-mode active --pcm-mode active \
     --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
     --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf \
@@ -663,7 +663,7 @@ docker run --rm --name nv-psf-learn --network=host --gpus all \
     -v /opt/nvidia/psf/bin/atl_sdm_zone1.conf:/opt/nvidia/psf/bin/atl_sdm_zone1.conf:ro \
     -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
     -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
-    nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+    nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
     --saim-mode learn --pcm-mode learn --learn-duration 300 --app atl \
     --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
     --sdm-config /opt/nvidia/psf/bin/atl_sdm_zone1.conf

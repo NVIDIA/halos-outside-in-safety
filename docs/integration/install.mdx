@@ -24,25 +24,26 @@ need. Install them yourself; see [Runtime libraries](#runtime-libraries).
 ## Download
 
 The packages are NGC resources. Each package is one version of the resource
-`nvidia/halos-outside-in/outside-in-safety`, named by the release tag and the package name.
+`nvidia/halos-outside-in/outside-in-safety`, named by the release, the platform, the build and the
+package name.
 
 | Placeholder | Meaning |
 | --- | --- |
-| `<release-tag>` | The release tag for your platform, from the [Release Notes](/release-notes). |
 | `<download-dir>` | The directory the NGC CLI downloaded the package into. |
 
 ```bash
 # x86-64
-ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-desktop"
-ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-desktop-dev"
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-x86-lin64-release-6b92731-psf-desktop"
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-x86-lin64-release-6b92731-psf-desktop-dev"
 
 # IGX Thor (aarch64)
-ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-tegra"
-ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:<release-tag>-psf-tegra-dev"
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra"
+ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra-dev"
 ```
 
-`psf-tegra-fsi` is published separately, as
-`nvidia/outside-in-safety/outside-in-safety:<release-tag>-psf-tegra-fsi`, and needs a separate
+`psf-tegra-fsi` is
+`nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra-fsi`,
+and needs a separate
 [sign-up](https://developer.nvidia.com/halos-for-outside-in-safety-agents-early-access).
 
 ## Install

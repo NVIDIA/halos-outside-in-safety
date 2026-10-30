@@ -137,7 +137,7 @@ This port must match `COMM_UDP_PORT` (x86) or `PSF_CMD_RX_PORT` (Thor) in the pr
 
 ### Deploy on x86
 
-Fill `deployments/profiles/base.env` (`HOST_IP`, `MDX_DATA_DIR`, `DOCKER_GID`, and `PSF_IMAGE` set to the PSF 1.4 Safety Core image; `COMM_UDP_PORT` is pre-set), then create the log directory and start the one service:
+Fill `deployments/profiles/base.env` (`HOST_IP`, `MDX_DATA_DIR`, `DOCKER_GID`; `PSF_IMAGE`, the PSF 1.4 Safety Core image, and `COMM_UDP_PORT` are pre-set), then create the log directory and start the one service:
 
 ```bash
 cd deployments

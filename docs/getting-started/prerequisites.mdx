@@ -185,14 +185,13 @@ If you use the VSS Agent, Kibana or Phoenix UIs, they are served on TCP port
 The Safety Core container image, the Debian packages, and the SIL data tarball
 are published under `nvidia/halos-outside-in` and need no entitlement or
 enrollment. Pulling them still requires a signed-in account: sign in at
-https://ngc.nvidia.com with any NVIDIA account, accept the terms on the [Halos Outside-In Safety resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety)
+https://ngc.nvidia.com with any NVIDIA account, accept the terms on the [Halos Outside-In Safety resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/halos-outside-in/containers/outside-in-safety)
 when prompted, and authenticate Docker with an API key.
 
 <Note>
-One package is still gated: the FSI firmware under
-`nvidia/outside-in-safety`, which is only needed to run the Safety Decision
-Maker on the Functional Safety Island. Everything the `base`, `sil`, and
-`hil` profiles use is public.
+One package is still gated: the FSI firmware package, `psf-tegra-fsi`, which
+is only needed to run the Safety Decision Maker on the Functional Safety
+Island. Everything the `base`, `sil`, and `hil` profiles use is public.
 </Note>
 
 Create an NGC API key at https://ngc.nvidia.com → Account → Setup → API Keys →
@@ -240,7 +239,7 @@ To pull the Safety Core image and confirm access, see
 [Docker login and image pull](/deployment/prerequisites#docker-login) in the Deployment Guide.
 
 <Note>
-The 1.4 `sil` and `base` configurations need the PSF 1.4 Safety Core image: its launcher starts every decision maker from its own event-binding configuration. Until PSF 1.4 is published on NGC, the profiles still pin the 1.3 image (`nv-psf-halos-1.3-6932895`), which does not run these configurations; set `PSF_IMAGE` in the profile to the 1.4 image to run them.
+The 1.4 `sil` and `base` configurations need the PSF 1.4 Safety Core image, `nv-psf-halos-1.4-6b92731`, which `sil.env` and `base.env` pin: its launcher starts every decision maker from its own event-binding configuration. The 1.3 image does not run these configurations.
 </Note>
 
 ### NGC CLI authentication

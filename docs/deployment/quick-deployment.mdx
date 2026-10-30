@@ -14,8 +14,7 @@ Complete [Prerequisites](/deployment/prerequisites) first. You need two terminal
 
 | Placeholder | Meaning | How to find it |
 | --- | --- | --- |
-| `<release-tag>` | Tag of the Safety Core container image | The image you pulled in [Prerequisites](/deployment/prerequisites#docker-login) |
-| `<deb-resource>` | NGC resource of the Safety Core Debian package for your release and target | [Release Notes](/release-notes), or the [NGC resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/halos-outside-in/containers/outside-in-safety) |
+| `<deb-resource>` | NGC resource of the Safety Core Debian package for your target | `nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-x86-lin64-release-6b92731-psf-desktop` on x86-64, `nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra` on IGX Thor; see the [NGC resource page](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/halos-outside-in/resources/outside-in-safety) |
 | `<deb-file>` | Debian package file name | `psf-desktop.deb` on x86-64, `psf-tegra.deb` on IGX Thor |
 | `<gpu-options>` | Docker options that give the container the GPU | `--gpus all` on x86-64; `--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all` on IGX Thor |
 
@@ -131,7 +130,7 @@ Complete [Prerequisites](/deployment/prerequisites) first. You need two terminal
        -v "$HOME/hoisa-demo/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode learn --pcm-mode learn --app atl \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf
@@ -161,7 +160,7 @@ Complete [Prerequisites](/deployment/prerequisites) first. You need two terminal
        -v "$HOME/hoisa-demo/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode active --pcm-mode active --app atl \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf \

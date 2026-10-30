@@ -310,8 +310,8 @@ decision is made. With the two lines, the Safety Core runs `deploymentMode = 3D`
 the BEV app reports the three cameras as one sensor, `bev-sensor-1`, which
 `configs/sensor_group_config.conf` declares as group 4 of the cameras in `sensor_config.conf`.
 
-Set `PSF_IMAGE` to the PSF 1.4 Safety Core image (the 1.3 image `sil.env` pins does not run these
-configurations); `ISAAC_SIM_IMAGE` is pre-set. Both monitors ship `skip`, as in
+`PSF_IMAGE` (the PSF 1.4 Safety Core image) and `ISAAC_SIM_IMAGE` are pre-set; the 1.3 image does
+not run these configurations. Both monitors ship `skip`, as in
 [SIL — 2D Perception](/testing/sil/sil-2d); to run one `active`, set its `required_*` key to `1` in
 `nvpss_bev.conf`.
 

@@ -11,7 +11,6 @@ key are in the Reference: [Sensor files](/reference/sensor-files),
 
 | Placeholder | Meaning | How to find it |
 | --- | --- | --- |
-| `<release-tag>` | Tag of the Safety Core container image | The image you pulled in [Prerequisites](/deployment/prerequisites#docker-login) |
 | `<gpu-options>` | Docker options that give the container the GPU | `--gpus all` on x86-64; `--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all` on IGX Thor |
 | `<safety-core-host-ip>` | IPv4 address of the host that runs the Safety Core | `hostname -I` on that host |
 | `<port>` | UDP port of a command receiver, or of the VST listener | Your choice of a free port; for VST, its `halo_safety_udp_port` |
@@ -82,7 +81,7 @@ this page uses them.
        -v "$HOME/hoisa-site/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode learn --pcm-mode learn --app atl \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf \
@@ -106,7 +105,7 @@ this page uses them.
        -v "$HOME/hoisa-site/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode active --pcm-mode active --app atl \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf \
@@ -349,7 +348,7 @@ function and Proximity Monitoring together:
        -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode learn --pcm-mode learn --app atl,pxc \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf,/opt/nvidia/psf/bin/pxc_sdm_forklift.conf
@@ -373,7 +372,7 @@ function and Proximity Monitoring together:
        -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode active --pcm-mode active --app atl,pxc \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf,/opt/nvidia/psf/bin/pxc_sdm_forklift.conf \
@@ -451,7 +450,7 @@ safety function with the files, baselines and command receiver of
        -v "$HOME/hoisa-demo/atl_sdm.conf:/opt/nvidia/psf/bin/atl_sdm.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode active --pcm-mode active --app atl --sdm-external \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/atl_sdm.conf
@@ -520,7 +519,6 @@ The FSI firmware has its event codes and its reviewed cameras (`Camera`, `Camera
 
 | Placeholder | Meaning | How to find it |
 | --- | --- | --- |
-| `<fsi-resource>` | NGC resource of the `psf-tegra-fsi` package for your release | [Release Notes](/release-notes); the package needs a separate sign-up at the [early-access page](https://developer.nvidia.com/halos-for-outside-in-safety-agents-early-access) |
 | `<app-dir>` | Firmware directory of the application | `atl` for the forklift safety function, `proximity` for Proximity Monitoring |
 | `<app>` | `--app` value of the application | `atl` or `pxc`; it must match the firmware |
 | `<cmd-identifier>` | Packet identifier of the application on the FSI | `0xA2` for `atl`, `0xA5` for `pxc` |
@@ -530,11 +528,13 @@ The FSI firmware has its event codes and its reviewed cameras (`Camera`, `Camera
    described in the IGX Safety Extension Package documentation.
 
 2. **Install the FSI package on the IGX Thor.** It provides `/opt/nvidia/psf/bin/fsicom-agent` and
-   the firmware `/opt/nvidia/psf/etc/fsi-fw/<app-dir>/fsi-ffw-t264.bin`.
+   the firmware `/opt/nvidia/psf/etc/fsi-fw/<app-dir>/fsi-ffw-t264.bin`. The package needs a
+   separate sign-up at the
+   [early-access page](https://developer.nvidia.com/halos-for-outside-in-safety-agents-early-access).
 
    ```bash
    mkdir -p ~/hoisa-demo/fsi && cd ~/hoisa-demo/fsi
-   ngc registry resource download-version "<fsi-resource>"
+   ngc registry resource download-version "nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra-fsi"
    sudo apt-get install -y "$(find ~/hoisa-demo/fsi -name 'psf-tegra-fsi.deb' | head -n 1)"
    ls /opt/nvidia/psf/bin/fsicom-agent /opt/nvidia/psf/etc/fsi-fw/<app-dir>/fsi-ffw-t264.bin
    ```
@@ -577,7 +577,7 @@ The FSI firmware has its event codes and its reviewed cameras (`Camera`, `Camera
    docker run --rm --name nv-psf-learn --network=host \
        -v /var/log/psf:/var/log/psf \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode skip --pcm-mode learn --app <app>
    ```
 
@@ -590,7 +590,7 @@ The FSI firmware has its event codes and its reviewed cameras (`Camera`, `Camera
 
    ```bash
    ls -ld /run/nvpsf
-   docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> -g nvidia
+   docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 -g nvidia
    ```
 
    Expected: a line starting with `drwxrwxrwt`, then one number. That number is `<container-gid>`.
@@ -607,7 +607,7 @@ The FSI firmware has its event codes and its reviewed cameras (`Camera`, `Camera
        -v "$HOME/hoisa-demo/sensor_config.conf:/opt/nvidia/psf/bin/sensor_config.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode active --pcm-mode active --app <app> --sdm-on-fsi \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf
    sleep 30; docker logs nv-psf 2>&1 | grep -E '^(SDMs run outside this container|All processes started)'
@@ -672,7 +672,7 @@ and receiver.
        -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode learn --pcm-mode learn --app pxc \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/pxc_sdm_forklift.conf
@@ -694,7 +694,7 @@ and receiver.
        -v "$HOME/hoisa-site/pxc_sdm_forklift.conf:/opt/nvidia/psf/bin/pxc_sdm_forklift.conf:ro" \
        -v /opt/nvidia/psf/bin/saim_baseline:/opt/nvidia/psf/bin/saim_baseline:ro \
        -v /opt/nvidia/psf/bin/pcm_baseline:/opt/nvidia/psf/bin/pcm_baseline:ro \
-       nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> \
+       nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 \
        --saim-mode active --pcm-mode active --app pxc \
        --sensor-config /opt/nvidia/psf/bin/sensor_config.conf \
        --sdm-config /opt/nvidia/psf/bin/pxc_sdm_forklift.conf \

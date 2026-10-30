@@ -171,7 +171,7 @@ The container user's group ID is assigned when the image is built. Read it from 
 from a running container:
 
 ```bash
-docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:<release-tag> -g nvidia
+docker run --rm --entrypoint id nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731 -g nvidia
 docker exec <container-name> id -g nvidia
 ```
 
