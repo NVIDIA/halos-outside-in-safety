@@ -2,59 +2,109 @@
 # SPDX-License-Identifier: Apache-2.0
 
 redirects:
-  # Legacy Sphinx site at /halos-outside-in/. Older versions (1.3, 1.2.1),
-  # /latest/, and unversioned URLs all go to the current Fern latest.
-  # Redirects do not chain and the first match wins, so more specific
-  # rules come first. Skip underscore-prefixed Sphinx assets such as
-  # _static in the .html / index.html strippers.
+  # Replace the entire Sphinx site at /halos-outside-in/.
+  # The repeated version group also accepts unversioned links (zero segments).
+  # Fern does not support the optional ? modifier;
+  # {.html}* and {/index.html}* accept links with or without those suffixes.
+  # The first match wins. Map renamed pages before the known-path rules, then
+  # send everything else to the Fern landing page (its URL has no index.html).
+  # Keep the known-path lists in sync with docs/index.yml and docs/c-api/.
 
-  # Older Sphinx versions → current Fern latest.
-  - source: /halos-outside-in/1.3/index.html
-    destination: /halos/outside-in-safety
-  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*)/index.html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*).html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/1.3/:path*
-    destination: /halos/outside-in-safety/:path*
+  # Renamed guides and reference pages from 1.2.1.
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/HOISA-Quick-Start-Guide{.html}*
+    destination: /halos/outside-in-safety/getting-started/inference-pipeline
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/HOISA-User-Guide{.html}*
+    destination: /halos/outside-in-safety/deployment
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/HOISA-Developer-Guide{.html}*
+    destination: /halos/outside-in-safety/integration
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/HOISA-Launcher{.html}*
+    destination: /halos/outside-in-safety/reference/launcher
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/HOISA-Log-Viewer{.html}*
+    destination: /halos/outside-in-safety/reference/log-viewer
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/HOISA-Components-Runtime-Profile{.html}*
+    destination: /halos/outside-in-safety/reference/runtime-profile
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/SEI-Configuration{.html}*
+    destination: /halos/outside-in-safety/reference/sei-configuration
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/Glossary{.html}*
+    destination: /halos/outside-in-safety/reference/glossary
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/deployment/base{.html}*
+    destination: /halos/outside-in-safety/getting-started/agentic-deployment#fallback-manual-bring-up
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/deployment/quickstart-deployment-skill{.html}*
+    destination: /halos/outside-in-safety/getting-started/agentic-deployment
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/sil/prerequisites{.html}*
+    destination: /halos/outside-in-safety/getting-started/prerequisites
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/sil/quickstart{.html}*
+    destination: /halos/outside-in-safety/testing/sil/sil-2d
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/sil/quickstart-3d{.html}*
+    destination: /halos/outside-in-safety/testing/sil/sil-3d
 
-  - source: /halos-outside-in/1.2.1/index.html
-    destination: /halos/outside-in-safety
-  - source: /halos-outside-in/1.2.1/:path([A-Za-z0-9].*)/index.html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/1.2.1/:path([A-Za-z0-9].*).html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/1.2.1/:path*
-    destination: /halos/outside-in-safety/:path*
+  # Renamed component pages from 1.2.1.
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/components/SIPP{.html}*
+    destination: /halos/outside-in-safety/integration/components/sensor-input-pipeline
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/components/SAIM{.html}*
+    destination: /halos/outside-in-safety/integration/components/ai-monitor
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/components/SEI{.html}*
+    destination: /halos/outside-in-safety/integration/components/event-integrator
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/components/SDM{.html}*
+    destination: /halos/outside-in-safety/integration/components/decision-maker
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/components/SBB{.html}*
+    destination: /halos/outside-in-safety/integration/components/black-box
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/components/SUI{.html}*
+    destination: /halos/outside-in-safety/integration/components/user-interface
 
-  # Former Fern Archives version in the selector.
-  - source: /halos/outside-in-safety/archives/index.html
-    destination: /halos/outside-in-safety
-  - source: /halos/outside-in-safety/archives/:path*
-    destination: /halos/outside-in-safety/:path*
-  - source: /halos/outside-in-safety/archives
-    destination: /halos/outside-in-safety
+  # Moved SIL pages from 1.2.1.
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/sil{/index.html}*
+    destination: /halos/outside-in-safety/testing/sil
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/sil/:page(overview|architecture){.html}*
+    destination: /halos/outside-in-safety/testing/sil/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/sil/components/:page(action-graph|isaac-sim){.html}*
+    destination: /halos/outside-in-safety/testing/sil/components/:page
 
-  # /latest/ and unversioned pages already use Fern paths; strip the .html
-  # and /index.html suffixes.
-  - source: /halos-outside-in/latest/index.html
-    destination: /halos/outside-in-safety
-  - source: /halos-outside-in/latest/genindex.html
-    destination: /halos/outside-in-safety
-  - source: /halos-outside-in/latest/search.html
-    destination: /halos/outside-in-safety
-  - source: /halos-outside-in/latest/:path([A-Za-z0-9].*)/index.html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/latest/:path([A-Za-z0-9].*).html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/latest/:path*
-    destination: /halos/outside-in-safety/:path*
+  # Old Doxygen pages whose content is published in the new API reference.
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/_static
+    destination: /halos/outside-in-safety/api-documentation
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/_static/(index|files).html
+    destination: /halos/outside-in-safety/api-documentation
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/_static/(pss__daemon_8h|pss__daemon_8h_source).html
+    destination: /halos/outside-in-safety/api-documentation/pss-daemon-h
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/_static/(pss__protocol_8h|pss__protocol_8h_source).html
+    destination: /halos/outside-in-safety/api-documentation/pss-protocol-h
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/_static/struct(DecisionRequest|DecisionResponse|EventFusionMetadata|FusedSafetyEvent|SafetyEvent|SensorData|SystemStatus|TrajectoryCoordinates|TracjectoryCoordinates){-members}*.html
+    destination: /halos/outside-in-safety/api-documentation/pss-protocol-h
 
-  - source: /halos-outside-in/index.html
+  # Existing Fern paths. Only list pages that exist; unknown slugs fall through.
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/:section(deployment|getting-started|integration|integration/components|reference|testing|testing/hil|testing/sil|testing/srr){/index.html}*
+    destination: /halos/outside-in-safety/:section(.*)
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/eula{.html}*
+    destination: /halos/outside-in-safety/eula
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/known-limitations{.html}*
+    destination: /halos/outside-in-safety/known-limitations
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/release-notes{.html}*
+    destination: /halos/outside-in-safety/release-notes
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/api-documentation{.html}*
+    destination: /halos/outside-in-safety/api-documentation
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/getting-started/:page(prerequisites|inference-pipeline|safety-core|sil|agentic-deployment|brev-launchable){.html}*
+    destination: /halos/outside-in-safety/getting-started/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/deployment/:page(prerequisites|applications|quick-deployment|custom-deployment|troubleshooting){.html}*
+    destination: /halos/outside-in-safety/deployment/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/integration/:page(install|writing-a-decision-maker|safe-state-model|custom-event-sources|saim-distortion-injection){.html}*
+    destination: /halos/outside-in-safety/integration/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/integration/components/:page(sensor-input-pipeline|ai-monitor|perception-monitor|event-integrator|gateway|decision-maker|black-box|user-interface){.html}*
+    destination: /halos/outside-in-safety/integration/components/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/reference/:page(launcher|log-viewer|sei-configuration|sensor-files|event-mapping-configuration|causes-and-records|runtime-profile|glossary){.html}*
+    destination: /halos/outside-in-safety/reference/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/testing/sil/:page(sil-2d|sil-3d|overview|architecture|extending-the-fleet){.html}*
+    destination: /halos/outside-in-safety/testing/sil/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/testing/sil/components/:page(isaac-sim|action-graph|forklift-controller){.html}*
+    destination: /halos/outside-in-safety/testing/sil/components/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/testing/hil/:page(quickstart|architecture){.html}*
+    destination: /halos/outside-in-safety/testing/hil/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/testing/srr/:page(overview|quickstart|architecture|scenarios|interpret-results|debug-viewer){.html}*
+    destination: /halos/outside-in-safety/testing/srr/:page
+  - source: /halos-outside-in/(1[.]3|1[.]2[.]1|latest)*/api-documentation/:page(nvpsf-transport-h|nvpsdgatewayprotocol-h|pss-message-validate-h|pss-daemon-h|pss-protocol-h|nvpsdgatewaycontract-hpp){.html}*
+    destination: /halos/outside-in-safety/api-documentation/:page
+
+  # Removed pages, Sphinx search/index pages, obsolete API pages, and all other
+  # unmatched legacy URLs go directly to the current landing page.
+  - source: /halos-outside-in/(.*)*
     destination: /halos/outside-in-safety
-  - source: /halos-outside-in/:path([A-Za-z0-9].*)/index.html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/:path([A-Za-z0-9].*).html
-    destination: /halos/outside-in-safety/:path
-  - source: /halos-outside-in/:path*
-    destination: /halos/outside-in-safety/:path*
