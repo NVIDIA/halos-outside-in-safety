@@ -291,21 +291,6 @@ The closed-loop harness gains Safety Core proximity control of the simulated for
 
 - The closed-loop harness runs on Isaac Sim 6.1 (`nvcr.io/nvidia/isaac-sim:6.1.0`), with IRA configs at version 1.7.0; Isaac Sim 6.1 refuses 1.6.0. Isaac Sim 6.1 ships the upstream fix for the RTSP cold-start `has no caps` race.
 
-### NGC artifacts
-
-The 1.4 artifacts are build `6b92731`, published in the NGC Catalog under `nvidia/halos-outside-in`.
-
-| Artifact | NGC name |
-| --- | --- |
-| Container image (x86-64 and IGX Thor) | [`nvcr.io/nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-6b92731`](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/halos-outside-in/containers/outside-in-safety) |
-| `psf-desktop` runtime package (x86-64) | [`nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-x86-lin64-release-6b92731-psf-desktop`](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/halos-outside-in/resources/outside-in-safety) |
-| `psf-desktop-dev` development package (x86-64) | `nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-x86-lin64-release-6b92731-psf-desktop-dev` |
-| `psf-tegra` runtime package (IGX Thor) | `nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra` |
-| `psf-tegra-dev` development package (IGX Thor) | `nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra-dev` |
-| `psf-tegra-fsi` FSI firmware package (IGX Thor) | `nvidia/halos-outside-in/outside-in-safety:nv-psf-halos-1.4-aarch64-release-6b92731-psf-tegra-fsi` |
-| Open-source sources | `nvidia/halos-outside-in/outside-in-safety:halos-1.4-oss-sources` |
-| SIL sample data | [`nvidia/halos-outside-in/sample-sil-data:v1.4.0`](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/halos-outside-in/resources/sample-sil-data) |
-
 ## 1.3 EA
 
 This early access (EA) release builds on 1.2.1 and includes major safety-path,
