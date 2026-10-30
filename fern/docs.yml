@@ -23,7 +23,5 @@ versions:
   - display-name: 1.4.0 (Latest)
     path: ../docs/index.yml
     slug: 1.4.0
-  - display-name: Archives
-    path: ./versions/archives.yml
 
 redirects: ./redirects.yml

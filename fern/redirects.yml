@@ -2,19 +2,41 @@
 # SPDX-License-Identifier: Apache-2.0
 
 redirects:
-  # Legacy Sphinx site at /halos-outside-in/. Versioned builds (1.3, 1.2.1)
-  # moved to archive.docs.nvidia.com with the same folder structure. /latest/
-  # and unversioned URLs go to the Fern site. Redirects do not chain and the
-  # first match wins, so more specific rules come first.
+  # Legacy Sphinx site at /halos-outside-in/. Older versions (1.3, 1.2.1),
+  # /latest/, and unversioned URLs all go to the current Fern latest.
+  # Redirects do not chain and the first match wins, so more specific
+  # rules come first. Skip underscore-prefixed Sphinx assets such as
+  # _static in the .html / index.html strippers.
 
-  # Versioned builds, including the Doxygen C API under _static/.
+  # Older Sphinx versions → current Fern latest.
+  - source: /halos-outside-in/1.3/index.html
+    destination: /halos/outside-in-safety
+  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*)/index.html
+    destination: /halos/outside-in-safety/:path
+  - source: /halos-outside-in/1.3/:path([A-Za-z0-9].*).html
+    destination: /halos/outside-in-safety/:path
   - source: /halos-outside-in/1.3/:path*
-    destination: https://archive.docs.nvidia.com/halos-outside-in/1.3/:path*
+    destination: /halos/outside-in-safety/:path*
+
+  - source: /halos-outside-in/1.2.1/index.html
+    destination: /halos/outside-in-safety
+  - source: /halos-outside-in/1.2.1/:path([A-Za-z0-9].*)/index.html
+    destination: /halos/outside-in-safety/:path
+  - source: /halos-outside-in/1.2.1/:path([A-Za-z0-9].*).html
+    destination: /halos/outside-in-safety/:path
   - source: /halos-outside-in/1.2.1/:path*
-    destination: https://archive.docs.nvidia.com/halos-outside-in/1.2.1/:path*
+    destination: /halos/outside-in-safety/:path*
+
+  # Former Fern Archives version in the selector.
+  - source: /halos/outside-in-safety/archives/index.html
+    destination: /halos/outside-in-safety
+  - source: /halos/outside-in-safety/archives/:path*
+    destination: /halos/outside-in-safety/:path*
+  - source: /halos/outside-in-safety/archives
+    destination: /halos/outside-in-safety
 
   # /latest/ and unversioned pages already use Fern paths; strip the .html
-  # and /index.html suffixes. Sphinx-only pages go to the Fern home page.
+  # and /index.html suffixes.
   - source: /halos-outside-in/latest/index.html
     destination: /halos/outside-in-safety
   - source: /halos-outside-in/latest/genindex.html
