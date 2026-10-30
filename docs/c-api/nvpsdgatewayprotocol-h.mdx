@@ -14,6 +14,24 @@ Part of the NvPSD Gateway interface. Generated from the header published in `saf
 
 ## Functions
 
+### NvPSDGatewayBuildRegReject
+
+```c
+static inline void NvPSDGatewayBuildRegReject(uint8_t out[NVPSD_GATEWAY_REG_REJECT_MSG_SIZE], uint8_t reason);
+```
+
+### NvPSDGatewayParseRegReject
+
+```c
+static inline bool NvPSDGatewayParseRegReject(const void *buf, size_t n, uint8_t *reason);
+```
+
+### NvPSDGatewayRegRejectReasonName
+
+```c
+static inline const char * NvPSDGatewayRegRejectReasonName(uint8_t reason);
+```
+
 ### NvPSDGatewayDecisionPacketEpochIsValid
 
 ```c
@@ -49,6 +67,19 @@ struct NvPSDGatewayDecisionRequestPacket
 | `gatewayTxSeq` | `uint32_t gatewayTxSeq` |  |
 | `request` | `DecisionRequest request` |  |
 
+### NvPSDGatewayRegRejectReason
+
+```c
+enum NvPSDGatewayRegRejectReason
+```
+
+| Value | Initializer | Description |
+| --- | --- | --- |
+| `NVPSD_REG_REJECT_MALFORMED` | `1` |  |
+| `NVPSD_REG_REJECT_NO_VALID_EVENT_TYPES` | `2` |  |
+| `NVPSD_REG_REJECT_TABLE_FULL` | `3` |  |
+| `NVPSD_REG_REJECT_RATE_LIMITED` | `4` |  |
+
 ### Type aliases
 
 | Name | Definition | Description |
@@ -64,6 +95,8 @@ struct NvPSDGatewayDecisionRequestPacket
 | `NVPSD_GATEWAY_HB_MAGIC_GATEWAY` | `"HBPG"` | Heartbeat: gateway → client (4 bytes). |
 | `NVPSD_GATEWAY_HB_MAGIC_CLIENT` | `"HBPC"` | Heartbeat ACK: client → gateway (4 bytes). |
 | `NVPSD_GATEWAY_HB_MSG_SIZE` | `8` | Heartbeat message size: 4-byte magic + 4-byte seq (network byte order). |
+| `NVPSD_GATEWAY_REG_REJECT_MAGIC` | `"RGNK"` | Registration refusal: gateway -&gt; client, 4-byte magic + one reason byte (NvPSDGatewayRegRejectReason). Sent for every REGR the gateway refuses, so a refused client can tell refusal and why from silence. Additive: its size matches no other message on this link, and a client built before it discards it as an unexpected size. Smaller than any REGR, so answering one cannot amplify traffic. |
+| `NVPSD_GATEWAY_REG_REJECT_MSG_SIZE` | `5` |  |
 | `NVPSD_GATEWAY_DECISION_MAGIC` | `"DRPG"` | `DecisionRequest` packet: gateway -&gt; SDM (4 bytes). |
 | `NVPSD_GATEWAY_DECISION_PACKET_VERSION` | `1U` | `DecisionRequest` packet version for the Gateway-to-SDM UDP envelope. |
 | `NVPSD_GATEWAY_DECISION_TX_SEQ_MIN` | `1U` | Valid Gateway-to-SDM sequence range. 0 and UINT32_MAX are reserved sentinels. |

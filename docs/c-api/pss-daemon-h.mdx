@@ -20,6 +20,12 @@ Part of the SEI client interface. Generated from the header published in `safety
 NvPSSDErr NvPSSRegisterPSSClient(uint32_t *clientId, uint8_t clientType);
 ```
 
+### NvPSSRegisterPSSClientInstance
+
+```c
+NvPSSDErr NvPSSRegisterPSSClientInstance(uint32_t *clientId, uint8_t clientType, uint8_t instanceId);
+```
+
 ### NvPSSTerminatePSSClient
 
 ```c
@@ -106,20 +112,25 @@ enum NvPSSDStatus_t
 
 | Macro | Value | Description |
 | --- | --- | --- |
+| `NVPSS_DAEMON_DEFAULT_CONF` | `"/opt/nvidia/psf/bin/nvpss.conf"` | Default configuration file for nvpss_daemon. Overridable with conf. Defined here rather than inline at the read site so the usage text, the default and any future packaging reference are one string. The override exists because a path with no override made the daemon unrunnable in a test fixture without editing an installed system file. |
 | `PSS_DAEMON_SOCKET_PATH` | `"/run/nvpsf/nvpssd_to_psd"` |  |
+| `PSS_DAEMON_RPC_SOCKET_PATH` | `"/run/nvpsf/nvpssd"` |  |
 | `MAX_PSD_CLIENTS` | `32` |  |
 | `REGISTER_PSD_CLIENT` | `100` |  |
 | `REGISTER_EVENT_TYPES` | `101` |  |
 | `UNREGISTER_PSD_CLIENT` | `102` |  |
+| `PSS_MDX_INSTANCE_MAX` | `8U` |  |
 | `REGISTER_ACCEPTED` | `1 /* Registration successful */` |  |
 | `REGISTER_REJECTED_DUPLICATE_TYPE` | `2 /* Another active client of the same type exists */` |  |
 | `REGISTER_REJECTED_INVALID_TYPE` | `3 /* clientType not one of the valid CLIENT_* constants */` |  |
+| `REGISTER_REJECTED_INVALID_INSTANCE` | `4 /* instance id above PSS_MDX_INSTANCE_MAX, or non-zero for a client type other than CLIENT_MDX */` |  |
 | `TERMINATE_ACCEPTED` | `1 /* Client termination completed successfully */` |  |
 | `REPORT_ACCEPTED` | `1 /* Event accepted and forwarded to fusion / routing */` |  |
 | `REPORT_REJECTED_CLIENTID_MISMATCH` | `2 /* fusionMetadata.clientID does not match the RPC-assigned client id */` |  |
 | `REPORT_REJECTED_UNAUTHORIZED` | `3 /* Heartbeat fault, payload too small, or unauthorized client type */` |  |
 | `REPORT_REJECTED_LOW_CONFIDENCE` | `4 /* confidenceLevel below configured acceptance threshold */` |  |
 | `REPORT_REJECTED_VALIDATION_FAILED` | `5 /* CRC, schema, or field-range validation failed */` |  |
+| `REPORT_REJECTED_UNRESOLVED_SENSOR` | `6 /* Per-sensor event whose sensor identity could not be resolved: fusionMetadata.pipelineID == 0. Distinct from VALIDATION_FAILED so a client can tell a configuration error from a corrupt message. */` |  |
 | `HEARTBEAT_ACK` | `1 /* PSS daemon acknowledges SEND_HEARTBEAT */` |  |
 | `HB_MSG` | `0x7E` |  |
 | `HB_INTERVAL_MS` | `5000 /* Nominal period between SEND_HEARTBEAT (clients + gateway PSS-HB thread). */` |  |

@@ -32,6 +32,12 @@ static inline bool NvPSDGatewayIsAllowedHealthEventType(uint32_t raw);
 static inline bool NvPSDGatewayBuildRegisteredEventSet(const uint32_t *rawEventTypes, uint8_t count, std::unordered_set< EventType > *outTypes);
 ```
 
+### NvPSDGatewayClassifyRegr
+
+```c
+static inline uint8_t NvPSDGatewayClassifyRegr(const char *buf, size_t n, std::unordered_set< EventType > *outTypes);
+```
+
 ### NvPSDGatewayIsStatusNoopOnlyRequest
 
 ```c
@@ -86,6 +92,24 @@ static inline bool NvPSDGatewayBuildPssSequenceGapSwFailRequest(const DecisionRe
 static inline bool NvPSDGatewayBuildInvalidPssRequestIdSwFailRequest(const DecisionRequest &current, DecisionRequest *outRequest);
 ```
 
+### NvPSDGatewayRecoveryRecordOwed
+
+```c
+static inline bool NvPSDGatewayRecoveryRecordOwed(uint64_t recoveryOwedGen);
+```
+
+### NvPSDGatewayRecoveryDebtAfterSend
+
+```c
+static inline uint64_t NvPSDGatewayRecoveryDebtAfterSend(uint64_t owedNow, uint64_t sentFor, bool sent);
+```
+
+### NvPSDGatewayBuildPssCommRecoveredRequest
+
+```c
+static inline bool NvPSDGatewayBuildPssCommRecoveredRequest(const DecisionRequest &current, DecisionRequest *outRequest);
+```
+
 ### NvPSDGatewayBuildPssErrorSwFailRequest
 
 ```c
@@ -93,6 +117,30 @@ static inline bool NvPSDGatewayBuildPssErrorSwFailRequest(const DecisionRequest 
 ```
 
 ## Types
+
+### NvPSDGatewayRegrRateLimiter
+
+```c
+class NvPSDGatewayRegrRateLimiter
+```
+
+| Field | Declaration | Description |
+| --- | --- | --- |
+| `maxPerWindow_` | `uint32_t maxPerWindow_` |  |
+| `windowMs_` | `uint32_t windowMs_` |  |
+| `entries_` | `std::unordered_map< uint32_t, Entry > entries_` |  |
+
+### NvPSDGatewayRegrRateLimiter::Entry
+
+```c
+struct NvPSDGatewayRegrRateLimiter::Entry
+```
+
+| Field | Declaration | Description |
+| --- | --- | --- |
+| `windowStartMs` | `uint64_t windowStartMs` |  |
+| `count` | `uint32_t count` |  |
+| `notified` | `bool notified` |  |
 
 ### NvPSDGatewayPssSequenceState
 
@@ -104,6 +152,18 @@ struct NvPSDGatewayPssSequenceState
 | --- | --- | --- |
 | `initialized` | `bool initialized` |  |
 | `lastValidRequestId` | `uint32_t lastValidRequestId` |  |
+
+### NvPSDGatewayRegrAdmission
+
+```c
+enum NvPSDGatewayRegrAdmission
+```
+
+| Value | Initializer | Description |
+| --- | --- | --- |
+| `ADMIT` |  |  |
+| `REFUSE_NOTIFY` |  |  |
+| `REFUSE_SILENT` |  |  |
 
 ### NvPSDGatewayPacketSendResult
 
@@ -137,3 +197,9 @@ enum NvPSDGatewayPssRequestObservation
 | `NVPSD_GATEWAY_MAX_EVENT_TYPES_PER_CLIENT` | `constexpr uint8_t NVPSD_GATEWAY_MAX_EVENT_TYPES_PER_CLIENT = 32U` |  |
 | `NVPSD_GATEWAY_PSS_REQUEST_ID_MIN` | `constexpr uint32_t NVPSD_GATEWAY_PSS_REQUEST_ID_MIN = 1U` |  |
 | `NVPSD_GATEWAY_PSS_REQUEST_ID_MAX` | `constexpr uint32_t NVPSD_GATEWAY_PSS_REQUEST_ID_MAX = UINT32_MAX - 1U` |  |
+| `NVPSD_GATEWAY_REGR_MAX_PER_WINDOW_DEFAULT` | `constexpr uint32_t NVPSD_GATEWAY_REGR_MAX_PER_WINDOW_DEFAULT = 4U` |  |
+| `NVPSD_GATEWAY_REGR_MAX_PER_WINDOW_MIN` | `constexpr uint32_t NVPSD_GATEWAY_REGR_MAX_PER_WINDOW_MIN = 1U` |  |
+| `NVPSD_GATEWAY_REGR_MAX_PER_WINDOW_MAX` | `constexpr uint32_t NVPSD_GATEWAY_REGR_MAX_PER_WINDOW_MAX = 64U` |  |
+| `NVPSD_GATEWAY_REGR_WINDOW_MS_DEFAULT` | `constexpr uint32_t NVPSD_GATEWAY_REGR_WINDOW_MS_DEFAULT = 10000U` |  |
+| `NVPSD_GATEWAY_REGR_WINDOW_MS_MIN` | `constexpr uint32_t NVPSD_GATEWAY_REGR_WINDOW_MS_MIN = 1000U` |  |
+| `NVPSD_GATEWAY_REGR_WINDOW_MS_MAX` | `constexpr uint32_t NVPSD_GATEWAY_REGR_WINDOW_MS_MAX = 600000U` |  |
