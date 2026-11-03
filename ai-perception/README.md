@@ -17,7 +17,7 @@ The Safety Core depends only on the **event stream**, not on perception internal
 
 To bring your own perception, publish events that match this contract; the input seam
 lives in `safety-core/adapters/`. The rule format that turns those MDX messages into
-Safety Core events is documented in [Event Mapping Configuration](https://docs.nvidia.com/halos-outside-in/1.3/reference/event-mapping-configuration.html).
+Safety Core events is documented in [Event Mapping Configuration](https://docs.nvidia.com/halos/outside-in-safety/reference/event-mapping-configuration.html).
 
 <!-- TODO: expand — exact event schema, supported profiles (2D/3D),
      version compatibility matrix, and the swap-in procedure. -->

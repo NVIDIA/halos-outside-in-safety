@@ -55,8 +55,8 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 | Directory | Description |
 |-----------|-------------|
 | [`ai-perception/`](ai-perception/) | Perception integration: pointer to the reference VSS Blueprint backend and the event-stream integration contract. |
-| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). Component design and data flow: [Integration Guide](https://docs.nvidia.com/halos-outside-in/1.3/integration/index.html). |
-| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. Docs: [Closed-Loop Testing](https://docs.nvidia.com/halos-outside-in/1.3/testing/index.html). |
+| [`safety-core/`](safety-core/) | The safety engine and reference decision-maker apps (CMake). Component design and data flow: [Integration Guide](https://docs.nvidia.com/halos/outside-in-safety/integration/index.html). |
+| [`closed-loop-testing/`](closed-loop-testing/) | SIL / HIL harness: Isaac Sim, communication layer, the Safety Core deployment, and helper scripts. Docs: [Closed-Loop Testing](https://docs.nvidia.com/halos/outside-in-safety/testing/index.html). |
 | [`skills/`](skills/) | Agentic skills to deploy and operate the system. |
 | [`deployments/`](deployments/) | Docker Compose front door: `compose.yaml` plus per-profile run-envs (`base` / `sil` / `hil`), and the Brev Launchable notebook under `scripts/`. |
 | [`tools/`](tools/) | Repo-wide tooling. |
@@ -66,21 +66,21 @@ Deploy a profile with the [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/)
 
 User guides live in [`docs/`](docs/) (Fern MDX). Preview locally with `fern docs dev` from the repository root after `npm i -g fern-api` and `fern login`.
 
-Published site: [docs.nvidia.com/halos-outside-in](https://docs.nvidia.com/halos-outside-in/1.3/index.html).
+Published site: [docs.nvidia.com/halos-outside-in](https://docs.nvidia.com/halos/outside-in-safety/index.html).
 
 ## Prerequisites
 
 - An NGC account and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys). Log Docker in to `nvcr.io` with it (`docker login nvcr.io`, username `$oauthtoken`): the VSS images in `nvcr.io/nvidia/vss-core` do not pull anonymously either.
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
 
-Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html).
+Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos/outside-in-safety/getting-started/prerequisites.html).
 
 ## Hardware Requirements
 
 Requirements depend on the profile:
 
 - **`base`** (inference: VSS Warehouse Blueprint perception + Safety Core) follows the VSS Warehouse hardware requirements. See the [VSS Warehouse prerequisites](https://docs.nvidia.com/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites).
-- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html#closed-loop-host).
+- **`sil`** (full closed loop, adds NVIDIA Isaac Sim, which needs a GPU with RT cores). See the [Halos SIL prerequisites](https://docs.nvidia.com/halos/outside-in-safety/getting-started/prerequisites.html#closed-loop-host).
 
 ## Quickstart Guide
 
@@ -96,7 +96,7 @@ The [`hoisa-deploy-profile`](skills/hoisa-deploy-profile/) skill brings up both 
 
 **Ideal for:** trying the closed loop without provisioning a host.
 
-The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/deploy?launchableID=env-3HDWGZrNkyyaBTIlsIeEZB6f1Fo) provisions a cloud GPU instance with the driver, Docker, and both repositories in place, then opens JupyterLab. One notebook — [`deployments/scripts/deploy_hoisa_launchable.ipynb`](deployments/scripts/deploy_hoisa_launchable.ipynb) — brings up the whole `sil` loop and prints the evidence that the safety decision is reacting to the simulated scene. Walkthrough: [Deploy on NVIDIA Brev](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/brev-launchable.html).
+The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/deploy?launchableID=env-3HDWGZrNkyyaBTIlsIeEZB6f1Fo) provisions a cloud GPU instance with the driver, Docker, and both repositories in place, then opens JupyterLab. One notebook — [`deployments/scripts/deploy_hoisa_launchable.ipynb`](deployments/scripts/deploy_hoisa_launchable.ipynb) — brings up the whole `sil` loop and prints the evidence that the safety decision is reacting to the simulated scene. Walkthrough: [Deploy on NVIDIA Brev](https://docs.nvidia.com/halos/outside-in-safety/getting-started/brev-launchable.html).
 
 ### Docker Compose Deployment
 
@@ -105,7 +105,7 @@ The [Halos Outside-In Safety SIL Launchable](https://brev.nvidia.com/launchable/
 1. Deploy the [NVIDIA VSS Warehouse Blueprint](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) 3.3 perception backend first (GitHub release `v3.3.0`, with its [`vss-build-vision-ai`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0/skills/vss-build-vision-ai) skill and the Halos settings in [`vss_2d_overrides.md`](skills/hoisa-deploy-profile/references/vss_2d_overrides.md)). It publishes the detection events the Safety Core consumes.
 2. Fill `deployments/profiles/<profile>.env`, then `docker compose --env-file profiles/<profile>.env up -d`.
 
-For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos-outside-in/1.3/deployment/index.html).
+For full steps, see [`skills/hoisa-deploy-profile/references/halos_deploy.md`](skills/hoisa-deploy-profile/references/halos_deploy.md) or the [Deployment guide](https://docs.nvidia.com/halos/outside-in-safety/deployment/index.html).
 
 #### System Requirements
 
