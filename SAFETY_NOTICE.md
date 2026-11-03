@@ -1,6 +1,6 @@
 # Safety Notice
 
-Halos Outside-In Safety OSS is an open-source on-ramp for building physical AI safety systems, provided for prototyping, evaluation, and integration development.
+Halos Outside-In Safety OSS is an open-source on-ramp for building physical AI safety systems, provided in **early access** for prototyping, evaluation, and integration development.
 
 No claims are made on compliance with any Functional Safety and Cybersecurity standards, or on suitability for production use in Safety-Related systems.
 
