@@ -1,6 +1,6 @@
 <h2>NVIDIA Halos Outside-In Safety Blueprint</h2>
 
-> **Open-source on-ramp for physical AI safety (early access).**
+> **Open-source on-ramp for physical AI safety.**
 > Built for prototyping, evaluation, and integration development — not for production use in safety-related systems without your own certified safety layer.
 > See [SAFETY_NOTICE.md](SAFETY_NOTICE.md).
 
@@ -70,7 +70,7 @@ Published site: [docs.nvidia.com/halos-outside-in](https://docs.nvidia.com/halos
 
 ## Prerequisites
 
-- An NGC account with Early-Access entitlement to the `nvidia/halos-outside-in` team (for the Safety Core image and SIL data) and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys). Log Docker in to `nvcr.io` with it (`docker login nvcr.io`, username `$oauthtoken`): the VSS 3.3.0 images in `nvcr.io/nvidia/vss-core` do not pull anonymously either.
+- An NGC account and an [NGC API key](https://org.ngc.nvidia.com/account/api-keys). Log Docker in to `nvcr.io` with it (`docker login nvcr.io`, username `$oauthtoken`): the VSS images in `nvcr.io/nvidia/vss-core` do not pull anonymously either.
 - Docker + Docker Compose and the NVIDIA Container Toolkit (see [System Requirements](#system-requirements) for versions).
 
 Full hardware, software, NGC-access, and calibration requirements for every profile are collected in [Prerequisites](https://docs.nvidia.com/halos-outside-in/1.3/getting-started/prerequisites.html).
