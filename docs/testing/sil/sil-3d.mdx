@@ -521,7 +521,7 @@ Core still runs the 2D `nvpss.conf`. Set `PSF_NVPSS_CONFIG_SRC` and
 `PSF_SENSOR_PIPELINES_CONFIG_SRC` (Step 4) and recreate `safety-core`. This applies to every
 `PSF_APP`, `atl` included.
 
-### 0 Detections
+### No Detections
 
 Check that perception downloaded its model (`<vss_data>/models/sparse4d/`) and that
 `NGC_CLI_API_KEY` was exported when VSS started: the download needs the key.
@@ -531,11 +531,11 @@ Check that perception downloaded its model (`<vss_data>/models/sparse4d/`) and t
 Behavior analytics still ships `proximityDetectionThreshold` `2` without `Forklift` as a center
 class. Apply Step 3.4 and recreate `vss-behavior-analytics`.
 
-### 0 ROIs Loaded by Behavior Analytics
+### No ROIs Loaded by Behavior Analytics
 
 The `calibration.json` is missing the top-level `rois` array, or the container needs to be **recreated** (not just restarted) to pick up the newly bind-mounted calibration.
 
-### 0 Behavior-Analytics Events (Frames Dropped as STALE)
+### No Behavior-Analytics Events (Frames Dropped as STALE)
 
 The DeepStream SEI / system-timestamp override (Step 3.2) isn't applied. With SEI extraction left **on** (or `attach-sys-ts-as-ntp` unset), PSF keys off Isaac's sim-time and drops every synthetic frame as **STALE**, so `mdx-behavior` stays empty even though all containers are healthy. Set SEI **off** + `attach-sys-ts-as-ntp=1` and **recreate** the affected containers. Since VSS 3.2.1 this is what replaces the retired `inSimulationMode=true` behavior-analytics flag.
 
